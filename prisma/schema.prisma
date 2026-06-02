@@ -32,5 +32,4 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 
-  @@map("session")
 }
