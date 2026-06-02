@@ -2,7 +2,7 @@
 
 client_id = "24143f6f7f7be925cb7037a74f9915b2"
 name = "Process-list"
-application_url = "https://example.com"
+application_url = "https://process-list-beryl.vercel.app"
 embedded = true
 
 [access_scopes]
@@ -45,7 +45,10 @@ api_version = "2026-07"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ 
+  "https://process-list-beryl.vercel.app/api/auth" 
+]
 
 [build]
+# 로컬에서 npm run dev 실행 시, 임시 터널 URL로 대시보드를 자동 업데이트해주는 핵심 옵션입니다.
 automatically_update_urls_on_dev = true
