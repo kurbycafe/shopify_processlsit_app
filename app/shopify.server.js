@@ -3,9 +3,10 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
-import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
-import prisma from "./db.server";
-
+import {PrismaSessionStorage} from '@shopify/shopify-app-session-storage-prisma';
+import {PrismaClient} from '@prisma/client';
+const prisma = new PrismaClient();
+const storage = new PrismaSessionStorage(prisma);
 // 사용할 안정적인 API 버전을 정의합니다.
 const CURRENT_API_VERSION = "2025-10";
 
@@ -16,7 +17,7 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new PrismaSessionStorage(prisma),
+   sessionStorage: storage,
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
