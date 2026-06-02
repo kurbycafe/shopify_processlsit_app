@@ -18,7 +18,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">Home</s-link>
         <s-link href="/app/additional">Additional page</s-link>
-        <s-link href="/app/pick-list">Pick List</s-link>
+        <s-link href="/app/pick-list">처리중 리스트</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>
