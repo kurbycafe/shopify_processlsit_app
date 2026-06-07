@@ -2,8 +2,8 @@
   "name": "process-list",
   "private": true,
   "scripts": {
-    "vercel-build": "prisma generate && vite build",
-    "build": "prisma generate && vite build",
+    "vercel-build": "prisma generate && prisma migrate deploy && react-router build",
+    "build": "prisma generate && react-router build",
     "postinstall": "prisma generate",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
