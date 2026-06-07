@@ -1,4 +1,4 @@
-import { Form, useLoaderData, useNavigation } from "react-router";
+import { Form, useLoaderData } from "react-router";
 import * as XLSX from "xlsx";
 import { authenticate } from "../shopify.server";
 
@@ -164,10 +164,14 @@ export const action = async ({ request }) => {
     return new Response("Unsupported action", { status: 400 });
   }
 
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const data = await loadPickListData(admin);
   const buffer = createExcelBuffer(data.items);
-  const fileName = `process-list-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const shopSlug = (session.shop || "shop")
+    .replace(/\.myshopify\.com$/i, "")
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "shop";
+  const fileName = `process-list-${shopSlug}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
   return new Response(buffer, {
     headers: {
@@ -180,8 +184,6 @@ export const action = async ({ request }) => {
 
 export default function PickListPage() {
   const { items, totalUnfulfilledProducts, totalOrderedQty, scopeError } = useLoaderData();
-  const navigation = useNavigation();
-  const isExporting = navigation.state !== "idle" && navigation.formData?.get("intent") === "export-excel";
 
   const cardStyles = {
     display: "grid",
@@ -257,9 +259,9 @@ export default function PickListPage() {
             </div>
           </div>
 
-          <Form method="post">
+          <Form method="post" reloadDocument>
             <input type="hidden" name="intent" value="export-excel" />
-            <s-button type="submit" variant="primary" {...(isExporting ? { loading: true } : {})}>
+            <s-button type="submit" variant="primary">
               Excel 다운로드
             </s-button>
           </Form>
