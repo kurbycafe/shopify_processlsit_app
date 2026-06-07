@@ -2,7 +2,7 @@
   "name": "process-list",
   "private": true,
  "scripts": {
-    "vercel-build": "prisma generate && vite build && mkdir -p build && cp -r .react-router/build/v2/. build/ 2>/dev/null || cp -r build/client/. build/ 2>/dev/null || true",
+    "vercel-build": "prisma generate && vite build && mkdir -p build && (cp -r .react-router/build/v2/. build/ 2>/dev/null || cp -r build/client/. build/ 2>/dev/null || cp -r .react-router/build/client/. build/ 2>/dev/null || true)",
   "build": "prisma generate && vite build",
     "postinstall": "prisma generate",
     "dev": "shopify app dev",
