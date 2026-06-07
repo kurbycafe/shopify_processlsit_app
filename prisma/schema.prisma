@@ -36,6 +36,4 @@ model Session {
   emailVerified Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
-
-  @@map("session")
 }
