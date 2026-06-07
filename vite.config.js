@@ -1,8 +1,8 @@
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
-// 1. ⚠️ Vercel 공식 프리셋 플러그인을 가져옵니다.
-import { vercelPreset } from "@react-router/vercel";
+// ⚠️ @vercel/remix 패키지에서 vercelPreset을 가져옵니다!
+import { vercelPreset } from "@vercel/remix/vite";
 
 if (
   process.env.HOST &&
@@ -35,7 +35,7 @@ export default defineConfig({
     hmr: hmrConfig,
     fs: { allow: ["app", "node_modules"] },
   },
-  // 2. ⚠️ reactRouter 플러그인 내부에 vercelPreset()을 주입해 줍니다.
+  // ⚠️ reactRouter 안에 정석으로 vercelPreset()을 꽂아줍니다.
   plugins: [
     reactRouter({
       presets: [vercelPreset()],
