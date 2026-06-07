@@ -31,7 +31,8 @@
     "@react-router/fs-routes": "^7.12.0",
     "@react-router/node": "^7.12.0",
     "@react-router/serve": "^7.12.0",
-    "@remix-run/node": "^2.17.4",
+    "@remix-run/node": "2.16.7",
+    "@remix-run/server-runtime": "2.16.7",
     "@shopify/app-bridge-react": "^4.2.10",
     "@shopify/polaris": "^13.9.5",
     "@shopify/shopify-app-react-router": "^1.1.0",
@@ -50,6 +51,7 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "devDependencies": {
+    "@remix-run/dev": "2.16.7",
     "@shopify/api-codegen-preset": "^1.2.0",
     "@shopify/polaris-types": "1.0.1",
     "@types/eslint": "^9.6.1",
