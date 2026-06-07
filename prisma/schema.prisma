@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "/app/generated/prisma-client"
 }
 
 // Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
@@ -13,11 +14,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Define custom output path for generated Prisma Client
-generator client {
-  provider = "prisma-client-js"
-  output   = "/app/generated/prisma-client"
-}
 model Session {
   id            String    @id
   shop          String
