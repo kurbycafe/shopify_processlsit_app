@@ -1,9 +1,9 @@
 {
   "name": "process-list",
   "private": true,
-  "scripts": {
-    "vercel-build": "prisma generate && next build", 
-  "build": "prisma generate && next build",
+ "scripts": {
+    "vercel-build": "prisma generate && vite build",
+    "build": "prisma generate && vite build",
     "postinstall": "prisma generate",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
