@@ -1,11 +1,9 @@
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+// 1. ⚠️ Vercel 공식 프리셋 플러그인을 가져옵니다.
+import { vercelPreset } from "@react-router/vercel";
 
-// Related: https://github.com/remix-run/remix/issues/2835#issuecomment-1144102176
-// Replace the HOST env var with SHOPIFY_APP_URL so that it doesn't break the Vite server.
-// The CLI will eventually stop passing in HOST,
-// so we can remove this workaround after the next major release.
 if (
   process.env.HOST &&
   (!process.env.SHOPIFY_APP_URL ||
@@ -15,17 +13,11 @@ if (
   delete process.env.HOST;
 }
 
-const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost")
-  .hostname;
+const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost").hostname;
 let hmrConfig;
 
 if (host === "localhost") {
-  hmrConfig = {
-    protocol: "ws",
-    host: "localhost",
-    port: 64999,
-    clientPort: 64999,
-  };
+  hmrConfig = { protocol: "ws", host: "localhost", port: 64999, clientPort: 64999 };
 } else {
   hmrConfig = {
     protocol: "wss",
@@ -38,17 +30,18 @@ if (host === "localhost") {
 export default defineConfig({
   server: {
     allowedHosts: [host],
-    cors: {
-      preflightContinue: true,
-    },
+    cors: { preflightContinue: true },
     port: Number(process.env.PORT || 3000),
     hmr: hmrConfig,
-    fs: {
-      // See https://vitejs.dev/config/server-options.html#server-fs-allow for more information
-      allow: ["app", "node_modules"],
-    },
+    fs: { allow: ["app", "node_modules"] },
   },
-  plugins: [reactRouter(), tsconfigPaths()],
+  // 2. ⚠️ reactRouter 플러그인 내부에 vercelPreset()을 주입해 줍니다.
+  plugins: [
+    reactRouter({
+      presets: [vercelPreset()],
+    }),
+    tsconfigPaths(),
+  ],
   build: {
     assetsInlineLimit: 0,
   },
