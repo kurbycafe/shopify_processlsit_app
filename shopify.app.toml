@@ -45,10 +45,8 @@ api_version = "2026-07"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ 
-  "https://process-list-beryl.vercel.app/api/auth" 
-]
+redirect_urls = [ "https://process-list-beryl.vercel.app" ]
 
 [build]
-# 로컬에서 npm run dev 실행 시, 임시 터널 URL로 대시보드를 자동 업데이트해주는 핵심 옵션입니다.
+include_config_on_deploy = true
 automatically_update_urls_on_dev = true
