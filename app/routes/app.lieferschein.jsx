@@ -1,7 +1,13 @@
 import { useLoaderData } from "react-router";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
-import { json } from "@remix-run/node";
+
+// ✅ Shopify Remix 앱은 @remix-run/node 사용 불가 → 네이티브 Response 사용
+const json = (data, init) =>
+  new Response(JSON.stringify(data), {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
 
 export const loader = async ({ request }) => {
   try {
