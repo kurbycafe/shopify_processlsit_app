@@ -356,7 +356,7 @@ export default function AdditionalPage() {
         }
       `}</style>
 
-      <div className="page-header">DAWAYO 패킹 시스템</div>
+      <div className="page-header">DAWAYO 패킹 시스템(개발중 - 출고용 사용금지)</div>
 
       <div className="admin-panel">
         <p style={{ marginBottom: 12, color: "#555" }}>
