@@ -4,7 +4,7 @@ import { authenticate } from "../shopify.server";
 
 const UNFULFILLED_ORDERS_QUERY = `#graphql
   query UnfulfilledOrders($first: Int!, $after: String) {
-    orders(first: $first, after: $after, query: "fulfillment_status:unfulfilled -financial_status:pending") {
+    orders(first: $first, after: $after, query: "financial_status:paid fulfillment_status:unfulfilled") {
       pageInfo {
         hasNextPage
         endCursor

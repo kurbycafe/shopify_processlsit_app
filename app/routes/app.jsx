@@ -17,7 +17,7 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">Home</s-link>
-        <s-link href="/app/additional">Additional page</s-link>
+        <s-link href="/app/lieferschein">주문서 출력하기</s-link>
         <s-link href="/app/pick-list">처리중 리스트</s-link>
       </s-app-nav>
       <Outlet />
