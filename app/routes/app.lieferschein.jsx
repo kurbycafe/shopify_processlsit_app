@@ -2,7 +2,7 @@ import { useLoaderData } from "react-router";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 
-// 1. 서버 사이드: 오리지널 명세서 렌더링에 필요한 모든 필드 및 메타필드 수집
+// 1. 서버 사이드: GraphQL 쿼리 수정 (shippingMethodTitle 단수 필드를 규격 스키마인 shippingLines 커넥션으로 변경)
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
@@ -17,9 +17,13 @@ export const loader = async ({ request }) => {
             createdAt
             email
             note
-            shippingMethodTitle
-            shippingLine {
-              carrier
+            shippingLines(first: 1) {
+              edges {
+                node {
+                  title
+                  carrierIdentifier
+                }
+              }
             }
             billingAddress {
               name
@@ -68,7 +72,6 @@ export const loader = async ({ request }) => {
                     }
                   }
                   product {
-                    # 메타필드 조회: 독일어 번역, 유통기한, 진열 위치
                     germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
                     expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                     position: metafield(namespace: "custom", key: "position") { value }
@@ -92,7 +95,12 @@ export const loader = async ({ request }) => {
       e.node.financialStatus === "PAID" && e.node.fulfillmentStatus === "FULFILLED"
     ).length || 0;
 
-    // 2) 상품 가공 및 Lagerplatz 정렬 배열 빌드
+    // 2) 배송 라인 데이터 바인딩 안전 가동
+    const firstShippingLine = node.shippingLines?.edges?.[0]?.node;
+    const shippingMethodTitle = firstShippingLine?.title || "-";
+    const shippingCarrier = firstShippingLine?.carrierIdentifier || null;
+
+    // 3) 상품 가공 및 Lagerplatz 정렬 배열 빌드
     const rawItems = node.lineItems.edges.map(itemEdge => {
       const item = itemEdge.node;
       const posRaw = item.product?.position?.value || "";
@@ -126,11 +134,10 @@ export const loader = async ({ request }) => {
         barcode: item.variant?.barcode || "",
         variantTitle: item.variant?.title === "Default Title" ? "" : item.variant?.title,
         imageUrl: item.variant?.image?.url || null,
-        isIcePackage: item.variant?.id?.includes("54301230268745") || false, // 특정 아이스팩 변정 ID 검증
+        isIcePackage: item.variant?.id?.includes("54301230268745") || false,
         germanTranslation: item.product?.germanTranslation?.value || "",
         expiryDate: item.product?.expiryDate?.value || "",
         position: posRaw,
-        // 정렬 기준 문자열 합산
         _finalSortString: `${sortKey}___:::___${titleKey}`
       };
     });
@@ -152,8 +159,8 @@ export const loader = async ({ request }) => {
       createdTime: new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
       email: node.email || "-",
       note: node.note || "",
-      shippingMethod: node.shippingMethodTitle || "-",
-      carrier: node.shippingLine?.carrier || null,
+      shippingMethod: shippingMethodTitle,
+      carrier: shippingCarrier,
       billingAddress: node.billingAddress,
       shippingAddress: node.shippingAddress,
       successfulOrdersCount,
@@ -197,23 +204,17 @@ export default function AdditionalPage() {
   return (
     <s-page heading="DAWAYO 패킹 시스템">
       
-      {/* 폰트 및 원본 유출 인쇄 레이아웃 컴파일 스타일 시트 */}
       <style>{`
         @import url("https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700;800&display=swap");
 
-        /* 일반 브라우저 관리 제어 패널 스타일 */
         .admin-panel { padding: 20px; background: #fff; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e1e3e5; }
         .list-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
         .list-table th, .list-table td { padding: 12px 10px; border-bottom: 1px solid #e1e3e5; text-align: left; }
         .print-btn { padding: 10px 20px; background-color: #111; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
         .print-btn:disabled { background-color: #e3e3e3; cursor: not-allowed; color: #999; }
         
-        /* 뷰포트 가상 도화지 컨테이너 백그라운드 */
         .paper-viewport { background: #525659; padding: 40px 0; display: flex; flex-direction: column; gap: 30px; align-items: center; }
 
-        /* ======================================================== */
-        /* 오리지널 LIQUID 컴포넌트 인쇄 클래스 주입 전개 규격 스타일화 */
-        /* ======================================================== */
         .packing-slip {
           background: #fff;
           width: 210mm;
@@ -286,12 +287,8 @@ export default function AdditionalPage() {
         .footer-label { display: block; font-weight: 800; color: #111; font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
         .shop-name { margin-top: 10px; text-align: center; font-size: 11px; font-weight: 700; color: #999; letter-spacing: 2px; text-transform: uppercase; }
 
-        /* 가짜 가상 바코드 그래픽화 구현 기법 */
         .mock-barcode { font-family: monospace; font-size: 15px; letter-spacing: -1px; font-weight: bold; transform: scaleY(2); display: inline-block; margin: 2px 0; }
 
-        /* ======================================================== */
-        /* 🖨️ 인쇄 가동 시 브라우저 내비게이션 필터 및 도화지 확장 */
-        /* ======================================================== */
         @media print {
           .admin-panel, button, s-paragraph, .header-panel, #shopify-app-block, ui-title-bar {
             display: none !important;
@@ -302,13 +299,12 @@ export default function AdditionalPage() {
           .paper-viewport { background: transparent !important; padding: 0 !important; gap: 0 !important; display: block !important; }
           .packing-slip {
             width: 100% !important; max-width: 100% !important; min-height: auto !important; box-shadow: none !important;
-            padding: 0mm !important; /* 브라우저 자체 인쇄마진 위임 */
+            padding: 0mm !important;
             page-break-after: always;
           }
         }
       `}</style>
 
-      {/* 관리 바 레이어 */}
       <div className="admin-panel">
         <s-paragraph>
           출력할 주문을 선택한 뒤 상단 버튼을 클릭하면 <strong>DAWAYO 공식 오리지널 테마 양식</strong>으로 인쇄 가이드 팝업이 활성화됩니다.
@@ -358,7 +354,6 @@ export default function AdditionalPage() {
         </table>
       </div>
 
-      {/* 인쇄 대상 뷰포트 배치 */}
       {activePrintOrders.length > 0 && (
         <div className="paper-viewport">
           {activePrintOrders.map((order) => (
@@ -382,7 +377,6 @@ export default function AdditionalPage() {
                     </tbody>
                   </table>
 
-                  {/* BADGES SECTION */}
                   <div className="badges-row">
                     {order.successfulOrdersCount > 1 && (
                       <div className="badge">Stammkunde ({order.successfulOrdersCount}x)</div>
