@@ -1,12 +1,11 @@
-import { useLoaderData, useSubmit, useNavigation } from "react-router";
-import { useState } from "react";
+import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
-// 1. 서버 사이드: "결제 완료" 및 "미처리" 주문 데이터 가져오기 (GraphQL)
+// 1. 서버 사이드: "결제 완료" 및 "미처리" 주문 데이터 가져오기
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  // 조건: financial_status:paid(결제 완료) 및 fulfillment_status:unfulfilled(주문 미처리)
   const response = await admin.graphql(`
     #graphql
     query getUnfulfilledAndPaidOrders {
@@ -16,7 +15,6 @@ export const loader = async ({ request }) => {
             id
             name
             createdAt
-            displayFulfillmentStatus
             totalPriceSet {
               shopMoney {
                 amount
@@ -32,35 +30,76 @@ export const loader = async ({ request }) => {
   const responseJson = await response.json();
   const orders = responseJson.data.orders.edges.map(edge => edge.node);
 
-  // React Router v7에서는 json() 대신 일반 객체를 바로 리턴하면 됩니다.
   return { orders };
 };
 
-// 2. 서버 사이드: PDF 생성 요청 및 인쇄 완료 상태 처리
+// 2. 서버 사이드: PDF 실제 생성 및 브라우저 다운로드/미리보기 스트리밍 처리
 export const action = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
-  const actionType = formData.get("actionType");
   const orderIds = JSON.parse(formData.get("orderIds") || "[]");
 
-  if (actionType === "generate_pdf") {
-    // [실제 구현 필요] PDF 생성 로직 연동부
-    return { success: true, processedIds: orderIds };
+  if (orderIds.length === 0) {
+    return new Response("선택된 주문이 없습니다.", { status: 400 });
   }
 
-  return { success: false };
+  // -------------------------------------------------------------
+  // [PDF 생성 로직 시작] pdf-lib를 이용해 메모리 상에 PDF 생성
+  // -------------------------------------------------------------
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([595.28, 841.89]); // A4 표준 사이즈 (포인트 단위)
+  const { width, height } = page.getSize();
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // 상단 타이틀 작성
+  page.drawText("PACKING SLIP (BATCH TOTALS)", {
+    x: 50,
+    y: height - 50,
+    size: 20,
+    font: font,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawText(`Total Selected Orders: ${orderIds.length}`, {
+    x: 50,
+    y: height - 80,
+    size: 12,
+    color: rgb(0.3, 0.3, 0.3),
+  });
+
+  // 선택된 주문 ID 정보 나열하기 (실무에서는 여기서 각 ID별 단건 쇼피파이 아이템 쿼리를 한 번 더 돌려서 상세 품목 명세서를 그립니다)
+  let currentY = height - 120;
+  orderIds.forEach((id, index) => {
+    // 쇼피파이 주문 ID에서 숫자만 추출하거나 마스킹 처리하여 출력
+    const shortId = id.split("/").pop();
+    page.drawText(`${index + 1}. Order GID: ${shortId}`, {
+      x: 50,
+      y: currentY,
+      size: 11,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+    currentY -= 20;
+  });
+
+  // 패킹슬립 문서 저장 후 바이너리 배열 변환
+  const pdfBytes = await pdfDoc.save();
+
+  // 브라우저가 이 응답을 받는 순간 "아, JSON 데이터가 아니라 PDF 파일이구나!" 하고 
+  // 미리보기 뷰어를 띄우거나 다운로드 창을 강제로 열게끔 HTTP 헤더를 세팅합니다.
+  return new Response(pdfBytes, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="packingslip_${Date.now()}.pdf"`, 
+      // 'inline'으로 설정하면 브라우저 새창/미리보기가 뜨고, 'attachment'로 바꾸면 바로 파일 다운로드가 실행됩니다.
+    },
+  });
 };
 
-// 3. 프론트엔드: UI 및 상태 관리
+// 3. 프론트엔드: UI 구성
 export default function AdditionalPage() {
   const { orders } = useLoaderData();
-  const submit = useSubmit();
-  const navigation = useNavigation();
-  const isSubmitting = navigation.state === "submitting";
-
-  // 체크박스 및 PDF 완료 상태 관리
   const [selectedOrders, setSelectedOrders] = useState([]);
-  const [printedOrders, setPrintedOrders] = useState({});
 
   // 전체 선택/해제
   const handleSelectAll = (e) => {
@@ -80,36 +119,39 @@ export default function AdditionalPage() {
     }
   };
 
-  // PDF 생성 실행 함수 (단일 또는 멀티)
-  const handleGeneratePdf = (ids) => {
+  // [중요] 파일을 다운로드받거나 미리보기 창을 띄우려면, 
+  // AJAX(useSubmit) 전송이 아닌 순수 HTML 브라우저 폼 제출 메커니즘을 써야 새 창(Target="_blank")에서 파일 가로채기가 작동합니다.
+  const submitPdfForm = (ids) => {
     if (ids.length === 0) return alert("선택된 주문이 없습니다.");
 
-    // 화면에 임시 체크 표시(완료) 선언
-    const updatedPrinted = { ...printedOrders };
-    ids.forEach(id => { updatedPrinted[id] = true; });
-    setPrintedOrders(updatedPrinted);
+    // 임시 폼 엘리먼트 동적 생성 및 제출 처리 방식 (가장 안정적)
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.target = "_blank"; // 중요: 새 탭에서 인쇄 미리보기 뷰어가 열리도록 유도
 
-    // 서버 액션으로 ID 전송
-    const formData = new FormData();
-    formData.append("actionType", "generate_pdf");
-    formData.append("orderIds", JSON.stringify(ids));
-    submit(formData, { method: "POST" });
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "orderIds";
+    input.value = JSON.stringify(ids);
 
-    alert(`선택된 ${ids.length}개의 주문에 대한 Packing Slip PDF 생성을 시작합니다.`);
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
   };
 
   return (
     <s-page heading="배송 및 패킹 관리">
       <s-section heading="미처리 주문 목록 (Unfulfilled Orders)">
         <s-paragraph>
-          패킹 슬립을 출력할 주문을 선택하세요. 출력이 완료되면 주문번호 옆에 ✅ 표시가 추가됩니다.
+          패킹 슬립을 출력할 주문을 선택하세요. 버튼을 누르면 새 창에서 인쇄 미리보기용 PDF 문서가 생성됩니다.
         </s-paragraph>
 
         {/* 상단 일괄 작업 바 */}
         <div style={{ margin: "16px 0", display: "flex", gap: "10px", alignItems: "center" }}>
           <button 
-            onClick={() => handleGeneratePdf(selectedOrders)}
-            disabled={selectedOrders.length === 0 || isSubmitting}
+            onClick={() => submitPdfForm(selectedOrders)}
+            disabled={selectedOrders.length === 0}
             style={{
               padding: "8px 16px",
               backgroundColor: selectedOrders.length > 0 ? "#008060" : "#e3e3e3",
@@ -119,7 +161,7 @@ export default function AdditionalPage() {
               cursor: "pointer"
             }}
           >
-            {isSubmitting ? "처리 중..." : `선택 항목 패킹슬립 일괄 인쇄 (${selectedOrders.length}개)`}
+            선택 항목 패킹슬립 일괄 인쇄 ({selectedOrders.length}개)
           </button>
         </div>
 
@@ -150,7 +192,6 @@ export default function AdditionalPage() {
             ) : (
               orders.map((order) => (
                 <tr key={order.id} style={{ borderBottom: "1px solid #e1e3e5" }}>
-                  {/* 체크박스 */}
                   <td style={{ padding: "12px 8px" }}>
                     <input 
                       type="checkbox" 
@@ -158,12 +199,8 @@ export default function AdditionalPage() {
                       onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
                     />
                   </td>
-                  {/* 주문번호 및 체크 아이콘 */}
                   <td style={{ padding: "12px 8px", fontWeight: "500" }}>
-                    {order.name} 
-                    {printedOrders[order.id] && (
-                      <span style={{ marginLeft: "8px", color: "#008060" }} title="인쇄 완료">✅</span>
-                    )}
+                    {order.name}
                   </td>
                   <td style={{ padding: "12px 8px", color: "#6d7175" }}>
                     {new Date(order.createdAt).toLocaleDateString()}
@@ -171,10 +208,9 @@ export default function AdditionalPage() {
                   <td style={{ padding: "12px 8px" }}>
                     {order.totalPriceSet.shopMoney.amount} {order.totalPriceSet.shopMoney.currencyCode}
                   </td>
-                  {/* 개별 PDF 생성 아이콘 버튼 */}
                   <td style={{ padding: "12px 8px", textAlign: "center" }}>
                     <button
-                      onClick={() => handleGeneratePdf([order.id])}
+                      onClick={() => submitPdfForm([order.id])}
                       style={{
                         background: "none",
                         border: "none",
@@ -182,7 +218,7 @@ export default function AdditionalPage() {
                         cursor: "pointer",
                         padding: "4px 8px"
                       }}
-                      title="단일 PDF 생성"
+                      title="단일 PDF 인쇄/미리보기"
                     >
                       📄
                     </button>
