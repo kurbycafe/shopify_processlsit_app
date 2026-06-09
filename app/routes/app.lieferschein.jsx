@@ -47,11 +47,12 @@ export const loader = async ({ request }) => {
                     title
                     quantity
                     sku
-                    grams
                     variant {
                       id
                       title
                       barcode
+                      weight
+                      weightUnit
                       image { url }
                     }
                     product {
@@ -106,13 +107,22 @@ export const loader = async ({ request }) => {
 
         const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
 
+        // weight를 항상 grams으로 통일 변환
+        const weightUnit = item.variant?.weightUnit || "GRAMS";
+        const weightRaw = item.variant?.weight || 0;
+        let grams = 0;
+        if (weightUnit === "GRAMS") grams = weightRaw;
+        else if (weightUnit === "KILOGRAMS") grams = weightRaw * 1000;
+        else if (weightUnit === "POUNDS") grams = weightRaw * 453.592;
+        else if (weightUnit === "OUNCES") grams = weightRaw * 28.3495;
+
         return {
           id: item.id,
           title: (item.title || "").replace(" - Default Title", ""),
           quantity: item.quantity || 0,
           sku: item.sku || "",
-          weightKg: item.grams > 0 ? (item.grams / 1000).toFixed(3) : null,
-          gramsTotal: (item.grams || 0) * (item.quantity || 0),
+          weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
+          gramsTotal: grams * (item.quantity || 0),
           barcode: item.variant?.barcode || "",
           variantTitle: item.variant?.title === "Default Title" ? "" : (item.variant?.title || ""),
           imageUrl: item.variant?.image?.url || null,
@@ -276,7 +286,7 @@ export default function AdditionalPage() {
 
       <div className="admin-panel">
         <p style={{ marginBottom: 12, color: "#555" }}>
-          출력할 주문을 선택한 뒤 버튼을 클릭하면 인쇄 팝업이 활성화됩니다.ㅁㅁ
+          출력할 주문을 선택한 뒤 버튼을 클릭하면 인쇄 팝업이 활성화됩니다.
         </p>
         <div style={{ margin: "14px 0" }}>
           <button
