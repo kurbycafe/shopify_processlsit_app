@@ -12,7 +12,7 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
       nodes {
         id
         name
-        lineItems(first: 250) {
+        lineItems(first: 1) {
           nodes {
             quantity
             name
