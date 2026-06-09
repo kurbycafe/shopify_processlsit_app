@@ -1,27 +1,35 @@
-import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit, useNavigation } from "@remix-run/react";
-import { useState } from "react";
+import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
-
-// 1. 서버 사이드: 미처리 주문 데이터 가져오기 (GraphQL)
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { useState } from "react";
+// 1. 서버 사이드: "결제 완료" 및 "미처리" 주문의 상세 데이터(상품명, 이미지, SKU, 수량) 가져오기
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  // 미처리(unfulfilled) 상태의 주문 10개 조회
   const response = await admin.graphql(`
     #graphql
-    query getUnfulfilledOrders {
-      orders(first: 10, query: "fulfillment_status:unfulfilled") {
+    query getDetailedUnfulfilledOrders {
+      orders(first: 10, query: "financial_status:paid fulfillment_status:unfulfilled") {
         edges {
           node {
             id
             name
             createdAt
-            displayFulfillmentStatus
-            totalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
+            totalWeight
+            lineItems(first: 20) {
+              edges {
+                node {
+                  id
+                  title
+                  quantity
+                  sku
+                  variant {
+                    barcode
+                    image {
+                      url
+                    }
+                  }
+                }
               }
             }
           }
@@ -31,37 +39,32 @@ export const loader = async ({ request }) => {
   `);
 
   const responseJson = await response.json();
-  const orders = responseJson.data.orders.edges.map(edge => edge.node);
+  const orders = responseJson.data.orders.edges.map(edge => {
+    const node = edge.node;
+    return {
+      id: node.id,
+      name: node.name,
+      createdAt: new Date(node.createdAt).toLocaleDateString("de-DE"), // 독일식 날짜 표기
+      currentTime: new Date().toLocaleTimeString("de-DE", { hour: '2-digit', minute: '2-digit' }),
+      weight: node.totalWeight ? `${node.totalWeight} kg` : "0.000 kg",
+      items: node.lineItems.edges.map(itemEdge => ({
+        id: itemEdge.node.id,
+        title: itemEdge.node.title,
+        sku: itemEdge.node.sku || "-",
+        quantity: itemEdge.node.quantity,
+        barcode: itemEdge.node.variant?.barcode || "-",
+        imageUrl: itemEdge.node.variant?.image?.url || "https://via.placeholder.com/60"
+      }))
+    };
+  });
 
-  return json({ orders });
+  return { orders };
 };
 
-// 2. 서버 사이드: PDF 생성 요청 및 인쇄 완료 상태 처리
-export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const actionType = formData.get("actionType");
-  const orderIds = JSON.parse(formData.get("orderIds") || "[]");
-
-  if (actionType === "generate_pdf") {
-    // [실제 구현 필요] PDF 생성 로직 (예: pdf-lib, @react-pdf/renderer 등을 활용하거나 쇼피파이 기본 Packing slip API 호출)
-    // 여기서는 예시로 성공 신호와 함께 처리된 ID 목록을 반환합니다.
-    return json({ success: true, processedIds: orderIds });
-  }
-
-  return json({ success: false });
-};
-
-// 3. 프론트엔드: UI 및 상태 관리
+// 2. 프론트엔드 컴포넌트
 export default function AdditionalPage() {
   const { orders } = useLoaderData();
-  const submit = useSubmit();
-  const navigation = useNavigation();
-  const isSubmitting = navigation.state === "submitting";
-
-  // 체크박스 및 PDF 완료 상태 관리 (현장 데모용 로컬 상태, 실무에서는 DB나 Metafield 연동 권장)
   const [selectedOrders, setSelectedOrders] = useState([]);
-  const [printedOrders, setPrintedOrders] = useState({});
 
   // 전체 선택/해제
   const handleSelectAll = (e) => {
@@ -81,120 +84,217 @@ export default function AdditionalPage() {
     }
   };
 
-  // PDF 생성 실행 함수 (단일 또는 멀티)
-  const handleGeneratePdf = (ids) => {
-    if (ids.length === 0) return alert("선택된 주문이 없습니다.");
-
-    // 임시로 화면에 체크 표시(완료)를 먼저 선언하거나 액션 완료 후 처리
-    const updatedPrinted = { ...printedOrders };
-    ids.forEach(id => { updatedPrinted[id] = true; });
-    setPrintedOrders(updatedPrinted);
-
-    // 서버 액션으로 ID 전송 (실제 PDF 다운로드 url 등을 반환받아 처리 가능)
-    const formData = new FormData();
-    formData.append("actionType", "generate_pdf");
-    formData.append("orderIds", JSON.stringify(ids));
-    submit(formData, { method: "POST" });
-
-    // 데모용 실제 창 띄우기 (실제 구현 시 PDF 다운로드 블롭 주소 등으로 대체)
-    alert(`선택된 ${ids.length}개의 주문에 대한 Packing Slip PDF 생성을 시작합니다.`);
+  // 💡 [핵심] 브라우저 순수 인쇄창 팝업 트리거
+  const handlePrint = () => {
+    if (selectedOrders.length === 0) return alert("인쇄할 주문을 선택해 주세요.");
+    window.print(); // 이 명령어가 실행되면 브라우저 인쇄 설정창(두 번째 이미지)이 켜집니다.
   };
 
-  return (
-    <s-page heading="배송 및 패킹 관리">
-      <s-section heading="미처리 주문 목록 (Unfulfilled Orders)">
-        <s-paragraph>
-          패킹 슬립을 출력할 주문을 선택하세요. 출력이 완료되면 주문번호 옆에 ✅ 표시가 추가됩니다.
-        </s-paragraph>
+  // 현재 선택된 주문 객체들만 필터링
+  const activePrintOrders = orders.filter(o => selectedOrders.includes(o.id));
 
-        {/* 상단 일괄 작업 바 */}
-        <div style={{ margin: "16px 0", display: "flex", gap: "10px", alignItems: "center" }}>
+  return (
+    <s-page heading="인쇄 관리 시스템">
+      
+      {/* 스타일 선언부: 일반 화면용 스타일과 실제 종이 인쇄용(@media print) 스타일 분리 */}
+      <style>{`
+        /* 1. 일반 웹 화면 기본 레이아웃 */
+        .admin-controls { padding: 20px; background: #fff; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e1e3e5; }
+        .order-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .order-table th, .order-table td { padding: 10px; border-bottom: 1px solid #e1e3e5; text-align: left; }
+        
+        .preview-area { background: #f1f1f1; padding: 40px 20px; display: flex; flex-direction: column; gap: 40px; align-items: center; }
+        
+        /* 패킹슬립 종이 한 장 스타일 공식 지정 (A4 비율 맞춤) */
+        .packing-slip-paper { 
+          background: #fff; 
+          width: 210mm; 
+          min-height: 297mm; 
+          padding: 20mm; 
+          box-shadow: 0 0 10px rgba(0,0,0,0.1);
+          box-sizing: border-box;
+          color: #000;
+          font-family: sans-serif;
+        }
+
+        /* 패킹슬립 내부 세부 CSS */
+        .slip-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
+        .slip-title { font-size: 32px; font-weight: 900; letter-spacing: 1px; margin: 0; }
+        .info-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px; font-size: 13px; margin-top: 15px; }
+        .info-label { font-weight: bold; }
+        .logo-box img { max-width: 180px; height: auto; }
+        
+        .address-section { display: flex; gap: 40px; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 15px 0; margin-bottom: 30px; }
+        .address-col { flex: 1; font-size: 13px; }
+        .address-title { font-weight: bold; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; }
+
+        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .items-table th { border-bottom: 2px solid #000; padding: 8px 4px; text-align: left; font-size: 11px; text-transform: uppercase; }
+        .items-table td { border-bottom: 1px solid #e1e3e5; padding: 12px 4px; vertical-align: top; }
+        .prod-img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; border: 1px solid #e1e3e5; }
+        
+        .slip-footer { margin-top: auto; border-top: 2px solid #000; padding-top: 20px; text-align: center; font-size: 12px; }
+        
+        /* 2. 🔥 [가장 중요] 진짜 프린터기로 인쇄할 때의 CSS 제어 */
+        @media print {
+          /* 내비게이션 바, 상단 세팅용 버튼 UI 영역을 완전히 증발시킵니다 */
+          s-page, .admin-controls, button, head, s-paragraph, .header, #shopify-app-block {
+            display: none !important;
+          }
+          
+          /* 오직 패킹슬립 원본 도화지만 화면 가득 인쇄되도록 강제 설정 */
+          body, html { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          .preview-area { background: transparent !important; padding: 0 !important; gap: 0 !important; }
+          .packing-slip-paper { 
+            width: 100% !important; 
+            min-height: auto !important; 
+            box-shadow: none !important; 
+            padding: 0 !important;
+            page-break-after: always; /* 대량 다중 출력시 주문별로 종이가 자동 분할 인쇄되게 함 */
+          }
+        }
+      `}</style>
+
+      {/* [일반 화면 제어 영역] 상단 템플릿 관리 바 */}
+      <div className="admin-controls">
+        <s-paragraph>인쇄 대기 중인 주문 목록입니다. 체크박스를 선택하면 하단에 미리보기가 구성되며 '선택 항목 인쇄' 진행 시 바로 프린터 출력 창이 켜집니다.</s-paragraph>
+        
+        <div style={{ margin: "15px 0", display: "flex", gap: "12px" }}>
           <button 
-            onClick={() => handleGeneratePdf(selectedOrders)}
-            disabled={selectedOrders.length === 0 || isSubmitting}
+            onClick={handlePrint}
+            disabled={selectedOrders.length === 0}
             style={{
-              padding: "8px 16px",
-              backgroundColor: selectedOrders.length > 0 ? "#008060" : "#e3e3e3",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer"
+              padding: "10px 20px",
+              backgroundColor: selectedOrders.length > 0 ? "#1a1a1a" : "#e3e3e3",
+              color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold"
             }}
           >
-            {isSubmitting ? "처리 중..." : `선택 항목 패킹슬립 일괄 인쇄 (${selectedOrders.length}개)`}
+            선택 항목 인쇄하기 ({selectedOrders.length}개)
           </button>
         </div>
 
-        {/* 주문 리스트 테이블 */}
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "12px" }}>
+        <table className="order-table">
           <thead>
-            <tr style={{ borderBottom: "2px solid #e1e3e5", textAlign: "left", background: "#f6f6f7" }}>
-              <th style={{ padding: "12px 8px", width: "40px" }}>
+            <tr>
+              <th style={{ width: "40px" }}>
                 <input 
                   type="checkbox" 
                   onChange={handleSelectAll}
                   checked={selectedOrders.length === orders.length && orders.length > 0}
                 />
               </th>
-              <th style={{ padding: "12px 8px" }}>주문 번호</th>
-              <th style={{ padding: "12px 8px" }}>생성일</th>
-              <th style={{ padding: "12px 8px" }}>결제 금액</th>
-              <th style={{ padding: "12px 8px", textAlign: "center" }}>패킹 슬립</th>
+              <th>주문 번호</th>
+              <th>생성 일자</th>
+              <th>상태</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
-              <tr>
-                <td colSpan="5" style={{ padding: "20px", textAlign: "center", color: "#6d7175" }}>
-                  미처리된 주문이 없습니다.
-                </td>
-              </tr>
+              <tr><td colSpan="4" style={{ textAlign: "center", color: "#888" }}>인쇄 대상 주문이 없습니다.</td></tr>
             ) : (
               orders.map((order) => (
-                <tr key={order.id} style={{ borderBottom: "1px solid #e1e3e5" }}>
-                  {/* 체크박스 */}
-                  <td style={{ padding: "12px 8px" }}>
+                <tr key={order.id}>
+                  <td>
                     <input 
                       type="checkbox" 
                       checked={selectedOrders.includes(order.id)}
                       onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
                     />
                   </td>
-                  {/* 주문번호 및 체크 아이콘 */}
-                  <td style={{ padding: "12px 8px", fontWeight: "500" }}>
-                    {order.name} 
-                    {printedOrders[order.id] && (
-                      <span style={{ marginLeft: "8px", color: "#008060", title: "인쇄 완료" }}>✅</span>
-                    )}
-                  </td>
-                  <td style={{ padding: "12px 8px", color: "#6d7175" }}>
-                    {new Date(order.createdAt).toLocaleDateString()}
-                  </td>
-                  <td style={{ padding: "12px 8px" }}>
-                    {order.totalPriceSet.shopMoney.amount} {order.totalPriceSet.shopMoney.currencyCode}
-                  </td>
-                  {/* 개별 PDF 생성 아이콘 버튼 */}
-                  <td style={{ padding: "12px 8px", textAlign: "center" }}>
-                    <button
-                      onClick={() => handleGeneratePdf([order.id])}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        fontSize: "18px",
-                        cursor: "pointer",
-                        padding: "4px 8px"
-                      }}
-                      title="단일 PDF 생성"
-                    >
-                      📄
-                    </button>
-                  </td>
+                  <td style={{ fontWeight: "bold" }}>{order.name}</td>
+                  <td>{order.createdAt}</td>
+                  <td style={{ color: "green" }}>결제완료 / 미처리</td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
-      </s-section>
+      </div>
+
+      {/* [인쇄 및 미리보기 가상 영역] 선택된 주문들의 패킹슬립 도화지가 배치되는 곳 */}
+      {activePrintOrders.length > 0 && (
+        <div className="preview-area">
+          {activePrintOrders.map((order) => (
+            <div key={order.id} className="packing-slip-paper">
+              
+              {/* 문서 헤더 파트 */}
+              <div className="slip-header">
+                <div>
+                  <h1 className="slip-title">LIEFERSCHEIN</h1>
+                  <div className="info-grid">
+                    <span className="info-label">Bestellnummer</span><span>{order.name.replace("#", "")}</span>
+                    <span className="info-label">Bestelldatum</span><span>{order.createdAt}</span>
+                    <span className="info-label">Bestellzeit</span><span>{order.currentTime} Uhr</span>
+                    <span className="info-label">Gesamtgewicht</span><span>{order.weight}</span>
+                  </div>
+                </div>
+                {/* 우측 상단 로고 및 바코드 대체 영역 */}
+                <div className="logo-box" style={{ textAlign: "right" }}>
+                  <div style={{ background: "#e01a22", color: "#fff", padding: "8px 15px", fontWeight: "bold", display: "inline-block", borderRadius: "4px" }}>
+                    DAWAYO🛒
+                  </div>
+                  <div style={{ marginTop: "15px", fontSize: "10px", border: "1px solid #000", padding: "4px", textAlign: "center" }}>
+                    ||||||||||||||||||||||<br />
+                    {order.name.replace("#", "")}
+                  </div>
+                </div>
+              </div>
+
+              {/* 주소 정보 파트 */}
+              <div className="address-section">
+                <div className="address-col">
+                  <div className="address-title">RECHNUNGSADRESSE</div>
+                  <div>고객 정보 미연동 (주문서 참조)</div>
+                </div>
+                <div className="address-col">
+                  <div className="address-title">LIEFERADRESSE</div>
+                  <div>배송지 정보 미연동 (주문서 참조)</div>
+                </div>
+              </div>
+
+              {/* 상품 테이블 명세서 파트 */}
+              <table className="items-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: "60px" }}>BILD</th>
+                    <th>PRODUKT</th>
+                    <th style={{ width: "60px", textAlign: "center" }}>MENGE</th>
+                    <th style={{ width: "100px" }}>SKU</th>
+                    <th style={{ width: "120px" }}>BARCODE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.items.map((item) => (
+                    <tr key={item.id}>
+                      <td><img src={item.imageUrl} alt={item.title} className="prod-img" /></td>
+                      <td>
+                        <div style={{ fontWeight: "bold" }}>{item.title}</div>
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: "bold", fontSize: "14px" }}>× {item.quantity}</td>
+                      <td style={{ color: "#555" }}>{item.sku}</td>
+                      <td>
+                        <div style={{ fontSize: "9px" }}>|||||||||||||||||</div>
+                        <div>{item.barcode}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* 하단 패킹 검수 및 푸터 영역 */}
+              <div className="slip-footer">
+                <div style={{ display: "flex", justifyContents: "space-between", gap: "50px", textAlign: "left", marginBottom: "30px" }}>
+                  <div style={{ flex: 1, borderBottom: "1px solid #000", paddingBottom: "5px" }}>Gepackt von: _________________</div>
+                  <div style={{ flex: 1, borderBottom: "1px solid #000", paddingBottom: "5px" }}>Kontrolliert von: _________________</div>
+                </div>
+                <p style={{ fontWeight: "bold", letterSpacing: "1px", margin: "20px 0 10px" }}>VIELEN DANK FÜR IHREN EINKAUF!</p>
+                <div style={{ fontSize: "10px", color: "#666" }}>DAWAYO.DE</div>
+              </div>
+
+            </div>
+          ))}
+        </div>
+      )}
     </s-page>
   );
 }
