@@ -1,7 +1,7 @@
 import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-
+import { useState } from "react";
 // 1. 서버 사이드: "결제 완료" 및 "미처리" 주문 데이터 가져오기
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
