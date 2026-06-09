@@ -1,17 +1,16 @@
-
-import { Form, useLoaderData } from "react-router";
+import { useLoaderData, useSubmit, useNavigation } from "react-router";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 
-// 1. 서버 사이드: 미처리 주문 데이터 가져오기 (GraphQL)
+// 1. 서버 사이드: "결제 완료" 및 "미처리" 주문 데이터 가져오기 (GraphQL)
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  // 미처리(unfulfilled) 상태의 주문 10개 조회
+  // 조건: financial_status:paid(결제 완료) 및 fulfillment_status:unfulfilled(주문 미처리)
   const response = await admin.graphql(`
     #graphql
-    query getUnfulfilledOrders {
-      orders(first: 10, query: "fulfillment_status:unfulfilled") {
+    query getUnfulfilledAndPaidOrders {
+      orders(first: 10, query: "financial_status:paid fulfillment_status:unfulfilled") {
         edges {
           node {
             id
@@ -33,7 +32,8 @@ export const loader = async ({ request }) => {
   const responseJson = await response.json();
   const orders = responseJson.data.orders.edges.map(edge => edge.node);
 
-  return json({ orders });
+  // React Router v7에서는 json() 대신 일반 객체를 바로 리턴하면 됩니다.
+  return { orders };
 };
 
 // 2. 서버 사이드: PDF 생성 요청 및 인쇄 완료 상태 처리
@@ -44,12 +44,11 @@ export const action = async ({ request }) => {
   const orderIds = JSON.parse(formData.get("orderIds") || "[]");
 
   if (actionType === "generate_pdf") {
-    // [실제 구현 필요] PDF 생성 로직 (예: pdf-lib, @react-pdf/renderer 등을 활용하거나 쇼피파이 기본 Packing slip API 호출)
-    // 여기서는 예시로 성공 신호와 함께 처리된 ID 목록을 반환합니다.
-    return json({ success: true, processedIds: orderIds });
+    // [실제 구현 필요] PDF 생성 로직 연동부
+    return { success: true, processedIds: orderIds };
   }
 
-  return json({ success: false });
+  return { success: false };
 };
 
 // 3. 프론트엔드: UI 및 상태 관리
@@ -59,7 +58,7 @@ export default function AdditionalPage() {
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
 
-  // 체크박스 및 PDF 완료 상태 관리 (현장 데모용 로컬 상태, 실무에서는 DB나 Metafield 연동 권장)
+  // 체크박스 및 PDF 완료 상태 관리
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [printedOrders, setPrintedOrders] = useState({});
 
@@ -85,18 +84,17 @@ export default function AdditionalPage() {
   const handleGeneratePdf = (ids) => {
     if (ids.length === 0) return alert("선택된 주문이 없습니다.");
 
-    // 임시로 화면에 체크 표시(완료)를 먼저 선언하거나 액션 완료 후 처리
+    // 화면에 임시 체크 표시(완료) 선언
     const updatedPrinted = { ...printedOrders };
     ids.forEach(id => { updatedPrinted[id] = true; });
     setPrintedOrders(updatedPrinted);
 
-    // 서버 액션으로 ID 전송 (실제 PDF 다운로드 url 등을 반환받아 처리 가능)
+    // 서버 액션으로 ID 전송
     const formData = new FormData();
     formData.append("actionType", "generate_pdf");
     formData.append("orderIds", JSON.stringify(ids));
     submit(formData, { method: "POST" });
 
-    // 데모용 실제 창 띄우기 (실제 구현 시 PDF 다운로드 블롭 주소 등으로 대체)
     alert(`선택된 ${ids.length}개의 주문에 대한 Packing Slip PDF 생성을 시작합니다.`);
   };
 
@@ -146,7 +144,7 @@ export default function AdditionalPage() {
             {orders.length === 0 ? (
               <tr>
                 <td colSpan="5" style={{ padding: "20px", textAlign: "center", color: "#6d7175" }}>
-                  미처리된 주문이 없습니다.
+                  결제 완료된 미처리 주문이 없습니다.
                 </td>
               </tr>
             ) : (
@@ -164,7 +162,7 @@ export default function AdditionalPage() {
                   <td style={{ padding: "12px 8px", fontWeight: "500" }}>
                     {order.name} 
                     {printedOrders[order.id] && (
-                      <span style={{ marginLeft: "8px", color: "#008060", title: "인쇄 완료" }}>✅</span>
+                      <span style={{ marginLeft: "8px", color: "#008060" }} title="인쇄 완료">✅</span>
                     )}
                   </td>
                   <td style={{ padding: "12px 8px", color: "#6d7175" }}>
