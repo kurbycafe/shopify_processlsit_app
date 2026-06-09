@@ -135,23 +135,42 @@ export default function AdditionalPage() {
         
         .slip-footer { margin-top: auto; border-top: 2px solid #000; padding-top: 20px; text-align: center; font-size: 12px; }
         
-        /* 2. 🔥 [가장 중요] 진짜 프린터기로 인쇄할 때의 CSS 제어 */
+        /* 🔥 [수정본] 진짜 프린터기로 인쇄할 때의 CSS 제어 */
         @media print {
-          /* 내비게이션 바, 상단 세팅용 버튼 UI 영역을 완전히 증발시킵니다 */
-          s-page, .admin-controls, button, head, s-paragraph, .header, #shopify-app-block {
+          /* 1. 최상위 부모(s-page)는 살려두고, 인쇄에서 제외할 구체적인 클래스/태그만 숨깁니다. */
+          .admin-controls, 
+          button, 
+          s-paragraph, 
+          .header, 
+          #shopify-app-block,
+          ui-title-bar {
             display: none !important;
           }
           
-          /* 오직 패킹슬립 원본 도화지만 화면 가득 인쇄되도록 강제 설정 */
-          body, html { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          .preview-area { background: transparent !important; padding: 0 !important; gap: 0 !important; }
+          /* 2. 쇼피파이 기본 앱 프레임의 마진이나 배경, 그림자 제거 */
+          body, html, s-page, s-section { 
+            background: #fff !important; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            box-shadow: none !important;
+          }
+          
+          /* 3. 패킹슬립 영역이 잘리지 않고 화면에 꽉 차게 렌더링되도록 지정 */
+          .preview-area { 
+            background: transparent !important; 
+            padding: 0 !important; 
+            gap: 0 !important;
+            display: block !important;
+          }
+          
           .packing-slip-paper { 
             width: 100% !important; 
             min-height: auto !important; 
             box-shadow: none !important; 
-            padding: 0 !important;
-            page-break-after: always; /* 대량 다중 출력시 주문별로 종이가 자동 분할 인쇄되게 함 */
+            padding: 10mm !important; /* 인쇄 시 여백 */
+            page-break-after: always; /* 다중 출력 시 주문별 페이지 분할 */
           }
+        }
         }
       `}</style>
 
