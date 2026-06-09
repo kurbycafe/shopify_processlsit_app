@@ -2,20 +2,15 @@ import { useLoaderData } from "react-router";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 
-// ✅ Shopify Remix 앱은 @remix-run/node 사용 불가 → 네이티브 Response 사용
-const json = (data, init) =>
+const jsonResponse = (data) =>
   new Response(JSON.stringify(data), {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json" },
   });
 
 export const loader = async ({ request }) => {
   try {
     const { admin } = await authenticate.admin(request);
 
-    // ✅ 수정 1: deprecated 필터 제거 + 최신 API 호환 쿼리
-    // financial_status / fulfillment_status → displayFinancialStatus / displayFulfillmentStatus 로 변경
-    // ✅ 수정 2: lineItems를 10개로 줄여 쿼리 비용 절감 (필요시 cursor pagination 추가)
     const response = await admin.graphql(`
       #graphql
       query getDawayoDetailedOrders {
@@ -46,19 +41,25 @@ export const loader = async ({ request }) => {
                     id
                     title
                     quantity
-                    sku
                     variant {
                       id
                       title
+                      sku
                       barcode
-                      weight
-                      weightUnit
+                      inventoryItem {
+                        measurement {
+                          weight {
+                            value
+                            unit
+                          }
+                        }
+                      }
                       image { url }
-                    }
-                    product {
-                      germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                      expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                      position: metafield(namespace: "custom", key: "position") { value }
+                      product {
+                        germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                        expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                        position: metafield(namespace: "custom", key: "position") { value }
+                      }
                     }
                   }
                 }
@@ -69,76 +70,77 @@ export const loader = async ({ request }) => {
       }
     `);
 
-    // ✅ 수정 3: response.json() 전에 HTTP 상태 코드 확인
-    if (!response.ok) {
-      const text = await response.text();
-      console.error("GraphQL HTTP error:", response.status, text);
-      return json({ orders: [], error: `API 오류 (${response.status}): ${text.slice(0, 200)}` });
-    }
-
+    // Shopify admin.graphql()은 항상 200을 반환하므로 errors 배열만 체크
     const responseJson = await response.json();
 
-    // ✅ 수정 4: GraphQL errors 배열 체크 (throttled, permission 등)
     if (responseJson?.errors?.length > 0) {
-      const errMsg = responseJson.errors.map(e => e.message).join(", ");
+      const errMsg = responseJson.errors.map((e) => e.message).join(", ");
       console.error("GraphQL errors:", errMsg);
-      return json({ orders: [], error: `GraphQL 오류: ${errMsg}` });
+      return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}` });
     }
 
     if (!responseJson?.data?.orders?.edges) {
-      return json({ orders: [], error: "데이터 구조가 올바르지 않습니다." });
+      return jsonResponse({ orders: [], error: "데이터 구조가 올바르지 않습니다." });
     }
 
-    const orders = responseJson.data.orders.edges.map(edge => {
+    const orders = responseJson.data.orders.edges.map((edge) => {
       const node = edge.node;
 
-      const rawItems = (node.lineItems?.edges || []).map(itemEdge => {
+      const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
         const item = itemEdge.node;
-        const posRaw = item.product?.position?.value || "";
+        const variant = item.variant;
+
+        // product 메타필드는 variant.product 경로로 접근
+        const product = variant?.product;
+        const posRaw = product?.position?.value || "";
         const posUpper = posRaw.trim().toUpperCase();
 
         let sortKey = "500_" + posUpper;
-        if (!posUpper) sortKey = "999_ZZZZZ";
-        else if (posUpper.includes("!")) sortKey = "000_" + posUpper;
-        else if (posUpper.includes("L-A")) sortKey = "100_" + posUpper;
-        else if (posUpper.includes("L-B")) sortKey = "200_" + posUpper;
-        else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
-        else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
+        if (!posUpper)                      sortKey = "999_ZZZZZ";
+        else if (posUpper.includes("!"))    sortKey = "000_" + posUpper;
+        else if (posUpper.includes("L-A"))  sortKey = "100_" + posUpper;
+        else if (posUpper.includes("L-B"))  sortKey = "200_" + posUpper;
+        else if (posUpper.includes("L-C"))  sortKey = "300_" + posUpper;
+        else if (posUpper.includes("L-D"))  sortKey = "400_" + posUpper;
 
         const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
 
-        // weight를 항상 grams으로 통일 변환
-        const weightUnit = item.variant?.weightUnit || "GRAMS";
-        const weightRaw = item.variant?.weight || 0;
+        // 무게 변환 — inventoryItem.measurement가 없을 수 있으므로 방어 처리
+        const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
+        const weightUnit  = variant?.inventoryItem?.measurement?.weight?.unit  ?? "GRAMS";
         let grams = 0;
-        if (weightUnit === "GRAMS") grams = weightRaw;
-        else if (weightUnit === "KILOGRAMS") grams = weightRaw * 1000;
-        else if (weightUnit === "POUNDS") grams = weightRaw * 453.592;
-        else if (weightUnit === "OUNCES") grams = weightRaw * 28.3495;
+        if      (weightUnit === "GRAMS")     grams = weightValue;
+        else if (weightUnit === "KILOGRAMS") grams = weightValue * 1000;
+        else if (weightUnit === "POUNDS")    grams = weightValue * 453.592;
+        else if (weightUnit === "OUNCES")    grams = weightValue * 28.3495;
+
+        // GID 예: "gid://shopify/ProductVariant/54301230268745"
+        const variantGid = variant?.id || "";
+        const isIcePackage = variantGid.endsWith("/54301230268745");
 
         return {
           id: item.id,
           title: (item.title || "").replace(" - Default Title", ""),
           quantity: item.quantity || 0,
-          sku: item.sku || "",
+          sku: variant?.sku || "",
           weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
           gramsTotal: grams * (item.quantity || 0),
-          barcode: item.variant?.barcode || "",
-          variantTitle: item.variant?.title === "Default Title" ? "" : (item.variant?.title || ""),
-          imageUrl: item.variant?.image?.url || null,
-          isIcePackage: item.variant?.id?.includes("54301230268745") || false,
-          germanTranslation: item.product?.germanTranslation?.value || "",
-          expiryDate: item.product?.expiryDate?.value || "",
+          barcode: variant?.barcode || "",
+          variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
+          imageUrl: variant?.image?.url || null,
+          isIcePackage,
+          germanTranslation: product?.germanTranslation?.value || "",
+          expiryDate: product?.expiryDate?.value || "",
           position: posRaw,
-          _finalSortString: `${sortKey}___:::___${titleKey}`
+          _finalSortString: `${sortKey}___:::___${titleKey}`,
         };
       });
 
       const sortedItems = [...rawItems].sort((a, b) =>
         a._finalSortString.localeCompare(b._finalSortString)
       );
-      const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
-      const hasIcePackage = sortedItems.some(i => i.isIcePackage);
+      const totalGrams  = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
+      const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
 
       return {
         id: node.id,
@@ -155,7 +157,6 @@ export const loader = async ({ request }) => {
         email: node.email || "-",
         note: node.note || "",
         shippingMethod: "Standard Delivery",
-        carrier: null,
         billingAddress: node.billingAddress || null,
         shippingAddress: node.shippingAddress || null,
         hasIcePackage,
@@ -164,11 +165,10 @@ export const loader = async ({ request }) => {
       };
     });
 
-    // ✅ 수정 5: json() 헬퍼로 감싸서 Remix가 올바르게 직렬화하도록 처리
-    return json({ orders, error: null });
+    return jsonResponse({ orders, error: null });
   } catch (err) {
     console.error("Loader error:", err);
-    return json({ orders: [], error: err.message });
+    return jsonResponse({ orders: [], error: err.message });
   }
 };
 
@@ -176,20 +176,10 @@ export default function AdditionalPage() {
   const { orders, error } = useLoaderData();
   const [selectedOrders, setSelectedOrders] = useState([]);
 
-  // ✅ 수정 6: s-page → Page (Shopify Polaris) 또는 일반 div로 교체
-  // s-page, s-paragraph 는 특정 환경에서만 동작하므로 범용 div 사용
   if (error) {
     return (
       <div style={{ padding: 24 }}>
-        <div
-          style={{
-            padding: 20,
-            color: "#b91c1c",
-            background: "#fef2f2",
-            borderRadius: 8,
-            border: "1px solid #fecaca",
-          }}
-        >
+        <div style={{ padding: 20, color: "#b91c1c", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
           <strong>오류 발생:</strong> {error}
         </div>
       </div>
@@ -197,9 +187,7 @@ export default function AdditionalPage() {
   }
 
   const handleSelectAll = (e) => {
-    setSelectedOrders(
-      e.target.checked ? orders.map((o) => o.id) : []
-    );
+    setSelectedOrders(e.target.checked ? orders.map((o) => o.id) : []);
   };
 
   const handleSelectOrder = (id, checked) => {
@@ -305,9 +293,7 @@ export default function AdditionalPage() {
                 <input
                   type="checkbox"
                   onChange={handleSelectAll}
-                  checked={
-                    selectedOrders.length === orders.length && orders.length > 0
-                  }
+                  checked={selectedOrders.length === orders.length && orders.length > 0}
                 />
               </th>
               <th>주문 번호</th>
@@ -329,16 +315,12 @@ export default function AdditionalPage() {
                     <input
                       type="checkbox"
                       checked={selectedOrders.includes(order.id)}
-                      onChange={(e) =>
-                        handleSelectOrder(order.id, e.target.checked)
-                      }
+                      onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
                     />
                   </td>
                   <td style={{ fontWeight: "bold" }}>{order.name}</td>
                   <td>{order.createdAt}</td>
-                  <td style={{ color: "#008060", fontWeight: "bold" }}>
-                    Paid / Unfulfilled
-                  </td>
+                  <td style={{ color: "#008060", fontWeight: "bold" }}>Paid / Unfulfilled</td>
                 </tr>
               ))
             )}
@@ -355,39 +337,17 @@ export default function AdditionalPage() {
                   <div className="document-title">Lieferschein</div>
                   <table className="info-grid">
                     <tbody>
-                      <tr>
-                        <td className="info-label">Bestellnummer</td>
-                        <td className="info-value">{order.name}</td>
-                      </tr>
-                      <tr>
-                        <td className="info-label">Bestelldatum</td>
-                        <td className="info-value">{order.createdAt}</td>
-                      </tr>
-                      <tr>
-                        <td className="info-label">Bestellzeit</td>
-                        <td className="info-value">{order.createdTime} Uhr</td>
-                      </tr>
-                      <tr>
-                        <td className="info-label">Versandart</td>
-                        <td className="info-value">{order.shippingMethod}</td>
-                      </tr>
-                      <tr>
-                        <td className="info-label">E-Mail</td>
-                        <td className="info-value">{order.email}</td>
-                      </tr>
-                      <tr>
-                        <td className="info-label">Gesamtgewicht</td>
-                        <td className="info-value">{order.totalWeightKg} kg</td>
-                      </tr>
+                      <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
+                      <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
+                      <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
+                      <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
+                      <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
+                      <tr><td className="info-label">Gesamtgewicht</td><td className="info-value">{order.totalWeightKg} kg</td></tr>
                     </tbody>
                   </table>
                   <div className="badges-row">
-                    {order.shippingAddress?.company && (
-                      <div className="badge">B2B</div>
-                    )}
-                    {order.hasIcePackage && (
-                      <div className="badge badge-ice">❄ Kühlversand</div>
-                    )}
+                    {order.shippingAddress?.company && <div className="badge">B2B</div>}
+                    {order.hasIcePackage && <div className="badge badge-ice">❄ Kühlversand</div>}
                   </div>
                 </div>
                 <div className="header-right">
@@ -408,20 +368,16 @@ export default function AdditionalPage() {
                 <div className="address-box">
                   <div className="section-title">Rechnungsadresse</div>
                   <div className="address-content">
-                    <strong>{order.billingAddress?.name || "-"}</strong>
-                    <br />
-                    {order.billingAddress?.address1}
-                    <br />
+                    <strong>{order.billingAddress?.name || "-"}</strong><br />
+                    {order.billingAddress?.address1}<br />
                     {order.billingAddress?.zip} {order.billingAddress?.city}
                   </div>
                 </div>
                 <div className="address-box">
                   <div className="section-title">Lieferadresse</div>
                   <div className="address-content">
-                    <strong>{order.shippingAddress?.name || "-"}</strong>
-                    <br />
-                    {order.shippingAddress?.address1}
-                    <br />
+                    <strong>{order.shippingAddress?.name || "-"}</strong><br />
+                    {order.shippingAddress?.address1}<br />
                     {order.shippingAddress?.zip} {order.shippingAddress?.city}
                   </div>
                 </div>
@@ -432,13 +388,9 @@ export default function AdditionalPage() {
                   <tr>
                     <th style={{ width: "68px" }}>Bild</th>
                     <th>Produkt</th>
-                    <th style={{ width: "80px", textAlign: "center" }}>
-                      Menge
-                    </th>
+                    <th style={{ width: "80px", textAlign: "center" }}>Menge</th>
                     <th style={{ width: "110px" }}>Lagerplatz</th>
-                    <th style={{ width: "130px", textAlign: "center" }}>
-                      Barcode
-                    </th>
+                    <th style={{ width: "130px", textAlign: "center" }}>Barcode</th>
                     <th style={{ width: "46px", textAlign: "center" }}>✓</th>
                   </tr>
                 </thead>
@@ -447,29 +399,17 @@ export default function AdditionalPage() {
                     <tr key={item.id}>
                       <td>
                         {item.imageUrl && (
-                          <img
-                            className="product-image"
-                            src={item.imageUrl}
-                            alt=""
-                          />
+                          <img className="product-image" src={item.imageUrl} alt="" />
                         )}
                       </td>
                       <td>
                         <div className="product-title">{item.title}</div>
                         {item.germanTranslation && (
-                          <div className="german-title">
-                            {item.germanTranslation}
-                          </div>
+                          <div className="german-title">{item.germanTranslation}</div>
                         )}
-                        {item.sku && (
-                          <div className="sku">SKU: {item.sku}</div>
-                        )}
-                        {item.expiryDate && (
-                          <div className="sku">MHD: {item.expiryDate}</div>
-                        )}
-                        {item.variantTitle && (
-                          <div className="variant">{item.variantTitle}</div>
-                        )}
+                        {item.sku && <div className="sku">SKU: {item.sku}</div>}
+                        {item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
+                        {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
                       </td>
                       <td className="qty-cell">× {item.quantity}</td>
                       <td>
@@ -480,10 +420,7 @@ export default function AdditionalPage() {
                       <td className="barcode-cell">
                         {item.barcode && (
                           <>
-                            <div
-                              className="mock-barcode"
-                              style={{ fontSize: "12px" }}
-                            >
+                            <div className="mock-barcode" style={{ fontSize: "12px" }}>
                               |||| ||| || |||
                             </div>
                             <div className="barcode-number">{item.barcode}</div>
@@ -513,22 +450,10 @@ export default function AdditionalPage() {
                 <table className="footer-grid">
                   <tbody>
                     <tr>
-                      <td>
-                        <span className="footer-label">Geschäftsführer</span>
-                        Soonchan Kwon
-                      </td>
-                      <td>
-                        <span className="footer-label">Email</span>
-                        service@dawayo.de
-                      </td>
-                      <td>
-                        <span className="footer-label">Steuer-ID</span>
-                        106 5721 6110
-                      </td>
-                      <td>
-                        <span className="footer-label">USt-IdNr.</span>
-                        DE320890998
-                      </td>
+                      <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
+                      <td><span className="footer-label">Email</span>service@dawayo.de</td>
+                      <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
+                      <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
                     </tr>
                   </tbody>
                 </table>
