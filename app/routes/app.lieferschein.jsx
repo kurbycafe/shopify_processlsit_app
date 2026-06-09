@@ -1,5 +1,5 @@
 import { useLoaderData } from "react-router";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { authenticate } from "../shopify.server";
 
 const jsonResponse = (data) =>
@@ -56,6 +56,7 @@ export const loader = async ({ request }) => {
                       }
                       image { url }
                       product {
+                        featuredImage { url }
                         germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
                         expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                         position: metafield(namespace: "custom", key: "position") { value }
@@ -70,7 +71,6 @@ export const loader = async ({ request }) => {
       }
     `);
 
-    // Shopify admin.graphql()은 항상 200을 반환하므로 errors 배열만 체크
     const responseJson = await response.json();
 
     if (responseJson?.errors?.length > 0) {
@@ -89,9 +89,8 @@ export const loader = async ({ request }) => {
       const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
         const item = itemEdge.node;
         const variant = item.variant;
-
-        // product 메타필드는 variant.product 경로로 접근
         const product = variant?.product;
+
         const posRaw = product?.position?.value || "";
         const posUpper = posRaw.trim().toUpperCase();
 
@@ -105,7 +104,6 @@ export const loader = async ({ request }) => {
 
         const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
 
-        // 무게 변환 — inventoryItem.measurement가 없을 수 있으므로 방어 처리
         const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
         const weightUnit  = variant?.inventoryItem?.measurement?.weight?.unit  ?? "GRAMS";
         let grams = 0;
@@ -114,9 +112,11 @@ export const loader = async ({ request }) => {
         else if (weightUnit === "POUNDS")    grams = weightValue * 453.592;
         else if (weightUnit === "OUNCES")    grams = weightValue * 28.3495;
 
-        // GID 예: "gid://shopify/ProductVariant/54301230268745"
         const variantGid = variant?.id || "";
         const isIcePackage = variantGid.endsWith("/54301230268745");
+
+        // 이미지: variant 이미지 우선, 없으면 product featuredImage 폴백
+        const imageUrl = variant?.image?.url || product?.featuredImage?.url || null;
 
         return {
           id: item.id,
@@ -127,7 +127,7 @@ export const loader = async ({ request }) => {
           gramsTotal: grams * (item.quantity || 0),
           barcode: variant?.barcode || "",
           variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
-          imageUrl: variant?.image?.url || null,
+          imageUrl,
           isIcePackage,
           germanTranslation: product?.germanTranslation?.value || "",
           expiryDate: product?.expiryDate?.value || "",
@@ -139,7 +139,7 @@ export const loader = async ({ request }) => {
       const sortedItems = [...rawItems].sort((a, b) =>
         a._finalSortString.localeCompare(b._finalSortString)
       );
-      const totalGrams  = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
+      const totalGrams    = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
 
       return {
@@ -171,6 +171,93 @@ export const loader = async ({ request }) => {
     return jsonResponse({ orders: [], error: err.message });
   }
 };
+
+// ─── Code 128 바코드 SVG 렌더러 (외부 라이브러리 없음) ───────────────────────
+// Code 128B 인코딩 — ASCII 32~126 전체 지원
+const CODE128_CHARS = [
+  "11011001100","11001101100","11001100110","10010011000","10010001100",
+  "10001001100","10011001000","10011000100","10001100100","11001001000",
+  "11001000100","11000100100","10110011100","10011011100","10011001110",
+  "10111001100","10011101100","10011100110","11001110010","11001011100",
+  "11001001110","11011100100","11001110100","11101101110","11101001100",
+  "11100101100","11100100110","11101100100","11100110100","11100110010",
+  "11011011000","11011000110","11000110110","10100011000","10001011000",
+  "10001000110","10110001000","10001101000","10001100010","11010001000",
+  "11000101000","11000100010","10110111000","10110001110","10001101110",
+  "10111011000","10111000110","10001110110","11101110110","11010001110",
+  "11000101110","11011101000","11011100010","11011101110","11101011000",
+  "11101000110","11100010110","11101101000","11101100010","11100011010",
+  "11101111010","11001000010","11110001010","10100110000","10100001100",
+  "10010110000","10010000110","10000101100","10000100110","10110010000",
+  "10110000100","10011010000","10011000010","10000110100","10000110010",
+  "11000010010","11001010000","11110111010","11000010100","10001111010",
+  "10100111100","10010111100","10010011110","10111100100","10011110100",
+  "10011110010","11110100100","11110010100","11110010010","11011011110",
+  "11011110110","11110110110","10101111000","10100011110","10001011110",
+  "10111101000","10111100010","11110101000","11110100010","10111011110",
+  "10111101110","11101011110","11110101110","11010000100","11010010000",
+  "11010011100","11000111010",
+];
+const CODE128_START_B = 104;
+const CODE128_STOP    = "1100011101011";
+
+function encodeCode128(text) {
+  let checksum = CODE128_START_B;
+  const bars = [CODE128_CHARS[CODE128_START_B]];
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i) - 32;
+    if (code < 0 || code > 94) continue; // 지원 범위 밖 문자 스킵
+    checksum += code * (i + 1);
+    bars.push(CODE128_CHARS[code]);
+  }
+  bars.push(CODE128_CHARS[checksum % 103]);
+  bars.push(CODE128_STOP);
+  return bars.join("");
+}
+
+function Code128({ value, height = 48, moduleWidth = 1.4 }) {
+  if (!value) return null;
+  const encoded = encodeCode128(value);
+  const totalWidth = encoded.length * moduleWidth + moduleWidth * 2; // quiet zone 양쪽
+  const quietZone = moduleWidth * 10;
+
+  let x = quietZone;
+  const rects = [];
+  for (let i = 0; i < encoded.length; i++) {
+    if (encoded[i] === "1") {
+      // 연속된 1 묶기
+      let w = 0;
+      while (i < encoded.length && encoded[i] === "1") { w++; i++; }
+      i--;
+      rects.push(
+        <rect key={x} x={x} y={0} width={w * moduleWidth} height={height} fill="#000" />
+      );
+    }
+    x += moduleWidth;
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={totalWidth + quietZone * 2}
+      height={height + 14}
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      {rects}
+      <text
+        x={(totalWidth + quietZone * 2) / 2}
+        y={height + 12}
+        textAnchor="middle"
+        fontSize="9"
+        fontFamily="monospace"
+        fill="#111"
+      >
+        {value}
+      </text>
+    </svg>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdditionalPage() {
   const { orders, error } = useLoaderData();
@@ -236,7 +323,7 @@ export default function AdditionalPage() {
         .address-content { font-size: 12.5px; line-height: 20px; color: #333; }
         .order-table { width: 100%; margin-top: 26px; border-collapse: collapse; }
         .order-table thead th { border-top: 2px solid #111; border-bottom: 2px solid #111; padding: 9px 8px; font-size: 10px; font-weight: 800; color: #111; text-align: left; text-transform: uppercase; letter-spacing: 1px; }
-        .order-table tbody td { border-bottom: 1px solid #e8e8e8; padding: 11px 8px; vertical-align: top; }
+        .order-table tbody td { border-bottom: 1px solid #e8e8e8; padding: 11px 8px; vertical-align: middle; }
         .order-table tbody tr:last-child td { border-bottom: 2px solid #111; }
         .order-table tbody tr:nth-child(even) td { background: #fafafa; }
         .product-image { width: 56px; height: 56px; border-radius: 6px; border: 1px solid #ddd; object-fit: cover; display: block; }
@@ -246,7 +333,7 @@ export default function AdditionalPage() {
         .variant { display: inline-block; margin-top: 5px; border: 1px solid #ccc; border-radius: 30px; padding: 2px 8px; font-size: 10px; color: #555; }
         .location-tag { display: inline-block; background: #f0f0f0; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 700; color: #111; margin-top: 2px; }
         .qty-cell { text-align: center; font-size: 26px; font-weight: 800; color: #111; vertical-align: middle; }
-        .barcode-cell { text-align: center; vertical-align: middle; }
+        .barcode-cell { text-align: center; vertical-align: middle; padding: 6px 4px; }
         .check-cell { text-align: center; font-size: 20px; vertical-align: middle; color: #bbb; }
         .note-box { margin-top: 22px; border: 2px solid #f0c040; border-radius: 8px; background: #fffbea; padding: 12px 16px; }
         .note-title { font-size: 11px; font-weight: 800; color: #111; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
@@ -259,7 +346,6 @@ export default function AdditionalPage() {
         .footer-grid td:last-child { border-right: none; }
         .footer-label { display: block; font-weight: 800; color: #111; font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
         .shop-name { margin-top: 10px; text-align: center; font-size: 11px; font-weight: 700; color: #999; letter-spacing: 2px; text-transform: uppercase; }
-        .mock-barcode { font-family: monospace; font-size: 15px; letter-spacing: -1px; font-weight: bold; transform: scaleY(2); display: inline-block; margin: 2px 0; }
         .page-header { padding: 16px 20px; font-size: 20px; font-weight: 700; border-bottom: 1px solid #e1e3e5; margin-bottom: 20px; }
 
         @media print {
@@ -356,10 +442,10 @@ export default function AdditionalPage() {
                     src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839"
                     alt="DAWAYO"
                   />
+                  {/* 주문번호 Code 128 바코드 */}
                   <div className="barcode-wrapper">
                     <div className="barcode-title">Order Barcode</div>
-                    <div className="mock-barcode">||||||| | |||| || ||| | ||</div>
-                    <div className="barcode-number">{order.name}</div>
+                    <Code128 value={order.name} height={40} moduleWidth={1.2} />
                   </div>
                 </div>
               </div>
@@ -386,20 +472,23 @@ export default function AdditionalPage() {
               <table className="order-table">
                 <thead>
                   <tr>
-                    <th style={{ width: "68px" }}>Bild</th>
+                    <th style={{ width: "64px" }}>Bild</th>
                     <th>Produkt</th>
-                    <th style={{ width: "80px", textAlign: "center" }}>Menge</th>
-                    <th style={{ width: "110px" }}>Lagerplatz</th>
-                    <th style={{ width: "130px", textAlign: "center" }}>Barcode</th>
-                    <th style={{ width: "46px", textAlign: "center" }}>✓</th>
+                    <th style={{ width: "72px", textAlign: "center" }}>Menge</th>
+                    <th style={{ width: "90px" }}>Lagerplatz</th>
+                    <th style={{ width: "140px", textAlign: "center" }}>Barcode</th>
+                    <th style={{ width: "40px", textAlign: "center" }}>✓</th>
                   </tr>
                 </thead>
                 <tbody>
                   {order.items.map((item) => (
                     <tr key={item.id}>
+                      {/* 제품 이미지: variant 이미지 → product featuredImage 순 폴백 */}
                       <td>
-                        {item.imageUrl && (
+                        {item.imageUrl ? (
                           <img className="product-image" src={item.imageUrl} alt="" />
+                        ) : (
+                          <div style={{ width: 56, height: 56, borderRadius: 6, background: "#f0f0f0", border: "1px solid #ddd" }} />
                         )}
                       </td>
                       <td>
@@ -412,19 +501,20 @@ export default function AdditionalPage() {
                         {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
                       </td>
                       <td className="qty-cell">× {item.quantity}</td>
+                      {/* Lagerplatz: custom.position 메타필드 값 */}
                       <td>
-                        {item.position && (
+                        {item.position ? (
                           <div className="location-tag">{item.position}</div>
+                        ) : (
+                          <span style={{ color: "#bbb", fontSize: 11 }}>—</span>
                         )}
                       </td>
+                      {/* Code 128 실제 바코드 */}
                       <td className="barcode-cell">
-                        {item.barcode && (
-                          <>
-                            <div className="mock-barcode" style={{ fontSize: "12px" }}>
-                              |||| ||| || |||
-                            </div>
-                            <div className="barcode-number">{item.barcode}</div>
-                          </>
+                        {item.barcode ? (
+                          <Code128 value={item.barcode} height={40} moduleWidth={1.1} />
+                        ) : (
+                          <span style={{ color: "#bbb", fontSize: 11 }}>—</span>
                         )}
                       </td>
                       <td className="check-cell">□</td>
