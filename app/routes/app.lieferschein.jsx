@@ -1,33 +1,77 @@
 import { useLoaderData } from "react-router";
-import { authenticate } from "../shopify.server";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { useState } from "react";
-// 1. 서버 사이드: "결제 완료" 및 "미처리" 주문의 상세 데이터(상품명, 이미지, SKU, 수량) 가져오기
+import { authenticate } from "../shopify.server";
+
+// 1. 서버 사이드: 오리지널 명세서 렌더링에 필요한 모든 필드 및 메타필드 수집
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
   const response = await admin.graphql(`
     #graphql
-    query getDetailedUnfulfilledOrders {
+    query getDawayoDetailedOrders {
       orders(first: 10, query: "financial_status:paid fulfillment_status:unfulfilled") {
         edges {
           node {
             id
             name
             createdAt
-            totalWeight
-            lineItems(first: 20) {
+            email
+            note
+            shippingMethodTitle
+            shippingLine {
+              carrier
+            }
+            billingAddress {
+              name
+              company
+              address1
+              address2
+              zip
+              city
+              country
+              phone
+            }
+            shippingAddress {
+              name
+              company
+              address1
+              address2
+              zip
+              city
+              country
+              phone
+            }
+            customer {
+              orders(first: 50) {
+                edges {
+                  node {
+                    financialStatus
+                    fulfillmentStatus
+                  }
+                }
+              }
+            }
+            lineItems(first: 50) {
               edges {
                 node {
                   id
                   title
                   quantity
                   sku
+                  grams
                   variant {
+                    id
+                    title
                     barcode
                     image {
                       url
                     }
+                  }
+                  product {
+                    # 메타필드 조회: 독일어 번역, 유통기한, 진열 위치
+                    germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                    expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                    position: metafield(namespace: "custom", key: "position") { value }
                   }
                 }
               }
@@ -39,34 +83,94 @@ export const loader = async ({ request }) => {
   `);
 
   const responseJson = await response.json();
+  
   const orders = responseJson.data.orders.edges.map(edge => {
     const node = edge.node;
+
+    // 1) 단골고객 카운팅 매칭 로직
+    const successfulOrdersCount = node.customer?.orders?.edges?.filter(e => 
+      e.node.financialStatus === "PAID" && e.node.fulfillmentStatus === "FULFILLED"
+    ).length || 0;
+
+    // 2) 상품 가공 및 Lagerplatz 정렬 배열 빌드
+    const rawItems = node.lineItems.edges.map(itemEdge => {
+      const item = itemEdge.node;
+      const posRaw = item.product?.position?.value || "";
+      const posUpper = posRaw.trim().toUpperCase();
+
+      // 원본 Liquid의 정렬 가중치(position_key) 공식 자바스크립트 변환
+      let sortKey = "500_" + posUpper;
+      if (!posUpper) {
+        sortKey = "999_ZZZZZ";
+      } else if (posUpper.includes("!")) {
+        sortKey = "000_" + posUpper;
+      } else if (posUpper.includes("L-A")) {
+        sortKey = "100_" + posUpper;
+      } else if (posUpper.includes("L-B")) {
+        sortKey = "200_" + posUpper;
+      } else if (posUpper.includes("L-C")) {
+        sortKey = "300_" + posUpper;
+      } else if (posUpper.includes("L-D")) {
+        sortKey = "400_" + posUpper;
+      }
+
+      const titleKey = item.title.replace(/"/g, "").replace(/'/g, "").trim().toUpperCase();
+
+      return {
+        id: item.id,
+        title: item.title.replace(" - Default Title", ""),
+        quantity: item.quantity,
+        sku: item.sku || "",
+        weightKg: item.grams > 0 ? (item.grams / 1000).toFixed(3) : null,
+        gramsTotal: item.grams * item.quantity,
+        barcode: item.variant?.barcode || "",
+        variantTitle: item.variant?.title === "Default Title" ? "" : item.variant?.title,
+        imageUrl: item.variant?.image?.url || null,
+        isIcePackage: item.variant?.id?.includes("54301230268745") || false, // 특정 아이스팩 변정 ID 검증
+        germanTranslation: item.product?.germanTranslation?.value || "",
+        expiryDate: item.product?.expiryDate?.value || "",
+        position: posRaw,
+        // 정렬 기준 문자열 합산
+        _finalSortString: `${sortKey}___:::___${titleKey}`
+      };
+    });
+
+    // 오리지널 규칙 배열 정렬 실행
+    const sortedItems = [...rawItems].sort((a, b) => a._finalSortString.localeCompare(b._finalSortString));
+
+    // 총 중량 계산
+    const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
+    const totalWeightKg = (totalGrams / 1000).toFixed(3);
+
+    // 냉장 배송 여부 검출
+    const hasIcePackage = sortedItems.some(i => i.isIcePackage);
+
     return {
       id: node.id,
       name: node.name,
-      createdAt: new Date(node.createdAt).toLocaleDateString("de-DE"), // 독일식 날짜 표기
-      currentTime: new Date().toLocaleTimeString("de-DE", { hour: '2-digit', minute: '2-digit' }),
-      weight: node.totalWeight ? `${node.totalWeight} kg` : "0.000 kg",
-      items: node.lineItems.edges.map(itemEdge => ({
-        id: itemEdge.node.id,
-        title: itemEdge.node.title,
-        sku: itemEdge.node.sku || "-",
-        quantity: itemEdge.node.quantity,
-        barcode: itemEdge.node.variant?.barcode || "-",
-        imageUrl: itemEdge.node.variant?.image?.url || "https://via.placeholder.com/60"
-      }))
+      createdAt: new Date(node.createdAt).toLocaleDateString("de-DE"),
+      createdTime: new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
+      email: node.email || "-",
+      note: node.note || "",
+      shippingMethod: node.shippingMethodTitle || "-",
+      carrier: node.shippingLine?.carrier || null,
+      billingAddress: node.billingAddress,
+      shippingAddress: node.shippingAddress,
+      successfulOrdersCount,
+      hasIcePackage,
+      totalWeightKg,
+      items: sortedItems
     };
   });
 
   return { orders };
 };
 
-// 2. 프론트엔드 컴포넌트
+// 2. 프론트엔드: UI 렌더링 및 글로벌 CSS 인쇄 인터셉트 제어
 export default function AdditionalPage() {
   const { orders } = useLoaderData();
   const [selectedOrders, setSelectedOrders] = useState([]);
 
-  // 전체 선택/해제
   const handleSelectAll = (e) => {
     if (e.target.checked) {
       setSelectedOrders(orders.map(o => o.id));
@@ -75,7 +179,6 @@ export default function AdditionalPage() {
     }
   };
 
-  // 개별 선택/해제
   const handleSelectOrder = (id, checked) => {
     if (checked) {
       setSelectedOrders([...selectedOrders, id]);
@@ -84,115 +187,140 @@ export default function AdditionalPage() {
     }
   };
 
-  // 💡 [핵심] 브라우저 순수 인쇄창 팝업 트리거
   const handlePrint = () => {
     if (selectedOrders.length === 0) return alert("인쇄할 주문을 선택해 주세요.");
-    window.print(); // 이 명령어가 실행되면 브라우저 인쇄 설정창(두 번째 이미지)이 켜집니다.
+    window.print();
   };
 
-  // 현재 선택된 주문 객체들만 필터링
   const activePrintOrders = orders.filter(o => selectedOrders.includes(o.id));
 
   return (
-    <s-page heading="인쇄 관리 시스템">
+    <s-page heading="DAWAYO 패킹 시스템">
       
-      {/* 스타일 선언부: 일반 화면용 스타일과 실제 종이 인쇄용(@media print) 스타일 분리 */}
+      {/* 폰트 및 원본 유출 인쇄 레이아웃 컴파일 스타일 시트 */}
       <style>{`
-        /* 1. 일반 웹 화면 기본 레이아웃 */
-        .admin-controls { padding: 20px; background: #fff; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e1e3e5; }
-        .order-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .order-table th, .order-table td { padding: 10px; border-bottom: 1px solid #e1e3e5; text-align: left; }
+        @import url("https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700;800&display=swap");
+
+        /* 일반 브라우저 관리 제어 패널 스타일 */
+        .admin-panel { padding: 20px; background: #fff; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e1e3e5; }
+        .list-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .list-table th, .list-table td { padding: 12px 10px; border-bottom: 1px solid #e1e3e5; text-align: left; }
+        .print-btn { padding: 10px 20px; background-color: #111; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .print-btn:disabled { background-color: #e3e3e3; cursor: not-allowed; color: #999; }
         
-        .preview-area { background: #f1f1f1; padding: 40px 20px; display: flex; flex-direction: column; gap: 40px; align-items: center; }
-        
-        /* 패킹슬립 종이 한 장 스타일 공식 지정 (A4 비율 맞춤) */
-        .packing-slip-paper { 
-          background: #fff; 
-          width: 210mm; 
-          min-height: 297mm; 
-          padding: 20mm; 
-          box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        /* 뷰포트 가상 도화지 컨테이너 백그라운드 */
+        .paper-viewport { background: #525659; padding: 40px 0; display: flex; flex-direction: column; gap: 30px; align-items: center; }
+
+        /* ======================================================== */
+        /* 오리지널 LIQUID 컴포넌트 인쇄 클래스 주입 전개 규격 스타일화 */
+        /* ======================================================== */
+        .packing-slip {
+          background: #fff;
+          width: 210mm;
+          min-height: 297mm;
+          padding: 20mm !important;
+          box-shadow: 0 0 15px rgba(0,0,0,0.3);
           box-sizing: border-box;
-          color: #000;
-          font-family: sans-serif;
+          color: #333;
+          font-family: 'Noto Sans', sans-serif;
+          font-size: 12px;
+          line-height: 1.5;
         }
 
-        /* 패킹슬립 내부 세부 CSS */
-        .slip-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
-        .slip-title { font-size: 32px; font-weight: 900; letter-spacing: 1px; margin: 0; }
-        .info-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px; font-size: 13px; margin-top: 15px; }
-        .info-label { font-weight: bold; }
-        .logo-box img { max-width: 180px; height: auto; }
+        .header { width: 100%; margin-bottom: 22px; border-bottom: 2px solid #111; padding-bottom: 16px; display: table; table-layout: fixed; }
+        .header-left { display: table-cell; width: 65%; vertical-align: top; }
+        .header-right { display: table-cell; width: 35%; vertical-align: top; text-align: right; }
+        .logo { max-width: 200px; max-height: 80px; margin-bottom: 6px; }
+        .document-title { font-size: 38px; font-weight: 800; color: #111; letter-spacing: 1.5px; line-height: 1; margin-bottom: 16px; text-transform: uppercase; }
         
-        .address-section { display: flex; gap: 40px; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 15px 0; margin-bottom: 30px; }
-        .address-col { flex: 1; font-size: 13px; }
-        .address-title { font-weight: bold; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; }
+        .info-grid { border-collapse: collapse; }
+        .info-grid tr + tr td { padding-top: 3px; }
+        .info-label { width: 145px; font-weight: 700; color: #111; font-size: 12px; padding-right: 8px; white-space: nowrap; }
+        .info-value { font-size: 12px; color: #444; }
 
-        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .items-table th { border-bottom: 2px solid #000; padding: 8px 4px; text-align: left; font-size: 11px; text-transform: uppercase; }
-        .items-table td { border-bottom: 1px solid #e1e3e5; padding: 12px 4px; vertical-align: top; }
-        .prod-img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; border: 1px solid #e1e3e5; }
+        .badges-row { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; border: 1.5px solid #111; font-size: 10px; font-weight: 700; color: #111; line-height: 1.4; }
+        .badge-ice { background: #e8f4fd; border-color: #4a9fd4; color: #1a6fa0; }
+        .international-box { margin-top: 12px; background: #111; color: #fff; font-size: 15px; font-weight: 800; border-radius: 8px; padding: 9px 14px; letter-spacing: 2px; display: inline-block; }
+
+        .barcode-wrapper { text-align: center; margin-top: 6px; margin-bottom: 10px; }
+        .barcode-title { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+        .barcode-number { margin-top: 3px; font-size: 11px; font-weight: 700; color: #111; letter-spacing: 0.5px; }
+        .shipping-badge { display: inline-block; margin-top: 10px; border: 2px solid #111; border-radius: 30px; padding: 7px 16px; font-size: 13px; font-weight: 800; color: #111; letter-spacing: 0.5px; }
+
+        .address-row { width: 100%; margin-top: 22px; display: table; table-layout: fixed; }
+        .address-box { display: table-cell; width: 48%; vertical-align: top; }
+        .address-box + .address-box { padding-left: 4%; }
+        .section-title { font-size: 10px; font-weight: 800; color: #111; border-bottom: 2px solid #111; padding-bottom: 5px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1.5px; }
+        .address-content { font-size: 12.5px; line-height: 20px; color: #333; }
+
+        .order-table { width: 100%; margin-top: 26px; border-collapse: collapse; }
+        .order-table thead th { border-top: 2px solid #111; border-bottom: 2px solid #111; padding: 9px 8px; font-size: 10px; font-weight: 800; color: #111; text-align: left; text-transform: uppercase; letter-spacing: 1px; }
+        .order-table tbody td { border-bottom: 1px solid #e8e8e8; padding: 11px 8px; vertical-align: top; }
+        .order-table tbody tr:last-child td { border-bottom: 2px solid #111; }
+        .order-table tbody tr:nth-child(even) td { background: #fafafa; }
         
-        .slip-footer { margin-top: auto; border-top: 2px solid #000; padding-top: 20px; text-align: center; font-size: 12px; }
+        .product-image { width: 56px; height: 56px; border-radius: 6px; border: 1px solid #ddd; object-fit: cover; display: block; }
+        .product-title { font-size: 13px; font-weight: 700; color: #111; line-height: 17px; }
+        .german-title { margin-top: 3px; font-size: 11px; color: #888; font-style: italic; line-height: 15px; }
+        .sku { margin-top: 5px; font-size: 10.5px; color: #666; font-family: monospace; }
+        .variant { display: inline-block; margin-top: 5px; border: 1px solid #ccc; border-radius: 30px; padding: 2px 8px; font-size: 10px; color: #555; }
+        .location-tag { display: inline-block; background: #f0f0f0; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 700; color: #111; margin-top: 2px; }
+        .weight { margin-top: 4px; font-size: 10px; color: #999; }
         
-        /* 🔥 [수정본] 진짜 프린터기로 인쇄할 때의 CSS 제어 */
+        .qty-cell { text-align: center; font-size: 26px; font-weight: 800; color: #111; vertical-align: middle; }
+        .barcode-cell { text-align: center; vertical-align: middle; }
+        .check-cell { text-align: center; font-size: 20px; vertical-align: middle; color: #bbb; }
+
+        .note-box { margin-top: 22px; border: 2px solid #f0c040; border-radius: 8px; background: #fffbea; padding: 12px 16px; }
+        .note-title { font-size: 11px; font-weight: 800; color: #111; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+        .note-content { font-size: 12.5px; color: #444; line-height: 1.6; }
+
+        .picker-box { margin-top: 18px; border: 1px dashed #aaa; border-radius: 8px; padding: 12px 16px; font-size: 12.5px; font-weight: 700; color: #444; display: flex; gap: 40px; }
+        
+        .footer { margin-top: 18px; border-top: 2px solid #111; padding-top: 14px; }
+        .thank-you { text-align: center; font-size: 14px; font-weight: 800; color: #111; letter-spacing: 1px; margin-bottom: 12px; text-transform: uppercase; }
+        .footer-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .footer-grid td { text-align: center; padding: 4px 6px; font-size: 10px; line-height: 16px; color: #555; border-right: 1px solid #e0e0e0; }
+        .footer-grid td:last-child { border-right: none; }
+        .footer-label { display: block; font-weight: 800; color: #111; font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
+        .shop-name { margin-top: 10px; text-align: center; font-size: 11px; font-weight: 700; color: #999; letter-spacing: 2px; text-transform: uppercase; }
+
+        /* 가짜 가상 바코드 그래픽화 구현 기법 */
+        .mock-barcode { font-family: monospace; font-size: 15px; letter-spacing: -1px; font-weight: bold; transform: scaleY(2); display: inline-block; margin: 2px 0; }
+
+        /* ======================================================== */
+        /* 🖨️ 인쇄 가동 시 브라우저 내비게이션 필터 및 도화지 확장 */
+        /* ======================================================== */
         @media print {
-          /* 1. 최상위 부모(s-page)는 살려두고, 인쇄에서 제외할 구체적인 클래스/태그만 숨깁니다. */
-          .admin-controls, 
-          button, 
-          s-paragraph, 
-          .header, 
-          #shopify-app-block,
-          ui-title-bar {
+          .admin-panel, button, s-paragraph, .header-panel, #shopify-app-block, ui-title-bar {
             display: none !important;
           }
-          
-          /* 2. 쇼피파이 기본 앱 프레임의 마진이나 배경, 그림자 제거 */
-          body, html, s-page, s-section { 
-            background: #fff !important; 
-            margin: 0 !important; 
-            padding: 0 !important; 
-            box-shadow: none !important;
+          body, html, s-page, s-section {
+            background: #fff !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important;
           }
-          
-          /* 3. 패킹슬립 영역이 잘리지 않고 화면에 꽉 차게 렌더링되도록 지정 */
-          .preview-area { 
-            background: transparent !important; 
-            padding: 0 !important; 
-            gap: 0 !important;
-            display: block !important;
+          .paper-viewport { background: transparent !important; padding: 0 !important; gap: 0 !important; display: block !important; }
+          .packing-slip {
+            width: 100% !important; max-width: 100% !important; min-height: auto !important; box-shadow: none !important;
+            padding: 0mm !important; /* 브라우저 자체 인쇄마진 위임 */
+            page-break-after: always;
           }
-          
-          .packing-slip-paper { 
-            width: 100% !important; 
-            min-height: auto !important; 
-            box-shadow: none !important; 
-            padding: 10mm !important; /* 인쇄 시 여백 */
-            page-break-after: always; /* 다중 출력 시 주문별 페이지 분할 */
-          }
-        }
         }
       `}</style>
 
-      {/* [일반 화면 제어 영역] 상단 템플릿 관리 바 */}
-      <div className="admin-controls">
-        <s-paragraph>인쇄 대기 중인 주문 목록입니다. 체크박스를 선택하면 하단에 미리보기가 구성되며 '선택 항목 인쇄' 진행 시 바로 프린터 출력 창이 켜집니다.</s-paragraph>
+      {/* 관리 바 레이어 */}
+      <div className="admin-panel">
+        <s-paragraph>
+          출력할 주문을 선택한 뒤 상단 버튼을 클릭하면 <strong>DAWAYO 공식 오리지널 테마 양식</strong>으로 인쇄 가이드 팝업이 활성화됩니다.
+        </s-paragraph>
         
-        <div style={{ margin: "15px 0", display: "flex", gap: "12px" }}>
-          <button 
-            onClick={handlePrint}
-            disabled={selectedOrders.length === 0}
-            style={{
-              padding: "10px 20px",
-              backgroundColor: selectedOrders.length > 0 ? "#1a1a1a" : "#e3e3e3",
-              color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold"
-            }}
-          >
-            선택 항목 인쇄하기 ({selectedOrders.length}개)
+        <div style={{ margin: "14px 0" }}>
+          <button className="print-btn" onClick={handlePrint} disabled={selectedOrders.length === 0}>
+            선택 항목 패킹슬립 인쇄하기 ({selectedOrders.length}개)
           </button>
         </div>
 
-        <table className="order-table">
+        <table className="list-table">
           <thead>
             <tr>
               <th style={{ width: "40px" }}>
@@ -203,13 +331,13 @@ export default function AdditionalPage() {
                 />
               </th>
               <th>주문 번호</th>
-              <th>생성 일자</th>
+              <th>날짜</th>
               <th>상태</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
-              <tr><td colSpan="4" style={{ textAlign: "center", color: "#888" }}>인쇄 대상 주문이 없습니다.</td></tr>
+              <tr><td colSpan="4" style={{ textAlign: "center", color: "#888" }}>인쇄 가능한 미처리 완료 주문이 없습니다.</td></tr>
             ) : (
               orders.map((order) => (
                 <tr key={order.id}>
@@ -222,7 +350,7 @@ export default function AdditionalPage() {
                   </td>
                   <td style={{ fontWeight: "bold" }}>{order.name}</td>
                   <td>{order.createdAt}</td>
-                  <td style={{ color: "green" }}>결제완료 / 미처리</td>
+                  <td style={{ color: "#008060", fontWeight: "bold" }}>Paid / Unfulfilled</td>
                 </tr>
               ))
             )}
@@ -230,84 +358,169 @@ export default function AdditionalPage() {
         </table>
       </div>
 
-      {/* [인쇄 및 미리보기 가상 영역] 선택된 주문들의 패킹슬립 도화지가 배치되는 곳 */}
+      {/* 인쇄 대상 뷰포트 배치 */}
       {activePrintOrders.length > 0 && (
-        <div className="preview-area">
+        <div className="paper-viewport">
           {activePrintOrders.map((order) => (
-            <div key={order.id} className="packing-slip-paper">
-              
-              {/* 문서 헤더 파트 */}
-              <div className="slip-header">
-                <div>
-                  <h1 className="slip-title">LIEFERSCHEIN</h1>
-                  <div className="info-grid">
-                    <span className="info-label">Bestellnummer</span><span>{order.name.replace("#", "")}</span>
-                    <span className="info-label">Bestelldatum</span><span>{order.createdAt}</span>
-                    <span className="info-label">Bestellzeit</span><span>{order.currentTime} Uhr</span>
-                    <span className="info-label">Gesamtgewicht</span><span>{order.weight}</span>
+            <div key={order.id} className="packing-slip">
+
+              {/* HEADER PART */}
+              <div className="header">
+                <div className="header-left">
+                  <div className="document-title">Lieferschein</div>
+                  <table className="info-grid">
+                    <tbody>
+                      <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
+                      <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
+                      <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
+                      <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
+                      {order.carrier && (
+                        <tr><td className="info-label">Versanddienstleister</td><td className="info-value">{order.carrier}</td></tr>
+                      )}
+                      <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
+                      <tr><td className="info-label">Gesamtgewicht</td><td className="info-value">{order.totalWeightKg} kg</td></tr>
+                    </tbody>
+                  </table>
+
+                  {/* BADGES SECTION */}
+                  <div className="badges-row">
+                    {order.successfulOrdersCount > 1 && (
+                      <div className="badge">Stammkunde ({order.successfulOrdersCount}x)</div>
+                    )}
+                    {order.shippingAddress?.company && <div className="badge">B2B</div>}
+                    {order.hasIcePackage && <div className="badge badge-ice">❄ Kühlversand</div>}
                   </div>
+
+                  {order.shippingAddress?.country && order.shippingAddress.country !== "Germany" && (
+                    <div className="international-box">{order.shippingAddress.country.toUpperCase()}</div>
+                  )}
                 </div>
-                {/* 우측 상단 로고 및 바코드 대체 영역 */}
-                <div className="logo-box" style={{ textAlign: "right" }}>
-                  <div style={{ background: "#e01a22", color: "#fff", padding: "8px 15px", fontWeight: "bold", display: "inline-block", borderRadius: "4px" }}>
-                    DAWAYO🛒
+
+                <div className="header-right">
+                  <img 
+                    className="logo" 
+                    src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" 
+                    alt="DAWAYO" 
+                  />
+                  <div className="barcode-wrapper">
+                    <div className="barcode-title">Order Barcode</div>
+                    <div className="mock-barcode">||||||| | |||| || ||| | ||</div>
+                    <div className="barcode-number">{order.name}</div>
                   </div>
-                  <div style={{ marginTop: "15px", fontSize: "10px", border: "1px solid #000", padding: "4px", textAlign: "center" }}>
-                    ||||||||||||||||||||||<br />
-                    {order.name.replace("#", "")}
-                  </div>
+
+                  {order.shippingMethod.includes("DHL") && <div className="shipping-badge">DHL Standard</div>}
+                  {order.shippingMethod.includes("UPS Express Saver") && <div className="shipping-badge">UPS Express Saver</div>}
+                  {order.shippingMethod.includes("UPS Express") && !order.shippingMethod.includes("Saver") && <div className="shipping-badge">UPS Express</div>}
+                  {order.shippingMethod.includes("UPS Standard") && <div className="shipping-badge">UPS Standard</div>}
                 </div>
               </div>
 
-              {/* 주소 정보 파트 */}
-              <div className="address-section">
-                <div className="address-col">
-                  <div className="address-title">RECHNUNGSADRESSE</div>
-                  <div>고객 정보 미연동 (주문서 참조)</div>
+              {/* ADDRESSES PART */}
+              <div className="address-row">
+                <div className="address-box">
+                  <div className="section-title">Rechnungsadresse</div>
+                  {order.billingAddress ? (
+                    <div className="address-content">
+                      <strong>{order.billingAddress.name}</strong><br />
+                      {order.billingAddress.company && <>{order.billingAddress.company}<br /></>}
+                      {order.billingAddress.address1}<br />
+                      {order.billingAddress.address2 && <>{order.billingAddress.address2}<br /></>}
+                      {order.billingAddress.zip} {order.billingAddress.city}<br />
+                      {order.billingAddress.country}
+                      {order.billingAddress.phone && <><br />Tel. {order.billingAddress.phone}</>}
+                    </div>
+                  ) : <div className="address-content">-</div>}
                 </div>
-                <div className="address-col">
-                  <div className="address-title">LIEFERADRESSE</div>
-                  <div>배송지 정보 미연동 (주문서 참조)</div>
+
+                <div className="address-box">
+                  <div className="section-title">Lieferadresse</div>
+                  {order.shippingAddress ? (
+                    <div className="address-content">
+                      <strong>{order.shippingAddress.name}</strong><br />
+                      {order.shippingAddress.company && <>{order.shippingAddress.company}<br /></>}
+                      {order.shippingAddress.address1}<br />
+                      {order.shippingAddress.address2 && <>{order.shippingAddress.address2}<br /></>}
+                      {order.shippingAddress.zip} {order.shippingAddress.city}<br />
+                      {order.shippingAddress.country}
+                      {order.shippingAddress.phone && <><br />Tel. {order.shippingAddress.phone}</>}
+                    </div>
+                  ) : <div className="address-content">-</div>}
                 </div>
               </div>
 
-              {/* 상품 테이블 명세서 파트 */}
-              <table className="items-table">
+              {/* PRODUCT SPECIFICATION TABLE PART */}
+              <table className="order-table">
                 <thead>
                   <tr>
-                    <th style={{ width: "60px" }}>BILD</th>
-                    <th>PRODUKT</th>
-                    <th style={{ width: "60px", textAlign: "center" }}>MENGE</th>
-                    <th style={{ width: "100px" }}>SKU</th>
-                    <th style={{ width: "120px" }}>BARCODE</th>
+                    <th style={{ width: "68px" }}>Bild</th>
+                    <th>Produkt</th>
+                    <th style={{ width: "80px", textAlign: "center" }}>Menge</th>
+                    <th style={{ width: "110px" }}>Lagerplatz</th>
+                    <th style={{ width: "130px", textAlign: "center" }}>Barcode</th>
+                    <th style={{ width: "46px", textAlign: "center" }}>✓</th>
                   </tr>
                 </thead>
                 <tbody>
                   {order.items.map((item) => (
                     <tr key={item.id}>
-                      <td><img src={item.imageUrl} alt={item.title} className="prod-img" /></td>
                       <td>
-                        <div style={{ fontWeight: "bold" }}>{item.title}</div>
+                        {item.imageUrl && <img className="product-image" src={item.imageUrl} alt="" />}
                       </td>
-                      <td style={{ textAlign: "center", fontWeight: "bold", fontSize: "14px" }}>× {item.quantity}</td>
-                      <td style={{ color: "#555" }}>{item.sku}</td>
                       <td>
-                        <div style={{ fontSize: "9px" }}>|||||||||||||||||</div>
-                        <div>{item.barcode}</div>
+                        <div className="product-title">{item.title}</div>
+                        {item.germanTranslation && <div className="german-title">{item.germanTranslation}</div>}
+                        {item.sku && <div className="sku">SKU: {item.sku}</div>}
+                        {item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
+                        {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
+                        {item.weightKg && <div className="weight">{item.weightKg} kg</div>}
                       </td>
+                      <td className="qty-cell">× {item.quantity}</td>
+                      <td>
+                        {item.position && <div className="location-tag">{item.position}</div>}
+                      </td>
+                      <td className="barcode-cell">
+                        {item.barcode && (
+                          <>
+                            <div className="mock-barcode" style={{ fontSize: "12px" }}>|||| ||| || |||</div>
+                            <div className="barcode-number">{item.barcode}</div>
+                          </>
+                        )}
+                      </td>
+                      <td className="check-cell">□</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
-              {/* 하단 패킹 검수 및 푸터 영역 */}
-              <div className="slip-footer">
-                <div style={{ display: "flex", justifyContents: "space-between", gap: "50px", textAlign: "left", marginBottom: "30px" }}>
-                  <div style={{ flex: 1, borderBottom: "1px solid #000", paddingBottom: "5px" }}>Gepackt von: _________________</div>
-                  <div style={{ flex: 1, borderBottom: "1px solid #000", paddingBottom: "5px" }}>Kontrolliert von: _________________</div>
+              {/* CUSTOM NOTE PART */}
+              {order.note && (
+                <div className="note-box">
+                  <div className="note-title">Lieferhinweis</div>
+                  <div className="note-content" style={{ whiteSpace: "pre-line" }}>{order.note}</div>
                 </div>
-                <p style={{ fontWeight: "bold", letterSpacing: "1px", margin: "20px 0 10px" }}>VIELEN DANK FÜR IHREN EINKAUF!</p>
-                <div style={{ fontSize: "10px", color: "#666" }}>DAWAYO.DE</div>
+              )}
+
+              {/* CHECKER ASSIGNMENT BOX */}
+              <div className="picker-box">
+                <span>Gepackt von: _____________________</span>
+                <span>Kontrolliert von: _____________________</span>
+              </div>
+
+              {/* LEGAL FOOTER PART */}
+              <div className="footer">
+                <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
+                <table className="footer-grid">
+                  <tbody>
+                    <tr>
+                      <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
+                      <td><span className="footer-label">Email</span>service@dawayo.de</td>
+                      <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
+                      <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                      <td><span className="footer-label">EORI</span>DE835767654986380</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div className="shop-name">dawayo.de</div>
               </div>
 
             </div>
