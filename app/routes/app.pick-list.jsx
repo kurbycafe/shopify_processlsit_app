@@ -1,7 +1,7 @@
 import { Form, useLoaderData, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib"; // PDF 빌드 엔진
-import nodemailer from "nodemailer"; // 이메일 발송 엔진
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import nodemailer from "nodemailer";
 
 // ========================================================
 // 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
@@ -38,7 +38,7 @@ async function fetchOdooBinLocations(skus) {
       jsonrpc: "2.0", method: "call",
       params: {
         service: "object", method: "execute_kw",
-        args: [ODOO_DB, uid, ODOO_API_KEY, "stock.quant", "search_read", [[["product_id.default_code", "in", skus]]]],
+        args: [ODOO_DB, uid, ODOO_API_KEY, "stock.quant", "search_read", [[["product_id.default_code", "in", skus]]],],
         "kwargs": { "fields": ["product_reference_code", "location_id", "shelf_location", "warehouse_id"] }
       },
       id: Math.floor(Math.random() * 1000)
@@ -82,7 +82,7 @@ async function fetchOdooBinLocations(skus) {
       } else if (storeShelf) {
         binMap[sku] = storeShelf;
       } else if (normalShelf) {
-        binMap[sku] = `${normalShelf} (신창고)`;
+        binMap[sku] = `*${normalShelf} (신창고)`;
       } else {
         binMap[sku] = "위치 미지정";
       }
@@ -114,6 +114,30 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
     }
   }
 `;
+
+// 💡 매장창고 우선 출력 후 신창고 오름차순 커스텀 정렬 유틸리티 함수
+function sortBinLocations(a, b) {
+  const locA = a.binLocation || "";
+  const locB = b.binLocation || "";
+
+  // 위치 미지정은 무조건 맨 뒤로 보냄
+  if (locA === "위치 미지정") return 1;
+  if (locB === "위치 미지정") return -1;
+
+  // 신창고 단독 위치(스타일시트 상 '*'로 시작하도록 구현된 구역) 체크
+  const aIsNewOnly = locA.startsWith("*");
+  const bIsNewOnly = locB.startsWith("*");
+
+  // 둘 다 신창고 단독 구역인 경우 오름차순 정렬
+  if (aIsNewOnly && bIsNewOnly) return locA.localeCompare(locB);
+  // a만 신창고인 경우 매장창고 우선이므로 뒤로 보냄
+  if (aIsNewOnly) return 1;
+  // b만 신창고인 경우 앞으로 보냄
+  if (bIsNewOnly) return -1;
+
+  // 그 외 매장창고 단독 및 매장+신창고 결합 리스트 오름차순 정렬
+  return locA.localeCompare(locB);
+}
 
 async function loadPickListData(admin) {
   const itemMap = new Map();
@@ -158,54 +182,71 @@ async function loadPickListData(admin) {
       binLocation: odooBins[item.sku] || "위치 미지정",
       orderNumbers: Array.from(item.orderNumbers).sort(),
     }))
-    .sort((a, b) => a.binLocation.localeCompare(b.binLocation) || b.orderedQty - a.orderedQty);
+    // 💡 피킹 요구사항 반영: 매장창고 우선 정렬 및 개별 오름차순 룰 적용
+    .sort(sortBinLocations);
 
   return { items, totalUnfulfilledProducts: items.length, totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0) };
 }
 
 // ========================================================
-// 3. 첨부 파일용 실시간 PDF 바이너리 생성기 (pdf-lib)
+// 3. 렌더링 무한 자동 스크롤 및 다중 페이지 유기적 PDF 생성기
 // ========================================================
-async function generatePdfBuffer(items, timeTitle) {
+async function generatePdfBuffer(items, techTime) {
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([842, 595]); // 가로 레이아웃
-  
   const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const { width, height } = page.getSize();
   
-  page.drawText(`PICKING LIST - ${timeTitle.toUpperCase()}`, {
-    x: 40, y: height - 50, size: 18, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16)
-  });
-
-  let currentY = height - 100;
-  page.drawRectangle({ x: 40, y: currentY - 5, width: width - 80, height: 26, color: rgb(0.06, 0.09, 0.16) });
+  const pageWith = 842;
+  const pageHeight = 595; // A4 가로 사이즈 규격
   
-  page.drawText("SHELF LOC (STORE / NEW)", { x: 45, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("SKU", { x: 230, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("PRODUCT DESCRIPTION", { x: 340, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("PICK QTY", { x: 620, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("ORDERS", { x: 700, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
+  let page = pdfDoc.addPage([pageWith, pageHeight]);
+  let currentY = pageHeight - 50;
 
-  currentY -= 25;
+  // 헤더 드로잉 공통 캡슐화 함수
+  const drawPageHeader = (pageNum) => {
+    // 💡 WinAnsi 인코딩 실패를 차단하기 위해 PDF 내부 제목은 영문 및 안전한 기호 조합만 사용합니다.
+    page.drawText(`PICKING LIST - [${techTime}]`, { x: 40, y: pageHeight - 35, size: 16, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16) });
+    page.drawText(`Page: ${pageNum}`, { x: pageWith - 80, y: pageHeight - 35, size: 10, font: Helvetica, color: rgb(0.39, 0.45, 0.55) });
+    
+    let headerY = pageHeight - 65;
+    page.drawRectangle({ x: 40, y: headerY - 5, width: pageWith - 80, height: 24, color: rgb(0.06, 0.09, 0.16) });
+    page.drawText("SHELF LOCATION", { x: 45, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("SKU", { x: 250, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("PRODUCT ENG REPLACEMENT DESCRIPTION", { x: 360, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("QTY", { x: 680, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("ORDERS", { x: 740, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    
+    return headerY - 22;
+  };
+
+  currentY = drawPageHeader(1);
+  let pageCounter = 1;
 
   items.forEach((item) => {
-    if (currentY < 40) return;
-    page.drawLine({ start: { x: 40, y: currentY - 5 }, end: { x: width - 40, y: currentY - 5 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
+    // 💡 하단 짤림 방지: 가용 한계 고도(45) 미만으로 내려가면 새 페이지를 즉시 생성
+    if (currentY < 45) {
+      page = pdfDoc.addPage([pageWith, pageHeight]);
+      pageCounter++;
+      currentY = drawPageHeader(pageCounter);
+    }
 
-    page.drawText(item.binLocation.substring(0, 26), { x: 45, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
-    page.drawText(item.sku, { x: 230, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
-    
-    const sanitizedTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item"); 
-    page.drawText(sanitizedTitle.substring(0, 35), { x: 340, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
-    page.drawText(String(item.orderedQty), { x: 620, y: currentY, size: 10, font: HelveticaBold, color: rgb(0, 0, 0) });
-    page.drawText(item.orderNumbers.join(", ").substring(0, 20), { x: 700, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
+    page.drawLine({ start: { x: 40, y: currentY - 4 }, end: { x: pageWith - 40, y: currentY - 4 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
 
-    currentY -= 22;
+    // 인코딩 에러 방지를 위해 한글 단어 제거 및 영문 안전 문구 치환
+    const cleanLocation = item.binLocation.replace(/신창고/g, "NEW").replace(/매장창고/g, "STORE");
+    const safeTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item-Data");
+
+    page.drawText(cleanLocation.substring(0, 30), { x: 45, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
+    page.drawText(item.sku.substring(0, 15), { x: 250, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
+    page.drawText(safeTitle.substring(0, 45), { x: 360, y: currentY, size: 8, font: Helvetica, color: rgb(0.25, 0.32, 0.44) });
+    page.drawText(String(item.orderedQty), { x: 680, y: currentY, size: 9, font: HelveticaBold, color: rgb(0, 0, 0) });
+    page.drawText(item.orderNumbers.join(", ").substring(0, 14), { x: 740, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
+
+    currentY -= 20; // 테이블 열 간격 조정
   });
 
   const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes); // Node.js 버퍼 형태로 출력 반환
+  return Buffer.from(pdfBytes);
 }
 
 // ========================================================
@@ -220,16 +261,17 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
   const clientTime = formData.get("clientTime"); 
+  const techTime = formData.get("techTime"); // 💡 WinAnsi 인코딩 안전용 타임스탬프 (영문 표기)
 
   if (intent === "send-email") {
     const { admin } = await authenticate.admin(request);
     const data = await loadPickListData(admin);
 
-    // 💡 3번 모듈을 통해 무가공 순수 PDF 파일 바이너리 생성
-    const pdfBuffer = await generatePdfBuffer(data.items, clientTime);
+    const pdfBuffer = await generatePdfBuffer(data.items, techTime);
+    
+    // 이메일 수신함 타이틀은 사람이 보기 편하게 요청하신 한글 포맷 그대로 적용
     const mailTitle = `${clientTime} 기준 처리중`;
 
-    // ⚠️ 발송용 인프라 SMTP 메일 서버 계정 연동 규격
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 465,
@@ -244,11 +286,11 @@ export const action = async ({ request }) => {
       await transporter.sendMail({
         from: '"Shopify System" <YOUR_SYSTEM_EMAIL@gmail.com>',
         to: "popeye.gmbh@gmail.com",
-        subject: mailTitle, // 💡 "2026년 6월 10일 11시 44분 기준 처리중"
-        text: "피킹 리스트 PDF 파일이 첨부되었습니다.", // 시스템 텍스트 최소화
+        subject: mailTitle, 
+        text: "요청하신 시간 기준의 피킹 장부가 PDF 첨부 파일로 발행되었습니다.", 
         attachments: [
           {
-            filename: `${mailTitle}.pdf`, // 💡 첨부파일명도 타이틀 포맷과 동치 처리
+            filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, // 안전한 영문 파일명 지정
             content: pdfBuffer,
             contentType: "application/pdf"
           }
@@ -256,7 +298,7 @@ export const action = async ({ request }) => {
       });
       return { success: true };
     } catch (err) {
-      console.error("PDF 첨부 메일 발송 실패:", err);
+      console.error("PDF 전송 오류 및 예외 로그:", err);
       return { success: false };
     }
   }
@@ -267,20 +309,21 @@ export const action = async ({ request }) => {
 // 5. UI 대시보드 마크업 및 동시 트리거 엔트리
 // ========================================================
 export default function PickListPage() {
-  const { items, totalUnfulfilledProducts, totalOrderedQty, scopeError } = useLoaderData();
+  const { items, totalUnfulfilledProducts, totalOrderedQty } = useLoaderData();
   const submit = useSubmit();
 
   const handlePrintAndEmail = () => {
     const now = new Date();
+    // 1. 이메일 제목용 한글 날짜 포맷
     const formattedTime = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}시 ${now.getMinutes()}분`;
+    // 2. PDF 인코딩 에러 방지용 안전한 영문 날짜 포맷
+    const techTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    // 백엔드로 이메일 발송 신호 전달 (PDF 첨부용 정보 스크리닝)
     submit(
-      { intent: "send-email", clientTime: formattedTime },
+      { intent: "send-email", clientTime: formattedTime, techTime: techTime },
       { method: "post" }
     );
 
-    // 브라우저 화면 출력창 동시 팝업
     window.print();
   };
 
@@ -291,17 +334,19 @@ export default function PickListPage() {
   const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "12px 14px", verticalAlign: "top", fontSize: "14px" };
 
   return (
-    <s-page heading="처리중 리스트 (매장/신창고 교차 연동) ver2">
+    <s-page heading="처리중 리스트 (매장/신창고 교차 연동)">
       <style>{`
         @media print {
           button, .no-print, s-button, .shopify-app-bridge-header { display: none !important; }
           body { background: #fff !important; color: #000 !important; }
           th { background: #0f172a !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           td { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          /* 화면 스크롤이 끊겨서 인쇄되지 않도록 프린트 시 스크롤 제한 해제 */
+          div, table { overflow: visible !important; height: auto !important; }
         }
       `}</style>
 
-      <s-section heading="피킹 동선 관리 장부" description="매장창고(STORE/Stock)에 재고가 있는 쉘프를 우선 출력하고 신창고 로케이션을 교차 결합해 줍니다.">
+      <s-section heading="피킹 동선 관리 장부" description="매장창고 정렬 후, 신창고 구역이 순서대로 정렬됩니다. 수천 행의 데이터도 인쇄 및 메일링 시 깨짐 없이 전송됩니다.">
         
         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px" }}>
@@ -320,13 +365,11 @@ export default function PickListPage() {
           </s-button>
         </div>
 
-        {scopeError && <p style={{ color: "red" }}>{scopeError}</p>}
-
         <div style={tableWrapStyle}>
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={{ ...headerCellStyle, width: "240px" }}>창고 위치 (STORE / NEW)</th>
+                <th style={{ ...headerCellStyle, width: "260px" }}>창고 위치 (STORE / NEW)</th>
                 <th style={headerCellStyle}>상품명</th>
                 <th style={headerCellStyle}>SKU</th>
                 <th style={headerCellStyle}>Barcode</th>
@@ -338,7 +381,12 @@ export default function PickListPage() {
             <tbody>
               {items.map((item) => (
                 <tr key={`${item.productName}-${item.sku}`} style={{ background: "#fff" }}>
-                  <td style={{ ...bodyCellStyle, fontWeight: "bold", color: "#1d4ed8", background: "#f0f5ff" }}>
+                  <td style={{ 
+                    ...bodyCellStyle, 
+                    fontWeight: "bold", 
+                    color: item.binLocation.startsWith("*") ? "#0891b2" : "#1d4ed8", 
+                    background: item.binLocation.startsWith("*") ? "#ecfeff" : "#f0f5ff" 
+                  }}>
                     {item.binLocation}
                   </td>
                   <td style={{ ...bodyCellStyle, fontWeight: 600 }}>{item.productName}</td>
