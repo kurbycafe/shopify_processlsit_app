@@ -9,10 +9,10 @@ async function fetchOdooBinLocations(skus) {
   if (!skus || skus.length === 0) return {};
 
   // ⚠️ 다와요(Dawayo) Odoo 세팅 값 연동 완료 (도메인과 이메일 계정만 실제 정보로 수정하세요)
-  const ODOO_URL = "https://YOUR-ODOO-DOMAIN.com/jsonrpc"; 
-  const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";                  
-  const ODOO_USER = "YOUR_ODOO_LOGIN_EMAIL";              
-  const ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34"; 
+  const ODOO_URL = "https://popeye.odoo.com/jsonrpc"; 
+  const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
+  const ODOO_USER = "dawayo.odoo@gmail.com";
+  const ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34";
 
   const binMap = {};
 
