@@ -1,5 +1,7 @@
-import { Form, useLoaderData } from "react-router";
+import { Form, useLoaderData, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib"; // PDF 빌드 엔진
+import nodemailer from "nodemailer"; // 이메일 발송 엔진
 
 // ========================================================
 // 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
@@ -7,70 +9,44 @@ import { authenticate } from "../shopify.server";
 async function fetchOdooBinLocations(skus) {
   if (!skus || skus.length === 0) return {};
 
-  // ⚠️ 다와요(Dawayo) Odoo 설정 정보 (이메일 계정만 실제 정보로 수정하세요)
-  const ODOO_URL = "https://popeye.odoo.com/jsonrpc"; 
-  const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
-  const ODOO_USER = "dawayo.odoo@gmail.com";
-  const ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34";
+  const ODOO_URL = "https://YOUR-ODOO-DOMAIN.com/jsonrpc"; 
+  const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";                  
+  const ODOO_USER = "YOUR_ODOO_LOGIN_EMAIL";              
+  const ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34"; 
 
   const binMap = {};
 
   try {
-    // [Step A] Odoo 유저 인증 및 세션 UID 획득
     const authPayload = {
-      jsonrpc: "2.0",
-      method: "call",
-      params: {
-        service: "common",
-        method: "login",
-        args: [ODOO_DB, ODOO_USER, ODOO_API_KEY]
-      },
+      jsonrpc: "2.0", method: "call",
+      params: { service: "common", method: "login", args: [ODOO_DB, ODOO_USER, ODOO_API_KEY] },
       id: Math.floor(Math.random() * 1000)
     };
 
     const authResponse = await fetch(ODOO_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(authPayload)
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authPayload)
     });
-
     const authResult = await authResponse.json();
     const uid = authResult?.result;
 
     if (!uid) {
-      console.error("Odoo 로그인 인증에 실패했습니다.");
       skus.forEach(sku => { binMap[sku] = "위치 미정 (Auth Fail)"; });
       return binMap;
     }
 
-    // [Step B] stock.quant 모델에서 전체 SKU 일괄 검색 실행
     const searchPayload = {
-      jsonrpc: "2.0",
-      method: "call",
+      jsonrpc: "2.0", method: "call",
       params: {
-        service: "object",
-        method: "execute_kw",
-        args: [
-          ODOO_DB,
-          uid,
-          ODOO_API_KEY,
-          "stock.quant",
-          "search_read",
-          [[["product_id.default_code", "in", skus]]],
-        ],
-        "kwargs": {
-          "fields": ["product_reference_code", "location_id", "shelf_location", "warehouse_id"]
-        }
+        service: "object", method: "execute_kw",
+        args: [ODOO_DB, uid, ODOO_API_KEY, "stock.quant", "search_read", [[["product_id.default_code", "in", skus]]]],
+        "kwargs": { "fields": ["product_reference_code", "location_id", "shelf_location", "warehouse_id"] }
       },
       id: Math.floor(Math.random() * 1000)
     };
 
     const searchResponse = await fetch(ODOO_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(searchPayload)
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(searchPayload)
     });
-
     const searchResult = await searchResponse.json();
     const quants = searchResult?.result || [];
 
@@ -80,7 +56,6 @@ async function fetchOdooBinLocations(skus) {
     quants.forEach((quant) => {
       const sku = quant.product_reference_code;
       if (!sku || !rawDataMap[sku]) return;
-
       const shelf = quant.shelf_location;
       if (!shelf) return;
 
@@ -88,25 +63,17 @@ async function fetchOdooBinLocations(skus) {
       const warehouseName = quant.warehouse_id ? quant.warehouse_id[1] : "";
 
       rawDataMap[sku].push({
-        shelf,
-        locationName,
-        warehouseName,
+        shelf, locationName, warehouseName,
         isStore: locationName.includes("STORE/Stock") || warehouseName.includes("매장")
       });
     });
 
-    // [Step C] 다중 창고 비즈니스 룰 적용
     skus.forEach((sku) => {
       const records = rawDataMap[sku];
-
-      if (records.length === 0) {
-        binMap[sku] = "위치 미지정";
-        return;
-      }
+      if (records.length === 0) { binMap[sku] = "위치 미지정"; return; }
 
       const storeRecords = records.filter(r => r.isStore);
       const normalRecords = records.filter(r => !r.isStore);
-
       const storeShelf = storeRecords.length > 0 ? storeRecords[0].shelf : null;
       const normalShelf = normalRecords.length > 0 ? normalRecords[0].shelf : null;
 
@@ -122,9 +89,7 @@ async function fetchOdooBinLocations(skus) {
     });
 
     return binMap;
-
   } catch (error) {
-    console.error("Odoo 위치 매핑 엔진 연동 에러:", error);
     skus.forEach(sku => { binMap[sku] = "위치 미정 (Error)"; });
     return binMap;
   }
@@ -136,26 +101,13 @@ async function fetchOdooBinLocations(skus) {
 const UNFULFILLED_ORDERS_QUERY = `#graphql
   query UnfulfilledOrders($first: Int!, $after: String) {
     orders(first: $first, after: $after, query: "financial_status:paid fulfillment_status:unfulfilled") {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
+      pageInfo { hasNextPage endCursor }
       nodes {
-        id
-        name
+        id name
         lineItems(first: 50) { 
           nodes {
-            quantity
-            name
-            variant {
-              id
-              sku
-              barcode
-              inventoryQuantity
-              product {
-                title
-              }
-            }
+            quantity name
+            variant { id sku barcode inventoryQuantity product { title } }
           }
         }
       }
@@ -163,99 +115,172 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
   }
 `;
 
-// ========================================================
-// 3. 데이터 로드 및 정제 집계 핵심 로직
-// ========================================================
 async function loadPickListData(admin) {
   const itemMap = new Map();
   let hasNextPage = true;
   let after = null;
 
   while (hasNextPage) {
-    const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, {
-      variables: { first: 50, after },
-    });
+    const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 50, after } });
     const payload = await response.json();
-    if (payload.errors?.length) {
-      throw new Response("Shopify GraphQL 통신 중 에러가 발생했습니다.", { status: 500 });
-    }
-
-    const ordersConnection = payload?.data?.orders;
-    const orders = ordersConnection?.nodes ?? [];
+    const orders = payload?.data?.orders?.nodes ?? [];
 
     for (const order of orders) {
       const orderNumber = order.name;
-      const lineItems = order?.lineItems?.nodes ?? [];
-
-      for (const lineItem of lineItems) {
+      for (const lineItem of order?.lineItems?.nodes ?? []) {
         const variant = lineItem.variant;
         const sku = variant?.sku || "-";
-        const barcode = variant?.barcode || "-";
         const productName = variant?.product?.title || lineItem.name || "알 수 없는 상품";
         const key = variant?.id || `${productName}__${sku}`;
 
         if (!itemMap.has(key)) {
           itemMap.set(key, {
-            productName, sku, barcode,
-            orderedQty: 0,
+            productName, sku, barcode: variant?.barcode || "-", orderedQty: 0,
             inventoryQty: typeof variant?.inventoryQuantity === "number" ? variant.inventoryQuantity : null,
-            binLocation: "조회중",
-            orderNumbers: new Set(),
+            binLocation: "조회중", orderNumbers: new Set(),
           });
         }
-
         const current = itemMap.get(key);
         current.orderedQty += lineItem.quantity || 0;
         current.orderNumbers.add(orderNumber);
       }
     }
-
-    hasNextPage = Boolean(ordersConnection?.pageInfo?.hasNextPage);
-    after = ordersConnection?.pageInfo?.endCursor || null;
+    hasNextPage = Boolean(payload?.data?.orders?.pageInfo?.hasNextPage);
+    after = payload?.data?.orders?.pageInfo?.endCursor || null;
   }
 
   const allSkus = Array.from(itemMap.values()).map(i => i.sku).filter(sku => sku !== "-");
   const odooBins = await fetchOdooBinLocations(allSkus);
 
   const items = Array.from(itemMap.values())
-    .map((item) => ({
+    .map(item => ({
       ...item,
       binLocation: odooBins[item.sku] || "위치 미지정",
       orderNumbers: Array.from(item.orderNumbers).sort(),
     }))
     .sort((a, b) => a.binLocation.localeCompare(b.binLocation) || b.orderedQty - a.orderedQty);
 
-  return {
-    items,
-    totalUnfulfilledProducts: items.length,
-    totalOrderedQty: items.reduce((sum, item) => sum + item.orderedQty, 0),
-    scopeError: null,
-  };
+  return { items, totalUnfulfilledProducts: items.length, totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0) };
 }
 
 // ========================================================
-// 4. Remix / Router 라우터 컨트롤러 핸들러 (Loader)
+// 3. 첨부 파일용 실시간 PDF 바이너리 생성기 (pdf-lib)
+// ========================================================
+async function generatePdfBuffer(items, timeTitle) {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([842, 595]); // 가로 레이아웃
+  
+  const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const { width, height } = page.getSize();
+  
+  page.drawText(`PICKING LIST - ${timeTitle.toUpperCase()}`, {
+    x: 40, y: height - 50, size: 18, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16)
+  });
+
+  let currentY = height - 100;
+  page.drawRectangle({ x: 40, y: currentY - 5, width: width - 80, height: 26, color: rgb(0.06, 0.09, 0.16) });
+  
+  page.drawText("SHELF LOC (STORE / NEW)", { x: 45, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
+  page.drawText("SKU", { x: 230, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
+  page.drawText("PRODUCT DESCRIPTION", { x: 340, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
+  page.drawText("PICK QTY", { x: 620, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
+  page.drawText("ORDERS", { x: 700, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
+
+  currentY -= 25;
+
+  items.forEach((item) => {
+    if (currentY < 40) return;
+    page.drawLine({ start: { x: 40, y: currentY - 5 }, end: { x: width - 40, y: currentY - 5 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
+
+    page.drawText(item.binLocation.substring(0, 26), { x: 45, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
+    page.drawText(item.sku, { x: 230, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
+    
+    const sanitizedTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item"); 
+    page.drawText(sanitizedTitle.substring(0, 35), { x: 340, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
+    page.drawText(String(item.orderedQty), { x: 620, y: currentY, size: 10, font: HelveticaBold, color: rgb(0, 0, 0) });
+    page.drawText(item.orderNumbers.join(", ").substring(0, 20), { x: 700, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
+
+    currentY -= 22;
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes); // Node.js 버퍼 형태로 출력 반환
+}
+
+// ========================================================
+// 4. 백엔드 컨트롤러 핸들러 (Loader & PDF 메일 첨부 발송 Action)
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  try {
-    return await loadPickListData(admin);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("Access denied for orders field")) {
-      return { items: [], totalUnfulfilledProducts: 0, totalOrderedQty: 0, scopeError: "주문 권한 에러" };
+  return await loadPickListData(admin);
+};
+
+export const action = async ({ request }) => {
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+  const clientTime = formData.get("clientTime"); 
+
+  if (intent === "send-email") {
+    const { admin } = await authenticate.admin(request);
+    const data = await loadPickListData(admin);
+
+    // 💡 3번 모듈을 통해 무가공 순수 PDF 파일 바이너리 생성
+    const pdfBuffer = await generatePdfBuffer(data.items, clientTime);
+    const mailTitle = `${clientTime} 기준 처리중`;
+
+    // ⚠️ 발송용 인프라 SMTP 메일 서버 계정 연동 규격
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: "YOUR_SYSTEM_EMAIL@gmail.com", 
+        pass: "YOUR_EMAIL_APP_PASSWORD"      
+      }
+    });
+
+    try {
+      await transporter.sendMail({
+        from: '"Shopify System" <YOUR_SYSTEM_EMAIL@gmail.com>',
+        to: "popeye.gmbh@gmail.com",
+        subject: mailTitle, // 💡 "2026년 6월 10일 11시 44분 기준 처리중"
+        text: "피킹 리스트 PDF 파일이 첨부되었습니다.", // 시스템 텍스트 최소화
+        attachments: [
+          {
+            filename: `${mailTitle}.pdf`, // 💡 첨부파일명도 타이틀 포맷과 동치 처리
+            content: pdfBuffer,
+            contentType: "application/pdf"
+          }
+        ]
+      });
+      return { success: true };
+    } catch (err) {
+      console.error("PDF 첨부 메일 발송 실패:", err);
+      return { success: false };
     }
-    throw error;
   }
+  return null;
 };
 
 // ========================================================
-// 5. UI 대시보드 컴포넌트 마크업 및 인쇄 최적화 스타일
+// 5. UI 대시보드 마크업 및 동시 트리거 엔트리
 // ========================================================
 export default function PickListPage() {
   const { items, totalUnfulfilledProducts, totalOrderedQty, scopeError } = useLoaderData();
+  const submit = useSubmit();
 
-  // 요청하신 브라우저 네이티브 프린트 기능 연동 구역
-  const handlePdfDownload = () => {
+  const handlePrintAndEmail = () => {
+    const now = new Date();
+    const formattedTime = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}시 ${now.getMinutes()}분`;
+
+    // 백엔드로 이메일 발송 신호 전달 (PDF 첨부용 정보 스크리닝)
+    submit(
+      { intent: "send-email", clientTime: formattedTime },
+      { method: "post" }
+    );
+
+    // 브라우저 화면 출력창 동시 팝업
     window.print();
   };
 
@@ -266,8 +291,7 @@ export default function PickListPage() {
   const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "12px 14px", verticalAlign: "top", fontSize: "14px" };
 
   return (
-    <s-page heading="처리중 리스트 (매장/신창고 교차 연동)">
-      {/* 💡 프린트 인쇄 시 불필요한 UI(버튼, 가이드 설명 등)를 숨기고 싶다면 CSS 미디어쿼리를 연동할 수 있습니다. */}
+    <s-page heading="처리중 리스트 (매장/신창고 교차 연동) ver2">
       <style>{`
         @media print {
           button, .no-print, s-button, .shopify-app-bridge-header { display: none !important; }
@@ -291,8 +315,8 @@ export default function PickListPage() {
             </div>
           </div>
 
-          <s-button type="button" variant="primary" onClick={handlePdfDownload}>
-            프린트 및 PDF 출력
+          <s-button type="button" variant="primary" onClick={handlePrintAndEmail}>
+            프린트 및 이메일 PDF 전송
           </s-button>
         </div>
 
