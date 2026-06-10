@@ -1,14 +1,13 @@
-import { Form, useLoaderData, useSubmit } from "react-router";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { Form, useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 
 // ========================================================
-// 1. Odoo ERP API 연동 함수 (stock.quant - shelf_location 기반)
+// 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
 // ========================================================
 async function fetchOdooBinLocations(skus) {
   if (!skus || skus.length === 0) return {};
 
-  // ⚠️ 다와요(Dawayo) Odoo 세팅 값 연동 완료 (도메인과 이메일 계정만 실제 정보로 수정하세요)
+  // ⚠️ 다와요(Dawayo) Odoo 설정 정보 (이메일 계정만 실제 정보로 수정하세요)
   const ODOO_URL = "https://popeye.odoo.com/jsonrpc"; 
   const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
   const ODOO_USER = "dawayo.odoo@gmail.com";
@@ -17,7 +16,7 @@ async function fetchOdooBinLocations(skus) {
   const binMap = {};
 
   try {
-    // [Step A] Odoo 유저 인증 및 UID 세션 토큰 획득
+    // [Step A] Odoo 유저 인증 및 세션 UID 획득
     const authPayload = {
       jsonrpc: "2.0",
       method: "call",
@@ -44,7 +43,7 @@ async function fetchOdooBinLocations(skus) {
       return binMap;
     }
 
-    // [Step B] stock.quant 모델에서 SKU 리스트 일괄 실시간 검색
+    // [Step B] stock.quant 모델에서 전체 SKU 일괄 검색 실행
     const searchPayload = {
       jsonrpc: "2.0",
       method: "call",
@@ -55,13 +54,12 @@ async function fetchOdooBinLocations(skus) {
           ODOO_DB,
           uid,
           ODOO_API_KEY,
-          "stock.quant", // 최적화된 재고 매핑 마스터 테이블
+          "stock.quant",
           "search_read",
           [[["product_id.default_code", "in", skus]]],
         ],
         "kwargs": {
-          // 확인된 필드 규격 명세 바인딩
-          "fields": ["product_reference_code", "location_id", "shelf_location"]
+          "fields": ["product_reference_code", "location_id", "shelf_location", "warehouse_id"]
         }
       },
       id: Math.floor(Math.random() * 1000)
@@ -76,32 +74,57 @@ async function fetchOdooBinLocations(skus) {
     const searchResult = await searchResponse.json();
     const quants = searchResult?.result || [];
 
-    // [Step C] 다중 위치 데이터 필터링 전략 수립
-    // Virtual 이나 adjustment, Customers 구역을 필터링하고 실제 출고 구역인 'NEW/Stock' 위치의 Shelf 매핑을 우선순위로 잡습니다.
+    const rawDataMap = {};
+    skus.forEach(sku => { rawDataMap[sku] = []; });
+
     quants.forEach((quant) => {
-      const sku = quant.product_reference_code || (quant.product_id && quant.product_id[1]?.match(/^\[(.*?)\]/)?.[1]);
-      if (!sku) return;
+      const sku = quant.product_reference_code;
+      if (!sku || !rawDataMap[sku]) return;
+
+      const shelf = quant.shelf_location;
+      if (!shelf) return;
 
       const locationName = quant.location_id ? quant.location_id[1] : "";
-      const currentShelf = quant.shelf_location;
+      const warehouseName = quant.warehouse_id ? quant.warehouse_id[1] : "";
 
-      if (currentShelf) {
-        // 이미 주입된 위치 정보가 없거나, 현재 줄이 메인 출고 창고(NEW/Stock)인 경우 최우선 덮어쓰기
-        if (!binMap[sku] || locationName.includes("NEW/Stock")) {
-          binMap[sku] = currentShelf;
-        }
-      }
+      rawDataMap[sku].push({
+        shelf,
+        locationName,
+        warehouseName,
+        isStore: locationName.includes("STORE/Stock") || warehouseName.includes("매장")
+      });
     });
 
-    // Odoo 장부에 등록되지 않은 잔여 예외 SKU 방어선 구축
-    skus.forEach(sku => {
-      if (!binMap[sku]) binMap[sku] = "위치 미지정";
+    // [Step C] 다중 창고 비즈니스 룰 적용
+    skus.forEach((sku) => {
+      const records = rawDataMap[sku];
+
+      if (records.length === 0) {
+        binMap[sku] = "위치 미지정";
+        return;
+      }
+
+      const storeRecords = records.filter(r => r.isStore);
+      const normalRecords = records.filter(r => !r.isStore);
+
+      const storeShelf = storeRecords.length > 0 ? storeRecords[0].shelf : null;
+      const normalShelf = normalRecords.length > 0 ? normalRecords[0].shelf : null;
+
+      if (storeShelf && normalShelf) {
+        binMap[sku] = `${storeShelf} (신창고: ${normalShelf})`;
+      } else if (storeShelf) {
+        binMap[sku] = storeShelf;
+      } else if (normalShelf) {
+        binMap[sku] = `${normalShelf} (신창고)`;
+      } else {
+        binMap[sku] = "위치 미지정";
+      }
     });
 
     return binMap;
 
   } catch (error) {
-    console.error("Odoo stock.quant 연동 중 예외 발생:", error);
+    console.error("Odoo 위치 매핑 엔진 연동 에러:", error);
     skus.forEach(sku => { binMap[sku] = "위치 미정 (Error)"; });
     return binMap;
   }
@@ -191,11 +214,9 @@ async function loadPickListData(admin) {
     after = ordersConnection?.pageInfo?.endCursor || null;
   }
 
-  // SKU 어레이를 생성해 Odoo ERP 시스템으로 실시간 조회 전송
   const allSkus = Array.from(itemMap.values()).map(i => i.sku).filter(sku => sku !== "-");
   const odooBins = await fetchOdooBinLocations(allSkus);
 
-  // 데이터 합산 빌드 및 창고 랙 배정(Shelf) 이름 순 정렬 처리
   const items = Array.from(itemMap.values())
     .map((item) => ({
       ...item,
@@ -213,69 +234,7 @@ async function loadPickListData(admin) {
 }
 
 // ========================================================
-// 4. pdf-lib 문서 파일 스트림 실시간 생성 엔진
-// ========================================================
-async function generatePdfBuffer(items) {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([842, 595]); // 최적 가로 뷰 포트 바인딩
-  
-  const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const { width, height } = page.getSize();
-  
-  // 메인 마스터 타이틀 드로잉
-  page.drawText("PICKING LIST (DAWAYO WAREHOUSE)", {
-    x: 40, y: height - 50, size: 22, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16)
-  });
-  
-  page.drawText(`Exported: ${new Date().toLocaleString()} | Items to Pick: ${items.length}`, {
-    x: 40, y: height - 72, size: 10, font: Helvetica, color: rgb(0.39, 0.45, 0.55)
-  });
-
-  let currentY = height - 115;
-  page.drawRectangle({
-    x: 40, y: currentY - 5, width: width - 80, height: 26, color: rgb(0.06, 0.09, 0.16)
-  });
-  
-  // 헤더 레이블 매핑
-  page.drawText("SHELF LOC (ODOO)", { x: 45, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("SKU", { x: 190, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("PRODUCT DESCRIPTION", { x: 310, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("PICK QTY", { x: 610, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("SHOPIFY STOCK", { x: 675, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-  page.drawText("ORDERS", { x: 775, y: currentY, size: 10, font: HelveticaBold, color: rgb(1, 1, 1) });
-
-  currentY -= 25;
-
-  items.forEach((item) => {
-    if (currentY < 40) return;
-
-    page.drawLine({
-      start: { x: 40, y: currentY - 5 }, end: { x: width - 40, y: currentY - 5 },
-      strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95)
-    });
-
-    page.drawText(item.binLocation, { x: 45, y: currentY, size: 10, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
-    page.drawText(item.sku, { x: 190, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
-    
-    // 영문 전용 스캔 드로잉 백업 필터
-    const sanitizedTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item"); 
-    page.drawText(sanitizedTitle.substring(0, 40), { x: 310, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
-    
-    page.drawText(String(item.orderedQty), { x: 610, y: currentY, size: 10, font: HelveticaBold, color: rgb(0, 0, 0) });
-    page.drawText(item.inventoryQty !== null ? String(item.inventoryQty) : "-", { x: 675, y: currentY, size: 10, font: Helvetica, color: rgb(0.25, 0.32, 0.44) });
-    
-    const ordersStr = item.orderNumbers.join(", ");
-    page.drawText(ordersStr.length > 12 ? `${ordersStr.substring(0, 10)}...` : ordersStr, { x: 775, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
-
-    currentY -= 22;
-  });
-
-  return await pdfDoc.save();
-}
-
-// ========================================================
-// 5. Remix / Router 라우터 컨트롤러 핸들러 (Loader & Action)
+// 4. Remix / Router 라우터 컨트롤러 핸들러 (Loader)
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -289,52 +248,38 @@ export const loader = async ({ request }) => {
   }
 };
 
-export const action = async ({ request }) => {
-  const formData = await request.formData();
-  const intent = formData.get("intent");
-
-  if (intent !== "export-pdf") {
-    return new Response("Unsupported action", { status: 400 });
-  }
-
-  const { admin, session } = await authenticate.admin(request);
-  const data = await loadPickListData(admin);
-  const pdfBytes = await generatePdfBuffer(data.items);
-  
-  const shopSlug = (session.shop || "shop").replace(/\.myshopify\.com$/i, "");
-  const fileName = `picking-list-${shopSlug}-${new Date().toISOString().slice(0, 10)}.pdf`;
-
-  return new Response(pdfBytes, {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${fileName}"`,
-      "Content-Length": String(pdfBytes.length),
-    },
-  });
-};
-
 // ========================================================
-// 6. UI 대시보드 컴포넌트 마크업
+// 5. UI 대시보드 컴포넌트 마크업 및 인쇄 최적화 스타일
 // ========================================================
 export default function PickListPage() {
   const { items, totalUnfulfilledProducts, totalOrderedQty, scopeError } = useLoaderData();
-  const submit = useSubmit();
 
+  // 요청하신 브라우저 네이티브 프린트 기능 연동 구역
   const handlePdfDownload = () => {
-    submit({ intent: "export-pdf" }, { method: "post" });
+    window.print();
   };
 
   const metricCardStyle = { border: "1px solid #e2e8f0", borderRadius: "16px", padding: "16px", background: "#f8fafc", minWidth: "160px" };
   const tableWrapStyle = { overflowX: "auto", border: "1px solid #dfe3e8", borderRadius: "16px", background: "#fff" };
-  const tableStyle = { width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: "1050px" };
+  const tableStyle = { width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: "1100px" };
   const headerCellStyle = { position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: "12px 14px", textAlign: "left", fontSize: "13px" };
   const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "12px 14px", verticalAlign: "top", fontSize: "14px" };
 
   return (
-    <s-page heading="처리중 리스트2 (Odoo 실시간 위치연동)">
-      <s-section heading="피킹 동선 관리 장부" description="Odoo의 stock.quant 마스터 데이터베이스에서 실제 'shelf_location' 구역 필드를 직관적으로 수집합니다.">
+    <s-page heading="처리중 리스트 (매장/신창고 교차 연동)">
+      {/* 💡 프린트 인쇄 시 불필요한 UI(버튼, 가이드 설명 등)를 숨기고 싶다면 CSS 미디어쿼리를 연동할 수 있습니다. */}
+      <style>{`
+        @media print {
+          button, .no-print, s-button, .shopify-app-bridge-header { display: none !important; }
+          body { background: #fff !important; color: #000 !important; }
+          th { background: #0f172a !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          td { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      `}</style>
+
+      <s-section heading="피킹 동선 관리 장부" description="매장창고(STORE/Stock)에 재고가 있는 쉘프를 우선 출력하고 신창고 로케이션을 교차 결합해 줍니다.">
         
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
+        <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px" }}>
             <div style={metricCardStyle}>
               <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>총 상품 품목</div>
@@ -347,7 +292,7 @@ export default function PickListPage() {
           </div>
 
           <s-button type="button" variant="primary" onClick={handlePdfDownload}>
-            PDF 피킹리스트 다운로드
+            프린트 및 PDF 출력
           </s-button>
         </div>
 
@@ -357,7 +302,7 @@ export default function PickListPage() {
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={headerCellStyle}>창고 위치 (Odoo Shelf)</th>
+                <th style={{ ...headerCellStyle, width: "240px" }}>창고 위치 (STORE / NEW)</th>
                 <th style={headerCellStyle}>상품명</th>
                 <th style={headerCellStyle}>SKU</th>
                 <th style={headerCellStyle}>Barcode</th>
@@ -369,7 +314,6 @@ export default function PickListPage() {
             <tbody>
               {items.map((item) => (
                 <tr key={`${item.productName}-${item.sku}`} style={{ background: "#fff" }}>
-                  {/* 추출 성공한 진짜 선반 위치 매핑 코어 노출 구역 */}
                   <td style={{ ...bodyCellStyle, fontWeight: "bold", color: "#1d4ed8", background: "#f0f5ff" }}>
                     {item.binLocation}
                   </td>
