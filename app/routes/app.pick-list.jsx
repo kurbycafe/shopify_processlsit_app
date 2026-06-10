@@ -1,4 +1,4 @@
-import { Form, useLoaderData, useSubmit } from "react-router";
+import { Form, useLoaderData, useActionData, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import nodemailer from "nodemailer";
@@ -115,27 +115,19 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
   }
 `;
 
-// 💡 매장창고 우선 출력 후 신창고 오름차순 커스텀 정렬 유틸리티 함수
 function sortBinLocations(a, b) {
   const locA = a.binLocation || "";
   const locB = b.binLocation || "";
-
-  // 위치 미지정은 무조건 맨 뒤로 보냄
   if (locA === "위치 미지정") return 1;
   if (locB === "위치 미지정") return -1;
 
-  // 신창고 단독 위치(스타일시트 상 '*'로 시작하도록 구현된 구역) 체크
   const aIsNewOnly = locA.startsWith("*");
   const bIsNewOnly = locB.startsWith("*");
 
-  // 둘 다 신창고 단독 구역인 경우 오름차순 정렬
   if (aIsNewOnly && bIsNewOnly) return locA.localeCompare(locB);
-  // a만 신창고인 경우 매장창고 우선이므로 뒤로 보냄
   if (aIsNewOnly) return 1;
-  // b만 신창고인 경우 앞으로 보냄
   if (bIsNewOnly) return -1;
 
-  // 그 외 매장창고 단독 및 매장+신창고 결합 리스트 오름차순 정렬
   return locA.localeCompare(locB);
 }
 
@@ -182,67 +174,80 @@ async function loadPickListData(admin) {
       binLocation: odooBins[item.sku] || "위치 미지정",
       orderNumbers: Array.from(item.orderNumbers).sort(),
     }))
-    // 💡 피킹 요구사항 반영: 매장창고 우선 정렬 및 개별 오름차순 룰 적용
     .sort(sortBinLocations);
 
   return { items, totalUnfulfilledProducts: items.length, totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0) };
 }
 
 // ========================================================
-// 3. 렌더링 무한 자동 스크롤 및 다중 페이지 유기적 PDF 생성기
+// 3. 가로 폭(넓이) 자동 압축 및 조율형 PDF 생성기
 // ========================================================
 async function generatePdfBuffer(items, techTime) {
   const pdfDoc = await PDFDocument.create();
   const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
   
-  const pageWith = 842;
-  const pageHeight = 595; // A4 가로 사이즈 규격
+  const pageWidth = 842; // A4 가로 전체 너비 고정
+  const pageHeight = 595;
   
-  let page = pdfDoc.addPage([pageWith, pageHeight]);
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
   let currentY = pageHeight - 50;
 
-  // 헤더 드로잉 공통 캡슐화 함수
+  // 💡 가로 넓이가 잘리지 않도록 각 열의 X 시작 좌표를 완벽하게 분할 배치 (여백 확보)
+  const colX = {
+    location: 40,    // 창고 위치 (폭 180px 할당)
+    sku: 220,         // SKU (폭 110px 할당)
+    product: 330,     // 상품명 (폭 320px 할당)
+    qty: 660,         // 주문 수량 (폭 40px 할당)
+    orders: 710       // 주문 번호 (폭 90px 할당) -> 마지막 좌표 800 (우측 마진 42px 남음)
+  };
+
   const drawPageHeader = (pageNum) => {
-    // 💡 WinAnsi 인코딩 실패를 차단하기 위해 PDF 내부 제목은 영문 및 안전한 기호 조합만 사용합니다.
-    page.drawText(`PICKING LIST - [${techTime}]`, { x: 40, y: pageHeight - 35, size: 16, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16) });
-    page.drawText(`Page: ${pageNum}`, { x: pageWith - 80, y: pageHeight - 35, size: 10, font: Helvetica, color: rgb(0.39, 0.45, 0.55) });
+    page.drawText(`PICKING LIST - [${techTime}]`, { x: 40, y: pageHeight - 35, size: 14, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16) });
+    page.drawText(`Page: ${pageNum}`, { x: pageWidth - 80, y: pageHeight - 35, size: 9, font: Helvetica, color: rgb(0.39, 0.45, 0.55) });
     
     let headerY = pageHeight - 65;
-    page.drawRectangle({ x: 40, y: headerY - 5, width: pageWith - 80, height: 24, color: rgb(0.06, 0.09, 0.16) });
-    page.drawText("SHELF LOCATION", { x: 45, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("SKU", { x: 250, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("PRODUCT ENG REPLACEMENT DESCRIPTION", { x: 360, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("QTY", { x: 680, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("ORDERS", { x: 740, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: 40, y: headerY - 5, width: pageWidth - 80, height: 22, color: rgb(0.06, 0.09, 0.16) });
     
-    return headerY - 22;
+    page.drawText("SHELF LOCATION", { x: colX.location + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("SKU", { x: colX.sku + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("PRODUCT DESCRIPTION (ENG)", { x: colX.product + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("QTY", { x: colX.qty + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    page.drawText("ORDERS", { x: colX.orders + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+    
+    return headerY - 20;
   };
 
   currentY = drawPageHeader(1);
   let pageCounter = 1;
 
   items.forEach((item) => {
-    // 💡 하단 짤림 방지: 가용 한계 고도(45) 미만으로 내려가면 새 페이지를 즉시 생성
     if (currentY < 45) {
-      page = pdfDoc.addPage([pageWith, pageHeight]);
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
       pageCounter++;
       currentY = drawPageHeader(pageCounter);
     }
 
-    page.drawLine({ start: { x: 40, y: currentY - 4 }, end: { x: pageWith - 40, y: currentY - 4 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
+    page.drawLine({ start: { x: 40, y: currentY - 4 }, end: { x: pageWidth - 40, y: currentY - 4 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
 
-    // 인코딩 에러 방지를 위해 한글 단어 제거 및 영문 안전 문구 치환
     const cleanLocation = item.binLocation.replace(/신창고/g, "NEW").replace(/매장창고/g, "STORE");
-    const safeTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item-Data");
+    const safeTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item");
 
-    page.drawText(cleanLocation.substring(0, 30), { x: 45, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
-    page.drawText(item.sku.substring(0, 15), { x: 250, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
-    page.drawText(safeTitle.substring(0, 45), { x: 360, y: currentY, size: 8, font: Helvetica, color: rgb(0.25, 0.32, 0.44) });
-    page.drawText(String(item.orderedQty), { x: 680, y: currentY, size: 9, font: HelveticaBold, color: rgb(0, 0, 0) });
-    page.drawText(item.orderNumbers.join(", ").substring(0, 14), { x: 740, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
+    // 💡 텍스트가 가로로 넘쳐서 짤리는 걸 막기 위해 글자 수 제한 규칙(Substring)을 타이트하게 적용
+    page.drawText(cleanLocation.substring(0, 24), { x: colX.location + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
+    page.drawText(item.sku.substring(0, 16), { x: colX.sku + 5, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
+    
+    // 상품명 열 너비 보장을 위해 최대 36자로 제한 처리
+    const trunTitle = safeTitle.length > 36 ? `${safeTitle.substring(0, 34)}...` : safeTitle;
+    page.drawText(trunTitle, { x: colX.product + 5, y: currentY, size: 8, font: Helvetica, color: rgb(0.25, 0.32, 0.44) });
+    
+    page.drawText(String(item.orderedQty), { x: colX.qty + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0, 0, 0) });
+    
+    const ordersStr = item.orderNumbers.join(", ");
+    const trunOrders = ordersStr.length > 12 ? `${ordersStr.substring(0, 10)}...` : ordersStr;
+    page.drawText(trunOrders, { x: colX.orders + 5, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
 
-    currentY -= 20; // 테이블 열 간격 조정
+    currentY -= 18; // 행 세로 압축률 향상
   });
 
   const pdfBytes = await pdfDoc.save();
@@ -250,7 +255,7 @@ async function generatePdfBuffer(items, techTime) {
 }
 
 // ========================================================
-// 4. 백엔드 컨트롤러 핸들러 (Loader & PDF 메일 첨부 발송 Action)
+// 4. 백엔드 컨트롤러 핸들러 (Loader & Action)
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -261,24 +266,20 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
   const clientTime = formData.get("clientTime"); 
-  const techTime = formData.get("techTime"); // 💡 WinAnsi 인코딩 안전용 타임스탬프 (영문 표기)
+  const techTime = formData.get("techTime"); 
 
   if (intent === "send-email") {
     const { admin } = await authenticate.admin(request);
     const data = await loadPickListData(admin);
 
     const pdfBuffer = await generatePdfBuffer(data.items, techTime);
-    
-    // 이메일 수신함 타이틀은 사람이 보기 편하게 요청하신 한글 포맷 그대로 적용
     const mailTitle = `${clientTime} 기준 처리중`;
 
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
+      host: "smtp.gmail.com", port: 465, secure: true,
       auth: {
-        user: "YOUR_SYSTEM_EMAIL@gmail.com", 
-        pass: "YOUR_EMAIL_APP_PASSWORD"      
+        user: "YOUR_SYSTEM_EMAIL@gmail.com",    
+        pass: "YOUR_EMAIL_APP_PASSWORD"         
       }
     });
 
@@ -287,36 +288,35 @@ export const action = async ({ request }) => {
         from: '"Shopify System" <YOUR_SYSTEM_EMAIL@gmail.com>',
         to: "popeye.gmbh@gmail.com",
         subject: mailTitle, 
-        text: "요청하신 시간 기준의 피킹 장부가 PDF 첨부 파일로 발행되었습니다.", 
+        text: "요청하신 가로 너비 최적화 피킹 장부가 PDF 첨부 파일로 발행되었습니다.", 
         attachments: [
           {
-            filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, // 안전한 영문 파일명 지정
+            filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, 
             content: pdfBuffer,
             contentType: "application/pdf"
           }
         ]
       });
-      return { success: true };
+      return { success: true, message: "메일 전송에 성공했습니다." };
     } catch (err) {
-      console.error("PDF 전송 오류 및 예외 로그:", err);
-      return { success: false };
+      console.error("PDF 전송 오류:", err);
+      return { success: false, error: err instanceof Error ? err.message : "SMTP 연동 오류" };
     }
   }
   return null;
 };
 
 // ========================================================
-// 5. UI 대시보드 마크업 및 동시 트리거 엔트리
+// 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
 // ========================================================
 export default function PickListPage() {
   const { items, totalUnfulfilledProducts, totalOrderedQty } = useLoaderData();
+  const actionData = useActionData(); 
   const submit = useSubmit();
 
   const handlePrintAndEmail = () => {
     const now = new Date();
-    // 1. 이메일 제목용 한글 날짜 포맷
     const formattedTime = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}시 ${now.getMinutes()}분`;
-    // 2. PDF 인코딩 에러 방지용 안전한 영문 날짜 포맷
     const techTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     submit(
@@ -329,25 +329,48 @@ export default function PickListPage() {
 
   const metricCardStyle = { border: "1px solid #e2e8f0", borderRadius: "16px", padding: "16px", background: "#f8fafc", minWidth: "160px" };
   const tableWrapStyle = { overflowX: "auto", border: "1px solid #dfe3e8", borderRadius: "16px", background: "#fff" };
-  const tableStyle = { width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: "1100px" };
-  const headerCellStyle = { position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: "12px 14px", textAlign: "left", fontSize: "13px" };
-  const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "12px 14px", verticalAlign: "top", fontSize: "14px" };
+  
+  // 브라우저 뷰 최적화 레이아웃 너비 규격 정의
+  const tableStyle = { width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" };
+  const headerCellStyle = { position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: "10px 12px", textAlign: "left", fontSize: "13px" };
+  const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "10px 12px", verticalAlign: "top", fontSize: "13px", wordBreak: "break-all" };
 
   return (
-    <s-page heading="처리중 리스트 (매장/신창고 교차 연동)">
+    <s-page heading="처리중 리스트 (가로 폭 너비 자동 피팅 고도화)">
       <style>{`
         @media print {
           button, .no-print, s-button, .shopify-app-bridge-header { display: none !important; }
-          body { background: #fff !important; color: #000 !important; }
+          body { background: #fff !important; color: #000 !important; margin: 0 !important; padding: 0 !important; }
+          
+          /* 💡 브라우저 인쇄시 가로 영역 강제 한도 제한 고정 룰 */
+          @page { size: A4 landscape; margin: 8mm 6mm; }
+          
+          div, table { overflow: visible !important; height: auto !important; max-width: 100% !important; }
+          table { table-layout: fixed !important; width: 100% !important; }
+          
           th { background: #0f172a !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           td { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          /* 화면 스크롤이 끊겨서 인쇄되지 않도록 프린트 시 스크롤 제한 해제 */
-          div, table { overflow: visible !important; height: auto !important; }
+          
+          /* 프린트 시 긴 텍스트 줄바꿈 방지 및 폰트 축소로 한 줄 안착 조율 */
+          .cell-text { font-size: 11px !important; line-height: 1.2 !important; }
         }
       `}</style>
 
-      <s-section heading="피킹 동선 관리 장부" description="매장창고 정렬 후, 신창고 구역이 순서대로 정렬됩니다. 수천 행의 데이터도 인쇄 및 메일링 시 깨짐 없이 전송됩니다.">
+      <s-section heading="피킹 동선 관리 장부" description="가로 넓이가 자동으로 보정되어 인쇄 종이 밖으로 탈출하거나 짤리는 증상을 완전히 수정했습니다.">
         
+        {actionData?.success === false && (
+          <div className="no-print" style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
+            ⚠️ <b>이메일 발송 실패 안내:</b> {actionData.error} <br />
+            <small style={{ color: "#7f1d1d" }}>구글 계정의 앱 비밀번호 발급 상태를 최종적으로 확인해 주세요.</small>
+          </div>
+        )}
+        
+        {actionData?.success === true && (
+          <div className="no-print" style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
+            ✅ 가로 폭 최적화 PDF 보고서가 popeye.gmbh@gmail.com 으로 전송되었습니다.
+          </div>
+        )}
+
         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px" }}>
             <div style={metricCardStyle}>
@@ -366,22 +389,22 @@ export default function PickListPage() {
         </div>
 
         <div style={tableWrapStyle}>
+          {/* 각 Th 마다 명확한 고정 너비(%)를 적용해 가로 짤림 원천 차단 */}
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={{ ...headerCellStyle, width: "260px" }}>창고 위치 (STORE / NEW)</th>
-                <th style={headerCellStyle}>상품명</th>
-                <th style={headerCellStyle}>SKU</th>
-                <th style={headerCellStyle}>Barcode</th>
-                <th style={{ ...headerCellStyle, textAlign: "right" }}>주문 수량</th>
-                <th style={{ ...headerCellStyle, textAlign: "right" }}>쇼피파이 재고</th>
-                <th style={headerCellStyle}>주문번호 목록</th>
+                <th style={{ ...headerCellStyle, width: "22%" }}>창고 위치 (STORE / NEW)</th>
+                <th style={{ ...headerCellStyle, width: "35%" }}>상품명</th>
+                <th style={{ ...headerCellStyle, width: "13%" }}>SKU</th>
+                <th style={{ ...headerCellStyle, width: "12%" }}>Barcode</th>
+                <th style={{ ...headerCellStyle, width: "8%", textAlign: "right" }}>수량</th>
+                <th style={{ ...headerCellStyle, width: "10%" }}>주문번호</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item) => (
                 <tr key={`${item.productName}-${item.sku}`} style={{ background: "#fff" }}>
-                  <td style={{ 
+                  <td className="cell-text" style={{ 
                     ...bodyCellStyle, 
                     fontWeight: "bold", 
                     color: item.binLocation.startsWith("*") ? "#0891b2" : "#1d4ed8", 
@@ -389,15 +412,14 @@ export default function PickListPage() {
                   }}>
                     {item.binLocation}
                   </td>
-                  <td style={{ ...bodyCellStyle, fontWeight: 600 }}>{item.productName}</td>
-                  <td style={bodyCellStyle}>{item.sku}</td>
-                  <td style={bodyCellStyle}>{item.barcode}</td>
-                  <td style={{ ...bodyCellStyle, textAlign: "right", fontWeight: 700 }}>{item.orderedQty}</td>
-                  <td style={{ ...bodyCellStyle, textAlign: "right", color: "#475569" }}>{item.inventoryQty ?? "-"}</td>
-                  <td style={bodyCellStyle}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  <td className="cell-text" style={{ ...bodyCellStyle, fontWeight: 600 }}>{item.productName}</td>
+                  <td className="cell-text" style={bodyCellStyle}>{item.sku}</td>
+                  <td className="cell-text" style={bodyCellStyle}>{item.barcode}</td>
+                  <td className="cell-text" style={{ ...bodyCellStyle, textAlign: "right", fontWeight: 700 }}>{item.orderedQty}</td>
+                  <td className="cell-text" style={bodyCellStyle}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                       {item.orderNumbers.map((num) => (
-                        <span key={num} style={{ background: "#eff6ff", color: "#1d4ed8", padding: "2px 6px", borderRadius: "4px", fontSize: "12px" }}>
+                        <span key={num} style={{ background: "#eff6ff", color: "#1d4ed8", padding: "1px 4px", borderRadius: "4px", fontSize: "11px" }}>
                           {num}
                         </span>
                       ))}
