@@ -1,6 +1,7 @@
 import { useLoaderData } from "react-router";
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
+import "./app.lieferschein.css"; // 📦 상단 외부 CSS 적용 완료
 
 const jsonResponse = (data) =>
   new Response(JSON.stringify(data), {
@@ -29,7 +30,6 @@ export const loader = async ({ request }) => {
               note
               displayFinancialStatus
               displayFulfillmentStatus
-              # 배송 방법 명칭을 가져오기 위해 shippingLines 필드 추가
               shippingLines(first: 1) {
                 edges {
                   node {
@@ -62,9 +62,9 @@ export const loader = async ({ request }) => {
                           }
                         }
                       }
-                      image { url }
+                      image { url src } 
                       product {
-                        featuredImage { url }
+                        featuredImage { url src } 
                         germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
                         expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                         position: metafield(namespace: "custom", key: "position") { value }
@@ -93,8 +93,6 @@ export const loader = async ({ request }) => {
 
     const orders = responseJson.data.orders.edges.map((edge) => {
       const node = edge.node;
-
-      // 실제 배송 방법 타이틀 추출
       const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
 
       const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
@@ -125,9 +123,7 @@ export const loader = async ({ request }) => {
 
         const variantGid = variant?.id || "";
         const isIcePackage = variantGid.endsWith("/54301230268745");
-
-        // [이미지 버그 수정]: 데이터 바인딩 시 안전하게 URL 경로 추출
-        const imageUrl = variant?.image?.url || product?.featuredImage?.url || null;
+        const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
 
         return {
           id: item.id,
@@ -156,18 +152,13 @@ export const loader = async ({ request }) => {
       return {
         id: node.id,
         name: node.name,
-        createdAt: node.createdAt
-          ? new Date(node.createdAt).toLocaleDateString("de-DE")
-          : "-",
+        createdAt: node.createdAt ? new Date(node.createdAt).toLocaleDateString("de-DE") : "-",
         createdTime: node.createdAt
-          ? new Date(node.createdAt).toLocaleTimeString("de-DE", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+          ? new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
           : "-",
         email: node.email || "-",
         note: node.note || "",
-        shippingMethod: shippingTitle, // 동적 배송 방법 대입
+        shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
         shippingAddress: node.shippingAddress || null,
         hasIcePackage,
@@ -183,7 +174,7 @@ export const loader = async ({ request }) => {
   }
 };
 
-// ─── 표준 Code 128B 바코드 엔진 (완전 교정본) ───────────────────────
+// ─── 표준 Code 128B 바코드 엔진 ──────────────────────────────────────
 const CODE128_CHARS = [
   "11011001100","11001101100","11001100110","10010011000","10010001100",
   "10001001100","10011001000","10011000100","10001100100","11001001000",
@@ -238,9 +229,7 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
       let w = 0;
       while (i < encoded.length && encoded[i] === "1") { w++; i++; }
       i--;
-      rects.push(
-        <rect key={x} x={x} y={0} width={w * moduleWidth} height={height} fill="#000" />
-      );
+      rects.push(<rect key={x} x={x} y={0} width={w * moduleWidth} height={height} fill="#000" />);
       x += (w * moduleWidth);
     } else {
       let w = 0;
@@ -252,22 +241,9 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 
   return (
     <div style={{ display: "block", textAlign: "center" }}>
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width={totalWidth + quietZone * 2}
-        height={height + 12}
-        style={{ margin: "0 auto" }}
-      >
+      <svg xmlns="http://www.w3.org/2000/svg" width={totalWidth + quietZone * 2} height={height + 12} style={{ margin: "0 auto" }}>
         {rects}
-        <text
-          x={(totalWidth + quietZone * 2) / 2}
-          y={height + 10}
-          textAnchor="middle"
-          fontSize="9"
-          fontFamily="monospace"
-          fontWeight="bold"
-          fill="#111"
-        >
+        <text x={(totalWidth + quietZone * 2) / 2} y={height + 10} textAnchor="middle" fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#111">
           {value}
         </text>
       </svg>
@@ -290,8 +266,8 @@ export default function AdditionalPage() {
 
   if (loaderData?.error) {
     return (
-      <div style={{ padding: 24 }}>
-        <div style={{ padding: 20, color: "#b91c1c", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
+      <div className="error-container">
+        <div className="error-box">
           <strong>오류 발생:</strong> {loaderData.error}
         </div>
       </div>
@@ -321,112 +297,25 @@ export default function AdditionalPage() {
       )
     );
     setSelectedOrders([]);
+    
+    // 이미지 CDN 완독 로딩을 위한 지연 설정 (1.2초)
     setTimeout(() => {
       window.print();
-    }, 250);
+    }, 1200);
   };
 
   const activePrintOrders = orders.filter((o) => printedOrderIds.includes(o.id));
 
   return (
     <div>
-      <style>{`
-        @import url("https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700;800&display=swap");
-        .admin-panel { padding: 20px; background: #fff; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e1e3e5; }
-        .list-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        .list-table th, .list-table td { padding: 12px 10px; border-bottom: 1px solid #e1e3e5; text-align: left; }
-        .row-printed { background-color: #f8fafc !important; color: #94a3b8 !important; }
-        .print-btn { padding: 10px 20px; background-color: #111; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        .print-btn:disabled { background-color: #e3e3e3; cursor: not-allowed; color: #999; }
-        .status-badge-ready { display: inline-block; padding: 3px 8px; font-size: 11px; background: #f1f5f9; color: #475569; border-radius: 4px; font-weight: 500; }
-        .status-badge-printed { display: inline-block; padding: 3px 8px; font-size: 11px; background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; border-radius: 4px; font-weight: 700; }
-        
-        /* 다중수량 강조 및 경고 스타일 */
-        .qty-cell { text-align: center; font-size: 24px; font-weight: 800; color: #111; vertical-align: middle; }
-        .qty-cell-warning { background-color: #fef08a !important; color: #b91c1c !important; font-size: 30px !important; }
-        .qty-warning-lbl { display: block; font-size: 10px; font-weight: 800; background: #b91c1c; color: #fff; border-radius: 3px; padding: 1px 2px; margin-top: 2px; line-height: 1.2; }
-
-        /* [자리 아끼기] 전반적인 용지 마진 및 패딩 전면 축소 */
-        .paper-viewport { background: #525659; padding: 20px 0; display: flex; flex-direction: column; gap: 20px; align-items: center; }
-        .packing-slip { background: #fff; width: 210mm; min-height: 297mm; padding: 12mm 15mm !important; box-shadow: 0 0 15px rgba(0,0,0,0.3); box-sizing: border-box; color: #333; font-family: 'Noto Sans', sans-serif; font-size: 11px; line-height: 1.4; }
-        .header { width: 100%; margin-bottom: 12px; border-bottom: 2px solid #111; padding-bottom: 8px; display: table; table-layout: fixed; }
-        .header-left { display: table-cell; width: 62%; vertical-align: top; }
-        .header-right { display: table-cell; width: 38%; vertical-align: top; text-align: right; }
-        .logo { max-width: 160px; max-height: 60px; margin-bottom: 4px; }
-        .document-title { font-size: 32px; font-weight: 800; color: #111; letter-spacing: 1px; line-height: 1; margin-bottom: 8px; text-transform: uppercase; }
-        
-        .info-grid { border-collapse: collapse; }
-        .info-grid tr + tr td { padding-top: 2px; }
-        .info-label { width: 120px; font-weight: 700; color: #111; font-size: 11px; padding-right: 6px; white-space: nowrap; }
-        .info-value { font-size: 11px; color: #333; }
-        
-        .badges-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; border: 1.5px solid #111; font-size: 9px; font-weight: 700; color: #111; }
-        .badge-ice { background: #e8f4fd; border-color: #4a9fd4; color: #1a6fa0; }
-        
-        /* 인터내셔널 및 쉬핑 배지 스타일 복원 */
-        .international-box { display: inline-block; margin-top: 6px; padding: 4px 10px; background: #b91c1c; color: white; font-weight: 800; font-size: 14px; border-radius: 4px; letter-spacing: 1px; text-align: left; }
-        .shipping-badge { display: inline-block; margin-top: 6px; padding: 4px 10px; background: #111; color: white; font-weight: 700; font-size: 11px; border-radius: 4px; text-transform: uppercase; }
-
-        .barcode-wrapper { text-align: center; margin-top: 4px; margin-bottom: 4px; }
-        .barcode-title { font-size: 8px; font-weight: 700; letter-spacing: 1px; color: #888; text-transform: uppercase; margin-bottom: 2px; }
-        
-        .address-row { width: 100%; margin-top: 12px; display: table; table-layout: fixed; }
-        .address-box { display: table-cell; width: 48%; vertical-align: top; }
-        .address-box + .address-box { padding-left: 4%; }
-        .section-title { font-size: 9px; font-weight: 800; color: #111; border-bottom: 2px solid #111; padding-bottom: 3px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
-        .address-content { font-size: 11.5px; line-height: 16px; color: #222; }
-        
-        /* 테이블 간격 축소 */
-        .order-table { width: 100%; margin-top: 16px; border-collapse: collapse; }
-        .order-table thead th { border-top: 2px solid #111; border-bottom: 2px solid #111; padding: 6px 4px; font-size: 9px; font-weight: 800; color: #111; text-align: left; text-transform: uppercase; }
-        .order-table tbody td { border-bottom: 1px solid #e8e8e8; padding: 6px 4px; vertical-align: middle; }
-        .order-table tbody tr:last-child td { border-bottom: 2px solid #111; }
-        .order-table tbody tr:nth-child(even) td { background: #fafafa; }
-        
-        .product-image { width: 44px; height: 44px; border-radius: 4px; border: 1px solid #ddd; object-fit: cover; display: block; }
-        .product-title { font-size: 11.5px; font-weight: 700; color: #111; line-height: 14px; }
-        .german-title { margin-top: 1px; font-size: 10px; color: #777; font-style: italic; line-height: 13px; }
-        .sku { margin-top: 2px; font-size: 9.5px; color: #555; font-family: monospace; }
-        .variant { display: inline-block; margin-top: 2px; border: 1px solid #ccc; border-radius: 30px; padding: 1px 6px; font-size: 9px; color: #555; }
-        .location-tag { display: inline-block; background: #f0f0f0; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 700; color: #111; }
-        .barcode-cell { text-align: center; vertical-align: middle; padding: 4px 2px; }
-        .check-cell { text-align: center; font-size: 16px; vertical-align: middle; color: #bbb; }
-        
-        .note-box { margin-top: 12px; border: 1.5px solid #f0c040; border-radius: 6px; background: #fffbea; padding: 8px 12px; }
-        .note-title { font-size: 10px; font-weight: 800; color: #111; text-transform: uppercase; margin-bottom: 3px; }
-        .note-content { font-size: 11px; color: #444; line-height: 1.4; }
-        
-        .picker-box { margin-top: 12px; border: 1px dashed #aaa; border-radius: 6px; padding: 8px 12px; font-size: 11px; font-weight: 700; color: #444; display: flex; gap: 30px; }
-        .footer { margin-top: 14px; border-top: 2px solid #111; padding-top: 8px; }
-        .thank-you { text-align: center; font-size: 12px; font-weight: 800; color: #111; margin-bottom: 8px; text-transform: uppercase; }
-        .footer-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .footer-grid td { text-align: center; padding: 2px 4px; font-size: 9px; line-height: 13px; color: #555; border-right: 1px solid #e0e0e0; }
-        .footer-grid td:last-child { border-right: none; }
-        .footer-label { display: block; font-weight: 800; color: #111; font-size: 8px; text-transform: uppercase; margin-bottom: 1px; }
-        .shop-name { margin-top: 6px; text-align: center; font-size: 10px; font-weight: 700; color: #999; letter-spacing: 1px; }
-        .page-header { padding: 16px 20px; font-size: 20px; font-weight: 700; border-bottom: 1px solid #e1e3e5; margin-bottom: 20px; }
-
-        @media print {
-          .admin-panel, button, .page-header { display: none !important; }
-          body, html { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          .paper-viewport { background: transparent !important; padding: 0 !important; gap: 0 !important; display: block !important; }
-          .packing-slip { width: 100% !important; max-width: 100% !important; min-height: auto !important; box-shadow: none !important; padding: 0mm !important; page-break-after: always; }
-        }
-      `}</style>
-
       <div className="page-header">DAWAYO 패킹 시스템(개발중 - 출고용 사용금지)</div>
 
       <div className="admin-panel">
-        <p style={{ marginBottom: 12, color: "#555" }}>
+        <p className="admin-help-text">
           출력할 주문을 선택한 뒤 버튼을 클릭하면 인쇄 팝업이 활성화됩니다. 이미 출력된 내역은 체크박스가 비활성화됩니다.
         </p>
-        <div style={{ margin: "14px 0" }}>
-          <button
-            className="print-btn"
-            onClick={handlePrint}
-            disabled={selectedOrders.length === 0}
-          >
+        <div className="print-action-row">
+          <button className="print-btn" onClick={handlePrint} disabled={selectedOrders.length === 0}>
             선택 항목 패킹슬립 인쇄하기 ({selectedOrders.length}개)
           </button>
         </div>
@@ -434,7 +323,7 @@ export default function AdditionalPage() {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ width: "40px" }}>
+              <th className="list-table-select-col">
                 <input
                   type="checkbox"
                   onChange={handleSelectAll}
@@ -450,7 +339,7 @@ export default function AdditionalPage() {
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan="5" style={{ textAlign: "center", color: "#888" }}>
+                <td colSpan="5" className="empty-orders-message">
                   인쇄 가능한 미처리 주문이 없습니다.
                 </td>
               </tr>
@@ -465,9 +354,9 @@ export default function AdditionalPage() {
                       onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
                     />
                   </td>
-                  <td style={{ fontWeight: "bold" }}>{order.name}</td>
+                  <td className="order-name">{order.name}</td>
                   <td>{order.createdAt}</td>
-                  <td style={{ color: order.isPrinted ? "#94a3b8" : "#008060", fontWeight: "bold" }}>Paid / Unfulfilled</td>
+                  <td className="status-paid-unfulfilled">Paid / Unfulfilled</td>
                   <td>
                     {order.isPrinted ? (
                       <span className="status-badge-printed">인쇄 완료</span>
@@ -485,12 +374,10 @@ export default function AdditionalPage() {
       {activePrintOrders.length > 0 && (
         <div className="paper-viewport">
           {activePrintOrders.map((order) => {
-            // 해외 배송 여부 판단 (국가가 Germany가 아니거나 대문자 코드가 DE가 아닐 때)
             const isInternational = order.shippingAddress?.country && 
               order.shippingAddress.country !== "Germany" && 
               order.shippingAddress.countryCode !== "DE";
 
-            // 배송 수단 텍스트 식별 분기 (기존 Liquid 로직 이식)
             const methodUpper = order.shippingMethod.toUpperCase();
             let shippingBadgeText = null;
             if (methodUpper.includes("DHL")) {
@@ -522,7 +409,6 @@ export default function AdditionalPage() {
                       {order.shippingAddress?.company && <div className="badge">B2B</div>}
                       {order.hasIcePackage && <div className="badge badge-ice">❄ Kühlversand</div>}
                     </div>
-                    {/* [복원] 독일 외 국가일 때 국제배송 국가 상자 노출 */}
                     {isInternational && (
                       <div className="international-box">
                         {order.shippingAddress.country.toUpperCase()}
@@ -530,16 +416,11 @@ export default function AdditionalPage() {
                     )}
                   </div>
                   <div className="header-right">
-                    <img
-                      className="logo"
-                      src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839"
-                      alt="DAWAYO"
-                    />
+                    <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
                     <div className="barcode-wrapper">
                       <div className="barcode-title">Order Barcode</div>
                       <Code128 value={order.name} height={38} moduleWidth={1.2} />
                     </div>
-                    {/* [복원] 배송 방법에 매칭되는 뱃지 분기 출력 */}
                     {shippingBadgeText && (
                       <div className="shipping-badge">{shippingBadgeText}</div>
                     )}
@@ -568,12 +449,12 @@ export default function AdditionalPage() {
                 <table className="order-table">
                   <thead>
                     <tr>
-                      <th style={{ width: "54px" }}>Bild</th>
+                      <th className="order-th-image">Bild</th>
                       <th>Produkt</th>
-                      <th style={{ width: "75px", textAlign: "center" }}>Menge</th>
-                      <th style={{ width: "85px" }}>Lagerplatz</th>
-                      <th style={{ width: "130px", textAlign: "center" }}>Barcode</th>
-                      <th style={{ width: "35px", textAlign: "center" }}>✓</th>
+                      <th className="order-th-qty">Menge</th>
+                      <th className="order-th-location">Lagerplatz</th>
+                      <th className="order-th-barcode">Barcode</th>
+                      <th className="order-th-check">✓</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -585,7 +466,7 @@ export default function AdditionalPage() {
                             {item.imageUrl ? (
                               <img className="product-image" src={item.imageUrl} alt="" />
                             ) : (
-                              <div style={{ width: 44, height: 44, borderRadius: 4, background: "#f0f0f0", border: "1px solid #ddd" }} />
+                              <div className="product-image-placeholder" />
                             )}
                           </td>
                           <td>
@@ -607,14 +488,14 @@ export default function AdditionalPage() {
                             {item.position ? (
                               <div className="location-tag">{item.position}</div>
                             ) : (
-                              <span style={{ color: "#bbb", fontSize: 10 }}>—</span>
+                              <span className="missing-value">—</span>
                             )}
                           </td>
                           <td className="barcode-cell">
                             {item.barcode ? (
                               <Code128 value={item.barcode} height={36} moduleWidth={1.1} />
                             ) : (
-                              <span style={{ color: "#bbb", fontSize: 10 }}>—</span>
+                              <span className="missing-value">—</span>
                             )}
                           </td>
                           <td className="check-cell">□</td>
