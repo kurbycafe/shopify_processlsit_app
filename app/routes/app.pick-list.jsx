@@ -288,7 +288,7 @@ export const action = async ({ request }) => {
         from: '"Shopify System" <YOUR_SYSTEM_EMAIL@gmail.com>',
         to: "popeye.gmbh@gmail.com",
         subject: mailTitle, 
-        text: "요청하신 가로 너비 최적화 피킹 장부가 PDF 첨부 파일로 발행되었습니다.", 
+        text: "요청하신 피킹 장부가 PDF 첨부 파일로 발행되었습니다.", 
         attachments: [
           {
             filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, 
