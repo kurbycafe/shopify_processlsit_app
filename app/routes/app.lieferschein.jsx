@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import styles from "../styles/app.lieferschein.css?url"; 
-import { Select, BlockStack, InlineStack, Card, Text, Box } from "@shopify/polaris"; // ✨ 필터 UI를 위한 컴포넌트 추가
+import { Select, BlockStack, InlineStack, Card, Text, Box } from "@shopify/polaris";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
@@ -48,62 +48,75 @@ export const loader = async ({ request }) => {
   try {
     const { admin } = await authenticate.admin(request);
 
-    const response = await admin.graphql(`
-      #graphql
-      query getDawayoDetailedOrders {
-        orders(
-          first: 40, # 필터링을 위해 한 번에 가져오는 양을 늘림
-          query: "financial_status:paid fulfillment_status:unfulfilled",
-          sortKey: CREATED_AT,
-          reverse: true
-        ) {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              email
-              note
-              displayFinancialStatus
-              displayFulfillmentStatus
-              shippingLines(first: 1) {
-                edges {
-                  node {
-                    title
+    // ✨ 무한 페이지네이션을 위한 변수 설정
+    let allEdges = [];
+    let hasNextPage = true;
+    let endCursor = null;
+
+    // ✨ 다음 페이지가 없을 때까지(전체 미처리 주문을 다 가져올 때까지) 반복
+    while (hasNextPage) {
+      const response = await admin.graphql(`
+        #graphql
+        query getDawayoDetailedOrders($first: Int!, $after: String) {
+          orders(
+            first: $first,
+            after: $after,
+            query: "fulfillment_status:unfulfilled", # ✨ financial_status:paid 조건 삭제 (전체 로드)
+            sortKey: CREATED_AT,
+            reverse: true
+          ) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            edges {
+              node {
+                id
+                name
+                createdAt
+                email
+                note
+                displayFinancialStatus
+                displayFulfillmentStatus
+                shippingLines(first: 1) {
+                  edges {
+                    node {
+                      title
+                    }
                   }
                 }
-              }
-              billingAddress {
-                name company address1 address2 zip city country phone countryCode
-              }
-              shippingAddress {
-                name company address1 address2 zip city country phone countryCode
-              }
-              lineItems(first: 40) {
-                edges {
-                  node {
-                    id
-                    title
-                    quantity
-                    variant {
+                billingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                shippingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                lineItems(first: 50) {
+                  edges {
+                    node {
                       id
                       title
-                      sku
-                      barcode
-                      inventoryItem {
-                        measurement {
-                          weight {
-                            value
-                            unit
+                      quantity
+                      variant {
+                        id
+                        title
+                        sku
+                        barcode
+                        inventoryItem {
+                          measurement {
+                            weight {
+                              value
+                              unit
+                            }
                           }
                         }
-                      }
-                      image { url src } 
-                      product {
-                        featuredImage { url src } 
-                        germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                        expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                        position: metafield(namespace: "custom", key: "position") { value }
+                        image { url src } 
+                        product {
+                          featuredImage { url src } 
+                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                          position: metafield(namespace: "custom", key: "position") { value }
+                        }
                       }
                     }
                   }
@@ -112,22 +125,30 @@ export const loader = async ({ request }) => {
             }
           }
         }
+      `, {
+        variables: {
+          first: 50,
+          after: endCursor
+        }
+      });
+
+      const responseJson = await response.json();
+
+      if (responseJson?.errors?.length > 0) {
+        const errMsg = responseJson.errors.map((e) => e.message).join(", ");
+        console.error("GraphQL errors:", errMsg);
+        return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}` });
       }
-    `);
 
-    const responseJson = await response.json();
+      const connection = responseJson?.data?.orders;
+      if (!connection) break;
 
-    if (responseJson?.errors?.length > 0) {
-      const errMsg = responseJson.errors.map((e) => e.message).join(", ");
-      console.error("GraphQL errors:", errMsg);
-      return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}` });
+      allEdges = allEdges.concat(connection.edges || []);
+      hasNextPage = connection.pageInfo.hasNextPage;
+      endCursor = connection.pageInfo.endCursor;
     }
 
-    if (!responseJson?.data?.orders?.edges) {
-      return jsonResponse({ orders: [], error: "데이터 구조가 올바르지 않습니다." });
-    }
-
-    const orders = responseJson.data.orders.edges.map((edge) => {
+    const orders = allEdges.map((edge) => {
       const node = edge.node;
       const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
 
@@ -184,7 +205,7 @@ export const loader = async ({ request }) => {
       );
       const totalGrams    = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
-      const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0); // ✨ 총 수량 추가
+      const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
 
       return {
         id: node.id,
@@ -195,12 +216,13 @@ export const loader = async ({ request }) => {
           : "-",
         email: node.email || "-",
         note: node.note || "",
+        financialStatus: node.displayFinancialStatus || "UNKNOWN", // ✨ 필터링을 위해 결제 상태 저장
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
         shippingAddress: node.shippingAddress || null,
         hasIcePackage,
         totalWeightKg: (totalGrams / 1000).toFixed(3),
-        totalOrderQty, // ✨ 주문별 총 상품 갯수 저장
+        totalOrderQty,
         items: sortedItems,
       };
     });
@@ -212,7 +234,7 @@ export const loader = async ({ request }) => {
   }
 };
 
-// ─── 표준 Code 128B 바코드 엔진 (생략 없이 유지) ──────────────────────────────────────
+// ─── 표준 Code 128B 바코드 엔진 ──────────────────────────────────────
 const CODE128_CHARS = [
   "11011001100","11001101100","11001100110","10010011000","10010001100",
   "10001001100","10011001000","10011000100","10001100100","11001001000",
@@ -299,6 +321,7 @@ export default function AdditionalPage() {
   const [printedOrderIds, setPrintedOrderIds] = useState([]);
 
   // ✨ 필터 상태 관리 (State)
+  const [paymentFilter, setPaymentFilter] = useState("ALL"); // ✨ 결제 필터 추가
   const [regionFilter, setRegionFilter] = useState("ALL");
   const [complexityFilter, setComplexityFilter] = useState("ALL");
   const [shippingFilter, setShippingFilter] = useState("ALL");
@@ -310,9 +333,16 @@ export default function AdditionalPage() {
     }
   }, [loaderData]);
 
-  // ✨ 주문 필터링 로직 (useMemo를 사용하여 상태 변경 시 즉각 반영)
+  // ✨ 주문 필터링 로직
   const filteredOrders = useMemo(() => {
     let result = [...orders];
+
+    // 0. 결제 상태 필터
+    if (paymentFilter === "PAID") {
+      result = result.filter(o => o.financialStatus === "PAID" || o.financialStatus === "PARTIALLY_PAID");
+    } else if (paymentFilter === "PENDING") {
+      result = result.filter(o => o.financialStatus !== "PAID" && o.financialStatus !== "PARTIALLY_PAID");
+    }
 
     // 1. 지역 필터
     if (regionFilter === "DOMESTIC") {
@@ -323,9 +353,9 @@ export default function AdditionalPage() {
 
     // 2. 상품 및 수량 필터
     if (complexityFilter === "SINGLE") {
-      result = result.filter(o => o.items.length === 1 && o.totalOrderQty === 1); // 딱 1개의 상품만 있는 주문
+      result = result.filter(o => o.items.length === 1 && o.totalOrderQty === 1);
     } else if (complexityFilter === "COMPLEX") {
-      result = result.filter(o => o.items.length >= 15); // 종류가 15개 이상인 대량 주문
+      result = result.filter(o => o.items.length >= 15);
     }
 
     // 3. 배송 수단 필터
@@ -337,7 +367,7 @@ export default function AdditionalPage() {
     } else if (shippingFilter === "EXPRESS") {
       result = result.filter(o => o.shippingMethod.toUpperCase().includes("EXPRESS"));
     } else if (shippingFilter === "ICE") {
-      result = result.filter(o => o.hasIcePackage); // 냉장/냉동 포함
+      result = result.filter(o => o.hasIcePackage);
     }
 
     // 4. 정렬 로직
@@ -346,12 +376,10 @@ export default function AdditionalPage() {
     } else if (sortOrder === "QTY_DESC") {
       result.sort((a, b) => b.totalOrderQty - a.totalOrderQty);
     }
-    // 기본은 불러온 순서(최신순) 유지
 
     return result;
-  }, [orders, regionFilter, complexityFilter, shippingFilter, sortOrder]);
+  }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, sortOrder]);
 
-  // 선택 해제 동기화 (필터를 바꿨을 때 안 보이는 애들이 체크되어있는 현상 방지)
   useEffect(() => {
     setSelectedOrders([]);
   }, [filteredOrders]);
@@ -367,7 +395,6 @@ export default function AdditionalPage() {
     );
   }
 
-  // ✨ 화면에 보이는(filteredOrders) 주문 중에서만 전체 선택되게 변경
   const handleSelectAll = (e) => {
     if (e.target.checked) {
       setSelectedOrders(filteredOrders.filter(o => !o.isPrinted).map((o) => o.id));
@@ -422,12 +449,24 @@ export default function AdditionalPage() {
           출력할 주문을 선택한 뒤 버튼을 클릭하면 인쇄 팝업이 활성화됩니다. 이미 출력된 내역은 체크박스가 비활성화됩니다.
         </p>
 
-        {/* ✨ 필터 UI 영역 추가 */}
         <Box paddingBlockEnd="400">
           <Card background="bg-surface-secondary">
             <BlockStack gap="400">
               <Text variant="headingSm" as="h3">스마트 주문 필터링</Text>
               <InlineStack gap="400" wrap={true}>
+                {/* ✨ 결제 상태 필터 UI 추가 */}
+                <Box minWidth="150px">
+                  <Select
+                    label="결제 상태"
+                    options={[
+                      {label: '전체 (Paid + Pending)', value: 'ALL'},
+                      {label: '✅ 결제 완료 (Paid)', value: 'PAID'},
+                      {label: '⏳ 결제 대기 (Pending)', value: 'PENDING'},
+                    ]}
+                    value={paymentFilter}
+                    onChange={setPaymentFilter}
+                  />
+                </Box>
                 <Box minWidth="150px">
                   <Select
                     label="국가 및 지역"
@@ -440,13 +479,13 @@ export default function AdditionalPage() {
                     onChange={setRegionFilter}
                   />
                 </Box>
-                <Box minWidth="180px">
+                <Box minWidth="160px">
                   <Select
                     label="상품 종류 및 복잡도"
                     options={[
                       {label: '모든 주문', value: 'ALL'},
-                      {label: '단일 상품 (초스피드 패킹)', value: 'SINGLE'},
-                      {label: '다품종 대량 (15종 이상)', value: 'COMPLEX'},
+                      {label: '단일 상품 (초스피드)', value: 'SINGLE'},
+                      {label: '다품종 대량 (15종↑)', value: 'COMPLEX'},
                     ]}
                     value={complexityFilter}
                     onChange={setComplexityFilter}
@@ -459,19 +498,19 @@ export default function AdditionalPage() {
                       {label: '모든 수단', value: 'ALL'},
                       {label: '일반 배송 (Standard)', value: 'STANDARD'},
                       {label: '특급 배송 (Express)', value: 'EXPRESS'},
-                      {label: '❄️ 냉장/냉동 포함 (Ice)', value: 'ICE'},
+                      {label: '❄️ 냉장/냉동 포함', value: 'ICE'},
                     ]}
                     value={shippingFilter}
                     onChange={setShippingFilter}
                   />
                 </Box>
-                <Box minWidth="150px">
+                <Box minWidth="140px">
                   <Select
                     label="정렬 기준"
                     options={[
                       {label: '최신 주문순', value: 'DATE_DESC'},
-                      {label: '총 수량 적은 순', value: 'QTY_ASC'},
-                      {label: '총 수량 많은 순', value: 'QTY_DESC'},
+                      {label: '수량 적은 순', value: 'QTY_ASC'},
+                      {label: '수량 많은 순', value: 'QTY_DESC'},
                     ]}
                     value={sortOrder}
                     onChange={setSortOrder}
@@ -499,22 +538,24 @@ export default function AdditionalPage() {
                 />
               </th>
               <th>주문 번호</th>
+              <th>결제 상태</th> {/* ✨ 헤더 추가 */}
               <th>날짜</th>
               <th>상품 종류 / 수량</th>
-              <th>상태 및 조건</th>
+              <th>배송 및 조건</th>
               <th>인쇄 기록</th>
             </tr>
           </thead>
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="6" className="empty-orders-message">
+                <td colSpan="7" className="empty-orders-message">
                   조건에 맞는 주문이 없습니다.
                 </td>
               </tr>
             ) : (
               filteredOrders.map((order) => {
                 const isInternational = order.shippingAddress?.countryCode && order.shippingAddress.countryCode !== "DE";
+                const isPaid = order.financialStatus === "PAID" || order.financialStatus === "PARTIALLY_PAID";
                 
                 return (
                   <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
@@ -527,6 +568,16 @@ export default function AdditionalPage() {
                       />
                     </td>
                     <td className="order-name">{order.name}</td>
+                    
+                    {/* ✨ 결제 상태 뱃지 출력 */}
+                    <td>
+                      {isPaid ? (
+                        <span style={{fontSize:"11px", background:"#dcfce7", color:"#166534", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>결제완료</span>
+                      ) : (
+                        <span style={{fontSize:"11px", background:"#fef08a", color:"#854d0e", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>{order.financialStatus}</span>
+                      )}
+                    </td>
+
                     <td>{order.createdAt}</td>
                     <td>
                       <strong>{order.items.length}</strong>종 / 총 <strong>{order.totalOrderQty}</strong>개
@@ -534,7 +585,7 @@ export default function AdditionalPage() {
                     <td>
                       <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                         {isInternational && <span style={{fontSize:"11px", background:"#fef08a", color:"#854d0e", padding:"2px 6px", borderRadius:"4px"}}>해외</span>}
-                        {order.shippingMethod.toUpperCase().includes("EXPRESS") && <span style={{fontSize:"11px", background:"#fecaca", color:"#991b1b", padding:"2px 6px", borderRadius:"4px"}}>특급</span>}
+                        {order.shippingMethod.toUpperCase().includes("EXPRESS") && <span style={{fontSize:"11px", background:"#fecaca", color:"#991b1b", padding:"2px 6px", borderRadius:"4px"}}>EXPRESS</span>}
                         {order.hasIcePackage && <span style={{fontSize:"11px", background:"#bfdbfe", color:"#1e3a8a", padding:"2px 6px", borderRadius:"4px"}}>냉장</span>}
                       </div>
                     </td>
