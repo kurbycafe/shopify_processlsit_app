@@ -13,16 +13,16 @@ import {
   Icon,
 } from "@shopify/polaris";
 import {
-  AlertMinor,
-  CheckCircleMajor,
-  ClockMajor,
+  AlertIcon,
+  CheckCircleIcon,
+  ClockIcon,
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 
 dayjs.extend(relativeTime);
-import prisma from "../db.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -108,7 +108,8 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="critical">
                       {unfulfilledCount}
                     </Text>
-                    <Icon source={AlertMinor} color="critical" />
+                    {/* ✨ 수정: AlertMinor -> AlertIcon */}
+                    <Icon source={AlertIcon} tone="critical" />
                   </InlineStack>
                 </BlockStack>
               </Card>
@@ -121,7 +122,8 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="warning">
                       {partiallyFulfilledCount}
                     </Text>
-                    <Icon source={ClockMajor} color="warning" />
+                    {/* ✨ 수정: ClockMajor -> ClockIcon */}
+                    <Icon source={ClockIcon} tone="warning" />
                   </InlineStack>
                 </BlockStack>
               </Card>
@@ -134,7 +136,8 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="success">
                       {recentLogs.filter(log => dayjs(log.createdAt).isSame(dayjs(), 'day')).length}
                     </Text>
-                    <Icon source={CheckCircleMajor} color="success" />
+                    {/* ✨ 수정: CheckCircleMajor -> CheckCircleIcon */}
+                    <Icon source={CheckCircleIcon} tone="success" />
                   </InlineStack>
                 </BlockStack>
               </Card>
