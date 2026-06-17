@@ -28,3 +28,33 @@ model Session {
 
   @@map("session")
 }
+
+model InspectionRecord {
+  id              String           @id @default(cuid())
+  orderId         String           // Shopify Order ID
+  orderName       String           // Shopify Order Name (e.g., #1001)
+  shop            String           // Shop domain
+  inspectorName   String?          // Name of the person who inspected
+  status          String           // SUCCESS, FAILED, PARTIAL
+  startedAt       DateTime         @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  items           InspectionItem[]
+
+  @@index([shop])
+  @@index([orderId])
+}
+
+model InspectionItem {
+  id                 String           @id @default(cuid())
+  inspectionRecordId String
+  inspectionRecord   InspectionRecord @relation(fields: [inspectionRecordId], references: [id], onDelete: Cascade)
+  variantId          String           // Shopify Variant ID
+  productTitle       String
+  variantTitle       String?
+  sku                String?
+  barcode            String?
+  orderedQuantity    Int
+  inspectedQuantity  Int
+}

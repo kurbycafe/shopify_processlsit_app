@@ -288,7 +288,6 @@ export const action = async ({ request }) => {
         from: '"Shopify System" <YOUR_SYSTEM_EMAIL@gmail.com>',
         to: "popeye.gmbh@gmail.com",
         subject: mailTitle, 
-        text: "요청하신 피킹 장부가 PDF 첨부 파일로 발행되었습니다.", 
         attachments: [
           {
             filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, 
@@ -330,13 +329,12 @@ export default function PickListPage() {
   const metricCardStyle = { border: "1px solid #e2e8f0", borderRadius: "16px", padding: "16px", background: "#f8fafc", minWidth: "160px" };
   const tableWrapStyle = { overflowX: "auto", border: "1px solid #dfe3e8", borderRadius: "16px", background: "#fff" };
   
-  // 브라우저 뷰 최적화 레이아웃 너비 규격 정의
   const tableStyle = { width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" };
   const headerCellStyle = { position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: "10px 12px", textAlign: "left", fontSize: "13px" };
   const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "10px 12px", verticalAlign: "top", fontSize: "13px", wordBreak: "break-all" };
 
   return (
-    <s-page heading="처리중 리스트 (가로 폭 너비 자동 피팅 고도화)">
+    <s-page heading="처리중 리스트">
       <style>{`
         @media print {
           button, .no-print, s-button, .shopify-app-bridge-header { display: none !important; }
@@ -356,7 +354,7 @@ export default function PickListPage() {
         }
       `}</style>
 
-      <s-section heading="피킹 동선 관리 장부" description="가로 넓이가 자동으로 보정되어 인쇄 종이 밖으로 탈출하거나 짤리는 증상을 완전히 수정했습니다.">
+      <s-section heading="피킹 동선 관리 장부" >
         
         {actionData?.success === false && (
           <div className="no-print" style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>

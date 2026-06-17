@@ -1,331 +1,204 @@
-import { useEffect } from "react";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
-import { boundary } from "@shopify/shopify-app-react-router/server";
+import { useLoaderData, Link } from "react-router";
+import {
+  Page,
+  Layout,
+  Card,
+  Text,
+  BlockStack,
+  InlineStack,
+  Badge,
+  List,
+  Box,
+  Divider,
+  Icon,
+} from "@shopify/polaris";
+import {
+  AlertMinor,
+  CheckCircleMajor,
+  ClockMajor,
+} from "@shopify/polaris-icons";
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
 import { authenticate } from "../shopify.server";
 
+dayjs.extend(relativeTime);
+import prisma from "../db.server";
+
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  const shop = session.shop;
 
-  return null;
-};
-
-export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
+  // 1. 주문 통계 가져오기
   const response = await admin.graphql(
     `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
+    query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!) {
+      unfulfilled: orders(first: 0, query: $unfulfilledQuery) {
+        totalCount
+      }
+      partially_fulfilled: orders(first: 0, query: $partialQuery) {
+        totalCount
+      }
+    }`,
+    {
+      variables: {
+        unfulfilledQuery: "fulfillment_status:unfulfilled",
+        partialQuery: "fulfillment_status:partially_fulfilled",
+      },
+    }
+  );
+  
+  const statsJson = await response.json();
+  const unfulfilledCount = statsJson.data?.unfulfilled?.totalCount || 0;
+  const partiallyFulfilledCount = statsJson.data?.partially_fulfilled?.totalCount || 0;
+
+  // 2. 긴급 주문 (24시간 이상 경과한 미배송 건)
+  const yesterday = dayjs().subtract(24, "hour").toISOString();
+  const agingResponse = await admin.graphql(
+    `#graphql
+    query getAgingOrders($query: String!) {
+      orders(first: 5, query: $query, sortKey: CREATED_AT, reverse: false) {
+        edges {
+          node {
             id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-            demoInfo: metafield(namespace: "$app", key: "demo_info") {
-              jsonValue
-            }
+            name
+            createdAt
           }
-        }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-          metafields: [
-            {
-              namespace: "$app",
-              key: "demo_info",
-              value: "Created by React Router Template",
-            },
-          ],
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
-  const product = responseJson.data.productCreate.product;
-  const variantId = product.variants.edges[0].node.id;
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
         }
       }
     }`,
     {
       variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
+        query: `fulfillment_status:unfulfilled created_at:<${yesterday}`,
       },
-    },
+    }
   );
-  const variantResponseJson = await variantResponse.json();
-  const metaobjectResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpsertMetaobject($handle: MetaobjectHandleInput!, $metaobject: MetaobjectUpsertInput!) {
-      metaobjectUpsert(handle: $handle, metaobject: $metaobject) {
-        metaobject {
-          id
-          handle
-          title: field(key: "title") {
-            jsonValue
-          }
-          description: field(key: "description") {
-            jsonValue
-          }
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }`,
-    {
-      variables: {
-        handle: {
-          type: "$app:example",
-          handle: "demo-entry",
-        },
-        metaobject: {
-          fields: [
-            { key: "title", value: "Demo Entry" },
-            {
-              key: "description",
-              value:
-                "This metaobject was created by the Shopify app template to demonstrate the metaobject API.",
-            },
-          ],
-        },
-      },
-    },
-  );
-  const metaobjectResponseJson = await metaobjectResponse.json();
+  const agingJson = await agingResponse.json();
+  const agingOrders = agingJson.data?.orders?.edges?.map(edge => edge.node) || [];
+
+  // 3. 최근 검수 기록 (DB)
+  const recentLogs = await prisma.inspectionRecord.findMany({
+    where: { shop },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    include: { items: true }
+  });
 
   return {
-    product: responseJson.data.productCreate.product,
-    variant: variantResponseJson.data.productVariantsBulkUpdate.productVariants,
-    metaobject: metaobjectResponseJson.data.metaobjectUpsert.metaobject,
+    unfulfilledCount,
+    partiallyFulfilledCount,
+    agingOrders,
+    recentLogs,
   };
 };
 
 export default function Index() {
-  const fetcher = useFetcher();
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
-
-  useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
-    }
-  }, [fetcher.data?.product?.id, shopify]);
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  const { unfulfilledCount, partiallyFulfilledCount, agingOrders, recentLogs } = useLoaderData();
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
-      </s-button>
+    <Page title="대시보드">
+      <Layout>
+        {/* 주문 현황 요약 */}
+        <Layout.Section>
+          <InlineStack gap="400" align="start">
+            <Box width="30%">
+              <Card>
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h2">미배송 주문</Text>
+                  <InlineStack align="space-between">
+                    <Text variant="heading2xl" as="p" color="critical">
+                      {unfulfilledCount}
+                    </Text>
+                    <Icon source={AlertMinor} color="critical" />
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Box>
+            <Box width="30%">
+              <Card>
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h2">부분 배송</Text>
+                  <InlineStack align="space-between">
+                    <Text variant="heading2xl" as="p" color="warning">
+                      {partiallyFulfilledCount}
+                    </Text>
+                    <Icon source={ClockMajor} color="warning" />
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Box>
+            <Box width="30%">
+              <Card>
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h2">오늘 검수 완료</Text>
+                  <InlineStack align="space-between">
+                    <Text variant="heading2xl" as="p" color="success">
+                      {recentLogs.filter(log => dayjs(log.createdAt).isSame(dayjs(), 'day')).length}
+                    </Text>
+                    <Icon source={CheckCircleMajor} color="success" />
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Box>
+          </InlineStack>
+        </Layout.Section>
 
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
-      </s-section>
-      <s-section heading="Get started with products">
-        <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references. Includes a product{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/build/custom-data/metafields"
-            target="_blank"
-          >
-            metafield
-          </s-link>{" "}
-          and{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/build/custom-data/metaobjects"
-            target="_blank"
-          >
-            metaobject
-          </s-link>
-          .
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
-          >
-            Generate a product
-          </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
-        </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
-              </s-box>
+        {/* 긴급 주문 알림 */}
+        <Layout.Section variant="oneHalf">
+          <Card title="긴급 주문 (24시간 경과)">
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">긴급 주문 (24시간 경과)</Text>
+              {agingOrders.length > 0 ? (
+                <List>
+                  {agingOrders.map((order) => (
+                    <List.Item key={order.id}>
+                      <InlineStack align="space-between">
+                        <Text variant="bodyMd" fontWeight="bold">{order.name}</Text>
+                        <Badge tone="critical">{dayjs(order.createdAt).fromNow()}</Badge>
+                      </InlineStack>
+                    </List.Item>
+                  ))}
+                </List>
+              ) : (
+                <Text variant="bodyMd" color="subdued">긴급 주문이 없습니다. 훌륭합니다!</Text>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
-
-              <s-heading>metaobjectUpsert mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>
-                    {JSON.stringify(fetcher.data.metaobject, null, 2)}
-                  </code>
-                </pre>
-              </s-box>
-            </s-stack>
-          </s-section>
-        )}
-      </s-section>
-
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Custom data: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/apps/build/custom-data"
-            target="_blank"
-          >
-            Metafields &amp; metaobjects
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
-        </s-paragraph>
-      </s-section>
-
-      <s-section slot="aside" heading="Next steps">
-        <s-unordered-list>
-          <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
-            >
-              example app
-            </s-link>
-          </s-list-item>
-          <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
-            </s-link>
-          </s-list-item>
-        </s-unordered-list>
-      </s-section>
-    </s-page>
+        {/* 최근 검수 활동 */}
+        <Layout.Section variant="oneHalf">
+          <Card>
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">최근 검수 활동</Text>
+              {recentLogs.length > 0 ? (
+                <List>
+                  {recentLogs.map((log) => (
+                    <List.Item key={log.id}>
+                      <InlineStack align="space-between">
+                        <BlockStack>
+                          <Text variant="bodyMd" fontWeight="bold">{log.orderName}</Text>
+                          <Text variant="bodySm" color="subdued">
+                            {dayjs(log.createdAt).format("HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
+                          </Text>
+                        </BlockStack>
+                        <Badge tone={log.status === "SUCCESS" ? "success" : "warning"}>
+                          {log.status}
+                        </Badge>
+                      </InlineStack>
+                    </List.Item>
+                  ))}
+                </List>
+              ) : (
+                <Text variant="bodyMd" color="subdued">최근 활동이 없습니다.</Text>
+              )}
+              <Divider />
+              <Link to="/app/inspect" style={{ textDecoration: 'none' }}>
+                <Text variant="bodyMd" color="accent">새로운 검수 시작하기 &rarr;</Text>
+              </Link>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+      </Layout>
+    </Page>
   );
 }
-
-export const headers = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
