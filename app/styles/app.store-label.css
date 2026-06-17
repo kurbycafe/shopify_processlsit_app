@@ -126,7 +126,7 @@
 
 .label-queue-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 92px auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 14px;
   align-items: center;
   padding: 14px;
@@ -183,6 +183,7 @@
   background: rgba(255, 255, 255, 0.75);
 }
 
+/* QL-700 기본 디자인 */
 .store-label {
   width: 62mm;
   min-height: 29mm;
@@ -337,17 +338,14 @@
   }
 }
 
+/* ✨ 프린트 전용 CSS 세팅 */
 @media print {
-  @page {
-    size: 62mm 29mm;
-    margin: 0;
-  }
-
   html,
   body {
     margin: 0 !important;
     padding: 0 !important;
     background: #fff !important;
+    /* VC-500W 컬러 출력을 위해 브라우저가 배경색을 날려버리는 현상 방지 */
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -360,11 +358,8 @@
     display: block !important;
   }
 
+  /* ✨ 50x50, 62x29 공통: 여백 제거 및 페이지 나눔 방지 설정 */
   .store-label-print {
-    width: 62mm !important;
-    min-height: 29mm !important;
-    height: 29mm !important;
-    padding: 1.6mm 2.1mm !important;
     margin: 0 !important;
     border: none !important;
     border-radius: 0 !important;
@@ -376,39 +371,48 @@
     break-after: page !important;
   }
 
-  .store-label-print .store-label-title {
+  /* ✨ 62x29 전용 (QL-700) : 50x50 컬러 라벨과 충돌하지 않도록 클래스 한정(.store-label) */
+  .store-label.store-label-print {
+    width: 62mm !important;
+    min-height: 29mm !important;
+    height: 29mm !important;
+    padding: 1.6mm 2.1mm !important;
+  }
+
+  .store-label.store-label-print .store-label-title {
     font-size: 7.1pt !important;
     line-height: 1.02 !important;
     -webkit-line-clamp: 1 !important;
     line-clamp: 1 !important;
   }
 
-  .store-label-print .store-label-subtitle,
-  .store-label-print .store-label-variant,
-  .store-label-print .store-label-expiry,
-  .store-label-print .store-label-tax {
+  .store-label.store-label-print .store-label-subtitle,
+  .store-label.store-label-print .store-label-variant,
+  .store-label.store-label-print .store-label-expiry,
+  .store-label.store-label-print .store-label-tax {
     font-size: 5pt !important;
     line-height: 1.02 !important;
   }
 
-  .store-label-print .store-label-price {
+  .store-label.store-label-print .store-label-price {
     font-size: 12pt !important;
     line-height: 0.95 !important;
   }
 
-  .store-label-print .store-label-compare {
+  .store-label.store-label-print .store-label-compare {
     font-size: 5.3pt !important;
   }
 
-  .store-label-print .store-label-barcode svg {
+  .store-label.store-label-print .store-label-barcode svg {
     height: 11px !important;
   }
 
-  .store-label-print .store-label-footer {
+  .store-label.store-label-print .store-label-footer {
     font-size: 4.7pt !important;
     gap: 4px !important;
   }
 
+  /* 마지막 장 백지 출력 방지 */
   .store-label-print:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
