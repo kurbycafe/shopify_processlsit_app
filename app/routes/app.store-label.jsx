@@ -193,23 +193,41 @@ function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showT
   );
 }
 
-// ✨ 규격(Size)에 따라 동적으로 렌더링하도록 개편된 StoreLabel 컴포넌트
+// ✨ 규격(Size) 및 배경색/이미지를 동적으로 렌더링하는 컴포넌트
 function StoreLabel({ item, printMode = false, size = "62x29" }) {
   const displayTitle = item.germanTranslation || item.productTitle || "";
   const autoDiscount = hasDiscount(item.price, item.compareAtPrice);
 
   // ─── 50x50 mm (Brother VC-500W) 컬러 라벨 모드 ───
   if (size === "50x50") {
+    // 기본 테마 설정 (흰 배경)
+    let bgColor = "#ffffff";
+    let textColor = "#111111";
+    let subTextColor = "#64748b";
+    let priceColor = item.badgeType === "SALE" || autoDiscount ? "#ef4444" : "#000000";
+
+    // ✨ 특가 및 신상품일 경우 '전체 배경색 반전' 처리
+    if (item.badgeType === "SALE") {
+      bgColor = "#ef4444"; // 강력한 빨간색
+      textColor = "#ffffff";
+      subTextColor = "#fee2e2"; // 연한 분홍빛
+      priceColor = "#ffffff";
+    } else if (item.badgeType === "NEW") {
+      bgColor = "#16a34a"; // 산뜻한 초록색
+      textColor = "#ffffff";
+      subTextColor = "#dcfce7"; // 연한 초록빛
+      priceColor = "#ffffff";
+    }
+
     return (
       <div className={printMode ? "store-label-print" : ""} style={{
         width: printMode ? "50mm" : "188px",
         height: printMode ? "50mm" : "188px",
-        backgroundColor: "#fff",
+        backgroundColor: bgColor,
         border: printMode ? "none" : "1px solid #dfe3e8",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        alignItems: "center",
         padding: "4mm",
         boxSizing: "border-box",
         pageBreakAfter: "always",
@@ -218,31 +236,35 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
         position: "relative",
         fontFamily: "system-ui, -apple-system, sans-serif"
       }}>
-        {/* VC-500W 전용 풀컬러 뱃지 (절대 위치) */}
-        {item.badgeType === "SALE" && (
-          <div style={{position:"absolute", top:0, left:0, background:"#ef4444", color:"#fff", fontSize:"10px", fontWeight:"900", padding:"3px 8px", borderBottomRightRadius:"8px"}}>SALE</div>
-        )}
-        {item.badgeType === "NEW" && (
-          <div style={{position:"absolute", top:0, left:0, background:"#3b82f6", color:"#fff", fontSize:"10px", fontWeight:"900", padding:"3px 8px", borderBottomRightRadius:"8px"}}>NEW</div>
-        )}
-
-        <div style={{ textAlign: "center", width: "100%", marginTop: item.badgeType !== "NONE" ? "14px" : "4px" }}>
-          <div style={{ fontSize: "11px", fontWeight: "800", lineHeight: "1.2", maxHeight: "26px", overflow: "hidden", color: "#111" }}>
+        
+        {/* 상단: 상품명 및 유통기한 */}
+        <div style={{ textAlign: "left", width: "100%" }}>
+          <div style={{ fontSize: "11px", fontWeight: "800", lineHeight: "1.2", maxHeight: "26px", overflow: "hidden", color: textColor }}>
             {displayTitle}
           </div>
-          {item.expiryDate && <div style={{ fontSize: "8px", color: "#64748b", marginTop: "3px", fontWeight: "600" }}>MHD {item.expiryDate}</div>}
+          {item.expiryDate && <div style={{ fontSize: "8px", color: subTextColor, marginTop: "2px", fontWeight: "600" }}>MHD {item.expiryDate}</div>}
         </div>
 
-        <div style={{ textAlign: "center", margin: "2px 0" }}>
-          <div style={{ fontSize: "19px", fontWeight: "900", letterSpacing: "-0.5px", color: item.badgeType === "SALE" || autoDiscount ? "#ef4444" : "#000" }}>
-            {formatEuro(item.price)}
+        {/* 중단: 상품 이미지 & 가격 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", margin: "2px 0" }}>
+          {/* 상품 이미지 (투명 배경 PNG를 대비해 흰색 배경 깔아주기) */}
+          {item.imageUrl ? (
+            <img src={item.imageUrl} alt="" style={{ width: "45px", height: "45px", objectFit: "contain", borderRadius: "6px", backgroundColor: "#fff", padding: "2px" }} />
+          ) : (
+            <div style={{ width: "45px", height: "45px" }} /> // 이미지가 없을 때 레이아웃 유지용
+          )}
+          
+          <div style={{ textAlign: "right", flex: 1 }}>
+            <div style={{ fontSize: "20px", fontWeight: "900", letterSpacing: "-0.5px", color: priceColor, lineHeight: "1" }}>
+              {formatEuro(item.price)}
+            </div>
+            {autoDiscount && <div style={{ fontSize: "10px", textDecoration: "line-through", color: subTextColor, marginTop: "2px" }}>{formatEuro(item.compareAtPrice)}</div>}
           </div>
-          {autoDiscount && <div style={{ fontSize: "10px", textDecoration: "line-through", color: "#94a3b8", marginTop: "-2px" }}>{formatEuro(item.compareAtPrice)}</div>}
         </div>
 
-        {/* 50x50용으로 바코드 모듈 폭(0.62) 및 높이(18) 최적화 */}
-        <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-          <Code128 value={item.barcode || item.sku || "000000"} height={18} moduleWidth={0.62} fontSize={6} showText={!printMode} />
+        {/* 하단: 바코드 (✨스캔을 위해 반드시 흰 바탕 유지) */}
+        <div style={{ width: "100%", display: "flex", justifyContent: "center", backgroundColor: "#ffffff", padding: "2px", borderRadius: "4px" }}>
+          <Code128 value={item.barcode || item.sku || "000000"} height={16} moduleWidth={0.62} fontSize={6} showText={!printMode} />
         </div>
       </div>
     );
@@ -296,7 +318,7 @@ export default function StoreLabelPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   
-  // ✨ 라벨 규격(프린터) 상태 추가
+  // 라벨 규격(프린터) 상태
   const [labelSize, setLabelSize] = useState("62x29");
 
   const addVariantToQueue = (variantObj, copies) => {
@@ -393,7 +415,6 @@ export default function StoreLabelPage() {
 
   return (
     <div className="label-page-root">
-      {/* ✨ 선택된 규격에 맞춰 @page 사이즈를 동적으로 주입하는 프린트 전용 스타일 */}
       <style>{`
         @media print {
           @page {
@@ -420,7 +441,6 @@ export default function StoreLabelPage() {
                       </Text>
                     </BlockStack>
                     
-                    {/* ✨ 규격 선택 드롭다운 UI */}
                     <div style={{ width: "260px" }}>
                       <Select
                         labelHidden
@@ -495,7 +515,6 @@ export default function StoreLabelPage() {
                       {queuedLabels.map((item) => (
                         <div key={item.id} className="label-queue-item">
                           <div className="label-queue-copy" style={{ alignSelf: "center" }}>
-                            {/* ✨ 선택된 규격을 내려줌 */}
                             <StoreLabel item={item} size={labelSize} />
                           </div>
                           <div className="label-queue-meta">
