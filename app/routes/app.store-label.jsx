@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
-import { Page, Layout, Card, BlockStack, InlineStack, Text, Button } from "@shopify/polaris";
+import { 
+  Page, Layout, Card, BlockStack, InlineStack, Text, Button, 
+  Modal, ResourceList, ResourceItem, Avatar, Badge, Select
+} from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import styles from "../styles/app.store-label.css?url";
 
@@ -8,6 +11,7 @@ export const links = () => [
   { rel: "stylesheet", href: styles },
 ];
 
+// ─── Code 128B 바코드 엔진 ──────────────────────────────────────
 const CODE128_CHARS = [
   "11011001100","11001101100","11001100110","10010011000","10010001100",
   "10001001100","10011001000","10011000100","10001100100","11001001000",
@@ -48,14 +52,12 @@ const euroFormatter = new Intl.NumberFormat("de-DE", {
 function encodeCode128(text) {
   let checksum = CODE128_START_B;
   const bars = [CODE128_CHARS[CODE128_START_B]];
-
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index) - 32;
     if (code < 0 || code > 94) continue;
     checksum += code * (index + 1);
     bars.push(CODE128_CHARS[code]);
   }
-
   bars.push(CODE128_CHARS[checksum % 103]);
   bars.push(CODE128_STOP);
   return bars.join("");
@@ -71,82 +73,75 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  if (intent !== "fetch_label_product") {
-    return null;
-  }
+  if (intent !== "fetch_label_product") return null;
 
   const rawCode = String(formData.get("barcode") || "").trim();
   const copiesRequested = String(formData.get("copies") || "1");
 
   if (!rawCode) {
-    return jsonResponse({ error: "바코드 또는 SKU를 입력하세요." });
+    return jsonResponse({ error: "검색어를 입력하세요." });
   }
 
   const escapedCode = rawCode.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  const searchQueries = Array.from(new Set([
-    `barcode:${rawCode}`,
-    `barcode:\"${escapedCode}\"`,
-    `sku:${rawCode}`,
-    `sku:\"${escapedCode}\"`,
-  ]));
+  const searchQuery = `'${escapedCode}' OR barcode:${escapedCode} OR sku:${escapedCode}`;
 
-  for (const query of searchQueries) {
-    const response = await admin.graphql(
-      `#graphql
-      query findLabelVariant($query: String!) {
-        productVariants(first: 1, query: $query) {
-          nodes {
-            id
+  const response = await admin.graphql(
+    `#graphql
+    query findLabelVariants($query: String!) {
+      productVariants(first: 10, query: $query) {
+        nodes {
+          id
+          title
+          sku
+          barcode
+          price
+          compareAtPrice
+          image { url }
+          product {
             title
-            sku
-            barcode
-            price
-            compareAtPrice
-            product {
-              title
-              germanTranslation: metafield(namespace: "global", key: "german_translation") {
-                value
-              }
-              expiryDate: metafield(namespace: "freshly", key: "expiry_date") {
-                value
-              }
+            germanTranslation: metafield(namespace: "global", key: "german_translation") {
+              value
+            }
+            expiryDate: metafield(namespace: "freshly", key: "expiry_date") {
+              value
             }
           }
         }
-      }`,
-      { variables: { query } }
-    );
+      }
+    }`,
+    { variables: { query: searchQuery } }
+  );
 
-    const responseJson = await response.json();
+  const responseJson = await response.json();
 
-    if (responseJson?.errors?.length) {
-      const errMsg = responseJson.errors.map((error) => error.message).join(", ");
-      return jsonResponse({ error: `상품 조회 실패: ${errMsg}` });
-    }
-
-    const variant = responseJson?.data?.productVariants?.nodes?.[0];
-
-    if (variant) {
-      const variantTitle = variant.title === "Default Title" ? "" : (variant.title || "");
-
-      return jsonResponse({
-        copiesRequested,
-        labelProduct: {
-          id: variant.id,
-          barcode: variant.barcode || rawCode,
-          sku: variant.sku || "",
-          price: variant.price || "0",
-          compareAtPrice: variant.compareAtPrice || "",
-          productTitle: variant.product?.title || "",
-          germanTranslation: variant.product?.germanTranslation?.value || "",
-          expiryDate: variant.product?.expiryDate?.value || "",
-          variantTitle,
-        },
-      });
-    }
+  if (responseJson?.errors?.length) {
+    const errMsg = responseJson.errors.map((error) => error.message).join(", ");
+    return jsonResponse({ error: `상품 조회 실패: ${errMsg}` });
   }
 
-  return jsonResponse({ error: "일치하는 상품을 찾지 못했습니다. 바코드 또는 SKU를 확인하세요." });
+  const variants = responseJson?.data?.productVariants?.nodes || [];
+
+  if (variants.length > 0) {
+    const formattedVariants = variants.map(variant => ({
+      id: variant.id,
+      barcode: variant.barcode || rawCode,
+      sku: variant.sku || "",
+      price: variant.price || "0",
+      compareAtPrice: variant.compareAtPrice || "",
+      productTitle: variant.product?.title || "",
+      germanTranslation: variant.product?.germanTranslation?.value || "",
+      expiryDate: variant.product?.expiryDate?.value || "",
+      variantTitle: variant.title === "Default Title" ? "" : (variant.title || ""),
+      imageUrl: variant.image?.url || "",
+    }));
+
+    return jsonResponse({
+      copiesRequested,
+      variants: formattedVariants,
+    });
+  }
+
+  return jsonResponse({ error: "일치하는 상품을 찾지 못했습니다. 검색어를 확인하세요." });
 };
 
 function formatEuro(value) {
@@ -163,32 +158,23 @@ function hasDiscount(price, compareAtPrice) {
 
 function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showText = true }) {
   if (!value) return null;
-
   const encoded = encodeCode128(value);
   const quietZone = 4;
   const totalWidth = encoded.length * moduleWidth;
-
   let x = quietZone;
   const rects = [];
 
   for (let index = 0; index < encoded.length; index += 1) {
     if (encoded[index] === "1") {
       let width = 0;
-      while (index < encoded.length && encoded[index] === "1") {
-        width += 1;
-        index += 1;
-      }
+      while (index < encoded.length && encoded[index] === "1") { width += 1; index += 1; }
       index -= 1;
       rects.push(<rect key={x} x={x} y={0} width={width * moduleWidth} height={height} fill="#111" />);
       x += width * moduleWidth;
       continue;
     }
-
     let width = 0;
-    while (index < encoded.length && encoded[index] === "0") {
-      width += 1;
-      index += 1;
-    }
+    while (index < encoded.length && encoded[index] === "0") { width += 1; index += 1; }
     index -= 1;
     x += width * moduleWidth;
   }
@@ -207,35 +193,90 @@ function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showT
   );
 }
 
-function StoreLabel({ item, printMode = false }) {
+// ✨ 규격(Size)에 따라 동적으로 렌더링하도록 개편된 StoreLabel 컴포넌트
+function StoreLabel({ item, printMode = false, size = "62x29" }) {
   const displayTitle = item.germanTranslation || item.productTitle || "";
-  const showDiscount = hasDiscount(item.price, item.compareAtPrice);
+  const autoDiscount = hasDiscount(item.price, item.compareAtPrice);
+
+  // ─── 50x50 mm (Brother VC-500W) 컬러 라벨 모드 ───
+  if (size === "50x50") {
+    return (
+      <div className={printMode ? "store-label-print" : ""} style={{
+        width: printMode ? "50mm" : "188px",
+        height: printMode ? "50mm" : "188px",
+        backgroundColor: "#fff",
+        border: printMode ? "none" : "1px solid #dfe3e8",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "4mm",
+        boxSizing: "border-box",
+        pageBreakAfter: "always",
+        breakAfter: "page",
+        overflow: "hidden",
+        position: "relative",
+        fontFamily: "system-ui, -apple-system, sans-serif"
+      }}>
+        {/* VC-500W 전용 풀컬러 뱃지 (절대 위치) */}
+        {item.badgeType === "SALE" && (
+          <div style={{position:"absolute", top:0, left:0, background:"#ef4444", color:"#fff", fontSize:"10px", fontWeight:"900", padding:"3px 8px", borderBottomRightRadius:"8px"}}>SALE</div>
+        )}
+        {item.badgeType === "NEW" && (
+          <div style={{position:"absolute", top:0, left:0, background:"#3b82f6", color:"#fff", fontSize:"10px", fontWeight:"900", padding:"3px 8px", borderBottomRightRadius:"8px"}}>NEW</div>
+        )}
+
+        <div style={{ textAlign: "center", width: "100%", marginTop: item.badgeType !== "NONE" ? "14px" : "4px" }}>
+          <div style={{ fontSize: "11px", fontWeight: "800", lineHeight: "1.2", maxHeight: "26px", overflow: "hidden", color: "#111" }}>
+            {displayTitle}
+          </div>
+          {item.expiryDate && <div style={{ fontSize: "8px", color: "#64748b", marginTop: "3px", fontWeight: "600" }}>MHD {item.expiryDate}</div>}
+        </div>
+
+        <div style={{ textAlign: "center", margin: "2px 0" }}>
+          <div style={{ fontSize: "19px", fontWeight: "900", letterSpacing: "-0.5px", color: item.badgeType === "SALE" || autoDiscount ? "#ef4444" : "#000" }}>
+            {formatEuro(item.price)}
+          </div>
+          {autoDiscount && <div style={{ fontSize: "10px", textDecoration: "line-through", color: "#94a3b8", marginTop: "-2px" }}>{formatEuro(item.compareAtPrice)}</div>}
+        </div>
+
+        {/* 50x50용으로 바코드 모듈 폭(0.62) 및 높이(18) 최적화 */}
+        <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+          <Code128 value={item.barcode || item.sku || "000000"} height={18} moduleWidth={0.62} fontSize={6} showText={!printMode} />
+        </div>
+      </div>
+    );
+  }
+
+  // ─── 62x29 mm (Brother QL-700) 흑백 라벨 모드 (기존) ───
+  let badgeElement = null;
+  if (item.badgeType === "SALE") {
+    badgeElement = <div className="store-label-badge" style={{ background: "#000", color: "#fff", border: "1px solid #000" }}>특가 SALE</div>;
+  } else if (item.badgeType === "NEW") {
+    badgeElement = <div className="store-label-badge" style={{ background: "#fff", color: "#000", border: "1.5px solid #000" }}>신상품 NEW</div>;
+  } else if (autoDiscount) {
+    badgeElement = <div className="store-label-badge" style={{ background: "#333", color: "#fff" }}>Angebot</div>;
+  }
 
   return (
     <div className={`store-label ${printMode ? "store-label-print" : ""}`}>
       <div className="store-label-topline">
         <div className="store-label-title">{displayTitle}</div>
-        {showDiscount && <div className="store-label-badge">Angebot</div>}
+        {badgeElement}
       </div>
-
       {item.productTitle && item.productTitle !== displayTitle && (
         <div className="store-label-subtitle">{item.productTitle}</div>
       )}
-
       {item.variantTitle && <div className="store-label-variant">{item.variantTitle}</div>}
-
       {item.expiryDate && <div className="store-label-expiry">MHD {item.expiryDate}</div>}
-
       <div className="store-label-price-row">
         <div>
           <div className="store-label-price">{formatEuro(item.price)}</div>
           <div className="store-label-tax">inkl. MwSt.</div>
         </div>
-        {showDiscount && <div className="store-label-compare">{formatEuro(item.compareAtPrice)}</div>}
+        {autoDiscount && <div className="store-label-compare">{formatEuro(item.compareAtPrice)}</div>}
       </div>
-
       {item.barcode && <Code128 value={item.barcode} showText={!printMode} />}
-
       <div className="store-label-footer">
         <span>{item.sku ? `SKU ${item.sku}` : "SKU -"}</span>
         <span>{item.barcode ? `EAN ${item.barcode}` : "EAN -"}</span>
@@ -252,27 +293,43 @@ export default function StoreLabelPage() {
   const [queuedLabels, setQueuedLabels] = useState([]);
   const [labelPrintItems, setLabelPrintItems] = useState([]);
   const [message, setMessage] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  
+  // ✨ 라벨 규격(프린터) 상태 추가
+  const [labelSize, setLabelSize] = useState("62x29");
+
+  const addVariantToQueue = (variantObj, copies) => {
+    const newItem = { ...variantObj, badgeType: "NONE" };
+    setActiveLabel(newItem);
+    
+    setQueuedLabels((current) => {
+      const existingIndex = current.findIndex((item) => item.id === variantObj.id);
+      if (existingIndex === -1) {
+        return [...current, { ...newItem, quantity: copies }];
+      }
+      return current.map((item, index) => (
+        index === existingIndex ? { ...item, quantity: item.quantity + copies } : item
+      ));
+    });
+    setMessage({
+      tone: "success",
+      text: `${variantObj.productTitle || "상품"} ${copies}장을 대기열에 추가했습니다.`,
+    });
+    setLookupCode("");
+  };
 
   useEffect(() => {
-    if (fetcher.data?.labelProduct) {
-      const requestedCopies = Math.min(50, Math.max(1, Number.parseInt(fetcher.data.copiesRequested, 10) || 1));
-      setActiveLabel(fetcher.data.labelProduct);
-      setQueuedLabels((current) => {
-        const existingIndex = current.findIndex((item) => item.id === fetcher.data.labelProduct.id);
+    if (fetcher.data?.variants) {
+      const variants = fetcher.data.variants;
+      const copies = Math.min(50, Math.max(1, Number.parseInt(fetcher.data.copiesRequested, 10) || 1));
 
-        if (existingIndex === -1) {
-          return [...current, { ...fetcher.data.labelProduct, quantity: requestedCopies }];
-        }
-
-        return current.map((item, index) => (
-          index === existingIndex ? { ...item, quantity: item.quantity + requestedCopies } : item
-        ));
-      });
-      setMessage({
-        tone: "success",
-        text: `${fetcher.data.labelProduct.productTitle || "상품"} ${requestedCopies}장을 대기열에 추가했습니다.`,
-      });
-      setLookupCode("");
+      if (variants.length === 1) {
+        addVariantToQueue(variants[0], copies);
+      } else if (variants.length > 1) {
+        setSearchResults(variants);
+        setIsModalOpen(true);
+      }
       return;
     }
 
@@ -283,7 +340,6 @@ export default function StoreLabelPage() {
 
   const handleLookup = () => {
     if (!lookupCode.trim()) return;
-
     const copies = Math.min(50, Math.max(1, Number.parseInt(labelCopies, 10) || 1));
 
     fetcher.submit(
@@ -303,6 +359,13 @@ export default function StoreLabelPage() {
     )));
   };
 
+  const handleQueueBadgeChange = (id, badgeType) => {
+    setQueuedLabels((current) => current.map((item) => (
+      item.id === id ? { ...item, badgeType } : item
+    )));
+    setActiveLabel((current) => current?.id === id ? { ...current, badgeType } : current);
+  };
+
   const handleQueueRemove = (id) => {
     setQueuedLabels((current) => current.filter((item) => item.id !== id));
     setActiveLabel((current) => (current?.id === id ? null : current));
@@ -316,10 +379,8 @@ export default function StoreLabelPage() {
 
   const handlePrint = () => {
     if (queuedLabels.length === 0) return;
-
     const items = queuedLabels.flatMap((item) => {
       const copies = Math.min(50, Math.max(1, Number.parseInt(item.quantity, 10) || 1));
-
       return Array.from({ length: copies }, (_, index) => ({
         ...item,
         printKey: `${item.id}-${index}`,
@@ -327,14 +388,24 @@ export default function StoreLabelPage() {
     });
 
     setLabelPrintItems(items);
-
-    setTimeout(() => {
-      window.print();
-    }, 100);
+    setTimeout(() => { window.print(); }, 100);
   };
 
   return (
     <div className="label-page-root">
+      {/* ✨ 선택된 규격에 맞춰 @page 사이즈를 동적으로 주입하는 프린트 전용 스타일 */}
+      <style>{`
+        @media print {
+          @page {
+            size: ${labelSize === '50x50' ? '50mm 50mm' : '62mm 29mm'};
+            margin: 0;
+          }
+          body { margin: 0; padding: 0; background: #fff; }
+          .label-page-shell { display: none !important; }
+          .label-print-sheet { display: block !important; }
+        }
+      `}</style>
+
       <div className="label-page-shell">
         <Page title="매장 에티켓 출력" backAction={{ content: "Home", url: "/app" }}>
           <Layout>
@@ -343,23 +414,36 @@ export default function StoreLabelPage() {
                 <BlockStack gap="500">
                   <InlineStack align="space-between" blockAlign="start" gap="400" wrap={true}>
                     <BlockStack gap="100">
-                      <Text variant="headingLg" as="h1">Brother QL-700 매장 라벨</Text>
+                      <Text variant="headingLg" as="h1">스마트 라벨 프린트 시스템</Text>
                       <Text as="p" tone="subdued">
-                        62mm x 29mm 규격으로 바코드 또는 SKU를 연속 스캔해 여러 상품 라벨을 한 번에 출력합니다.
+                        바코드, SKU 또는 제품명을 검색해 라벨을 출력합니다.
                       </Text>
                     </BlockStack>
-                    <div className="label-chip">62 x 29 mm</div>
+                    
+                    {/* ✨ 규격 선택 드롭다운 UI */}
+                    <div style={{ width: "260px" }}>
+                      <Select
+                        labelHidden
+                        label="프린터 선택"
+                        options={[
+                          { label: 'Brother QL-700 (62x29 mm)', value: '62x29' },
+                          { label: 'Brother VC-500W (50x50 mm)', value: '50x50' },
+                        ]}
+                        value={labelSize}
+                        onChange={setLabelSize}
+                      />
+                    </div>
                   </InlineStack>
 
                   <div className="label-form-grid">
                     <label className="label-control label-control-wide">
-                      <span className="label-control-caption">상품 바코드 또는 SKU</span>
+                      <span className="label-control-caption">검색어 (바코드/SKU/제품명)</span>
                       <input
                         className="label-control-input"
                         type="text"
                         value={lookupCode}
                         autoFocus
-                        placeholder="스캐너 입력 후 Enter"
+                        placeholder="검색어 입력 후 Enter"
                         onChange={(event) => setLookupCode(event.target.value)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
@@ -383,7 +467,7 @@ export default function StoreLabelPage() {
                     </label>
 
                     <div className="label-actions">
-                      <Button onClick={handleLookup} loading={fetcher.state !== "idle"}>대기열 추가</Button>
+                      <Button onClick={handleLookup} loading={fetcher.state !== "idle"}>검색 및 추가</Button>
                       <Button variant="primary" onClick={handlePrint} disabled={queuedLabels.length === 0}>전체 라벨 인쇄</Button>
                       <Button onClick={handleQueueClear} disabled={queuedLabels.length === 0}>대기열 비우기</Button>
                     </div>
@@ -410,32 +494,51 @@ export default function StoreLabelPage() {
                     <div className="label-queue-list">
                       {queuedLabels.map((item) => (
                         <div key={item.id} className="label-queue-item">
-                          <div className="label-queue-copy">
-                            <StoreLabel item={item} />
+                          <div className="label-queue-copy" style={{ alignSelf: "center" }}>
+                            {/* ✨ 선택된 규격을 내려줌 */}
+                            <StoreLabel item={item} size={labelSize} />
                           </div>
                           <div className="label-queue-meta">
                             <div className="label-queue-title">{item.germanTranslation || item.productTitle}</div>
                             <div className="label-queue-subtitle">{item.sku ? `SKU ${item.sku}` : "SKU 없음"}</div>
                             {item.expiryDate && <div className="label-queue-subtitle">MHD {item.expiryDate}</div>}
                           </div>
-                          <label className="label-queue-qty">
-                            <span>Menge</span>
-                            <input
-                              className="label-control-input"
-                              type="number"
-                              min="1"
-                              max="50"
-                              value={String(item.quantity)}
-                              onChange={(event) => handleQueueQuantityChange(item.id, event.target.value)}
-                            />
-                          </label>
+                          
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <label className="label-queue-qty" style={{ width: '85px' }}>
+                              <span>강조 뱃지</span>
+                              <select 
+                                className="label-control-input" 
+                                value={item.badgeType || "NONE"}
+                                onChange={(e) => handleQueueBadgeChange(item.id, e.target.value)}
+                                style={{ padding: '4px', cursor: 'pointer' }}
+                              >
+                                <option value="NONE">없음</option>
+                                <option value="SALE">🔴 특가</option>
+                                <option value="NEW">🟢 신상품</option>
+                              </select>
+                            </label>
+
+                            <label className="label-queue-qty">
+                              <span>Menge</span>
+                              <input
+                                className="label-control-input"
+                                type="number"
+                                min="1"
+                                max="50"
+                                value={String(item.quantity)}
+                                onChange={(event) => handleQueueQuantityChange(item.id, event.target.value)}
+                              />
+                            </label>
+                          </div>
+                          
                           <Button onClick={() => handleQueueRemove(item.id)}>삭제</Button>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="label-empty-state">
-                      스캔한 상품이 아직 없습니다. 계속 스캔해서 출력 대기열을 쌓으세요.
+                      검색한 상품이 아직 없습니다. 계속 검색해서 출력 대기열을 쌓으세요.
                     </div>
                   )}
                 </BlockStack>
@@ -445,14 +548,10 @@ export default function StoreLabelPage() {
             <Layout.Section>
               <Card>
                 <BlockStack gap="400">
-                  <Text variant="headingMd" as="h2">라벨 미리보기</Text>
-                  <Text as="p" tone="subdued">
-                    독일어 번역명, 유통기한, Code128 바코드, 할인 가격을 함께 표시합니다.
-                  </Text>
-
+                  <Text variant="headingMd" as="h2">라벨 미리보기 ({labelSize === '50x50' ? '50x50mm' : '62x29mm'})</Text>
                   {activeLabel ? (
-                    <div className="label-preview-stage">
-                      <StoreLabel item={activeLabel} />
+                    <div className="label-preview-stage" style={{ display: "flex", justifyContent: "center", padding: "20px" }}>
+                      <StoreLabel item={activeLabel} size={labelSize} />
                     </div>
                   ) : (
                     <div className="label-empty-state">
@@ -464,12 +563,54 @@ export default function StoreLabelPage() {
             </Layout.Section>
           </Layout>
         </Page>
+
+        <Modal
+          open={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          title={`"${lookupCode}" 검색 결과 (${searchResults.length}건)`}
+        >
+          <Modal.Section>
+            <Text tone="subdued" as="p" style={{ marginBottom: "16px" }}>
+              여러 상품이 검색되었습니다. 라벨을 출력할 정확한 상품을 클릭하세요.
+            </Text>
+            <ResourceList
+              resourceName={{ singular: '상품', plural: '상품들' }}
+              items={searchResults}
+              renderItem={(item) => {
+                const media = <Avatar customer size="md" source={item.imageUrl} name={item.productTitle} />;
+                return (
+                  <ResourceItem
+                    id={item.id}
+                    media={media}
+                    onClick={() => {
+                      const copies = Math.min(50, Math.max(1, Number.parseInt(labelCopies, 10) || 1));
+                      addVariantToQueue(item, copies);
+                      setIsModalOpen(false); 
+                    }}
+                  >
+                    <BlockStack gap="100">
+                      <Text variant="bodyMd" fontWeight="bold" as="h3">
+                        {item.productTitle} {item.variantTitle && `- ${item.variantTitle}`}
+                      </Text>
+                      <InlineStack gap="200" align="start">
+                        <Badge tone="info">{item.sku || "SKU 없음"}</Badge>
+                        <Text variant="bodySm" tone="subdued">바코드: {item.barcode || "없음"}</Text>
+                        <Text variant="bodySm" tone="subdued">| {formatEuro(item.price)}</Text>
+                      </InlineStack>
+                    </BlockStack>
+                  </ResourceItem>
+                );
+              }}
+            />
+          </Modal.Section>
+        </Modal>
+
       </div>
 
       {labelPrintItems.length > 0 && (
         <div className="label-print-sheet">
           {labelPrintItems.map((item) => (
-            <StoreLabel key={item.printKey} item={item} printMode={true} />
+            <StoreLabel key={item.printKey} item={item} printMode={true} size={labelSize} />
           ))}
         </div>
       )}
