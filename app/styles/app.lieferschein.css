@@ -544,13 +544,12 @@
     display: none !important;
   }
 
-  body,
-  html {
-    background: #fff !important;
+  html, body {
+    height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
   }
-
+  
   .paper-viewport {
     background: transparent !important;
     padding: 0 !important;
@@ -564,7 +563,14 @@
     min-height: auto !important;
     box-shadow: none !important;
     padding: 0mm !important;
-    page-break-after: always;
+    page-break-after: always !important; 
+    break-after: page !important;
+  }
+
+
+  .packing-slip:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
   .order-table tbody tr {

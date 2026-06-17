@@ -162,6 +162,7 @@ export default function Inspect() {
 
   const handleBarcodeScan = (e) => {
     if (e.key === "Enter") {
+      e.preventDefault(); 
       processBarcode(barcode);
     }
   };
