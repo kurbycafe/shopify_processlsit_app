@@ -1,8 +1,12 @@
-import { useLoaderData } from "react-router";
+import { useLoaderData, useFetcher } from "react-router";
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import "./app.lieferschein.css"; // 📦 상단 외부 CSS 적용 완료
+import styles from "../styles/lieferschein.css?url";
+
+export const links = () => [
+  { rel: "stylesheet", href: styles },
+];
 
 const jsonResponse = (data) =>
   new Response(JSON.stringify(data), {
@@ -14,22 +18,25 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  if (intent === "mark_as_printed") {
-    const orderId = formData.get("orderId");
-    const orderName = formData.get("orderName");
+  // ✨ 수정: 여러 건의 주문을 한 번에 받아서 DB에 일괄 저장(Batch 처리)
+  if (intent === "mark_multiple_as_printed") {
+    const payload = JSON.parse(formData.get("ordersPayload") || "[]");
 
-    // InspectionRecord가 있으면 업데이트, 없으면 새로 생성 (isLieferscheinPrinted 전용)
-    await prisma.inspectionRecord.upsert({
-      where: { orderId },
-      update: { isLieferscheinPrinted: true },
-      create: {
-        orderId,
-        orderName,
-        shop: session.shop,
-        status: "PENDING", // 아직 검수 전이므로 PENDING
-        isLieferscheinPrinted: true,
-      },
-    });
+    await Promise.all(
+      payload.map((order) =>
+        prisma.inspectionRecord.upsert({
+          where: { orderId: order.id },
+          update: { isLieferscheinPrinted: true },
+          create: {
+            orderId: order.id,
+            orderName: order.name,
+            shop: session.shop,
+            status: "PENDING",
+            isLieferscheinPrinted: true,
+          },
+        })
+      )
+    );
 
     return jsonResponse({ success: true });
   }
@@ -283,6 +290,9 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
+  // ✨ 수정: 일반 fetch 대신 Remix의 Fetcher를 선언하여 인증 우회 및 데이터 전송 보장
+  const fetcher = useFetcher(); 
+  
   const [orders, setOrders] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [printedOrderIds, setPrintedOrderIds] = useState([]);
@@ -320,20 +330,19 @@ export default function AdditionalPage() {
   const handlePrint = async () => {
     if (selectedOrders.length === 0) return;
     
-    // DB에 출력 상태 저장 요청
-    const printPromises = selectedOrders.map(id => {
-      const order = orders.find(o => o.id === id);
-      return fetch("/app/lieferschein", {
-        method: "POST",
-        body: new URLSearchParams({
-          intent: "mark_as_printed",
-          orderId: id,
-          orderName: order?.name || ""
-        })
-      });
+    // ✨ 수정: 여러 개의 주문 데이터를 하나의 배열로 만들어 한 번에 전송 (서버 과부하 방지)
+    const ordersPayload = selectedOrders.map((id) => {
+      const order = orders.find((o) => o.id === id);
+      return { id, name: order?.name || "" };
     });
 
-    await Promise.all(printPromises);
+    fetcher.submit(
+      {
+        intent: "mark_multiple_as_printed",
+        ordersPayload: JSON.stringify(ordersPayload),
+      },
+      { method: "POST" }
+    );
 
     setPrintedOrderIds(prev => [...prev, ...selectedOrders]);
     setOrders(prevOrders =>
