@@ -1,12 +1,41 @@
 import { useLoaderData } from "react-router";
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 import "./app.lieferschein.css"; // 📦 상단 외부 CSS 적용 완료
 
 const jsonResponse = (data) =>
   new Response(JSON.stringify(data), {
     headers: { "Content-Type": "application/json" },
   });
+
+export const action = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "mark_as_printed") {
+    const orderId = formData.get("orderId");
+    const orderName = formData.get("orderName");
+
+    // InspectionRecord가 있으면 업데이트, 없으면 새로 생성 (isLieferscheinPrinted 전용)
+    await prisma.inspectionRecord.upsert({
+      where: { orderId },
+      update: { isLieferscheinPrinted: true },
+      create: {
+        orderId,
+        orderName,
+        shop: session.shop,
+        status: "PENDING", // 아직 검수 전이므로 PENDING
+        isLieferscheinPrinted: true,
+      },
+    });
+
+    return jsonResponse({ success: true });
+  }
+
+  return null;
+};
 
 export const loader = async ({ request }) => {
   try {
@@ -288,8 +317,24 @@ export default function AdditionalPage() {
     );
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (selectedOrders.length === 0) return;
+    
+    // DB에 출력 상태 저장 요청
+    const printPromises = selectedOrders.map(id => {
+      const order = orders.find(o => o.id === id);
+      return fetch("/app/lieferschein", {
+        method: "POST",
+        body: new URLSearchParams({
+          intent: "mark_as_printed",
+          orderId: id,
+          orderName: order?.name || ""
+        })
+      });
+    });
+
+    await Promise.all(printPromises);
+
     setPrintedOrderIds(prev => [...prev, ...selectedOrders]);
     setOrders(prevOrders =>
       prevOrders.map(order =>

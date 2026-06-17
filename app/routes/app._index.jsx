@@ -177,9 +177,17 @@ export default function Index() {
                       <InlineStack align="space-between">
                         <BlockStack>
                           <Text variant="bodyMd" fontWeight="bold">{log.orderName}</Text>
-                          <Text variant="bodySm" color="subdued">
-                            {dayjs(log.createdAt).format("HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
-                          </Text>
+                          <InlineStack gap="200">
+                            <Text variant="bodySm" color="subdued">
+                              {dayjs(log.createdAt).format("HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
+                            </Text>
+                            {log.isLieferscheinPrinted && (
+                              <Badge tone="info" size="small">납품서</Badge>
+                            )}
+                            {log.isPickListPrinted && (
+                              <Badge tone="info" size="small">피킹리스트</Badge>
+                            )}
+                          </InlineStack>
                         </BlockStack>
                         <Badge tone={log.status === "SUCCESS" ? "success" : "warning"}>
                           {log.status}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher } from "react-router"; // (Remix 버전에 따라 @remix-run/react 일 수도 있습니다)
 import {
   Page,
   Layout,
@@ -15,8 +15,12 @@ import {
   Banner,
   Box,
   EmptyState,
+  Icon,      // ✨ 추가: 아이콘 렌더링을 위한 컴포넌트
+  Divider,   // ✨ 추가: 하단에서 사용된 구분선 컴포넌트
 } from "@shopify/polaris";
-import { SearchMinor, BarcodeMajor } from "@shopify/polaris-icons";
+
+// ✨ 수정: Minor, Major 접미사가 제거된 최신 아이콘 이름 사용
+import { SearchIcon, BarcodeIcon } from "@shopify/polaris-icons"; 
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -138,7 +142,6 @@ export default function Inspect() {
       setCurrentOrder(fetcher.data.order);
       setBarcode("");
       setMessage({ type: "success", text: `${fetcher.data.order.name} 주문을 불러왔습니다.` });
-      // Focus barcode input after order is loaded
       setTimeout(() => barcodeRef.current?.focus(), 100);
     } else if (fetcher.data?.error) {
       setMessage({ type: "error", text: fetcher.data.error });
@@ -227,7 +230,8 @@ export default function Inspect() {
                     value={orderName}
                     onChange={setOrderName}
                     autoComplete="off"
-                    prefix={<SearchMinor />}
+                    // ✨ 수정: Icon 컴포넌트로 감싸서 렌더링
+                    prefix={<Icon source={SearchIcon} />} 
                     onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                   />
                 </Box>
@@ -257,7 +261,8 @@ export default function Inspect() {
                     value={barcode}
                     onChange={setBarcode}
                     autoComplete="off"
-                    prefix={<BarcodeMajor />}
+                    // ✨ 수정: Icon 컴포넌트로 감싸서 렌더링
+                    prefix={<Icon source={BarcodeIcon} />} 
                     onKeyDown={handleBarcodeScan}
                     ref={barcodeRef}
                     helpText="상품의 바코드를 스캔하거나 SKU를 입력하고 Enter를 누르세요."

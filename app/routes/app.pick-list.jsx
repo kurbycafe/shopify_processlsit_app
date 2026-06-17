@@ -263,14 +263,52 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
+  const { session, admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const clientTime = formData.get("clientTime"); 
   const techTime = formData.get("techTime"); 
 
   if (intent === "send-email") {
-    const { admin } = await authenticate.admin(request);
+    const orderNames = JSON.parse(formData.get("orderNames") || "[]");
     const data = await loadPickListData(admin);
+
+    // 1. DB 업데이트 (피킹 리스트 출력 여부 기록)
+    // Shopify GraphQL을 통해 주문 번호로 ID를 조회하여 처리하는 대신,
+    // 대시보드에서 주문 번호 매칭이 가능하도록 처리 (ID를 모를 경우 name으로 매칭)
+    for (const orderName of orderNames) {
+      // 해당 주문 이름에 해당하는 InspectionRecord가 있는지 확인하고 업데이트
+      // ID를 모르므로 findFirst 후 업데이트하거나 upsert 사용 (orderId가 필수이므로 주의)
+      // 여기서는 주문 ID 조회를 위해 GraphQL 호출이 필요할 수 있으나 성능상
+      // 이미 로드된 data에서 매칭 정보를 찾거나, 나중에 대시보드에서 name으로도 조회 가능하도록 구성
+      
+      // 간단한 처리를 위해, 현재 주문 정보를 GraphQL로 다시 조회하여 ID를 확보
+      const orderQueryResponse = await admin.graphql(
+        `#graphql
+        query findOrderId($query: String!) {
+          orders(first: 1, query: $query) {
+            edges { node { id name } }
+          }
+        }`,
+        { variables: { query: `name:${orderName}` } }
+      );
+      const orderQueryJson = await orderQueryResponse.json();
+      const orderNode = orderQueryJson.data?.orders?.edges[0]?.node;
+
+      if (orderNode) {
+        await prisma.inspectionRecord.upsert({
+          where: { orderId: orderNode.id },
+          update: { isPickListPrinted: true },
+          create: {
+            orderId: orderNode.id,
+            orderName: orderNode.name,
+            shop: session.shop,
+            status: "PENDING",
+            isPickListPrinted: true,
+          },
+        });
+      }
+    }
 
     const pdfBuffer = await generatePdfBuffer(data.items, techTime);
     const mailTitle = `${clientTime} 기준 처리중`;
@@ -313,13 +351,22 @@ export default function PickListPage() {
   const actionData = useActionData(); 
   const submit = useSubmit();
 
-  const handlePrintAndEmail = () => {
+  const handlePrintAndEmail = async () => {
     const now = new Date();
     const formattedTime = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}시 ${now.getMinutes()}분`;
     const techTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+    // DB에 출력 상태 저장 요청 (모든 주문번호에 대해)
+    const allOrderNames = new Set();
+    items.forEach(item => item.orderNumbers.forEach(num => allOrderNames.add(num)));
+    
     submit(
-      { intent: "send-email", clientTime: formattedTime, techTime: techTime },
+      { 
+        intent: "send-email", 
+        clientTime: formattedTime, 
+        techTime: techTime,
+        orderNames: JSON.stringify(Array.from(allOrderNames))
+      },
       { method: "post" }
     );
 
