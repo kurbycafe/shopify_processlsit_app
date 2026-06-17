@@ -13,7 +13,7 @@ import {
   Icon,
 } from "@shopify/polaris";
 import {
-  AlertIcon,
+  AlertTriangleIcon,
   CheckCircleIcon,
   ClockIcon,
 } from "@shopify/polaris-icons";
@@ -108,8 +108,8 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="critical">
                       {unfulfilledCount}
                     </Text>
-                    {/* ✨ 수정: AlertMinor -> AlertIcon */}
-                    <Icon source={AlertIcon} tone="critical" />
+                                
+            <Icon source={AlertTriangleIcon} tone="critical" />
                   </InlineStack>
                 </BlockStack>
               </Card>
