@@ -28,15 +28,15 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // 1. 주문 통계 가져오기
+  // ✨ 수정: orders(first: 0) 대신 속도가 빠르고 에러가 없는 ordersCount 사용
   const response = await admin.graphql(
     `#graphql
     query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!) {
-      unfulfilled: orders(first: 0, query: $unfulfilledQuery) {
-        totalCount
+      unfulfilled: ordersCount(query: $unfulfilledQuery) {
+        count
       }
-      partially_fulfilled: orders(first: 0, query: $partialQuery) {
-        totalCount
+      partially_fulfilled: ordersCount(query: $partialQuery) {
+        count
       }
     }`,
     {
@@ -48,8 +48,9 @@ export const loader = async ({ request }) => {
   );
   
   const statsJson = await response.json();
-  const unfulfilledCount = statsJson.data?.unfulfilled?.totalCount || 0;
-  const partiallyFulfilledCount = statsJson.data?.partially_fulfilled?.totalCount || 0;
+  // ✨ 수정: totalCount 대신 count 속성으로 가져오기
+  const unfulfilledCount = statsJson.data?.unfulfilled?.count || 0;
+  const partiallyFulfilledCount = statsJson.data?.partially_fulfilled?.count || 0;
 
   // 2. 긴급 주문 (24시간 이상 경과한 미배송 건)
   const yesterday = dayjs().subtract(24, "hour").toISOString();
@@ -108,8 +109,7 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="critical">
                       {unfulfilledCount}
                     </Text>
-                                
-            <Icon source={AlertTriangleIcon} tone="critical" />
+                    <Icon source={AlertTriangleIcon} tone="critical" />
                   </InlineStack>
                 </BlockStack>
               </Card>
@@ -122,7 +122,6 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="warning">
                       {partiallyFulfilledCount}
                     </Text>
-                    {/* ✨ 수정: ClockMajor -> ClockIcon */}
                     <Icon source={ClockIcon} tone="warning" />
                   </InlineStack>
                 </BlockStack>
@@ -136,7 +135,6 @@ export default function Index() {
                     <Text variant="heading2xl" as="p" color="success">
                       {recentLogs.filter(log => dayjs(log.createdAt).isSame(dayjs(), 'day')).length}
                     </Text>
-                    {/* ✨ 수정: CheckCircleMajor -> CheckCircleIcon */}
                     <Icon source={CheckCircleIcon} tone="success" />
                   </InlineStack>
                 </BlockStack>
