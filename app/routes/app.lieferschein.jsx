@@ -1,8 +1,9 @@
 import { useLoaderData, useFetcher } from "react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import styles from "../styles/app.lieferschein.css?url"; 
+import { Select, BlockStack, InlineStack, Card, Text, Box } from "@shopify/polaris"; // ✨ 필터 UI를 위한 컴포넌트 추가
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
@@ -18,7 +19,6 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  // ✨ 수정: 여러 건의 주문을 한 번에 받아서 DB에 일괄 저장(Batch 처리)
   if (intent === "mark_multiple_as_printed") {
     const payload = JSON.parse(formData.get("ordersPayload") || "[]");
 
@@ -52,7 +52,7 @@ export const loader = async ({ request }) => {
       #graphql
       query getDawayoDetailedOrders {
         orders(
-          first: 20,
+          first: 40, # 필터링을 위해 한 번에 가져오는 양을 늘림
           query: "financial_status:paid fulfillment_status:unfulfilled",
           sortKey: CREATED_AT,
           reverse: true
@@ -79,7 +79,7 @@ export const loader = async ({ request }) => {
               shippingAddress {
                 name company address1 address2 zip city country phone countryCode
               }
-              lineItems(first: 20) {
+              lineItems(first: 40) {
                 edges {
                   node {
                     id
@@ -184,6 +184,7 @@ export const loader = async ({ request }) => {
       );
       const totalGrams    = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
+      const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0); // ✨ 총 수량 추가
 
       return {
         id: node.id,
@@ -199,6 +200,7 @@ export const loader = async ({ request }) => {
         shippingAddress: node.shippingAddress || null,
         hasIcePackage,
         totalWeightKg: (totalGrams / 1000).toFixed(3),
+        totalOrderQty, // ✨ 주문별 총 상품 갯수 저장
         items: sortedItems,
       };
     });
@@ -210,7 +212,7 @@ export const loader = async ({ request }) => {
   }
 };
 
-// ─── 표준 Code 128B 바코드 엔진 ──────────────────────────────────────
+// ─── 표준 Code 128B 바코드 엔진 (생략 없이 유지) ──────────────────────────────────────
 const CODE128_CHARS = [
   "11011001100","11001101100","11001100110","10010011000","10010001100",
   "10001001100","10011001000","10011000100","10001100100","11001001000",
@@ -290,18 +292,70 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
-  // ✨ 수정: 일반 fetch 대신 Remix의 Fetcher를 선언하여 인증 우회 및 데이터 전송 보장
   const fetcher = useFetcher(); 
   
   const [orders, setOrders] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [printedOrderIds, setPrintedOrderIds] = useState([]);
 
+  // ✨ 필터 상태 관리 (State)
+  const [regionFilter, setRegionFilter] = useState("ALL");
+  const [complexityFilter, setComplexityFilter] = useState("ALL");
+  const [shippingFilter, setShippingFilter] = useState("ALL");
+  const [sortOrder, setSortOrder] = useState("DATE_DESC");
+
   useEffect(() => {
     if (loaderData?.orders) {
       setOrders(loaderData.orders.map(o => ({...o, isPrinted: false})));
     }
   }, [loaderData]);
+
+  // ✨ 주문 필터링 로직 (useMemo를 사용하여 상태 변경 시 즉각 반영)
+  const filteredOrders = useMemo(() => {
+    let result = [...orders];
+
+    // 1. 지역 필터
+    if (regionFilter === "DOMESTIC") {
+      result = result.filter(o => o.shippingAddress?.countryCode === "DE" || o.shippingAddress?.country === "Germany");
+    } else if (regionFilter === "INTERNATIONAL") {
+      result = result.filter(o => o.shippingAddress?.countryCode !== "DE" && o.shippingAddress?.country !== "Germany");
+    }
+
+    // 2. 상품 및 수량 필터
+    if (complexityFilter === "SINGLE") {
+      result = result.filter(o => o.items.length === 1 && o.totalOrderQty === 1); // 딱 1개의 상품만 있는 주문
+    } else if (complexityFilter === "COMPLEX") {
+      result = result.filter(o => o.items.length >= 15); // 종류가 15개 이상인 대량 주문
+    }
+
+    // 3. 배송 수단 필터
+    if (shippingFilter === "STANDARD") {
+      result = result.filter(o => {
+        const method = o.shippingMethod.toUpperCase();
+        return !method.includes("EXPRESS") && (method.includes("DHL") || method.includes("STANDARD"));
+      });
+    } else if (shippingFilter === "EXPRESS") {
+      result = result.filter(o => o.shippingMethod.toUpperCase().includes("EXPRESS"));
+    } else if (shippingFilter === "ICE") {
+      result = result.filter(o => o.hasIcePackage); // 냉장/냉동 포함
+    }
+
+    // 4. 정렬 로직
+    if (sortOrder === "QTY_ASC") {
+      result.sort((a, b) => a.totalOrderQty - b.totalOrderQty);
+    } else if (sortOrder === "QTY_DESC") {
+      result.sort((a, b) => b.totalOrderQty - a.totalOrderQty);
+    }
+    // 기본은 불러온 순서(최신순) 유지
+
+    return result;
+  }, [orders, regionFilter, complexityFilter, shippingFilter, sortOrder]);
+
+  // 선택 해제 동기화 (필터를 바꿨을 때 안 보이는 애들이 체크되어있는 현상 방지)
+  useEffect(() => {
+    setSelectedOrders([]);
+  }, [filteredOrders]);
+
 
   if (loaderData?.error) {
     return (
@@ -313,9 +367,10 @@ export default function AdditionalPage() {
     );
   }
 
+  // ✨ 화면에 보이는(filteredOrders) 주문 중에서만 전체 선택되게 변경
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedOrders(orders.filter(o => !o.isPrinted).map((o) => o.id));
+      setSelectedOrders(filteredOrders.filter(o => !o.isPrinted).map((o) => o.id));
     } else {
       setSelectedOrders([]);
     }
@@ -330,7 +385,6 @@ export default function AdditionalPage() {
   const handlePrint = async () => {
     if (selectedOrders.length === 0) return;
     
-    // ✨ 수정: 여러 개의 주문 데이터를 하나의 배열로 만들어 한 번에 전송 (서버 과부하 방지)
     const ordersPayload = selectedOrders.map((id) => {
       const order = orders.find((o) => o.id === id);
       return { id, name: order?.name || "" };
@@ -352,7 +406,6 @@ export default function AdditionalPage() {
     );
     setSelectedOrders([]);
     
-    // 이미지 CDN 완독 로딩을 위한 지연 설정 (1.2초)
     setTimeout(() => {
       window.print();
     }, 1200);
@@ -368,6 +421,67 @@ export default function AdditionalPage() {
         <p className="admin-help-text">
           출력할 주문을 선택한 뒤 버튼을 클릭하면 인쇄 팝업이 활성화됩니다. 이미 출력된 내역은 체크박스가 비활성화됩니다.
         </p>
+
+        {/* ✨ 필터 UI 영역 추가 */}
+        <Box paddingBlockEnd="400">
+          <Card background="bg-surface-secondary">
+            <BlockStack gap="400">
+              <Text variant="headingSm" as="h3">스마트 주문 필터링</Text>
+              <InlineStack gap="400" wrap={true}>
+                <Box minWidth="150px">
+                  <Select
+                    label="국가 및 지역"
+                    options={[
+                      {label: '모든 배송지', value: 'ALL'},
+                      {label: '독일 국내만 (Domestic)', value: 'DOMESTIC'},
+                      {label: '해외 배송만 (International)', value: 'INTERNATIONAL'},
+                    ]}
+                    value={regionFilter}
+                    onChange={setRegionFilter}
+                  />
+                </Box>
+                <Box minWidth="180px">
+                  <Select
+                    label="상품 종류 및 복잡도"
+                    options={[
+                      {label: '모든 주문', value: 'ALL'},
+                      {label: '단일 상품 (초스피드 패킹)', value: 'SINGLE'},
+                      {label: '다품종 대량 (15종 이상)', value: 'COMPLEX'},
+                    ]}
+                    value={complexityFilter}
+                    onChange={setComplexityFilter}
+                  />
+                </Box>
+                <Box minWidth="150px">
+                  <Select
+                    label="배송 수단 및 포장"
+                    options={[
+                      {label: '모든 수단', value: 'ALL'},
+                      {label: '일반 배송 (Standard)', value: 'STANDARD'},
+                      {label: '특급 배송 (Express)', value: 'EXPRESS'},
+                      {label: '❄️ 냉장/냉동 포함 (Ice)', value: 'ICE'},
+                    ]}
+                    value={shippingFilter}
+                    onChange={setShippingFilter}
+                  />
+                </Box>
+                <Box minWidth="150px">
+                  <Select
+                    label="정렬 기준"
+                    options={[
+                      {label: '최신 주문순', value: 'DATE_DESC'},
+                      {label: '총 수량 적은 순', value: 'QTY_ASC'},
+                      {label: '총 수량 많은 순', value: 'QTY_DESC'},
+                    ]}
+                    value={sortOrder}
+                    onChange={setSortOrder}
+                  />
+                </Box>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        </Box>
+
         <div className="print-action-row">
           <button className="print-btn" onClick={handlePrint} disabled={selectedOrders.length === 0}>
             선택 항목 패킹슬립 인쇄하기 ({selectedOrders.length}개)
@@ -381,45 +495,59 @@ export default function AdditionalPage() {
                 <input
                   type="checkbox"
                   onChange={handleSelectAll}
-                  checked={orders.filter(o => !o.isPrinted).length > 0 && selectedOrders.length === orders.filter(o => !o.isPrinted).length}
+                  checked={filteredOrders.filter(o => !o.isPrinted).length > 0 && selectedOrders.length === filteredOrders.filter(o => !o.isPrinted).length}
                 />
               </th>
               <th>주문 번호</th>
               <th>날짜</th>
-              <th>상태</th>
+              <th>상품 종류 / 수량</th>
+              <th>상태 및 조건</th>
               <th>인쇄 기록</th>
             </tr>
           </thead>
           <tbody>
-            {orders.length === 0 ? (
+            {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="5" className="empty-orders-message">
-                  인쇄 가능한 미처리 주문이 없습니다.
+                <td colSpan="6" className="empty-orders-message">
+                  조건에 맞는 주문이 없습니다.
                 </td>
               </tr>
             ) : (
-              orders.map((order) => (
-                <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedOrders.includes(order.id)}
-                      disabled={order.isPrinted}
-                      onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
-                    />
-                  </td>
-                  <td className="order-name">{order.name}</td>
-                  <td>{order.createdAt}</td>
-                  <td className="status-paid-unfulfilled">Paid / Unfulfilled</td>
-                  <td>
-                    {order.isPrinted ? (
-                      <span className="status-badge-printed">인쇄 완료</span>
-                    ) : (
-                      <span className="status-badge-ready">대기중</span>
-                    )}
-                  </td>
-                </tr>
-              ))
+              filteredOrders.map((order) => {
+                const isInternational = order.shippingAddress?.countryCode && order.shippingAddress.countryCode !== "DE";
+                
+                return (
+                  <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedOrders.includes(order.id)}
+                        disabled={order.isPrinted}
+                        onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
+                      />
+                    </td>
+                    <td className="order-name">{order.name}</td>
+                    <td>{order.createdAt}</td>
+                    <td>
+                      <strong>{order.items.length}</strong>종 / 총 <strong>{order.totalOrderQty}</strong>개
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                        {isInternational && <span style={{fontSize:"11px", background:"#fef08a", color:"#854d0e", padding:"2px 6px", borderRadius:"4px"}}>해외</span>}
+                        {order.shippingMethod.toUpperCase().includes("EXPRESS") && <span style={{fontSize:"11px", background:"#fecaca", color:"#991b1b", padding:"2px 6px", borderRadius:"4px"}}>특급</span>}
+                        {order.hasIcePackage && <span style={{fontSize:"11px", background:"#bfdbfe", color:"#1e3a8a", padding:"2px 6px", borderRadius:"4px"}}>냉장</span>}
+                      </div>
+                    </td>
+                    <td>
+                      {order.isPrinted ? (
+                        <span className="status-badge-printed">인쇄 완료</span>
+                      ) : (
+                        <span className="status-badge-ready">대기중</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

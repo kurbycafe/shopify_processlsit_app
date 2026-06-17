@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useFetcher } from "react-router"; // (Remix 버전에 따라 @remix-run/react 일 수도 있습니다)
+import { useFetcher } from "react-router";
 import {
   Page,
   Layout,
@@ -15,11 +15,9 @@ import {
   Banner,
   Box,
   EmptyState,
-  Icon,      // ✨ 추가: 아이콘 렌더링을 위한 컴포넌트
-  Divider,   // ✨ 추가: 하단에서 사용된 구분선 컴포넌트
+  Icon,
+  Divider,
 } from "@shopify/polaris";
-
-// ✨ 수정: Minor, Major 접미사가 제거된 최신 아이콘 이름 사용
 import { SearchIcon, BarcodeIcon } from "@shopify/polaris-icons"; 
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -157,18 +155,13 @@ export default function Inspect() {
   }, [saveFetcher.data]);
 
   const handleSearch = () => {
+    // 빈 값 검색 방지
+    if (!orderName.trim()) return;
     fetcher.submit({ intent: "fetch_order", orderName }, { method: "POST" });
   };
 
-  const handleBarcodeScan = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault(); 
-      processBarcode(barcode);
-    }
-  };
-
   const processBarcode = (scannedBarcode) => {
-    if (!currentOrder) return;
+    if (!currentOrder || !scannedBarcode.trim()) return;
 
     const itemIndex = currentOrder.items.findIndex(
       item => item.barcode === scannedBarcode || item.sku === scannedBarcode
@@ -188,6 +181,8 @@ export default function Inspect() {
     } else {
       setMessage({ type: "error", text: "주문에 포함되지 않은 바코드입니다!" });
     }
+    
+    // 처리 후 입력창 초기화
     setBarcode("");
   };
 
@@ -226,15 +221,20 @@ export default function Inspect() {
             <BlockStack gap="400">
               <InlineStack gap="400" align="start">
                 <Box grow>
-                  <TextField
-                    label="주문 번호 검색 (예: #1001)"
-                    value={orderName}
-                    onChange={setOrderName}
-                    autoComplete="off"
-                    // ✨ 수정: Icon 컴포넌트로 감싸서 렌더링
-                    prefix={<Icon source={SearchIcon} />} 
-                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  />
+                  {/* ✨ 1. 주문 번호 검색창: form으로 감싸기 */}
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSearch();
+                  }}>
+                    <TextField
+                      label="주문 번호 검색 (예: #1001)"
+                      value={orderName}
+                      onChange={setOrderName}
+                      autoComplete="off"
+                      prefix={<Icon source={SearchIcon} />} 
+                      // onKeyDown 이벤트 완전 제거
+                    />
+                  </form>
                 </Box>
                 <Box paddingBlockStart="500">
                   <Button onClick={handleSearch} loading={fetcher.state === "submitting"}>불러오기</Button>
@@ -257,17 +257,24 @@ export default function Inspect() {
               <Card>
                 <BlockStack gap="400">
                   <Text variant="headingMd" as="h2">{currentOrder.name} 검수 리스트</Text>
-                  <TextField
-                    label="상품 바코드 스캔"
-                    value={barcode}
-                    onChange={setBarcode}
-                    autoComplete="off"
-                    // ✨ 수정: Icon 컴포넌트로 감싸서 렌더링
-                    prefix={<Icon source={BarcodeIcon} />} 
-                    onKeyDown={handleBarcodeScan}
-                    ref={barcodeRef}
-                    helpText="상품의 바코드를 스캔하거나 SKU를 입력하고 Enter를 누르세요."
-                  />
+                  
+                  {/* ✨ 2. 바코드 스캔창: form으로 감싸기 */}
+                  <form onSubmit={(e) => {
+                    e.preventDefault(); // 새로고침 완벽 차단
+                    processBarcode(barcode); // 스캔한 바코드 즉시 처리
+                  }}>
+                    <TextField
+                      label="상품 바코드 스캔"
+                      value={barcode}
+                      onChange={setBarcode}
+                      autoComplete="off"
+                      prefix={<Icon source={BarcodeIcon} />} 
+                      ref={barcodeRef}
+                      helpText="상품의 바코드를 스캔하거나 SKU를 입력하고 Enter를 누르세요."
+                      // onKeyDown 이벤트 완전 제거
+                    />
+                  </form>
+
                   <DataTable
                     columnContentTypes={['text', 'text', 'text', 'text', 'text']}
                     headings={['이미지', '상품명', '바코드', '수량', '상태']}
