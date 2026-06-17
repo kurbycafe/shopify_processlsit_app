@@ -161,7 +161,7 @@ function hasDiscount(price, compareAtPrice) {
   return Number.isFinite(current) && Number.isFinite(original) && original > current;
 }
 
-function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1 }) {
+function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showText = true }) {
   if (!value) return null;
 
   const encoded = encodeCode128(value);
@@ -195,11 +195,13 @@ function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1 }) {
 
   return (
     <div className="store-label-barcode">
-      <svg xmlns="http://www.w3.org/2000/svg" width={totalWidth + quietZone * 2} height={height + 7}>
+      <svg xmlns="http://www.w3.org/2000/svg" width={totalWidth + quietZone * 2} height={showText ? height + 7 : height}>
         {rects}
-        <text x={(totalWidth + quietZone * 2) / 2} y={height + 5.5} textAnchor="middle" fontSize={fontSize} fontFamily="monospace" fill="#333">
-          {value}
-        </text>
+        {showText && (
+          <text x={(totalWidth + quietZone * 2) / 2} y={height + 5.5} textAnchor="middle" fontSize={fontSize} fontFamily="monospace" fill="#333">
+            {value}
+          </text>
+        )}
       </svg>
     </div>
   );
@@ -232,7 +234,7 @@ function StoreLabel({ item, printMode = false }) {
         {showDiscount && <div className="store-label-compare">{formatEuro(item.compareAtPrice)}</div>}
       </div>
 
-      {item.barcode && <Code128 value={item.barcode} />}
+      {item.barcode && <Code128 value={item.barcode} showText={!printMode} />}
 
       <div className="store-label-footer">
         <span>{item.sku ? `SKU ${item.sku}` : "SKU -"}</span>
