@@ -2,7 +2,7 @@ import { useLoaderData, useFetcher } from "react-router";
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import styles from "../styles/lieferschein.css?url";
+import styles from "../styles/app.lieferschein.css?url"; 
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
