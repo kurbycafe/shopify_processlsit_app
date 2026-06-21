@@ -1,4 +1,4 @@
-import { Form, useLoaderData, useActionData, useSubmit } from "react-router";
+import { Form, useLoaderData, useActionData, useSubmit, useSearchParams } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import nodemailer from "nodemailer";
@@ -96,14 +96,15 @@ async function fetchOdooBinLocations(skus) {
 }
 
 // ========================================================
-// 2. 쇼피파이 미처리 주문 내역 조회 GraphQL 쿼리
-// ========================================================
+// 2. GraphQL Query
 const UNFULFILLED_ORDERS_QUERY = `#graphql
   query UnfulfilledOrders($first: Int!, $after: String) {
-    orders(first: $first, after: $after, query: "financial_status:paid fulfillment_status:unfulfilled") {
+    orders(first: $first, after: $after, query: "status:open fulfillment_status:unfulfilled") {
       pageInfo { hasNextPage endCursor }
       nodes {
         id name
+        displayFinancialStatus
+        cancelledAt
         lineItems(first: 50) { 
           nodes {
             quantity name
@@ -131,10 +132,16 @@ function sortBinLocations(a, b) {
   return locA.localeCompare(locB);
 }
 
-async function loadPickListData(admin) {
+async function loadPickListData(admin, selectedTab = "all") {
   const itemMap = new Map();
   let hasNextPage = true;
   let after = null;
+
+  let countAll = 0;
+  let countPaid = 0;
+  let countPending = 0;
+
+  const allOrders = [];
 
   while (hasNextPage) {
     const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 50, after } });
@@ -142,27 +149,64 @@ async function loadPickListData(admin) {
     const orders = payload?.data?.orders?.nodes ?? [];
 
     for (const order of orders) {
-      const orderNumber = order.name;
-      for (const lineItem of order?.lineItems?.nodes ?? []) {
-        const variant = lineItem.variant;
-        const sku = variant?.sku || "-";
-        const productName = variant?.product?.title || lineItem.name || "알 수 없는 상품";
-        const key = variant?.id || `${productName}__${sku}`;
+      if (order.cancelledAt) continue;
+      const fStatus = order.displayFinancialStatus;
+      if (fStatus === "REFUNDED" || fStatus === "VOIDED") continue;
 
-        if (!itemMap.has(key)) {
-          itemMap.set(key, {
-            productName, sku, barcode: variant?.barcode || "-", orderedQty: 0,
-            inventoryQty: typeof variant?.inventoryQuantity === "number" ? variant.inventoryQuantity : null,
-            binLocation: "조회중", orderNumbers: new Set(),
-          });
-        }
-        const current = itemMap.get(key);
-        current.orderedQty += lineItem.quantity || 0;
-        current.orderNumbers.add(orderNumber);
+      allOrders.push(order);
+
+      const isPaid = fStatus === "PAID" || fStatus === "PARTIALLY_PAID";
+      const isPending = fStatus === "PENDING" || fStatus === "AUTHORIZED";
+
+      if (isPaid || isPending) {
+        countAll++;
+      }
+      if (isPaid) {
+        countPaid++;
+      }
+      if (isPending) {
+        countPending++;
       }
     }
     hasNextPage = Boolean(payload?.data?.orders?.pageInfo?.hasNextPage);
     after = payload?.data?.orders?.pageInfo?.endCursor || null;
+  }
+
+  // Filter based on selectedTab
+  const filteredOrders = allOrders.filter(order => {
+    const fStatus = order.displayFinancialStatus;
+    const isPaid = fStatus === "PAID" || fStatus === "PARTIALLY_PAID";
+    const isPending = fStatus === "PENDING" || fStatus === "AUTHORIZED";
+
+    if (selectedTab === "paid") {
+      return isPaid;
+    } else if (selectedTab === "pending") {
+      return isPending;
+    }
+    // "all"
+    return isPaid || isPending;
+  });
+
+  // Aggregate items from filteredOrders
+  for (const order of filteredOrders) {
+    const orderNumber = order.name;
+    for (const lineItem of order?.lineItems?.nodes ?? []) {
+      const variant = lineItem.variant;
+      const sku = variant?.sku || "-";
+      const productName = variant?.product?.title || lineItem.name || "알 수 없는 상품";
+      const key = variant?.id || `${productName}__${sku}`;
+
+      if (!itemMap.has(key)) {
+        itemMap.set(key, {
+          productName, sku, barcode: variant?.barcode || "-", orderedQty: 0,
+          inventoryQty: typeof variant?.inventoryQuantity === "number" ? variant.inventoryQuantity : null,
+          binLocation: "조회중", orderNumbers: new Set(),
+        });
+      }
+      const current = itemMap.get(key);
+      current.orderedQty += lineItem.quantity || 0;
+      current.orderNumbers.add(orderNumber);
+    }
   }
 
   const allSkus = Array.from(itemMap.values()).map(i => i.sku).filter(sku => sku !== "-");
@@ -171,12 +215,22 @@ async function loadPickListData(admin) {
   const items = Array.from(itemMap.values())
     .map(item => ({
       ...item,
-      binLocation: odooBins[item.sku] || "위치 미지정",
+      binLocation: odooBins[item.sku] || "위치 미정",
       orderNumbers: Array.from(item.orderNumbers).sort(),
     }))
     .sort(sortBinLocations);
 
-  return { items, totalUnfulfilledProducts: items.length, totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0) };
+  return {
+    items,
+    totalUnfulfilledProducts: items.length,
+    totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
+    counts: {
+      all: countAll,
+      paid: countPaid,
+      pending: countPending
+    },
+    activeTab: selectedTab
+  };
 }
 
 // ========================================================
@@ -259,7 +313,9 @@ async function generatePdfBuffer(items, techTime) {
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  return await loadPickListData(admin);
+  const url = new URL(request.url);
+  const tab = url.searchParams.get("tab") || "all";
+  return await loadPickListData(admin, tab);
 };
 
 export const action = async ({ request }) => {
@@ -271,7 +327,8 @@ export const action = async ({ request }) => {
 
   if (intent === "send-email") {
     const orderNames = JSON.parse(formData.get("orderNames") || "[]");
-    const data = await loadPickListData(admin);
+    const activeTab = formData.get("activeTab") || "all";
+    const data = await loadPickListData(admin, activeTab);
 
     // 1. DB 업데이트 (피킹 리스트 출력 여부 기록)
     // Shopify GraphQL을 통해 주문 번호로 ID를 조회하여 처리하는 대신,
@@ -347,9 +404,14 @@ export const action = async ({ request }) => {
 // 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
 // ========================================================
 export default function PickListPage() {
-  const { items, totalUnfulfilledProducts, totalOrderedQty } = useLoaderData();
+  const { items, totalUnfulfilledProducts, totalOrderedQty, counts, activeTab } = useLoaderData();
   const actionData = useActionData(); 
   const submit = useSubmit();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const handleTabChange = (tabId) => {
+    setSearchParams({ tab: tabId });
+  };
 
   const handlePrintAndEmail = async () => {
     const now = new Date();
@@ -365,7 +427,8 @@ export default function PickListPage() {
         intent: "send-email", 
         clientTime: formattedTime, 
         techTime: techTime,
-        orderNames: JSON.stringify(Array.from(allOrderNames))
+        orderNames: JSON.stringify(Array.from(allOrderNames)),
+        activeTab: activeTab
       },
       { method: "post" }
     );
@@ -415,6 +478,27 @@ export default function PickListPage() {
             ✅ 가로 폭 최적화 PDF 보고서가 popeye.gmbh@gmail.com 으로 전송되었습니다.
           </div>
         )}
+
+        <div className="no-print" style={{ display: "flex", gap: "8px", marginBottom: "16px", borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
+          <button 
+            onClick={() => handleTabChange("all")} 
+            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: activeTab === "all" ? "#0f172a" : "transparent", color: activeTab === "all" ? "#fff" : "#475569", fontWeight: activeTab === "all" ? "bold" : "normal", cursor: "pointer" }}
+          >
+            전체 ({counts?.all || 0})
+          </button>
+          <button 
+            onClick={() => handleTabChange("paid")} 
+            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: activeTab === "paid" ? "#0f172a" : "transparent", color: activeTab === "paid" ? "#fff" : "#475569", fontWeight: activeTab === "paid" ? "bold" : "normal", cursor: "pointer" }}
+          >
+            결제 완료 & 미처리 ({counts?.paid || 0})
+          </button>
+          <button 
+            onClick={() => handleTabChange("pending")} 
+            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: activeTab === "pending" ? "#0f172a" : "transparent", color: activeTab === "pending" ? "#fff" : "#475569", fontWeight: activeTab === "pending" ? "bold" : "normal", cursor: "pointer" }}
+          >
+            결제 보류중 & 미처리 ({counts?.pending || 0})
+          </button>
+        </div>
 
         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px" }}>

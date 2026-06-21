@@ -1,0 +1,550 @@
+0001: import { Form, useLoaderData, useActionData, useSubmit, useSearchParams } from "react-router";
+0002: import { authenticate } from "../shopify.server";
+0003: import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+0004: import nodemailer from "nodemailer";
+0005: 
+0006: // ========================================================
+0007: // 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
+0008: // ========================================================
+0009: async function fetchOdooBinLocations(skus) {
+0010:   if (!skus || skus.length === 0) return {};
+0011: 
+0012:   const ODOO_URL = "https://popeye.odoo.com/jsonrpc"; 
+0013:   const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
+0014:   const ODOO_USER = "dawayo.odoo@gmail.com";
+0015:   const ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34";
+0016: 
+0017:   const binMap = {};
+0018: 
+0019:   try {
+0020:     const authPayload = {
+0021:       jsonrpc: "2.0", method: "call",
+0022:       params: { service: "common", method: "login", args: [ODOO_DB, ODOO_USER, ODOO_API_KEY] },
+0023:       id: Math.floor(Math.random() * 1000)
+0024:     };
+0025: 
+0026:     const authResponse = await fetch(ODOO_URL, {
+0027:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authPayload)
+0028:     });
+0029:     const authResult = await authResponse.json();
+0030:     const uid = authResult?.result;
+0031: 
+0032:     if (!uid) {
+0033:       skus.forEach(sku => { binMap[sku] = "위치 미정 (Auth Fail)"; });
+0034:       return binMap;
+0035:     }
+0036: 
+0037:     const searchPayload = {
+0038:       jsonrpc: "2.0", method: "call",
+0039:       params: {
+0040:         service: "object", method: "execute_kw",
+0041:         args: [ODOO_DB, uid, ODOO_API_KEY, "stock.quant", "search_read", [[["product_id.default_code", "in", skus]]],],
+0042:         "kwargs": { "fields": ["product_reference_code", "location_id", "shelf_location", "warehouse_id"] }
+0043:       },
+0044:       id: Math.floor(Math.random() * 1000)
+0045:     };
+0046: 
+0047:     const searchResponse = await fetch(ODOO_URL, {
+0048:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(searchPayload)
+0049:     });
+0050:     const searchResult = await searchResponse.json();
+0051:     const quants = searchResult?.result || [];
+0052: 
+0053:     const rawDataMap = {};
+0054:     skus.forEach(sku => { rawDataMap[sku] = []; });
+0055: 
+0056:     quants.forEach((quant) => {
+0057:       const sku = quant.product_reference_code;
+0058:       if (!sku || !rawDataMap[sku]) return;
+0059:       const shelf = quant.shelf_location;
+0060:       if (!shelf) return;
+0061: 
+0062:       const locationName = quant.location_id ? quant.location_id[1] : "";
+0063:       const warehouseName = quant.warehouse_id ? quant.warehouse_id[1] : "";
+0064: 
+0065:       rawDataMap[sku].push({
+0066:         shelf, locationName, warehouseName,
+0067:         isStore: locationName.includes("STORE/Stock") || warehouseName.includes("매장")
+0068:       });
+0069:     });
+0070: 
+0071:     skus.forEach((sku) => {
+0072:       const records = rawDataMap[sku];
+0073:       if (records.length === 0) { binMap[sku] = "위치 미지정"; return; }
+0074: 
+0075:       const storeRecords = records.filter(r => r.isStore);
+0076:       const normalRecords = records.filter(r => !r.isStore);
+0077:       const storeShelf = storeRecords.length > 0 ? storeRecords[0].shelf : null;
+0078:       const normalShelf = normalRecords.length > 0 ? normalRecords[0].shelf : null;
+0079: 
+0080:       if (storeShelf && normalShelf) {
+0081:         binMap[sku] = `${storeShelf} (신창고: ${normalShelf})`;
+0082:       } else if (storeShelf) {
+0083:         binMap[sku] = storeShelf;
+0084:       } else if (normalShelf) {
+0085:         binMap[sku] = `*${normalShelf} (신창고)`;
+0086:       } else {
+0087:         binMap[sku] = "위치 미지정";
+0088:       }
+0089:     });
+0090: 
+0091:     return binMap;
+0092:   } catch (error) {
+0093:     skus.forEach(sku => { binMap[sku] = "위치 미정 (Error)"; });
+0094:     return binMap;
+0095:   }
+0096: }
+0097: 
+0098: // ========================================================
+0099: // 2. �const UNFULFILLED_ORDERS_QUERY = `#graphql
+0100:   query UnfulfilledOrders($first: Int!, $after: String) {
+0101:     orders(first: $first, after: $after, query: "status:open fulfillment_status:unfulfilled") {
+0102:       pageInfo { hasNextPage endCursor }
+0103:       nodes {
+0104:         id name
+0105:         displayFinancialStatus
+0106:         cancelledAt
+0107:         lineItems(first: 50) { 
+0108:           nodes {
+0109:             quantity name
+0110:             variant { id sku barcode inventoryQuantity product { title } }
+0111:           }
+0112:         }
+0113:       }
+0114:     }
+0115:   }
+0116: `;
+0117: 
+0118: function sortBinLocations(a, b) {
+0119:   const locA = a.binLocation || "";
+0120:   const locB = b.binLocation || "";
+0121:   if (locA === "위치 미지정") return 1;
+0122:   if (locB === "위치 미지정") return -1;
+0123: 
+0124:   const aIsNewOnly = locA.startsWith("*");
+0125:   const bIsNewOnly = locB.startsWith("*");
+0126: 
+0127:   if (aIsNewOnly && bIsNewOnly) return locA.localeCompare(locB);
+0128:   if (aIsNewOnly) return 1;
+0129:   if (bIsNewOnly) return -1;
+0130: 
+0131:   return locA.localeCompare(locB);
+0132: }
+0133: 
+0134: async function loadPickListData(admin, selectedTab = "all") {
+0135:   const itemMap = new Map();
+0136:   let hasNextPage = true;
+0137:   let after = null;
+0138: 
+0139:   let countAll = 0;
+0140:   let countPaid = 0;
+0141:   let countPending = 0;
+0142: 
+0143:   const allOrders = [];
+0144: 
+0145:   while (hasNextPage) {
+0146:     const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 50, after } });
+0147:     const payload = await response.json();
+0148:     const orders = payload?.data?.orders?.nodes ?? [];
+0149: 
+0150:     for (const order of orders) {
+0151:       if (order.cancelledAt) continue;
+0152:       const fStatus = order.displayFinancialStatus;
+0153:       if (fStatus === "REFUNDED" || fStatus === "VOIDED") continue;
+0154: 
+0155:       allOrders.push(order);
+0156: 
+0157:       const isPaid = fStatus === "PAID" || fStatus === "PARTIALLY_PAID";
+0158:       const isPending = fStatus === "PENDING" || fStatus === "AUTHORIZED";
+0159: 
+0160:       if (isPaid || isPending) {
+0161:         countAll++;
+0162:       }
+0163:       if (isPaid) {
+0164:         countPaid++;
+0165:       }
+0166:       if (isPending) {
+0167:         countPending++;
+0168:       }
+0169:     }
+0170:     hasNextPage = Boolean(payload?.data?.orders?.pageInfo?.hasNextPage);
+0171:     after = payload?.data?.orders?.pageInfo?.endCursor || null;
+0172:   }
+0173: 
+0174:   // Filter based on selectedTab
+0175:   const filteredOrders = allOrders.filter(order => {
+0176:     const fStatus = order.displayFinancialStatus;
+0177:     const isPaid = fStatus === "PAID" || fStatus === "PARTIALLY_PAID";
+0178:     const isPending = fStatus === "PENDING" || fStatus === "AUTHORIZED";
+0179: 
+0180:     if (selectedTab === "paid") {
+0181:       return isPaid;
+0182:     } else if (selectedTab === "pending") {
+0183:       return isPending;
+0184:     }
+0185:     // "all"
+0186:     return isPaid || isPending;
+0187:   });
+0188: 
+0189:   // Aggregate items from filteredOrders
+0190:   for (const order of filteredOrders) {
+0191:     const orderNumber = order.name;
+0192:     for (const lineItem of order?.lineItems?.nodes ?? []) {
+0193:       const variant = lineItem.variant;
+0194:       const sku = variant?.sku || "-";
+0195:       const productName = variant?.product?.title || lineItem.name || "알 수 없는 상품";
+0196:       const key = variant?.id || `${productName}__${sku}`;
+0197: 
+0198:       if (!itemMap.has(key)) {
+0199:         itemMap.set(key, {
+0200:           productName, sku, barcode: variant?.barcode || "-", orderedQty: 0,
+0201:           inventoryQty: typeof variant?.inventoryQuantity === "number" ? variant.inventoryQuantity : null,
+0202:           binLocation: "조회중", orderNumbers: new Set(),
+0203:         });
+0204:       }
+0205:       const current = itemMap.get(key);
+0206:       current.orderedQty += lineItem.quantity || 0;
+0207:       current.orderNumbers.add(orderNumber);
+0208:     }
+0209:   }
+0210: 
+0211:   const allSkus = Array.from(itemMap.values()).map(i => i.sku).filter(sku => sku !== "-");
+0212:   const odooBins = await fetchOdooBinLocations(allSkus);
+0213: 
+0214:   const items = Array.from(itemMap.values())
+0215:     .map(item => ({
+0216:       ...item,
+0217:       binLocation: odooBins[item.sku] || "위치 미정",
+0218:       orderNumbers: Array.from(item.orderNumbers).sort(),
+0219:     }))
+0220:     .sort(sortBinLocations);
+0221: 
+0222:   return {
+0223:     items,
+0224:     totalUnfulfilledProducts: items.length,
+0225:     totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
+0226:     counts: {
+0227:       all: countAll,
+0228:       paid: countPaid,
+0229:       pending: countPending
+0230:     },
+0231:     activeTab: selectedTab
+0232:   };
+0233: }   }))
+0234:     .sort(sortBinLocations);
+0235: 
+0236:   return { items, totalUnfulfilledProducts: items.length, totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0) };
+0237: }
+0238: 
+0239: // ========================================================
+0240: // 3. 가로 폭(넓이) 자동 압축 및 조율형 PDF 생성기
+0241: // ========================================================
+0242: async function generatePdfBuffer(items, techTime) {
+0243:   const pdfDoc = await PDFDocument.create();
+0244:   const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+0245:   const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+0246:   
+0247:   const pageWidth = 842; // A4 가로 전체 너비 고정
+0248:   const pageHeight = 595;
+0249:   
+0250:   let page = pdfDoc.addPage([pageWidth, pageHeight]);
+0251:   let currentY = pageHeight - 50;
+0252: 
+0253:   // 💡 가로 넓이가 잘리지 않도록 각 열의 X 시작 좌표를 완벽하게 분할 배치 (여백 확보)
+0254:   const colX = {
+0255:     location: 40,    // 창고 위치 (폭 180px 할당)
+0256:     sku: 220,         // SKU (폭 110px 할당)
+0257:     product: 330,     // 상품명 (폭 320px 할당)
+0258:     qty: 660,         // 주문 수량 (폭 40px 할당)
+0259:     orders: 710       // 주문 번호 (폭 90px 할당) -> 마지막 좌표 800 (우측 마진 42px 남음)
+0260:   };
+0261: 
+0262:   const drawPageHeader = (pageNum) => {
+0263:     page.drawText(`PICKING LIST - [${techTime}]`, { x: 40, y: pageHeight - 35, size: 14, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16) });
+0264:     page.drawText(`Page: ${pageNum}`, { x: pageWidth - 80, y: pageHeight - 35, size: 9, font: Helvetica, color: rgb(0.39, 0.45, 0.55) });
+0265:     
+0266:     let headerY = pageHeight - 65;
+0267:     page.drawRectangle({ x: 40, y: headerY - 5, width: pageWidth - 80, height: 22, color: rgb(0.06, 0.09, 0.16) });
+0268:     
+0269:     page.drawText("SHELF LOCATION", { x: colX.location + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+0270:     page.drawText("SKU", { x: colX.sku + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+0271:     page.drawText("PRODUCT DESCRIPTION (ENG)", { x: colX.product + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+0272:     page.drawText("QTY", { x: colX.qty + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+0273:     page.drawText("ORDERS", { x: colX.orders + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
+0274:     
+0275:     return headerY - 20;
+0276:   };
+0277: 
+0278:   currentY = drawPageHeader(1);
+0279:   let pageCounter = 1;
+0280: 
+0281:   items.forEach((item) => {
+0282:     if (currentY < 45) {
+0283:       page = pdfDoc.addPage([pageWidth, pageHeight]);
+0284:       pageCounter++;
+0285:       currentY = drawPageHeader(pageCounter);
+0286:     }
+0287: 
+0288:     page.drawLine({ start: { x: 40, y: currentY - 4 }, end: { x: pageWidth - 40, y: currentY - 4 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
+0289: 
+0290:     const cleanLocation = item.binLocation.replace(/신창고/g, "NEW").replace(/매장창고/g, "STORE");
+0291:     const safeTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item");
+0292: 
+0293:     // 💡 텍스트가 가로로 넘쳐서 짤리는 걸 막기 위해 글자 수 제한 규칙(Substring)을 타이트하게 적용
+0294:     page.drawText(cleanLocation.substring(0, 24), { x: colX.location + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
+0295:     page.drawText(item.sku.substring(0, 16), { x: colX.sku + 5, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
+0296:     
+0297:     // 상품명 열 너비 보장을 위해 최대 36자로 제한 처리
+0298:     const trunTitle = safeTitle.length > 36 ? `${safeTitle.substring(0, 34)}...` : safeTitle;
+0299:     page.drawText(trunTitle, { x: colX.product + 5, y: currentY, size: 8, font: Helvetica, color: rgb(0.25, 0.32, 0.44) });
+0300:     
+0301:     page.drawText(String(item.orderedQty), { x: colX.qty + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0, 0, 0) });
+0302:     
+0303:     const ordersStr = item.orderNumbers.join(", ");
+0304:     const trunOrders = ordersStr.length > 12 ? `${ordersStr.substring(0, 10)}...` : ordersStr;
+0305:     page.drawText(trunOrders, { x: colX.orders + 5, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
+0306: 
+0307:     currentY -= 18; // 행 세로 압축률 향상
+0308:   });
+0309: 
+0310:   const pdfBytes = await pdfDoc.save();
+0311:   return Buffer.from(pdfBytes);
+0312: }
+0313: 
+0314: // ========================================================
+0315: // 4. 백엔드 컨트롤러 핸들러 (Loader & Action)
+0316: // ========================================================
+0317: export const loader = async ({ request }) => {
+0318:   const { admin } = await authenticate.admin(request);
+0319:   const url = new URL(request.url);
+0320:   const tab = url.searchParams.get("tab") || "all";
+0321:   return await loadPickListData(admin, tab);
+0322: };
+0323: 
+0324: export const action = async ({ request }) => {
+0325:   const { session, admin } = await authenticate.admin(request);
+0326:   const formData = await request.formData();
+0327:   const intent = formData.get("intent");
+0328:   const clientTime = formData.get("clientTime"); 
+0329:   const techTime = formData.get("techTime"); 
+0330: 
+0331:   if (intent === "send-email") {
+0332:     const orderNames = JSON.parse(formData.get("orderNames") || "[]");
+0333:     const activeTab = formData.get("activeTab") || "all";
+0334:     const data = await loadPickListData(admin, activeTab);
+0335: 
+0336:     // 1. DB 업데이트 (피킹 리스트 출력 여부 기록)
+0337:     // Shopify GraphQL을 통해 주문 번호로 ID를 조회하여 처리하는 대신,
+0338:     // 대시보드에서 주문 번호 매칭이 가능하도록 처리 (ID를 모를 경우 name으로 매칭)
+0339:     for (const orderName of orderNames) {
+0340:       // 해당 주문 이름에 해당하는 InspectionRecord가 있는지 확인하고 업데이트
+0341:       // ID를 모르므로 findFirst 후 업데이트하거나 upsert 사용 (orderId가 필수이므로 주의)
+0342:       // 여기서는 주문 ID 조회를 위해 GraphQL 호출이 필요할 수 있으나 성능상
+0343:       // 이미 로드된 data에서 매칭 정보를 찾거나, 나중에 대시보드에서 name으로도 조회 가능하도록 구성
+0344:       
+0345:       // 간단한 처리를 위해, 현재 주문 정보를 GraphQL로 다시 조회하여 ID를 확보
+0346:       const orderQueryResponse = await admin.graphql(
+0347:         `#graphql
+0348:         query findOrderId($query: String!) {
+0349:           orders(first: 1, query: $query) {
+0350:             edges { node { id name } }
+0351:           }
+0352:         }`,
+0353:         { variables: { query: `name:${orderName}` } }
+0354:       );
+0355:       const orderQueryJson = await orderQueryResponse.json();
+0356:       const orderNode = orderQueryJson.data?.orders?.edges[0]?.node;
+0357: 
+0358:       if (orderNode) {
+0359:         await prisma.inspectionRecord.upsert({
+0360:           where: { orderId: orderNode.id },
+0361:           update: { isPickListPrinted: true },
+0362:           create: {
+0363:             orderId: orderNode.id,
+0364:             orderName: orderNode.name,
+0365:             shop: session.shop,
+0366:             status: "PENDING",
+0367:             isPickListPrinted: true,
+0368:           },
+0369:         });
+0370:       }
+0371:     }
+0372: 
+0373:     const pdfBuffer = await generatePdfBuffer(data.items, techTime);
+0374:     const mailTitle = `${clientTime} 기준 처리중`;
+0375: 
+0376:     const transporter = nodemailer.createTransport({
+0377:       host: "smtp.gmail.com", port: 465, secure: true,
+0378:       auth: {
+0379:         user: "YOUR_SYSTEM_EMAIL@gmail.com",    
+0380:         pass: "YOUR_EMAIL_APP_PASSWORD"         
+0381:       }
+0382:     });
+0383: 
+0384:     try {
+0385:       await transporter.sendMail({
+0386:         from: '"Shopify System" <YOUR_SYSTEM_EMAIL@gmail.com>',
+0387:         to: "popeye.gmbh@gmail.com",
+0388:         subject: mailTitle, 
+0389:         attachments: [
+0390:           {
+0391:             filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, 
+0392:             content: pdfBuffer,
+0393:             contentType: "application/pdf"
+0394:           }
+0395:         ]
+0396:       });
+0397:       return { success: true, message: "메일 전송에 성공했습니다." };
+0398:     } catch (err) {
+0399:       console.error("PDF 전송 오류:", err);
+0400:       return { success: false, error: err instanceof Error ? err.message : "SMTP 연동 오류" };
+0401:     }
+0402:   }
+0403:   return null;
+0404: };
+0405: 
+0406: // ========================================================
+0407: // 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
+0408: // ========================================================
+0409: export default function PickListPage() {
+0410:   const { items, totalUnfulfilledProducts, totalOrderedQty } = useLoaderData();
+0411:   const actionData = useActionData(); 
+0412:   const submit = useSubmit();
+0413: 
+0414:   const handlePrintAndEmail = async () => {
+0415:     const now = new Date();
+0416:     const formattedTime = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}시 ${now.getMinutes()}분`;
+0417:     const techTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+0418: 
+0419:     // DB에 출력 상태 저장 요청 (모든 주문번호에 대해)
+0420:     const allOrderNames = new Set();
+0421:     items.forEach(item => item.orderNumbers.forEach(num => allOrderNames.add(num)));
+0422:     
+0423:     submit(
+0424:       { 
+0425:         intent: "send-email", 
+0426:         clientTime: formattedTime, 
+0427:         techTime: techTime,
+0428:         orderNames: JSON.stringify(Array.from(allOrderNames))
+0429:       },
+0430:       { method: "post" }
+0431:     );
+0432: 
+0433:     window.print();
+0434:   };
+0435: 
+0436:   const metricCardStyle = { border: "1px solid #e2e8f0", borderRadius: "16px", padding: "16px", background: "#f8fafc", minWidth: "160px" };
+0437:   const tableWrapStyle = { overflowX: "auto", border: "1px solid #dfe3e8", borderRadius: "16px", background: "#fff" };
+0438:   
+0439:   const tableStyle = { width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" };
+0440:   const headerCellStyle = { position: "sticky", top: 0, background: "#0f172a", color: "#fff", padding: "10px 12px", textAlign: "left", fontSize: "13px" };
+0441:   const bodyCellStyle = { borderTop: "1px solid #eef2f7", padding: "10px 12px", verticalAlign: "top", fontSize: "13px", wordBreak: "break-all" };
+0442: 
+0443:   return (
+0444:     <s-page heading="처리중 리스트">
+0445:       <style>{`
+0446:         @media print {
+0447:           button, .no-print, s-button, .shopify-app-bridge-header { display: none !important; }
+0448:           body { background: #fff !important; color: #000 !important; margin: 0 !important; padding: 0 !important; }
+0449:           
+0450:           /* 💡 브라우저 인쇄시 가로 영역 강제 한도 제한 고정 룰 */
+0451:           @page { size: A4 landscape; margin: 8mm 6mm; }
+0452:           
+0453:           div, table { overflow: visible !important; height: auto !important; max-width: 100% !important; }
+0454:           table { table-layout: fixed !important; width: 100% !important; }
+0455:           
+0456:           th { background: #0f172a !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+0457:           td { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+0458:           
+0459:           /* 프린트 시 긴 텍스트 줄바꿈 방지 및 폰트 축소로 한 줄 안착 조율 */
+0460:           .cell-text { font-size: 11px !important; line-height: 1.2 !important; }
+0461:         }
+0462:       `}</style>
+0463: 
+0464:       <s-section heading="피킹 동선 관리 장부" >
+0465:         
+0466:         {actionData?.success === false && (
+0467:           <div className="no-print" style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
+0468:             ⚠️ <b>이메일 발송 실패 안내:</b> {actionData.error} <br />
+0469:             <small style={{ color: "#7f1d1d" }}>구글 계정의 앱 비밀번호 발급 상태를 최종적으로 확인해 주세요.</small>
+0470:           </div>
+0471:         )}
+0472:         
+0473:         {actionData?.success === true && (
+0474:           <div className="no-print" style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
+0475:             ✅ 가로 폭 최적화 PDF 보고서가 popeye.gmbh@gmail.com 으로 전송되었습니다.
+0476:           </div>
+0477:         )}
+0478: 
+0479:         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
+0480:           <div style={{ display: "flex", gap: "12px" }}>
+0481:             <div style={metricCardStyle}>
+0482:               <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>총 상품 품목</div>
+0483:               <div style={{ fontSize: "24px", fontWeight: 700 }}>{totalUnfulfilledProducts}개</div>
+0484:             </div>
+0485:             <div style={metricCardStyle}>
+0486:               <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>총 패킹 필요 수량</div>
+0487:               <div style={{ fontSize: "24px", fontWeight: 700 }}>{totalOrderedQty}개</div>
+0488:             </div>
+0489:           </div>
+0490: 
+0491:           <s-button type="button" variant="primary" onClick={handlePrintAndEmail}>
+0492:             프린트 및 이메일 PDF 전송
+0493:           </s-button>
+0494:         </div>
+0495: 
+0496:         <div style={tableWrapStyle}>
+0497:           {/* 각 Th 마다 명확한 고정 너비(%)를 적용해 가로 짤림 원천 차단 */}
+0498:           <table style={tableStyle}>
+0499:             <thead>
+0500:               <tr>
+0501:                 <th style={{ ...headerCellStyle, width: "20%" }}>창고 위치 (STORE / NEW)</th>
+0502:                 <th style={{ ...headerCellStyle, width: "30%" }}>상품명</th>
+0503:                 <th style={{ ...headerCellStyle, width: "12%" }}>SKU</th>
+0504:                 <th style={{ ...headerCellStyle, width: "12%" }}>Barcode</th>
+0505:                 <th style={{ ...headerCellStyle, width: "8%", textAlign: "right" }}>피킹수량</th>
+0506:                 <th style={{ ...headerCellStyle, width: "8%", textAlign: "right" }}>현재재고</th>
+0507:                 <th style={{ ...headerCellStyle, width: "10%" }}>주문번호</th>
+0508:               </tr>
+0509:             </thead>
+0510:             <tbody>
+0511:               {items.map((item) => (
+0512:                 <tr key={`${item.productName}-${item.sku}`} style={{ background: "#fff" }}>
+0513:                   <td className="cell-text" style={{ 
+0514:                     ...bodyCellStyle, 
+0515:                     fontWeight: "bold", 
+0516:                     color: item.binLocation.startsWith("*") ? "#0891b2" : "#1d4ed8", 
+0517:                     background: item.binLocation.startsWith("*") ? "#ecfeff" : "#f0f5ff" 
+0518:                   }}>
+0519:                     {item.binLocation}
+0520:                   </td>
+0521:                   <td className="cell-text" style={{ ...bodyCellStyle, fontWeight: 600 }}>{item.productName}</td>
+0522:                   <td className="cell-text" style={bodyCellStyle}>{item.sku}</td>
+0523:                   <td className="cell-text" style={bodyCellStyle}>{item.barcode}</td>
+0524:                   <td className="cell-text" style={{ ...bodyCellStyle, textAlign: "right", fontWeight: 700 }}>{item.orderedQty}</td>
+0525:                   <td className="cell-text" style={{ 
+0526:                     ...bodyCellStyle, 
+0527:                     textAlign: "right", 
+0528:                     fontWeight: 700,
+0529:                     color: item.inventoryQty <= 0 ? "#dc2626" : item.inventoryQty <= item.orderedQty ? "#d97706" : "#16a34a" 
+0530:                   }}>
+0531:                     {item.inventoryQty !== null ? item.inventoryQty : "—"}
+0532:                   </td>
+0533:                   <td className="cell-text" style={bodyCellStyle}>
+0534:                     <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
+0535:                       {item.orderNumbers.map((num) => (
+0536:                         <span key={num} style={{ background: "#eff6ff", color: "#1d4ed8", padding: "1px 4px", borderRadius: "4px", fontSize: "11px" }}>
+0537:                           {num}
+0538:                         </span>
+0539:                       ))}
+0540:                     </div>
+0541:                   </td>
+0542:                 </tr>
+0543:               ))}
+0544:             </tbody>
+0545:           </table>
+0546:         </div>
+0547:       </s-section>
+0548:     </s-page>
+0549:   );
+0550: }

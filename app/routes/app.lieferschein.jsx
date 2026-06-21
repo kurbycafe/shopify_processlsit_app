@@ -77,6 +77,7 @@ export const loader = async ({ request }) => {
                 email
                 note
                 displayFinancialStatus
+                cancelledAt
                 displayFulfillmentStatus
                 shippingLines(first: 1) {
                   edges {
@@ -148,7 +149,15 @@ export const loader = async ({ request }) => {
       endCursor = connection.pageInfo.endCursor;
     }
 
-    const orders = allEdges.map((edge) => {
+    const validEdges = allEdges.filter((edge) => {
+      const node = edge.node;
+      if (node.cancelledAt) return false;
+      const fStatus = node.displayFinancialStatus;
+      if (fStatus === "REFUNDED" || fStatus === "VOIDED") return false;
+      return true;
+    });
+
+    const orders = validEdges.map((edge) => {
       const node = edge.node;
       const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
 
