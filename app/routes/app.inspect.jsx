@@ -303,6 +303,43 @@ export default function Inspect() {
     fetcher.submit({ intent: "fetch_order", orderName }, { method: "POST" });
   };
 
+  // Web Audio API를 활용한 효과음 재생기
+  const playSound = (type) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      if (type === "success") {
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.1);
+      } else if (type === "warning") {
+        osc.frequency.setValueAtTime(330, ctx.currentTime);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.2);
+      } else if (type === "error") {
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(180, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.35);
+      }
+    } catch (e) {
+      console.warn("Audio Context failed to start:", e);
+    }
+  };
+
   const processBarcode = (scannedBarcode) => {
     if (!currentOrder || !scannedBarcode.trim()) return;
 
@@ -316,15 +353,19 @@ export default function Inspect() {
 
       if (item.issueType) {
         setMessage({ type: "warning", text: `[${item.title}] 이미 문제 보고(예외 처리)가 접수된 상품입니다.` });
+        playSound("warning");
       } else if (item.inspectedQuantity < item.orderedQuantity) {
         item.inspectedQuantity += 1;
         setCurrentOrder({ ...currentOrder, items: updatedItems });
         setMessage({ type: "success", text: `[${item.title}] 검수 완료 (${item.inspectedQuantity}/${item.orderedQuantity})` });
+        playSound("success");
       } else {
         setMessage({ type: "warning", text: `[${item.title}] 이미 모든 수량이 검수되었습니다.` });
+        playSound("warning");
       }
     } else {
       setMessage({ type: "error", text: "주문에 포함되지 않은 바코드입니다!" });
+      playSound("error");
     }
     
     setBarcode("");

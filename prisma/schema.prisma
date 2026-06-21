@@ -66,3 +66,30 @@ model InspectionItem {
   substitutedVariantId    String?   // 대체된 상품의 Variant ID
   substitutedProductTitle String?   // 대체된 상품명
 }
+
+model ReturnRecord {
+  id            String       @id @default(cuid())
+  orderName     String       // 주문 번호 (예: #1001)
+  returnedAt    DateTime     @default(now()) // 반송 받은 날짜
+  isDamaged     Boolean      @default(false) // 파손 여부
+  damageReason  String?      // 파손 사유
+  isProcessed   Boolean      @default(false) // 처리 완료 여부
+  inspectorName String?      // 검수 작업자명
+  shop          String       // 상점 도메인
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  items         ReturnItem[]
+
+  @@index([shop])
+}
+
+model ReturnItem {
+  id             String       @id @default(cuid())
+  returnRecordId String
+  returnRecord   ReturnRecord @relation(fields: [returnRecordId], references: [id], onDelete: Cascade)
+  productTitle   String
+  variantTitle   String?
+  sku            String?
+  barcode        String?
+  quantity       Int          @default(1)
+}

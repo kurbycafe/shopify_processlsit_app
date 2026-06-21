@@ -79,6 +79,9 @@ export const loader = async ({ request }) => {
                 displayFinancialStatus
                 cancelledAt
                 displayFulfillmentStatus
+                customer {
+                  ordersCount
+                }
                 shippingLines(first: 1) {
                   edges {
                     node {
@@ -233,6 +236,7 @@ export const loader = async ({ request }) => {
         totalWeightKg: (totalGrams / 1000).toFixed(3),
         totalOrderQty,
         items: sortedItems,
+        isFirstPurchase: (node.customer?.ordersCount ?? 0) === 1,
       };
     });
 
@@ -713,11 +717,34 @@ export default function AdditionalPage() {
                       {order.shippingAddress?.company && <div className="badge">B2B</div>}
                       {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
                     </div>
-                    {isInternational && (
-                      <div style={{ marginTop: "10px" }}>
-                        <span className="highlight-intl">✈️ {order.shippingAddress.country.toUpperCase()}</span>
+                    
+                    {/* ✨ 신규 배송 수단 & 해외 국가명 굵은 외곽선 텍스트 상자 배치 */}
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+                      <div style={{
+                        padding: "6px 12px",
+                        border: "3px solid #111111",
+                        fontSize: "14px",
+                        fontWeight: "800",
+                        textTransform: "uppercase",
+                        display: "inline-block",
+                        color: "#111111"
+                      }}>
+                        {order.shippingMethod}
                       </div>
-                    )}
+                      {isInternational && (
+                        <div style={{
+                          padding: "6px 12px",
+                          border: "4px solid #b91c1c",
+                          fontSize: "16px",
+                          fontWeight: "900",
+                          textTransform: "uppercase",
+                          display: "inline-block",
+                          color: "#b91c1c"
+                        }}>
+                          ✈️ {order.shippingAddress.country.toUpperCase()}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="header-right">
                     <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
@@ -725,9 +752,6 @@ export default function AdditionalPage() {
                       <div className="barcode-title">Order Barcode</div>
                       <Code128 value={order.name} height={38} moduleWidth={1.2} />
                     </div>
-                    {shippingBadgeText && (
-                      <div className="shipping-badge">{shippingBadgeText}</div>
-                    )}
                   </div>
                 </div>
 
@@ -826,6 +850,21 @@ export default function AdditionalPage() {
 
                 <div className="footer">
                   <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
+                  {order.isFirstPurchase && (
+                    <div style={{
+                      textAlign: "center",
+                      margin: "8px 0",
+                      padding: "8px",
+                      border: "2px dashed #b91c1c",
+                      borderRadius: "6px",
+                      background: "#fff5f5",
+                      color: "#b91c1c",
+                      fontWeight: "bold",
+                      fontSize: "12px"
+                    }}>
+                      ❤️ Vielen Dank für Ihre erste Bestellung! ❤️
+                    </div>
+                  )}
                   <table className="footer-grid">
                     <tbody>
                       <tr>

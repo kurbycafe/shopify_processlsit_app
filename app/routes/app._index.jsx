@@ -8,7 +8,6 @@ import {
   BlockStack,
   InlineStack,
   Badge,
-  Box,
   Divider,
   Icon,
   Modal,
@@ -75,26 +74,6 @@ export default function Index() {
   return (
     <Page title="대시보드">
       <style>{`
-        .welcome-banner {
-          background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-          border-radius: 16px;
-          padding: 32px;
-          color: #ffffff;
-          margin-bottom: 24px;
-          box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
-          position: relative;
-          overflow: hidden;
-        }
-        .welcome-banner::before {
-          content: "";
-          position: absolute;
-          top: -50%;
-          right: -20%;
-          width: 300px;
-          height: 300px;
-          background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0) 70%);
-          pointer-events: none;
-        }
         .dashboard-metric-card {
           border-radius: 12px;
           padding: 24px;
@@ -153,23 +132,9 @@ export default function Index() {
         }
       `}</style>
       <Layout>
-        {/* 웰컴 배너 */}
-        <Layout.Section>
-          <div className="welcome-banner">
-            <BlockStack gap="200">
-              <Text variant="headingXl" as="h1" color="white">
-                안녕하세요, 오늘도 힘찬 하루 되세요! 👋
-              </Text>
-              <Text variant="bodyLg" as="p">
-                실시간 주문 검수 및 피킹 관리 대시보드입니다. 아래에서 실시간 현황을 확인하고 미완료된 검수를 이어서 진행하세요.
-              </Text>
-            </BlockStack>
-          </div>
-        </Layout.Section>
-
         {/* 주문 현황 요약 */}
         <Layout.Section>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "8px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "8px", marginTop: "16px" }}>
             <div className="dashboard-metric-card metric-critical">
               <BlockStack gap="200">
                 <Text variant="headingMd" as="h2" tone="subdued">미배송 주문</Text>

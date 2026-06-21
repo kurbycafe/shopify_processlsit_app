@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Form, useLoaderData, useActionData, useSubmit, useSearchParams, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
@@ -372,10 +373,12 @@ export const action = async ({ request }) => {
     const mailTitle = `${clientTime} 기준 처리중`;
 
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com", port: 465, secure: true,
+      host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
-        user: "YOUR_SYSTEM_EMAIL@gmail.com",    
-        pass: "YOUR_EMAIL_APP_PASSWORD"         
+        user: process.env.SMTP_USER || "popeye.gmbh@gmail.com",    
+        pass: process.env.SMTP_PASSWORD         
       }
     });
 
@@ -410,6 +413,14 @@ export default function PickListPage() {
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  // ✨ 위치 미정 & 재고 부족 (10개 미만) 상품 수집
+  const lowStockNoBinItems = useMemo(() => {
+    return items.filter(item => 
+      (item.binLocation.includes("위치 미정") || item.binLocation.includes("위치 미지정")) &&
+      (item.inventoryQty !== null && item.inventoryQty < 10)
+    );
+  }, [items]);
 
   const handleTabChange = (tabId) => {
     navigate(`/app/pick-list?tab=${tabId}`);
@@ -464,10 +475,92 @@ export default function PickListPage() {
           /* 프린트 시 긴 텍스트 줄바꿈 방지 및 폰트 축소로 한 줄 안착 조율 */
           .cell-text { font-size: 11px !important; line-height: 1.2 !important; }
         }
+        
+        @media (max-width: 768px) {
+          /* 모바일 환경에서는 테이블을 카드 형태로 변환하여 세로 스크롤 최적화 */
+          .list-table-responsive thead {
+            display: none !important;
+          }
+          .list-table-responsive, .list-table-responsive tbody, .list-table-responsive tr, .list-table-responsive td {
+            display: block !important;
+            width: 100% !important;
+            box-sizing: border-box;
+          }
+          .list-table-responsive tr {
+            margin-bottom: 16px;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 12px;
+            padding: 12px 16px;
+            background: #ffffff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+          }
+          .list-table-responsive td {
+            border: none !important;
+            padding: 6px 0 !important;
+            border-bottom: 1px dashed #f1f5f9 !important;
+            display: flex !important;
+            align-items: center;
+            justify-content: flex-start;
+          }
+          .list-table-responsive td:last-child {
+            border-bottom: none !important;
+          }
+          .list-table-responsive td::before {
+            content: attr(data-label);
+            font-weight: bold;
+            display: inline-block;
+            width: 130px;
+            color: #64748b;
+            font-size: 12px;
+          }
+        }
       `}</style>
 
       <s-section heading="피킹 동선 관리 장부" >
         
+        {/* ✨ 위치 미정 및 재고 부족 경고 배너 */}
+        {lowStockNoBinItems.length > 0 && (
+          <div className="no-print" style={{
+            background: "#fffbeb",
+            border: "2px solid #d97706",
+            borderRadius: "12px",
+            padding: "16px",
+            marginBottom: "20px",
+            boxShadow: "0 4px 6px -1px rgba(217, 119, 6, 0.1)"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+              <span style={{ fontSize: "18px" }}>⚠️</span>
+              <span style={{ fontSize: "15px", fontWeight: "bold", color: "#b45309" }}>
+                위치 미지정 & 재고 부족 경고 (10개 미만 수량)
+              </span>
+              <span style={{ background: "#fef3c7", color: "#d97706", padding: "2px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold" }}>
+                {lowStockNoBinItems.length}건
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {lowStockNoBinItems.map(item => (
+                <div key={item.sku} style={{
+                  background: "#fff",
+                  border: "1px solid #fcd34d",
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  fontSize: "12.5px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.05)"
+                }}>
+                  <strong style={{ color: "#1e293b" }}>{item.productName}</strong>
+                  <span style={{ color: "#64748b", fontFamily: "monospace", fontSize: "11px" }}>{item.sku}</span>
+                  <span style={{ background: "#fee2e2", color: "#dc2626", padding: "1px 6px", borderRadius: "4px", fontWeight: "bold", fontSize: "11px" }}>
+                    재고: {item.inventoryQty}개
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {actionData?.success === false && (
           <div className="no-print" style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
             ⚠️ <b>이메일 발송 실패 안내:</b> {actionData.error} <br />
@@ -529,7 +622,7 @@ export default function PickListPage() {
 
         <div style={tableWrapStyle}>
           {/* 각 Th 마다 명확한 고정 너비(%)를 적용해 가로 짤림 원천 차단 */}
-          <table style={tableStyle}>
+          <table style={tableStyle} className="list-table-responsive">
             <thead>
               <tr>
                 <th style={{ ...headerCellStyle, width: "20%" }}>창고 위치 (STORE / NEW)</th>
@@ -544,7 +637,7 @@ export default function PickListPage() {
             <tbody>
               {items.map((item) => (
                 <tr key={`${item.productName}-${item.sku}`} style={{ background: "#fff" }}>
-                  <td className="cell-text" style={{ 
+                  <td className="cell-text" data-label="창고 위치" style={{ 
                     ...bodyCellStyle, 
                     fontWeight: "bold", 
                     color: item.binLocation.startsWith("*") ? "#0891b2" : "#1d4ed8", 
@@ -552,11 +645,11 @@ export default function PickListPage() {
                   }}>
                     {item.binLocation}
                   </td>
-                  <td className="cell-text" style={{ ...bodyCellStyle, fontWeight: 600 }}>{item.productName}</td>
-                  <td className="cell-text" style={bodyCellStyle}>{item.sku}</td>
-                  <td className="cell-text" style={bodyCellStyle}>{item.barcode}</td>
-                  <td className="cell-text" style={{ ...bodyCellStyle, textAlign: "right", fontWeight: 700 }}>{item.orderedQty}</td>
-                  <td className="cell-text" style={{ 
+                  <td className="cell-text" data-label="상품명" style={{ ...bodyCellStyle, fontWeight: 600 }}>{item.productName}</td>
+                  <td className="cell-text" data-label="SKU" style={bodyCellStyle}>{item.sku}</td>
+                  <td className="cell-text" data-label="Barcode" style={bodyCellStyle}>{item.barcode}</td>
+                  <td className="cell-text" data-label="피킹수량" style={{ ...bodyCellStyle, textAlign: "right", fontWeight: 700 }}>{item.orderedQty}</td>
+                  <td className="cell-text" data-label="현재재고" style={{ 
                     ...bodyCellStyle, 
                     textAlign: "right", 
                     fontWeight: 700,
@@ -564,7 +657,7 @@ export default function PickListPage() {
                   }}>
                     {item.inventoryQty !== null ? item.inventoryQty : "—"}
                   </td>
-                  <td className="cell-text" style={bodyCellStyle}>
+                  <td className="cell-text" data-label="주문번호" style={bodyCellStyle}>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                       {item.orderNumbers.map((num) => (
                         <span key={num} style={{ background: "#eff6ff", color: "#1d4ed8", padding: "1px 4px", borderRadius: "4px", fontSize: "11px" }}>
