@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData, Link } from "react-router";
+import { useLoaderData, Link, useNavigate } from "react-router";
 import {
   Page,
   Layout,
@@ -8,7 +8,6 @@ import {
   BlockStack,
   InlineStack,
   Badge,
-  List,
   Box,
   Divider,
   Icon,
@@ -31,7 +30,6 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // ✨ 수정: orders(first: 0) 대신 속도가 빠르고 에러가 없는 ordersCount 사용
   const response = await admin.graphql(
     `#graphql
     query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!) {
@@ -51,35 +49,10 @@ export const loader = async ({ request }) => {
   );
   
   const statsJson = await response.json();
-  // ✨ 수정: totalCount 대신 count 속성으로 가져오기
   const unfulfilledCount = statsJson.data?.unfulfilled?.count || 0;
   const partiallyFulfilledCount = statsJson.data?.partially_fulfilled?.count || 0;
 
-  // 2. 긴급 주문 (24시간 이상 경과한 미배송 건)
-  const yesterday = dayjs().subtract(24, "hour").toISOString();
-  const agingResponse = await admin.graphql(
-    `#graphql
-    query getAgingOrders($query: String!) {
-      orders(first: 5, query: $query, sortKey: CREATED_AT, reverse: false) {
-        edges {
-          node {
-            id
-            name
-            createdAt
-          }
-        }
-      }
-    }`,
-    {
-      variables: {
-        query: `fulfillment_status:unfulfilled created_at:<${yesterday}`,
-      },
-    }
-  );
-  const agingJson = await agingResponse.json();
-  const agingOrders = agingJson.data?.orders?.edges?.map(edge => edge.node) || [];
-
-  // 3. 최근 검수 기록 (DB)
+  // 최근 검수 기록 (DB)
   const recentLogs = await prisma.inspectionRecord.findMany({
     where: { shop },
     orderBy: { createdAt: "desc" },
@@ -90,102 +63,153 @@ export const loader = async ({ request }) => {
   return {
     unfulfilledCount,
     partiallyFulfilledCount,
-    agingOrders,
     recentLogs,
   };
 };
 
 export default function Index() {
-  const { unfulfilledCount, partiallyFulfilledCount, agingOrders, recentLogs } = useLoaderData();
+  const { unfulfilledCount, partiallyFulfilledCount, recentLogs } = useLoaderData();
   const [selectedLog, setSelectedLog] = useState(null);
+  const navigate = useNavigate();
 
   return (
     <Page title="대시보드">
       <style>{`
+        .welcome-banner {
+          background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+          border-radius: 16px;
+          padding: 32px;
+          color: #ffffff;
+          margin-bottom: 24px;
+          box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
+          position: relative;
+          overflow: hidden;
+        }
+        .welcome-banner::before {
+          content: "";
+          position: absolute;
+          top: -50%;
+          right: -20%;
+          width: 300px;
+          height: 300px;
+          background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0) 70%);
+          pointer-events: none;
+        }
+        .dashboard-metric-card {
+          border-radius: 12px;
+          padding: 24px;
+          background: #ffffff;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+          border: 1px solid #f1f5f9;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          width: 100%;
+        }
+        .dashboard-metric-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.08);
+          border-color: #cbd5e1;
+        }
+        .metric-critical {
+          border-left: 5px solid #ef4444;
+        }
+        .metric-warning {
+          border-left: 5px solid #f59e0b;
+        }
+        .metric-success {
+          border-left: 5px solid #10b981;
+        }
         .recent-log-item {
-          padding: 10px 12px;
-          border-radius: 8px;
+          padding: 14px 16px;
+          border-radius: 10px;
           cursor: pointer;
-          transition: background-color 0.2s ease, transform 0.1s ease;
+          border: 1px solid transparent;
+          transition: all 0.2s ease;
+          margin-bottom: 8px;
         }
         .recent-log-item:hover {
-          background-color: var(--p-color-bg-surface-hover, #f1f5f9);
+          background-color: var(--p-color-bg-surface-hover, #f8fafc);
+          border-color: #e2e8f0;
+          transform: translateX(4px);
         }
         .recent-log-item:active {
-          transform: scale(0.99);
+          transform: scale(0.995);
+        }
+        .continue-btn {
+          padding: 6px 12px;
+          border-radius: 6px;
+          border: none;
+          background: #008060;
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.15s ease, transform 0.1s ease;
+        }
+        .continue-btn:hover {
+          background: #006e52;
+        }
+        .continue-btn:active {
+          transform: scale(0.95);
         }
       `}</style>
       <Layout>
-        {/* 주문 현황 요약 */}
+        {/* 웰컴 배너 */}
         <Layout.Section>
-          <InlineStack gap="400" align="start">
-            <Box width="30%">
-              <Card>
-                <BlockStack gap="200">
-                  <Text variant="headingMd" as="h2">미배송 주문</Text>
-                  <InlineStack align="space-between">
-                    <Text variant="heading2xl" as="p" color="critical">
-                      {unfulfilledCount}
-                    </Text>
-                    <Icon source={AlertTriangleIcon} tone="critical" />
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-            </Box>
-            <Box width="30%">
-              <Card>
-                <BlockStack gap="200">
-                  <Text variant="headingMd" as="h2">부분 배송</Text>
-                  <InlineStack align="space-between">
-                    <Text variant="heading2xl" as="p" color="warning">
-                      {partiallyFulfilledCount}
-                    </Text>
-                    <Icon source={ClockIcon} tone="warning" />
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-            </Box>
-            <Box width="30%">
-              <Card>
-                <BlockStack gap="200">
-                  <Text variant="headingMd" as="h2">오늘 검수 완료</Text>
-                  <InlineStack align="space-between">
-                    <Text variant="heading2xl" as="p" color="success">
-                      {recentLogs.filter(log => dayjs(log.createdAt).isSame(dayjs(), 'day')).length}
-                    </Text>
-                    <Icon source={CheckCircleIcon} tone="success" />
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-            </Box>
-          </InlineStack>
+          <div className="welcome-banner">
+            <BlockStack gap="200">
+              <Text variant="headingXl" as="h1" color="white">
+                안녕하세요, 오늘도 힘찬 하루 되세요! 👋
+              </Text>
+              <Text variant="bodyLg" as="p">
+                실시간 주문 검수 및 피킹 관리 대시보드입니다. 아래에서 실시간 현황을 확인하고 미완료된 검수를 이어서 진행하세요.
+              </Text>
+            </BlockStack>
+          </div>
         </Layout.Section>
 
-        {/* 긴급 주문 알림 */}
-        <Layout.Section variant="oneHalf">
-          <Card title="긴급 주문 (24시간 경과)">
-            <BlockStack gap="400">
-              <Text variant="headingMd" as="h2">긴급 주문 (24시간 경과)</Text>
-              {agingOrders.length > 0 ? (
-                <List>
-                  {agingOrders.map((order) => (
-                    <List.Item key={order.id}>
-                      <InlineStack align="space-between">
-                        <Text variant="bodyMd" fontWeight="bold">{order.name}</Text>
-                        <Badge tone="critical">{dayjs(order.createdAt).fromNow()}</Badge>
-                      </InlineStack>
-                    </List.Item>
-                  ))}
-                </List>
-              ) : (
-                <Text variant="bodyMd" color="subdued">긴급 주문이 없습니다. 훌륭합니다!</Text>
-              )}
-            </BlockStack>
-          </Card>
+        {/* 주문 현황 요약 */}
+        <Layout.Section>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "8px" }}>
+            <div className="dashboard-metric-card metric-critical">
+              <BlockStack gap="200">
+                <Text variant="headingMd" as="h2" tone="subdued">미배송 주문</Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="heading2xl" as="p" tone="critical">
+                    {unfulfilledCount}
+                  </Text>
+                  <Icon source={AlertTriangleIcon} tone="critical" />
+                </InlineStack>
+              </BlockStack>
+            </div>
+            
+            <div className="dashboard-metric-card metric-warning">
+              <BlockStack gap="200">
+                <Text variant="headingMd" as="h2" tone="subdued">부분 배송</Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="heading2xl" as="p" tone="warning">
+                    {partiallyFulfilledCount}
+                  </Text>
+                  <Icon source={ClockIcon} tone="warning" />
+                </InlineStack>
+              </BlockStack>
+            </div>
+            
+            <div className="dashboard-metric-card metric-success">
+              <BlockStack gap="200">
+                <Text variant="headingMd" as="h2" tone="subdued">오늘 검수 완료</Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="heading2xl" as="p" tone="success">
+                    {recentLogs.filter(log => dayjs(log.createdAt).isSame(dayjs(), 'day')).length}
+                  </Text>
+                  <Icon source={CheckCircleIcon} tone="success" />
+                </InlineStack>
+              </BlockStack>
+            </div>
+          </div>
         </Layout.Section>
 
         {/* 최근 검수 활동 */}
-        <Layout.Section variant="oneHalf">
+        <Layout.Section>
           <Card>
             <BlockStack gap="400">
               <Text variant="headingMd" as="h2">최근 검수 활동</Text>
@@ -219,7 +243,7 @@ export default function Index() {
                             <Text variant="bodyMd" fontWeight="bold">{log.orderName}</Text>
                             <InlineStack gap="200" blockAlign="center">
                               <Text variant="bodySm" color="subdued">
-                                {dayjs(log.createdAt).format("HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
+                                {dayjs(log.createdAt).format("YYYY-MM-DD HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
                               </Text>
                               {log.isLieferscheinPrinted && (
                                 <Badge tone="info" size="small">납품서</Badge>
@@ -229,9 +253,22 @@ export default function Index() {
                               )}
                             </InlineStack>
                           </BlockStack>
-                          <Badge tone={statusBadgeTone}>
-                            {statusText}
-                          </Badge>
+                          <InlineStack gap="300" blockAlign="center">
+                            {log.status !== "SUCCESS" && (
+                              <button
+                                className="continue-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/app/inspect?orderName=${encodeURIComponent(log.orderName)}`);
+                                }}
+                              >
+                                이어서 하기
+                              </button>
+                            )}
+                            <Badge tone={statusBadgeTone}>
+                              {statusText}
+                            </Badge>
+                          </InlineStack>
                         </InlineStack>
                       </div>
                     );
@@ -258,6 +295,18 @@ export default function Index() {
           content: "닫기",
           onAction: () => setSelectedLog(null),
         }}
+        secondaryActions={
+          selectedLog && selectedLog.status !== "SUCCESS"
+            ? [
+                {
+                  content: "검수 이어서 하기",
+                  onAction: () => {
+                    navigate(`/app/inspect?orderName=${encodeURIComponent(selectedLog.orderName)}`);
+                  },
+                },
+              ]
+            : []
+        }
       >
         <Modal.Section>
           {selectedLog && (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import {
   Page, Layout, Card, TextField, BlockStack, InlineStack, Text,
   DataTable, Badge, Thumbnail, Button, Banner, Box, EmptyState,
@@ -110,22 +110,36 @@ export const action = async ({ request }) => {
 
     if (!order) return { error: "주문을 찾을 수 없습니다." };
 
-    const items = order.lineItems.edges.map(edge => ({
-      id: edge.node.id,
-      variantId: edge.node.variant?.id,
-      title: edge.node.title,
-      variantTitle: edge.node.variantTitle,
-      sku: edge.node.sku,
-      barcode: edge.node.variant?.barcode,
-      imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
-      orderedQuantity: edge.node.quantity,
-      inspectedQuantity: 0,
-      // ✨ 예외 처리 관련 초기 상태값 추가
-      issueType: null, // "REFUND", "CREDIT", "SUBSTITUTE"
-      issueNote: "",
-      substitutedVariantId: null,
-      substitutedProductTitle: "",
-    }));
+        // Fetch existing inspection record from local DB to merge
+    const existingRecord = await prisma.inspectionRecord.findUnique({
+      where: { orderId: order.id },
+      include: { items: true }
+    });
+
+    const items = order.lineItems.edges.map(edge => {
+      const lineItemId = edge.node.id;
+      const variantId = edge.node.variant?.id;
+      
+      const existingItem = existingRecord?.items.find(
+        item => item.variantId === variantId || (item.sku && item.sku === edge.node.sku)
+      );
+
+      return {
+        id: lineItemId,
+        variantId: variantId,
+        title: edge.node.title,
+        variantTitle: edge.node.variantTitle,
+        sku: edge.node.sku,
+        barcode: edge.node.variant?.barcode,
+        imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
+        orderedQuantity: edge.node.quantity,
+        inspectedQuantity: existingItem ? existingItem.inspectedQuantity : 0,
+        issueType: existingItem ? existingItem.issueType : null,
+        issueNote: existingItem ? existingItem.issueNote : "",
+        substitutedVariantId: existingItem ? existingItem.substitutedVariantId : null,
+        substitutedProductTitle: existingItem ? existingItem.substitutedProductTitle : "",
+      };
+    });
 
     return { order: { id: order.id, name: order.name, items } };
   }
@@ -240,6 +254,22 @@ export default function Inspect() {
   const [barcode, setBarcode] = useState("");
   const [message, setMessage] = useState(null);
   const barcodeRef = useRef(null);
+
+  // ✨ 추가: URL 검색 파라미터 연동 자동 패치
+  const [searchParams] = useSearchParams();
+  const [hasAutoFetched, setHasAutoFetched] = useState(false);
+
+  useEffect(() => {
+    const paramOrderName = searchParams.get("orderName");
+    if (paramOrderName && !hasAutoFetched) {
+      setHasAutoFetched(true);
+      setOrderName(paramOrderName);
+      fetcher.submit(
+        { intent: "fetch_order", orderName: paramOrderName },
+        { method: "POST" }
+      );
+    }
+  }, [searchParams, hasAutoFetched]);
 
   // ✨ 예외 처리 모달 관련 State
   const [issueModalOpen, setIssueModalOpen] = useState(false);

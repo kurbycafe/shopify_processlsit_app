@@ -1,4 +1,4 @@
-import { Form, useLoaderData, useActionData, useSubmit, useSearchParams } from "react-router";
+import { Form, useLoaderData, useActionData, useSubmit, useSearchParams, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import nodemailer from "nodemailer";
@@ -222,6 +222,7 @@ async function loadPickListData(admin, selectedTab = "all") {
 
   return {
     items,
+    totalOrdersCount: filteredOrders.length,
     totalUnfulfilledProducts: items.length,
     totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
     counts: {
@@ -404,13 +405,14 @@ export const action = async ({ request }) => {
 // 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
 // ========================================================
 export default function PickListPage() {
-  const { items, totalUnfulfilledProducts, totalOrderedQty, counts, activeTab } = useLoaderData();
+  const { items, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty, counts, activeTab } = useLoaderData();
   const actionData = useActionData(); 
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const handleTabChange = (tabId) => {
-    setSearchParams({ tab: tabId });
+    navigate(`/app/pick-list?tab=${tabId}`);
   };
 
   const handlePrintAndEmail = async () => {
@@ -479,29 +481,37 @@ export default function PickListPage() {
           </div>
         )}
 
-        <div className="no-print" style={{ display: "flex", gap: "8px", marginBottom: "16px", borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
-          <button 
-            onClick={() => handleTabChange("all")} 
-            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: activeTab === "all" ? "#0f172a" : "transparent", color: activeTab === "all" ? "#fff" : "#475569", fontWeight: activeTab === "all" ? "bold" : "normal", cursor: "pointer" }}
+        <div className="no-print" style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ fontSize: "14px", fontWeight: "bold", color: "#1e293b" }}>주문 필터 선택:</span>
+          <select
+            value={activeTab}
+            onChange={(e) => handleTabChange(e.target.value)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "8px",
+              border: "1px solid #cbd5e1",
+              background: "#fff",
+              color: "#1e293b",
+              fontSize: "14px",
+              fontWeight: "600",
+              cursor: "pointer",
+              outline: "none",
+              boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+              minWidth: "260px"
+            }}
           >
-            전체 ({counts?.all || 0})
-          </button>
-          <button 
-            onClick={() => handleTabChange("paid")} 
-            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: activeTab === "paid" ? "#0f172a" : "transparent", color: activeTab === "paid" ? "#fff" : "#475569", fontWeight: activeTab === "paid" ? "bold" : "normal", cursor: "pointer" }}
-          >
-            결제 완료 & 미처리 ({counts?.paid || 0})
-          </button>
-          <button 
-            onClick={() => handleTabChange("pending")} 
-            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: activeTab === "pending" ? "#0f172a" : "transparent", color: activeTab === "pending" ? "#fff" : "#475569", fontWeight: activeTab === "pending" ? "bold" : "normal", cursor: "pointer" }}
-          >
-            결제 보류중 & 미처리 ({counts?.pending || 0})
-          </button>
+            <option value="all">전체 ({counts?.all || 0})</option>
+            <option value="paid">결제 완료 & 미처리 ({counts?.paid || 0})</option>
+            <option value="pending">결제 보류중 & 미처리 ({counts?.pending || 0})</option>
+          </select>
         </div>
 
         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px" }}>
+            <div style={metricCardStyle}>
+              <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>총 주문 건수</div>
+              <div style={{ fontSize: "24px", fontWeight: 700 }}>{totalOrdersCount || 0}건</div>
+            </div>
             <div style={metricCardStyle}>
               <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>총 상품 품목</div>
               <div style={{ fontSize: "24px", fontWeight: 700 }}>{totalUnfulfilledProducts}개</div>
