@@ -193,69 +193,91 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   const finalBadgeType = item.badgeType !== "NONE" ? item.badgeType : (isAutoDiscount ? "SALE" : "NONE");
 
   // ==========================================
-  // 1. Brother VC-500W (50x50 mm) - 풀컬러 모드
+  // 1. Brother VC-500W (50x50 mm) - 프리미엄 오프화이트 엑센트 모드
   // ==========================================
   if (size === "50x50") {
-    let bgColor = "#ffffff";
-    let textColor = "#111111";
-    let subTextColor = "#64748b";
-
-    // 🔴 특가/할인일 경우 (전체 빨간색)
-    if (finalBadgeType === "SALE") {
-      bgColor = "#ef4444"; 
-      textColor = "#ffffff";
-      subTextColor = "#fee2e2"; 
-    } 
-    // 🟢 신상품일 경우 (전체 초록색)
-    else if (finalBadgeType === "NEW") {
-      bgColor = "#16a34a"; 
-      textColor = "#ffffff";
-      subTextColor = "#dcfce7"; 
-    }
+    const isSale = finalBadgeType === "SALE";
+    const isNew = finalBadgeType === "NEW";
+    
+    // 테마별 색상 설정
+    const borderColor = isSale ? "#b91c1c" : isNew ? "#16a34a" : "#b45309";
+    const titleColor = "#1f1f1f";
+    const priceColor = isSale ? "#b91c1c" : "#111111";
 
     return (
-      <div className={printMode ? "store-label-print" : ""} style={{
-        width: printMode ? "50mm" : "188px",
-        height: printMode ? "50mm" : "188px",
-        backgroundColor: bgColor,
-        border: printMode ? "none" : "1px solid #dfe3e8",
-        display: "flex", flexDirection: "column", justifyContent: "space-between",
-        padding: "4mm", boxSizing: "border-box",
-        pageBreakAfter: "always", breakAfter: "page",
-        overflow: "hidden", position: "relative",
-        fontFamily: "system-ui, -apple-system, sans-serif"
-      }}>
-        {/* 상단 텍스트 영역 */}
-        <div style={{ textAlign: "left", width: "100%" }}>
-          <div style={{ fontSize: "11px", fontWeight: "800", lineHeight: "1.2", maxHeight: "26px", overflow: "hidden", color: textColor }}>
-            {displayTitle}
+      <div 
+        className={printMode ? "store-label-print" : ""} 
+        style={{
+          width: printMode ? "50mm" : "188px",
+          height: printMode ? "50mm" : "188px",
+          backgroundColor: "#ffffff",
+          border: `2.2mm solid ${borderColor}`, // 인쇄 시 테두리가 엑센트 라인으로 선명하게 출력
+          display: "flex", 
+          flexDirection: "column", 
+          justifyContent: "space-between",
+          padding: "2.8mm", 
+          boxSizing: "border-box",
+          pageBreakAfter: "always", 
+          breakAfter: "page",
+          overflow: "hidden", 
+          position: "relative",
+          fontFamily: "'IBM Plex Sans', 'Noto Sans KR', sans-serif"
+        }}
+      >
+        {/* 상단 헤더 및 뱃지 */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%", gap: "6px" }}>
+          <div style={{ flex: 1, textAlign: "left" }}>
+            <div style={{ fontSize: "10.5px", fontWeight: "800", lineHeight: "1.25", maxHeight: "26px", overflow: "hidden", color: titleColor }}>
+              {displayTitle}
+            </div>
+            {item.expiryDate && (
+              <div style={{ fontSize: "8px", color: "#7c2d12", marginTop: "2px", fontWeight: "700" }}>
+                MHD {item.expiryDate}
+              </div>
+            )}
           </div>
-          {item.expiryDate && <div style={{ fontSize: "8px", color: subTextColor, marginTop: "2px", fontWeight: "600" }}>MHD {item.expiryDate}</div>}
+          
+          {finalBadgeType !== "NONE" && (
+            <div style={{
+              flex: "0 0 auto",
+              backgroundColor: isSale ? "#b91c1c" : "#16a34a",
+              color: "#ffffff",
+              fontSize: "8.5px",
+              fontWeight: "900",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+            }}>
+              {isSale ? "SALE" : "NEW"}
+            </div>
+          )}
         </div>
 
-        {/* 중단: 이미지 및 가격 (컬러 반전) */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", margin: "2px 0" }}>
+        {/* 중단: 이미지 및 가격 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", margin: "2px 0", gap: "6px" }}>
           {item.imageUrl ? (
-            <img src={item.imageUrl} alt="" style={{ width: "45px", height: "45px", objectFit: "contain", borderRadius: "6px", backgroundColor: "#fff", padding: "2px" }} />
+            <img src={item.imageUrl} alt="" style={{ width: "42px", height: "42px", objectFit: "contain", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "1px", backgroundColor: "#fff" }} />
           ) : (
-            <div style={{ width: "45px", height: "45px" }} />
+            <div style={{ width: "42px", height: "42px" }} />
           )}
           
           <div style={{ textAlign: "right", flex: 1 }}>
-            <div style={{ fontSize: "20px", fontWeight: "900", letterSpacing: "-0.5px", color: textColor, lineHeight: "1" }}>
+            <div style={{ fontSize: "19px", fontWeight: "900", letterSpacing: "-0.5px", color: priceColor, lineHeight: "1" }}>
               {formatEuro(item.price)}
             </div>
             {isAutoDiscount && (
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "4px", marginTop: "2px" }}>
-                <span style={{ fontSize: "10px", color: textColor, fontWeight: "bold" }}>-{discountPercent}%</span>
-                <span style={{ fontSize: "10px", textDecoration: "line-through", color: subTextColor }}>{formatEuro(item.compareAtPrice)}</span>
+                <span style={{ fontSize: "9px", color: "#dc2626", fontWeight: "800" }}>-{discountPercent}%</span>
+                <span style={{ fontSize: "9px", textDecoration: "line-through", color: "#94a3b8" }}>{formatEuro(item.compareAtPrice)}</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* 하단: 바코드는 스캐너 인식을 위해 무조건 흰 바탕 고정 */}
-        <div style={{ width: "100%", display: "flex", justifyContent: "center", backgroundColor: "#ffffff", padding: "2px", borderRadius: "4px" }}>
+        {/* 하단 바코드 */}
+        <div style={{ width: "100%", display: "flex", justifyContent: "center", padding: "1px 0" }}>
           <Code128 value={item.barcode || item.sku || "000000"} height={16} moduleWidth={0.62} fontSize={6} showText={!printMode} />
         </div>
       </div>
@@ -434,17 +456,17 @@ export default function StoreLabelPage() {
 
   return (
     <div className="label-page-root">
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
+        @page {
+          size: ${labelSize === '50x50' ? '50mm 50mm' : '62mm 29mm'};
+          margin: 0;
+        }
         @media print {
-          @page {
-            size: ${labelSize === '50x50' ? '50mm 50mm' : '62mm 29mm'};
-            margin: 0;
-          }
-          body { margin: 0; padding: 0; background: #fff; }
+          body { margin: 0; padding: 0; background: #fff !important; }
           .label-page-shell { display: none !important; }
           .label-print-sheet { display: block !important; }
         }
-      `}</style>
+      `}} />
 
       <div className="label-page-shell">
         <Page title="매장 에티켓 출력" backAction={{ content: "Home", url: "/app" }}>

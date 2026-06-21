@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import styles from "../styles/app.lieferschein.css?url"; 
-import { Select, BlockStack, InlineStack, Card, Text, Box } from "@shopify/polaris";
+import { Select, BlockStack, InlineStack, Card, Text, Box, TextField } from "@shopify/polaris";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
@@ -227,7 +227,22 @@ export const loader = async ({ request }) => {
       };
     });
 
-    return jsonResponse({ orders, error: null });
+    const orderIds = orders.map((o) => o.id);
+    const printedRecords = await prisma.inspectionRecord.findMany({
+      where: { orderId: { in: orderIds } },
+      select: { orderId: true, isLieferscheinPrinted: true, isPickListPrinted: true }
+    });
+
+    const ordersWithPrintStatus = orders.map((order) => {
+      const dbRecord = printedRecords.find((r) => r.orderId === order.id);
+      return {
+        ...order,
+        isPrinted: dbRecord ? dbRecord.isLieferscheinPrinted : false,
+        isPickListPrinted: dbRecord ? dbRecord.isPickListPrinted : false
+      };
+    });
+
+    return jsonResponse({ orders: ordersWithPrintStatus, error: null });
   } catch (err) {
     console.error("Loader error:", err);
     return jsonResponse({ orders: [], error: err.message });
@@ -321,15 +336,17 @@ export default function AdditionalPage() {
   const [printedOrderIds, setPrintedOrderIds] = useState([]);
 
   // ✨ 필터 상태 관리 (State)
-  const [paymentFilter, setPaymentFilter] = useState("ALL"); // ✨ 결제 필터 추가
+  const [paymentFilter, setPaymentFilter] = useState("ALL");
   const [regionFilter, setRegionFilter] = useState("ALL");
   const [complexityFilter, setComplexityFilter] = useState("ALL");
   const [shippingFilter, setShippingFilter] = useState("ALL");
+  const [printFilter, setPrintFilter] = useState("ALL"); // ✨ 인쇄 상태 필터 추가
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
+  const [searchQuery, setSearchQuery] = useState(""); // ✨ 검색 텍스트 필터 추가
 
   useEffect(() => {
     if (loaderData?.orders) {
-      setOrders(loaderData.orders.map(o => ({...o, isPrinted: false})));
+      setOrders(loaderData.orders); // ✨ DB의 isPrinted 상태 직접 활용
     }
   }, [loaderData]);
 
@@ -370,6 +387,23 @@ export default function AdditionalPage() {
       result = result.filter(o => o.hasIcePackage);
     }
 
+    // 3.5 인쇄 상태 필터
+    if (printFilter === "UNPRINTED") {
+      result = result.filter(o => !o.isPrinted);
+    } else if (printFilter === "PRINTED") {
+      result = result.filter(o => o.isPrinted);
+    }
+
+    // 3.8 검색 텍스트 필터
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(o => 
+        o.name.toLowerCase().includes(q) ||
+        o.email.toLowerCase().includes(q) ||
+        (o.shippingAddress?.name && o.shippingAddress.name.toLowerCase().includes(q))
+      );
+    }
+
     // 4. 정렬 로직
     if (sortOrder === "QTY_ASC") {
       result.sort((a, b) => a.totalOrderQty - b.totalOrderQty);
@@ -378,7 +412,7 @@ export default function AdditionalPage() {
     }
 
     return result;
-  }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, sortOrder]);
+  }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, printFilter, sortOrder, searchQuery]);
 
   useEffect(() => {
     setSelectedOrders([]);
@@ -453,6 +487,21 @@ export default function AdditionalPage() {
           <Card background="bg-surface-secondary">
             <BlockStack gap="400">
               <Text variant="headingSm" as="h3">스마트 주문 필터링</Text>
+              
+              <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", width: "100%" }}>
+                <div style={{ flex: 1, minWidth: "260px" }}>
+                  <TextField
+                    label="주문 번호, 고객 이메일, 수령인 이름 검색"
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="예: #1001, service@dawayo.de, Soonchan"
+                    autoComplete="off"
+                    clearButton
+                    onClearButtonClick={() => setSearchQuery("")}
+                  />
+                </div>
+              </div>
+
               <InlineStack gap="400" wrap={true}>
                 {/* ✨ 결제 상태 필터 UI 추가 */}
                 <Box minWidth="150px">
@@ -502,6 +551,19 @@ export default function AdditionalPage() {
                     ]}
                     value={shippingFilter}
                     onChange={setShippingFilter}
+                  />
+                </Box>
+                {/* ✨ 인쇄 상태 필터 UI 추가 */}
+                <Box minWidth="150px">
+                  <Select
+                    label="인쇄 상태"
+                    options={[
+                      {label: '모든 주문', value: 'ALL'},
+                      {label: '⏳ 미출력 주문', value: 'UNPRINTED'},
+                      {label: '✅ 출력 완료', value: 'PRINTED'},
+                    ]}
+                    value={printFilter}
+                    onChange={setPrintFilter}
                   />
                 </Box>
                 <Box minWidth="140px">

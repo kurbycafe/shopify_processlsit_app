@@ -91,6 +91,9 @@ export const action = async ({ request }) => {
                       id
                       barcode
                       image { url }
+                      product {
+                        featuredImage { url }
+                      }
                     }
                   }
                 }
@@ -114,7 +117,7 @@ export const action = async ({ request }) => {
       variantTitle: edge.node.variantTitle,
       sku: edge.node.sku,
       barcode: edge.node.variant?.barcode,
-      imageUrl: edge.node.variant?.image?.url,
+      imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
       orderedQuantity: edge.node.quantity,
       inspectedQuantity: 0,
       // ✨ 예외 처리 관련 초기 상태값 추가

@@ -438,11 +438,12 @@ export default function PickListPage() {
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={{ ...headerCellStyle, width: "22%" }}>창고 위치 (STORE / NEW)</th>
-                <th style={{ ...headerCellStyle, width: "35%" }}>상품명</th>
-                <th style={{ ...headerCellStyle, width: "13%" }}>SKU</th>
+                <th style={{ ...headerCellStyle, width: "20%" }}>창고 위치 (STORE / NEW)</th>
+                <th style={{ ...headerCellStyle, width: "30%" }}>상품명</th>
+                <th style={{ ...headerCellStyle, width: "12%" }}>SKU</th>
                 <th style={{ ...headerCellStyle, width: "12%" }}>Barcode</th>
-                <th style={{ ...headerCellStyle, width: "8%", textAlign: "right" }}>수량</th>
+                <th style={{ ...headerCellStyle, width: "8%", textAlign: "right" }}>피킹수량</th>
+                <th style={{ ...headerCellStyle, width: "8%", textAlign: "right" }}>현재재고</th>
                 <th style={{ ...headerCellStyle, width: "10%" }}>주문번호</th>
               </tr>
             </thead>
@@ -461,6 +462,14 @@ export default function PickListPage() {
                   <td className="cell-text" style={bodyCellStyle}>{item.sku}</td>
                   <td className="cell-text" style={bodyCellStyle}>{item.barcode}</td>
                   <td className="cell-text" style={{ ...bodyCellStyle, textAlign: "right", fontWeight: 700 }}>{item.orderedQty}</td>
+                  <td className="cell-text" style={{ 
+                    ...bodyCellStyle, 
+                    textAlign: "right", 
+                    fontWeight: 700,
+                    color: item.inventoryQty <= 0 ? "#dc2626" : item.inventoryQty <= item.orderedQty ? "#d97706" : "#16a34a" 
+                  }}>
+                    {item.inventoryQty !== null ? item.inventoryQty : "—"}
+                  </td>
                   <td className="cell-text" style={bodyCellStyle}>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                       {item.orderNumbers.map((num) => (
