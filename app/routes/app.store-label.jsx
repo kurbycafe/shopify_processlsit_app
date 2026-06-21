@@ -189,8 +189,11 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   const displayTitle = item.germanTranslation || item.productTitle || "";
   const { hasDiscount: isAutoDiscount, percent: discountPercent } = getDiscountInfo(item.price, item.compareAtPrice);
   
-  // 사용자가 수동으로 선택한 뱃지가 없으면, 자동 할인 여부에 따라 SALE 적용
-  const finalBadgeType = item.badgeType !== "NONE" ? item.badgeType : (isAutoDiscount ? "SALE" : "NONE");
+  // badgeType이 AUTO(기본값)이면 할인 여부에 따라 SALE 적용, NONE이면 뱃지 없음 강제, 그 외에는 명시된 뱃지 적용
+  const badgeVal = item.badgeType || "AUTO";
+  const finalBadgeType = badgeVal === "AUTO"
+    ? (isAutoDiscount ? "SALE" : "NONE")
+    : badgeVal;
 
   // ==========================================
   // 1. Brother VC-500W (50x50 mm) - 프리미엄 오프화이트 엑센트 모드
@@ -288,62 +291,101 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   // 2. Brother QL-700 (62x29 mm) - 흑백 강조 모드
   // ==========================================
   return (
-    <div className={`store-label ${printMode ? "store-label-print" : ""}`} style={{ position: "relative" }}>
-      
-      {/* 🔴/🟢 우측 상단 모서리 뱃지 태그 (흑백 프린터 특화) */}
-      {finalBadgeType === "SALE" && (
-        <div style={{ position: "absolute", top: "-2px", right: "-2px", background: "#000", color: "#fff", fontSize: "9px", fontWeight: "bold", padding: "2px 6px", borderBottomLeftRadius: "6px", zIndex: 1 }}>
-          Angebot
+    <div 
+      className={`store-label \${printMode ? "store-label-print" : ""}`} 
+      style={{ 
+        position: "relative",
+        width: printMode ? "62mm" : "234px",
+        minHeight: printMode ? "29mm" : "110px",
+        height: "auto",
+        boxSizing: "border-box",
+        padding: printMode ? "1.5mm 2.2mm" : "8px 10px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        background: "#ffffff",
+        border: "1px solid #111111",
+        borderRadius: printMode ? "0" : "6px",
+        fontFamily: "'IBM Plex Sans', 'Noto Sans KR', sans-serif",
+        overflow: "hidden"
+      }}
+    >
+      {/* 1. 상단 바코드바 + 바코드 숫자 & 배지 */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #111111", paddingBottom: "2px", width: "100%" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {item.barcode ? (
+            <div style={{ transform: "scale(0.85)", transformOrigin: "left center" }}>
+              <Code128 value={item.barcode} height={10} moduleWidth={0.5} showText={false} />
+            </div>
+          ) : (
+            <span style={{ fontSize: "7px", color: "#666" }}>NO BARCODE</span>
+          )}
+          <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#111111" }}>
+            {item.barcode || ""}
+          </span>
         </div>
-      )}
-      {finalBadgeType === "NEW" && (
-        <div style={{ position: "absolute", top: "-2px", right: "-2px", background: "#fff", color: "#000", border: "1.5px solid #000", fontSize: "9px", fontWeight: "bold", padding: "1px 5px", borderBottomLeftRadius: "6px", zIndex: 1 }}>
-          NEW
-        </div>
-      )}
-
-      {/* 상단 텍스트 (우측 뱃지 자리 피하기 위해 padding-right 부여) */}
-      <div className="store-label-topline" style={{ paddingRight: finalBadgeType !== "NONE" ? "35px" : "0" }}>
-        <div className="store-label-title">{displayTitle}</div>
+        {finalBadgeType !== "NONE" && (
+          <span style={{
+            background: "#000000",
+            color: "#ffffff",
+            fontSize: "8px",
+            fontWeight: "900",
+            padding: "1px 4px",
+            borderRadius: "2px",
+            textTransform: "uppercase",
+            lineHeight: "1"
+          }}>
+            {finalBadgeType === "SALE" ? "Sale" : "New"}
+          </span>
+        )}
       </div>
-      {item.productTitle && item.productTitle !== displayTitle && (
-        <div className="store-label-subtitle">{item.productTitle}</div>
-      )}
-      {item.expiryDate && <div className="store-label-expiry">MHD {item.expiryDate}</div>}
 
-      {/* 💰 가격 및 할인율 영역 (할인 시 레이아웃 대폭 변경) */}
-      <div className="store-label-price-row" style={{ alignItems: "flex-end", marginTop: "2px", marginBottom: "2px" }}>
-        {finalBadgeType === "SALE" && isAutoDiscount ? (
-          // 📉 할인 레이아웃: 취소선 가격 작게 + 할인가격 엄청 크게 + 할인율 표시
-          <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: "9px", color: "#666", textDecoration: "line-through", marginBottom: "-2px" }}>
-                {formatEuro(item.compareAtPrice)}
-              </div>
-              <div style={{ fontSize: "16px", fontWeight: "900", color: "#000", lineHeight: "1" }}>
-                {formatEuro(item.price)}
-              </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "12px", fontWeight: "bold", color: "#000", border: "1px solid #000", padding: "1px 4px", borderRadius: "3px" }}>
-                -{discountPercent}%
-              </div>
-              <div className="store-label-tax" style={{ marginTop: "2px" }}>inkl. MwSt.</div>
-            </div>
-          </div>
-        ) : (
-          // 💶 일반 레이아웃
-          <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-            <div style={{ fontSize: "14px", fontWeight: "bold" }}>{formatEuro(item.price)}</div>
-            <div className="store-label-tax">inkl. MwSt.</div>
+      {/* 2. 상품명 및 유통기한 */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", margin: "2px 0", width: "100%" }}>
+        <div style={{ 
+          fontSize: "9.5px", 
+          fontWeight: "800", 
+          lineHeight: "1.15", 
+          color: "#000000", 
+          wordBreak: "break-all"
+        }}>
+          {displayTitle}
+        </div>
+        {item.expiryDate && (
+          <div style={{ fontSize: "7px", color: "#444", fontWeight: "700", marginTop: "1px" }}>
+            MHD: {item.expiryDate}
           </div>
         )}
       </div>
 
-      {item.barcode && <Code128 value={item.barcode} showText={!printMode} />}
-      <div className="store-label-footer">
-        <span>{item.sku ? `SKU ${item.sku}` : "SKU -"}</span>
-        <span>{item.barcode ? `EAN ${item.barcode}` : "EAN -"}</span>
+      {/* 3. 가격 및 SKU (하단 배치) */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", width: "100%" }}>
+        <div style={{ fontSize: "7.5px", color: "#555", fontFamily: "monospace", fontWeight: "bold" }}>
+          {item.sku ? `SKU: \${item.sku}` : ""}
+        </div>
+        
+        <div style={{ textAlign: "right" }}>
+          {finalBadgeType === "SALE" && isAutoDiscount ? (
+            <div style={{ display: "flex", alignItems: "flex-end", gap: "4px" }}>
+              <span style={{ fontSize: "7.5px", color: "#666", textDecoration: "line-through", paddingBottom: "1px" }}>
+                {formatEuro(item.compareAtPrice)}
+              </span>
+              <span style={{ fontSize: "13px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
+                {formatEuro(item.price)}
+              </span>
+              <span style={{ fontSize: "8px", fontWeight: "900", background: "#000000", color: "#ffffff", padding: "1px 3px", borderRadius: "2px", lineHeight: "1" }}>
+                -{discountPercent}%
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "baseline", gap: "2px" }}>
+              <span style={{ fontSize: "14px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
+                {formatEuro(item.price)}
+              </span>
+              <span style={{ fontSize: "6.5px", color: "#555", fontWeight: "bold" }}>inkl. MwSt.</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -363,7 +405,7 @@ export default function StoreLabelPage() {
   const [labelSize, setLabelSize] = useState("62x29");
 
   const addVariantToQueue = (variantObj, copies) => {
-    const newItem = { ...variantObj, badgeType: "NONE" };
+    const newItem = { ...variantObj, badgeType: "AUTO" };
     setActiveLabel(newItem);
     
     setQueuedLabels((current) => {
@@ -458,7 +500,7 @@ export default function StoreLabelPage() {
     <div className="label-page-root">
       <style dangerouslySetInnerHTML={{ __html: `
         @page {
-          size: ${labelSize === '50x50' ? '50mm 50mm' : '62mm 29mm'};
+          size: ${labelSize === '50x50' ? '50mm 50mm' : '62mm'};
           margin: 0;
         }
         @media print {
@@ -569,11 +611,12 @@ export default function StoreLabelPage() {
                               <span>강조 뱃지</span>
                               <select 
                                 className="label-control-input" 
-                                value={item.badgeType || "NONE"}
+                                value={item.badgeType || "AUTO"}
                                 onChange={(e) => handleQueueBadgeChange(item.id, e.target.value)}
                                 style={{ padding: '4px', cursor: 'pointer' }}
                               >
-                                <option value="NONE">자동/없음</option>
+                                <option value="AUTO">자동 (할인 시 특가)</option>
+                                <option value="NONE">없음 (강제 해제)</option>
                                 <option value="SALE">🔴 특가</option>
                                 <option value="NEW">🟢 신상품</option>
                               </select>

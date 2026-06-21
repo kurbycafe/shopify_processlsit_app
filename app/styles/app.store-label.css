@@ -371,45 +371,11 @@
     break-after: page !important;
   }
 
-  /* ✨ 62x29 전용 (QL-700) : 50x50 컬러 라벨과 충돌하지 않도록 클래스 한정(.store-label) */
   .store-label.store-label-print {
     width: 62mm !important;
     min-height: 29mm !important;
-    height: 29mm !important;
+    height: auto !important;
     padding: 1.6mm 2.1mm !important;
-  }
-
-  .store-label.store-label-print .store-label-title {
-    font-size: 7.1pt !important;
-    line-height: 1.02 !important;
-    -webkit-line-clamp: 1 !important;
-    line-clamp: 1 !important;
-  }
-
-  .store-label.store-label-print .store-label-subtitle,
-  .store-label.store-label-print .store-label-variant,
-  .store-label.store-label-print .store-label-expiry,
-  .store-label.store-label-print .store-label-tax {
-    font-size: 5pt !important;
-    line-height: 1.02 !important;
-  }
-
-  .store-label.store-label-print .store-label-price {
-    font-size: 12pt !important;
-    line-height: 0.95 !important;
-  }
-
-  .store-label.store-label-print .store-label-compare {
-    font-size: 5.3pt !important;
-  }
-
-  .store-label.store-label-print .store-label-barcode svg {
-    height: 11px !important;
-  }
-
-  .store-label.store-label-print .store-label-footer {
-    font-size: 4.7pt !important;
-    gap: 4px !important;
   }
 
   /* 마지막 장 백지 출력 방지 */
