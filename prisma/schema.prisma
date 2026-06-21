@@ -35,7 +35,7 @@ model InspectionRecord {
   orderName             String             // Shopify Order Name (e.g., #1001)
   shop                  String             // Shop domain
   inspectorName         String?            // Name of the person who inspected
-  status                String             // SUCCESS, FAILED, PARTIAL
+  status                String             // SUCCESS, FAILED, PARTIAL, ISSUE_REPORTED
   isLieferscheinPrinted Boolean   @default(false) // 납품서 출력 여부
   isPickListPrinted     Boolean   @default(false) // 피킹 리스트 출력 여부
   startedAt             DateTime  @default(now())
@@ -59,4 +59,10 @@ model InspectionItem {
   barcode            String?
   orderedQuantity    Int
   inspectedQuantity  Int
+
+  // ✨ 결품 및 예외 처리 기록을 위한 컬럼 추가
+  issueType               String?   // REFUND, CREDIT, SUBSTITUTE
+  issueNote               String?   // 작업자 메모
+  substitutedVariantId    String?   // 대체된 상품의 Variant ID
+  substitutedProductTitle String?   // 대체된 상품명
 }

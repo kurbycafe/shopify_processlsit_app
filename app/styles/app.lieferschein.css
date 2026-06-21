@@ -578,3 +578,53 @@
     break-inside: avoid !important;
   }
 }
+
+/* 스탬프 및 가독성 개선 스타일 */
+.stamp-kuehl {
+  display: inline-block;
+  padding: 5px 12px;
+  border: 3px double #0284c7;
+  color: #0284c7;
+  background-color: rgba(2, 132, 199, 0.05);
+  font-family: "Impact", "Arial Black", sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transform: rotate(-3deg);
+  border-radius: 4px;
+  text-align: center;
+  line-height: 1.2;
+  margin-top: 4px;
+}
+
+.highlight-weight {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  color: #b91c1c !important;
+}
+
+.highlight-intl {
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  color: #b91c1c !important;
+  border-bottom: 2px dashed #b91c1c;
+  padding-bottom: 1px;
+  display: inline-block;
+}
+
+@media print {
+  .stamp-kuehl {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    border-color: #0284c7 !important;
+    color: #0284c7 !important;
+  }
+  .highlight-weight {
+    color: #b91c1c !important;
+  }
+  .highlight-intl {
+    color: #b91c1c !important;
+    border-color: #b91c1c !important;
+  }
+}

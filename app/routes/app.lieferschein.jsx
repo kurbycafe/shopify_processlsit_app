@@ -635,16 +635,16 @@ export default function AdditionalPage() {
                         <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
                         <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                         <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                        <tr><td className="info-label">Gesamtgewicht</td><td className="info-value">{order.totalWeightKg} kg</td></tr>
+                        <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
                       </tbody>
                     </table>
-                    <div className="badges-row">
+                    <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
                       {order.shippingAddress?.company && <div className="badge">B2B</div>}
-                      {order.hasIcePackage && <div className="badge badge-ice">❄ Kühlversand</div>}
+                      {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
                     </div>
                     {isInternational && (
-                      <div className="international-box">
-                        {order.shippingAddress.country.toUpperCase()}
+                      <div style={{ marginTop: "10px" }}>
+                        <span className="highlight-intl">✈️ {order.shippingAddress.country.toUpperCase()}</span>
                       </div>
                     )}
                   </div>
@@ -703,7 +703,10 @@ export default function AdditionalPage() {
                             )}
                           </td>
                           <td>
-                            <div className="product-title">{item.title}</div>
+                            <div className="product-title">
+                              {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
+                              {item.title}
+                            </div>
                             {item.germanTranslation && (
                               <div className="german-title">{item.germanTranslation}</div>
                             )}
