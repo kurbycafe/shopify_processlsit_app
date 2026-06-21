@@ -318,9 +318,9 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
               <Code128 value={item.barcode} height={10} moduleWidth={0.5} showText={false} />
             </div>
           ) : (
-            <span style={{ fontSize: "7px", color: "#666" }}>NO BARCODE</span>
+            <span style={{ fontSize: "7px", color: "#000000" }}>NO BARCODE</span>
           )}
-          <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#111111" }}>
+          <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#000000" }}>
             {item.barcode || ""}
           </span>
         </div>
@@ -351,8 +351,13 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
         }}>
           {displayTitle}
         </div>
+        {item.productTitle && item.productTitle !== displayTitle && (
+          <div style={{ fontSize: "8.5px", color: "#000000", fontWeight: "600", marginTop: "1px", wordBreak: "break-all" }}>
+            {item.productTitle}
+          </div>
+        )}
         {item.expiryDate && (
-          <div style={{ fontSize: "7px", color: "#444", fontWeight: "700", marginTop: "1px" }}>
+          <div style={{ fontSize: "7px", color: "#000000", fontWeight: "700", marginTop: "1px" }}>
             MHD: {item.expiryDate}
           </div>
         )}
@@ -360,14 +365,14 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
 
       {/* 3. 가격 및 SKU (하단 배치) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", width: "100%" }}>
-        <div style={{ fontSize: "7.5px", color: "#555", fontFamily: "monospace", fontWeight: "bold" }}>
-          {item.sku ? `SKU: \${item.sku}` : ""}
+        <div style={{ fontSize: "8.5px", color: "#000000", fontFamily: "monospace", fontWeight: "bold" }}>
+          {item.sku ? "SKU: " + item.sku : ""}
         </div>
         
         <div style={{ textAlign: "right" }}>
           {finalBadgeType === "SALE" && isAutoDiscount ? (
             <div style={{ display: "flex", alignItems: "flex-end", gap: "4px" }}>
-              <span style={{ fontSize: "7.5px", color: "#666", textDecoration: "line-through", paddingBottom: "1px" }}>
+              <span style={{ fontSize: "7.5px", color: "#000000", textDecoration: "line-through", paddingBottom: "1px" }}>
                 {formatEuro(item.compareAtPrice)}
               </span>
               <span style={{ fontSize: "13px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
@@ -382,7 +387,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
               <span style={{ fontSize: "14px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
                 {formatEuro(item.price)}
               </span>
-              <span style={{ fontSize: "6.5px", color: "#555", fontWeight: "bold" }}>inkl. MwSt.</span>
+              <span style={{ fontSize: "6.5px", color: "#000000", fontWeight: "bold" }}>inkl. MwSt.</span>
             </div>
           )}
         </div>
