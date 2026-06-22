@@ -3,11 +3,13 @@ import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import {
   Page, Layout, Card, TextField, BlockStack, InlineStack, Text,
   DataTable, Badge, Thumbnail, Button, Banner, Box, EmptyState,
-  Icon, Divider, Modal, ChoiceList, ResourceList, ResourceItem, Avatar
+  Icon, Divider, Modal, ChoiceList, ResourceList, ResourceItem, Avatar,
+  Tabs
 } from "@shopify/polaris";
 import { SearchIcon, BarcodeIcon, AlertTriangleIcon } from "@shopify/polaris-icons"; 
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import nodemailer from "nodemailer";
 
 async function getInspectorName(admin, session) {
   // 1. Try to get it from the online session
@@ -58,6 +60,157 @@ async function getInspectorName(admin, session) {
   return "알 수 없음";
 }
 
+// ========================================================
+// 📩 고객 안내 이메일 발송용 HTML 빌더 (Java 템플릿 100% 이식)
+// ========================================================
+function escapeHtml(value) {
+  if (value == null) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safe(value) {
+  return value == null || String(value).trim() === "" ? "-" : value;
+}
+
+function renderImage(imageUrl) {
+  if (imageUrl == null || imageUrl.trim() === "" || imageUrl === "-") {
+    return "-";
+  }
+  return `<img class='img' src='${escapeHtml(imageUrl)}' alt='product'>`;
+}
+
+function buildHtmlEmail(orderNumber, items) {
+  const safeScanned = items || [];
+  const normalProcessed = safeScanned.filter(item => item.inspectedQuantity > 0 && !item.issueType);
+  const replacements = safeScanned.filter(item => item.issueType === "SUBSTITUTE");
+  const refunds = safeScanned.filter(item => item.issueType === "REFUND");
+  const points = safeScanned.filter(item => item.issueType === "CREDIT");
+
+  let html = "";
+  html += `<!doctype html><html><head><meta charset='UTF-8'><style>
+    body{font-family:Arial,sans-serif;color:#222;line-height:1.5}
+    .wrap{max-width:900px;margin:0 auto;padding:16px}
+    .title{font-size:20px;font-weight:700;margin:8px 0 16px}
+    .section{margin:18px 0}
+    .section h3{margin:0 0 8px;font-size:16px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #ddd;padding:8px;font-size:13px;vertical-align:top}
+    th{background:#f7f7f7;text-align:left}
+    .img{width:64px;height:64px;object-fit:cover;border:1px solid #ddd;border-radius:6px}
+    .muted{color:#777}
+  </style></head><body><div class='wrap'>`;
+
+  html += `<div class='title'>주문 처리 완료 알림 / Auftragsbearbeitung abgeschlossen</div>
+    <div><b>주문번호 / Bestellnummer:</b> ${escapeHtml(safe(orderNumber))}</div>`;
+
+  // 1) 원래 주문 리스트
+  html += `<div class='section'><h3>원래 주문 리스트 / Urspruengliche Bestellliste</h3>`;
+  if (safeScanned.length === 0) {
+    html += `<div class='muted'>원주문 정보가 없습니다. / Keine urspruenglichen Bestelldaten vorhanden.</div>`;
+  } else {
+    html += `<table><thead><tr><th>#</th><th>사진 / Bild</th><th>상품명 / Produktname</th><th>SKU</th><th>주문수량 / Bestellmenge</th><th>유통기한 / MHD</th></tr></thead><tbody>`;
+    safeScanned.forEach((item, index) => {
+      html += `<tr>
+        <td>${index + 1}</td>
+        <td>${renderImage(item.imageUrl)}</td>
+        <td>${escapeHtml(safe(item.title))}</td>
+        <td>${escapeHtml(safe(item.sku))}</td>
+        <td>${escapeHtml(safe(item.orderedQuantity))}</td>
+        <td>${escapeHtml(safe(item.expiryDate))}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  // 2) 정상 처리된 제품
+  html += `<div class='section'><h3>정상 처리된 제품 / Normal bearbeitete Produkte</h3>`;
+  if (normalProcessed.length === 0) {
+    html += `<div class='muted'>정상 처리된 상품이 없습니다. / Keine normal bearbeiteten Produkte.</div>`;
+  } else {
+    html += `<table><thead><tr><th>#</th><th>사진 / Bild</th><th>상품명 / Produktname</th><th>SKU</th><th>정상처리수량 / Normalmenge</th></tr></thead><tbody>`;
+    normalProcessed.forEach((item, index) => {
+      html += `<tr>
+        <td>${index + 1}</td>
+        <td>${renderImage(item.imageUrl)}</td>
+        <td>${escapeHtml(safe(item.title))}</td>
+        <td>${escapeHtml(safe(item.sku))}</td>
+        <td>${escapeHtml(safe(item.inspectedQuantity))}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  // 3) 대체
+  html += `<div class='section'><h3>대체 처리 상품 / Ersetzte Produkte</h3>`;
+  if (replacements.length === 0) {
+    html += `<div class='muted'>대체 처리 내역이 없습니다. / Keine Ersatzbearbeitung vorhanden.</div>`;
+  } else {
+    html += `<table><thead><tr><th>#</th><th>원상품 / Originalprodukt</th><th>대체상품 / Ersatzprodukt</th><th>수량 / Menge</th></tr></thead><tbody>`;
+    replacements.forEach((item, index) => {
+      html += `<tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(safe(item.title))} (SKU: ${escapeHtml(safe(item.sku))})</td>
+        <td>${escapeHtml(safe(item.substitutedProductTitle))}</td>
+        <td>${escapeHtml(safe(item.orderedQuantity))}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  // 4) 환불
+  html += `<div class='section'><h3>환불 처리 상품 / Rueckerstattete Produkte</h3>`;
+  if (refunds.length === 0) {
+    html += `<div class='muted'>환불 처리 내역이 없습니다. / Keine Rueckerstattung vorhanden.</div>`;
+  } else {
+    html += `<table><thead><tr><th>#</th><th>상품 / Produkt</th><th>수량 / Menge</th><th>사유 / Grund</th></tr></thead><tbody>`;
+    refunds.forEach((item, index) => {
+      html += `<tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(safe(item.title))} (SKU: ${escapeHtml(safe(item.sku))})</td>
+        <td>${escapeHtml(safe(item.orderedQuantity))}</td>
+        <td>${escapeHtml(safe(item.issueNote))}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  // 5) 포인트
+  html += `<div class='section'><h3>포인트 적립 상품 / Punktegutschrift Produkte</h3>`;
+  if (points.length === 0) {
+    html += `<div class='muted'>포인트 적립 내역이 없습니다. / Keine Punktegutschrift vorhanden.</div>`;
+  } else {
+    html += `<table><thead><tr><th>#</th><th>상품 / Produkt</th><th>수량 / Menge</th><th>적립액 / Punkte</th></tr></thead><tbody>`;
+    points.forEach((item, index) => {
+      let amount = safe(item.issueNote);
+      if (amount !== "-" && !amount.toUpperCase().endsWith("P")) {
+        amount = amount + "P";
+      }
+      html += `<tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(safe(item.title))} (SKU: ${escapeHtml(safe(item.sku))})</td>
+        <td>${escapeHtml(safe(item.orderedQuantity))}</td>
+        <td>${escapeHtml(amount)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  html += `<p class='muted'>문의사항이 있으시면 고객지원팀에 연락주세요. / Bei Fragen wenden Sie sich bitte an den Kundensupport.</p>
+    </div></body></html>`;
+
+  return html;
+}
+
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const inspectorName = await getInspectorName(admin, session);
@@ -79,6 +232,7 @@ export const action = async ({ request }) => {
             node {
               id
               name
+              email
               lineItems(first: 50) {
                 edges {
                   node {
@@ -93,6 +247,7 @@ export const action = async ({ request }) => {
                       image { url }
                       product {
                         featuredImage { url }
+                        expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                       }
                     }
                   }
@@ -134,6 +289,7 @@ export const action = async ({ request }) => {
         imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
         orderedQuantity: edge.node.quantity,
         inspectedQuantity: existingItem ? existingItem.inspectedQuantity : 0,
+        expiryDate: edge.node.variant?.product?.expiryDate?.value || "",
         issueType: existingItem ? existingItem.issueType : null,
         issueNote: existingItem ? existingItem.issueNote : "",
         substitutedVariantId: existingItem ? existingItem.substitutedVariantId : null,
@@ -141,7 +297,7 @@ export const action = async ({ request }) => {
       };
     });
 
-    return { order: { id: order.id, name: order.name, items } };
+    return { order: { id: order.id, name: order.name, email: order.email || "", items } };
   }
 
   // ✨ 실제 스토어 상품 검색 연동
@@ -193,6 +349,7 @@ export const action = async ({ request }) => {
     const orderName = formData.get("orderName");
     const items = JSON.parse(formData.get("items"));
     const inspectorName = formData.get("inspectorName");
+    const orderEmail = formData.get("orderEmail");
     
     // ✨ 상태 판별 로직 고도화 (예외가 1개라도 있으면 STATUS 변경)
     let status = "SUCCESS";
@@ -237,6 +394,33 @@ export const action = async ({ request }) => {
       },
     });
 
+    // 📩 고객 이메일 발송
+    if (orderEmail && orderEmail.trim() !== "") {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
+          port: parseInt(process.env.SMTP_PORT || "587"),
+          secure: process.env.SMTP_SECURE === "true",
+          auth: {
+            user: process.env.SMTP_USER || "popeye.gmbh@gmail.com",    
+            pass: process.env.SMTP_PASSWORD         
+          }
+        });
+
+        const emailHtml = buildHtmlEmail(orderName, items);
+
+        await transporter.sendMail({
+          from: `"Dawayo System" <${process.env.SMTP_USER || "noreply@dawayo.de"}>`,
+          to: orderEmail,
+          subject: `[Dawayo] 주문 ${orderName} 처리 완료 알림 / Bestellbearbeitung abgeschlossen`,
+          html: emailHtml
+        });
+        console.log(`Successfully sent completion email to ${orderEmail} for order ${orderName}`);
+      } catch (emailErr) {
+        console.error("Failed to send completion email:", emailErr);
+      }
+    }
+
     return { success: true, recordId: record.id };
   }
 
@@ -254,11 +438,44 @@ export default function Inspect() {
   const [barcode, setBarcode] = useState("");
   const [message, setMessage] = useState(null);
   const barcodeRef = useRef(null);
+  const orderSearchRef = useRef(null);
+
+  // ✨ 추가: 멀티 주문 모드, 스캔 로그, 에러 목록, 필터 상태 관리
+  const [multiMode, setMultiMode] = useState(false);
+  const [multiOrders, setMultiOrders] = useState([]);
+  const [activeOrderIdx, setActiveOrderIdx] = useState(0);
+  const [logs, setLogs] = useState([]);
+  const [errorItems, setErrorItems] = useState([]);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [highlightedRowId, setHighlightedRowId] = useState(null);
 
   // ✨ 추가: URL 검색 파라미터 연동 자동 패치
   const [searchParams] = useSearchParams();
   const [hasAutoFetched, setHasAutoFetched] = useState(false);
 
+  // ✨ 공통 상태 업데이트 헬퍼 함수 (멀티 모드 자동 연동)
+  const updateActiveStates = (newOrder, newLogs = null, newErrors = null) => {
+    setCurrentOrder(newOrder);
+    if (newLogs !== null) setLogs(newLogs);
+    if (newErrors !== null) setErrorItems(newErrors);
+
+    if (multiMode) {
+      setMultiOrders(prev => {
+        const next = [...prev];
+        if (next[activeOrderIdx]) {
+          next[activeOrderIdx] = {
+            ...next[activeOrderIdx],
+            order: newOrder,
+            logs: newLogs !== null ? newLogs : next[activeOrderIdx].logs,
+            errorItems: newErrors !== null ? newErrors : next[activeOrderIdx].errorItems,
+          };
+        }
+        return next;
+      });
+    }
+  };
+
+  // URL 파라미터 자동 패치 Effect
   useEffect(() => {
     const paramOrderName = searchParams.get("orderName");
     if (paramOrderName && !hasAutoFetched) {
@@ -279,28 +496,133 @@ export default function Inspect() {
   const [substituteQuery, setSubstituteQuery] = useState("");
   const [selectedSubstitute, setSelectedSubstitute] = useState(null);
 
+  // 주문 데이터를 불러왔을 때 Effect
   useEffect(() => {
     if (fetcher.data?.order) {
-      setCurrentOrder(fetcher.data.order);
-      setBarcode("");
-      setMessage({ type: "success", text: `${fetcher.data.order.name} 주문을 불러왔습니다.` });
+      const order = fetcher.data.order;
+      if (multiMode) {
+        const alreadyExists = multiOrders.some(o => o.order.id === order.id || o.order.name === order.name);
+        if (alreadyExists) {
+          setMessage({ type: "error", text: `[${order.name}] 이미 로드된 주문입니다.` });
+          playSound("error");
+          setBarcode("");
+          return;
+        }
+        
+        const newOrderObj = { order, logs: [], errorItems: [] };
+        const newIndex = multiOrders.length;
+        setMultiOrders(prev => [...prev, newOrderObj]);
+        setActiveOrderIdx(newIndex);
+        
+        setCurrentOrder(order);
+        setLogs([]);
+        setErrorItems([]);
+        setBarcode("");
+        setMessage({ type: "success", text: `[${order.name}] 주문이 추가되었습니다 (총 ${newIndex + 1}건).` });
+        playSound("success");
+      } else {
+        updateActiveStates(order, [], []);
+        setBarcode("");
+        setMessage({ type: "success", text: `${order.name} 주문을 불러왔습니다.` });
+        playSound("success");
+      }
       setTimeout(() => barcodeRef.current?.focus(), 100);
     } else if (fetcher.data?.error) {
       setMessage({ type: "error", text: fetcher.data.error });
+      playSound("error");
     }
   }, [fetcher.data]);
 
+  // 검수 데이터 저장 성공 시 Effect
   useEffect(() => {
     if (saveFetcher.data?.success) {
       setMessage({ type: "success", text: "검수 결과가 성공적으로 저장되었습니다." });
-      setCurrentOrder(null);
-      setOrderName("");
+      
+      if (multiMode) {
+        const remainingOrders = multiOrders.filter((_, idx) => idx !== activeOrderIdx);
+        setMultiOrders(remainingOrders);
+        
+        if (remainingOrders.length > 0) {
+          const nextIdx = Math.max(0, activeOrderIdx - 1);
+          setActiveOrderIdx(nextIdx);
+          const nextOrder = remainingOrders[nextIdx];
+          setCurrentOrder(nextOrder.order);
+          setLogs(nextOrder.logs || []);
+          setErrorItems(nextOrder.errorItems || []);
+        } else {
+          setCurrentOrder(null);
+          setLogs([]);
+          setErrorItems([]);
+          setOrderName("");
+        }
+      } else {
+        updateActiveStates(null, [], []);
+        setOrderName("");
+      }
     }
   }, [saveFetcher.data]);
+
+  // 주문 초기 상태 자동 포커싱 Effect
+  useEffect(() => {
+    if (!currentOrder) {
+      setTimeout(() => orderSearchRef.current?.focus(), 100);
+    }
+  }, [currentOrder]);
 
   const handleSearch = () => {
     if (!orderName.trim()) return;
     fetcher.submit({ intent: "fetch_order", orderName }, { method: "POST" });
+  };
+
+  const handleTabChange = (index) => {
+    if (multiOrders[activeOrderIdx]) {
+      setMultiOrders(prev => {
+        const next = [...prev];
+        next[activeOrderIdx] = {
+          order: currentOrder,
+          logs,
+          errorItems
+        };
+        return next;
+      });
+    }
+
+    const nextOrder = multiOrders[index];
+    if (nextOrder) {
+      setActiveOrderIdx(index);
+      setCurrentOrder(nextOrder.order);
+      setLogs(nextOrder.logs || []);
+      setErrorItems(nextOrder.errorItems || []);
+      setMessage({ type: "success", text: `${nextOrder.order.name} 주문 탭으로 전환했습니다.` });
+      setTimeout(() => barcodeRef.current?.focus(), 100);
+    }
+  };
+
+  const handleCancelActiveOrder = () => {
+    if (!confirm("현재 진행 중인 주문 데이터를 초기화/삭제하시겠습니까?")) return;
+
+    if (multiMode) {
+      const remainingOrders = multiOrders.filter((_, idx) => idx !== activeOrderIdx);
+      setMultiOrders(remainingOrders);
+      
+      if (remainingOrders.length > 0) {
+        const nextIdx = Math.max(0, activeOrderIdx - 1);
+        setActiveOrderIdx(nextIdx);
+        const nextOrder = remainingOrders[nextIdx];
+        setCurrentOrder(nextOrder.order);
+        setLogs(nextOrder.logs || []);
+        setErrorItems(nextOrder.errorItems || []);
+      } else {
+        setCurrentOrder(null);
+        setLogs([]);
+        setErrorItems([]);
+        setOrderName("");
+      }
+    } else {
+      updateActiveStates(null, [], []);
+      setOrderName("");
+    }
+    setMessage({ type: "info", text: "검수가 취소되었습니다." });
   };
 
   // Web Audio API를 활용한 효과음 재생기
@@ -343,45 +665,131 @@ export default function Inspect() {
   const processBarcode = (scannedBarcode) => {
     if (!currentOrder || !scannedBarcode.trim()) return;
 
-    const itemIndex = currentOrder.items.findIndex(
-      item => item.barcode === scannedBarcode || item.sku === scannedBarcode
+    const rawCode = scannedBarcode.trim();
+
+    const itemIndex = currentOrder.items.findIndex(i =>
+      String(i.barcode || "") === rawCode || String(i.sku || "") === rawCode
     );
+
+    const timestamp = new Date().toLocaleTimeString();
 
     if (itemIndex > -1) {
       const updatedItems = [...currentOrder.items];
       const item = updatedItems[itemIndex];
 
       if (item.issueType) {
-        setMessage({ type: "warning", text: `[${item.title}] 이미 문제 보고(예외 처리)가 접수된 상품입니다.` });
+        const newLog = {
+          time: timestamp,
+          type: "warning",
+          text: `[${item.title}] 이미 문제 보고(예외 처리)가 접수된 상품입니다.`
+        };
+        const updatedLogs = [newLog, ...logs];
+        updateActiveStates(currentOrder, updatedLogs);
+        setMessage({ type: "warning", text: newLog.text });
         playSound("warning");
       } else if (item.inspectedQuantity < item.orderedQuantity) {
         item.inspectedQuantity += 1;
-        setCurrentOrder({ ...currentOrder, items: updatedItems });
-        setMessage({ type: "success", text: `[${item.title}] 검수 완료 (${item.inspectedQuantity}/${item.orderedQuantity})` });
+        const newLog = {
+          time: timestamp,
+          type: "success",
+          text: `[${item.title}] 검수 완료 (${item.inspectedQuantity}/${item.orderedQuantity})`
+        };
+        const updatedLogs = [newLog, ...logs];
+        const nextOrderState = { ...currentOrder, items: updatedItems };
+        updateActiveStates(nextOrderState, updatedLogs);
+        setMessage({ type: "success", text: newLog.text });
         playSound("success");
+
+        highlightRow(item.id);
       } else {
-        setMessage({ type: "warning", text: `[${item.title}] 이미 모든 수량이 검수되었습니다.` });
+        const newLog = {
+          time: timestamp,
+          type: "warning",
+          text: `[${item.title}] 이미 모든 수량이 검수되었습니다.`
+        };
+        const updatedLogs = [newLog, ...logs];
+        updateActiveStates(currentOrder, updatedLogs);
+        setMessage({ type: "warning", text: newLog.text });
         playSound("warning");
       }
     } else {
-      setMessage({ type: "error", text: "주문에 포함되지 않은 바코드입니다!" });
+      const newLog = {
+        time: timestamp,
+        type: "error",
+        text: `미등록 스캔: ${rawCode}`
+      };
+      const updatedLogs = [newLog, ...logs];
+      
+      const alreadyInErrors = errorItems.some(err => err.sku === rawCode);
+      const updatedErrors = alreadyInErrors 
+        ? errorItems 
+        : [{ name: "미등록", sku: rawCode }, ...errorItems];
+
+      updateActiveStates(currentOrder, updatedLogs, updatedErrors);
+      setMessage({ type: "error", text: newLog.text });
       playSound("error");
     }
     
     setBarcode("");
   };
 
+  const highlightRow = (itemId) => {
+    setHighlightedRowId(itemId);
+    setTimeout(() => setHighlightedRowId(null), 800);
+  };
+
   // ✨ 수동 수량 조절 (+/-)
   const adjustQuantity = (itemId, amount) => {
+    if (!currentOrder) return;
     const updatedItems = [...currentOrder.items];
     const index = updatedItems.findIndex(i => i.id === itemId);
     if (index > -1) {
       const newQty = updatedItems[index].inspectedQuantity + amount;
       if (newQty >= 0 && newQty <= updatedItems[index].orderedQuantity) {
         updatedItems[index].inspectedQuantity = newQty;
-        setCurrentOrder({ ...currentOrder, items: updatedItems });
+        updateActiveStates({ ...currentOrder, items: updatedItems });
       }
     }
+  };
+
+  const scanAllQuantity = (itemId) => {
+    if (!currentOrder) return;
+    const updatedItems = currentOrder.items.map(item => {
+      if (item.id === itemId) {
+        return { ...item, inspectedQuantity: item.orderedQuantity };
+      }
+      return item;
+    });
+    const updatedOrder = { ...currentOrder, items: updatedItems };
+    
+    const matchedItem = currentOrder.items.find(item => item.id === itemId);
+    const newLog = {
+      time: new Date().toLocaleTimeString(),
+      type: "success",
+      text: `[${matchedItem.title}] 수동 일괄 완료 (${matchedItem.orderedQuantity}/${matchedItem.orderedQuantity})`
+    };
+    
+    updateActiveStates(updatedOrder, [newLog, ...logs]);
+    setMessage({ type: "success", text: newLog.text });
+    playSound("success");
+  };
+
+  const markAsError = (title, sku) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const newLog = {
+      time: timestamp,
+      type: "error",
+      text: `오류 추가: ${title} (SKU: ${sku || "N/A"})`
+    };
+    
+    const alreadyInErrors = errorItems.some(err => err.sku === sku);
+    const updatedErrors = alreadyInErrors 
+      ? errorItems 
+      : [{ name: title, sku: sku || "N/A" }, ...errorItems];
+      
+    updateActiveStates(currentOrder, [newLog, ...logs], updatedErrors);
+    setMessage({ type: "error", text: newLog.text });
+    playSound("error");
   };
 
   // ✨ 문제 보고 모달 열기
@@ -403,6 +811,7 @@ export default function Inspect() {
 
   // ✨ 예외 처리 내용 주문 데이터에 저장
   const saveIssueToOrder = () => {
+    if (!currentOrder) return;
     const updatedItems = [...currentOrder.items];
     const index = updatedItems.findIndex(i => i.id === activeIssueItemId);
     
@@ -412,7 +821,7 @@ export default function Inspect() {
       
       if (issueType[0] === "SUBSTITUTE" && selectedSubstitute) {
         updatedItems[index].substitutedVariantId = selectedSubstitute.id;
-        updatedItems[index].substitutedProductTitle = selectedSubstitute.title;
+        updatedItems[index].substitutedProductTitle = `${selectedSubstitute.title}${selectedSubstitute.sku ? ` (SKU: ${selectedSubstitute.sku})` : ""}`;
       } else {
         updatedItems[index].substitutedVariantId = null;
         updatedItems[index].substitutedProductTitle = "";
@@ -420,13 +829,14 @@ export default function Inspect() {
       
       // 예외 처리된 항목은 검수 수량을 0으로 초기화
       updatedItems[index].inspectedQuantity = 0;
-      setCurrentOrder({ ...currentOrder, items: updatedItems });
+      updateActiveStates({ ...currentOrder, items: updatedItems });
     }
     setIssueModalOpen(false);
   };
 
   // ✨ 문제 보고 취소(초기화)
   const clearIssue = (itemId) => {
+    if (!currentOrder) return;
     const updatedItems = [...currentOrder.items];
     const index = updatedItems.findIndex(i => i.id === itemId);
     if (index > -1) {
@@ -434,8 +844,24 @@ export default function Inspect() {
       updatedItems[index].issueNote = "";
       updatedItems[index].substitutedVariantId = null;
       updatedItems[index].substitutedProductTitle = "";
-      setCurrentOrder({ ...currentOrder, items: updatedItems });
+      updateActiveStates({ ...currentOrder, items: updatedItems });
     }
+  };
+
+  // ✨ 전체 상품 완료 처리
+  const handleCompleteAll = () => {
+    if (!currentOrder) return;
+    const updatedItems = currentOrder.items.map(item => ({
+      ...item,
+      inspectedQuantity: item.orderedQuantity,
+      issueType: null,
+      issueNote: "",
+      substitutedVariantId: null,
+      substitutedProductTitle: "",
+    }));
+    updateActiveStates({ ...currentOrder, items: updatedItems });
+    setMessage({ type: "success", text: "모든 상품의 검수 수량을 완료 처리했습니다." });
+    playSound("success");
   };
 
   const handleSave = () => {
@@ -446,13 +872,23 @@ export default function Inspect() {
         orderName: currentOrder.name,
         items: JSON.stringify(currentOrder.items),
         inspectorName: inspectorName || "",
+        orderEmail: currentOrder.email || "",
       },
       { method: "POST" }
     );
   };
 
-  const rows = currentOrder?.items.map(item => {
-    // 뱃지 상태 결정
+  const filteredItems = currentOrder?.items.filter(item => {
+    const isDone = item.inspectedQuantity === item.orderedQuantity;
+    if (filterStatus === "done") return isDone;
+    if (filterStatus === "progress") return !isDone;
+    return true;
+  }) || [];
+
+  const rows = filteredItems.map(item => {
+    const isHighlighted = item.id === highlightedRowId;
+    const rowStyle = isHighlighted ? { backgroundColor: "#fef08a", transition: "background-color 0.3s ease" } : {};
+
     let statusBadge = <Badge tone="attention">대기</Badge>;
     if (item.issueType) {
       statusBadge = <Badge tone="critical">🚨 {item.issueType}</Badge>;
@@ -461,41 +897,50 @@ export default function Inspect() {
     }
 
     return [
-      <Thumbnail source={item.imageUrl || ""} alt={item.title} size="small" />,
-      <BlockStack gap="100">
-        <Text variant="bodyMd" fontWeight="bold">{item.title}</Text>
-        <Text variant="bodySm" color="subdued">{item.variantTitle} | SKU: {item.sku || "N/A"}</Text>
-        
-        {/* 예외 처리 메모 표시 */}
-        {item.issueType && (
-          <div style={{ marginTop: "4px", background: "#fef2f2", padding: "6px", borderRadius: "6px", border: "1px solid #fca5a5", fontSize: "12px" }}>
-            <span style={{ fontWeight: "bold", color: "#b91c1c" }}>
-              {item.issueType === "REFUND" && "💸 환불 처리 요청"}
-              {item.issueType === "CREDIT" && "🪙 포인트 적립 요청"}
-              {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 요청"}
-            </span>
-            {item.substitutedProductTitle && <div>→ 대체: {item.substitutedProductTitle}</div>}
-            {item.issueNote && <div style={{ color: "#7f1d1d", marginTop: "2px" }}>메모: {item.issueNote}</div>}
-            <Button variant="plain" tone="critical" size="micro" onClick={() => clearIssue(item.id)}>예외 처리 취소</Button>
-          </div>
-        )}
-      </BlockStack>,
-      item.barcode || "N/A",
+      <div style={rowStyle}><Thumbnail source={item.imageUrl || ""} alt={item.title} size="small" /></div>,
+      <div style={rowStyle}>
+        <BlockStack gap="100">
+          <Text variant="bodyMd" fontWeight="bold">{item.title}</Text>
+          <Text variant="bodySm" color="subdued">{item.variantTitle} | SKU: {item.sku || "N/A"}</Text>
+          
+          {item.issueType && (
+            <div style={{ marginTop: "4px", background: "#fef2f2", padding: "6px", borderRadius: "6px", border: "1px solid #fca5a5", fontSize: "12px" }}>
+              <span style={{ fontWeight: "bold", color: "#b91c1c" }}>
+                {item.issueType === "REFUND" && "💸 환불 처리 요청"}
+                {item.issueType === "CREDIT" && "🪙 포인트 적립 요청"}
+                {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 요청"}
+              </span>
+              {item.substitutedProductTitle && <div>→ 대체: {item.substitutedProductTitle}</div>}
+              {item.issueNote && <div style={{ color: "#7f1d1d", marginTop: "2px" }}>메모: {item.issueNote}</div>}
+              <Button variant="plain" tone="critical" size="micro" onClick={() => clearIssue(item.id)}>예외 처리 취소</Button>
+            </div>
+          )}
+        </BlockStack>
+      </div>,
+      <div style={rowStyle}><Text variant="bodyMd" as="span" style={{ fontFamily: "monospace" }}>{item.barcode || "N/A"}</Text></div>,
       
-      /* ✨ 수동 수량 조절 UI */
-      <InlineStack wrap={false} align="center" gap="200">
-        <Button size="micro" onClick={() => adjustQuantity(item.id, -1)} disabled={item.inspectedQuantity === 0 || item.issueType}>-</Button>
-        <Text variant="bodyLg" fontWeight="bold">{item.inspectedQuantity} / {item.orderedQuantity}</Text>
-        <Button size="micro" onClick={() => adjustQuantity(item.id, 1)} disabled={item.inspectedQuantity === item.orderedQuantity || item.issueType}>+</Button>
-      </InlineStack>,
+      <div style={rowStyle}>
+        <BlockStack gap="100" align="center">
+          <InlineStack wrap={false} align="center" gap="200">
+            <Button size="micro" onClick={() => adjustQuantity(item.id, -1)} disabled={item.inspectedQuantity === 0 || item.issueType}>-</Button>
+            <Text variant="bodyLg" fontWeight="bold">{item.inspectedQuantity} / {item.orderedQuantity}</Text>
+            <Button size="micro" onClick={() => adjustQuantity(item.id, 1)} disabled={item.inspectedQuantity === item.orderedQuantity || item.issueType}>+</Button>
+          </InlineStack>
+          <InlineStack gap="100" align="center">
+            <Button size="micro" variant="secondary" tone="success" onClick={() => scanAllQuantity(item.id)} disabled={item.inspectedQuantity === item.orderedQuantity || item.issueType}>완료</Button>
+            <Button size="micro" variant="secondary" tone="critical" onClick={() => markAsError(item.title, item.sku)}>❌ 오류</Button>
+          </InlineStack>
+        </BlockStack>
+      </div>,
       
-      /* 상태 및 문제보고 버튼 */
-      <BlockStack align="center" gap="200">
-        {statusBadge}
-        {!item.issueType && item.inspectedQuantity < item.orderedQuantity && (
-          <Button size="micro" tone="critical" onClick={() => openIssueModal(item.id)}>🚨 문제 보고</Button>
-        )}
-      </BlockStack>
+      <div style={rowStyle}>
+        <BlockStack align="center" gap="200">
+          {statusBadge}
+          {!item.issueType && item.inspectedQuantity < item.orderedQuantity && (
+            <Button size="micro" tone="critical" onClick={() => openIssueModal(item.id)}>🚨 문제 보고</Button>
+          )}
+        </BlockStack>
+      </div>
     ];
   }) || [];
 
@@ -506,6 +951,7 @@ export default function Inspect() {
       backAction={{ content: "대시보드", url: "/app" }}
     >
       <Layout>
+        {/* 주문 번호 검색 및 멀티 모드 카드 */}
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
@@ -518,11 +964,24 @@ export default function Inspect() {
                       onChange={setOrderName}
                       autoComplete="off"
                       prefix={<Icon source={SearchIcon} />} 
+                      ref={orderSearchRef}
+                      disabled={!!currentOrder && !multiMode}
                     />
                   </form>
                 </Box>
                 <Box paddingBlockStart="500">
-                  <Button onClick={handleSearch} loading={fetcher.state === "submitting"}>불러오기</Button>
+                  <InlineStack gap="200">
+                    <Button onClick={handleSearch} loading={fetcher.state === "submitting"} disabled={!!currentOrder && !multiMode}>
+                      불러오기
+                    </Button>
+                    <Button 
+                      pressed={multiMode}
+                      onClick={() => setMultiMode(!multiMode)}
+                      disabled={!!currentOrder && !multiMode}
+                    >
+                      {multiMode ? "멀티 주문 모드 ON" : "멀티 주문 모드 OFF"}
+                    </Button>
+                  </InlineStack>
                 </Box>
               </InlineStack>
 
@@ -535,13 +994,37 @@ export default function Inspect() {
           </Card>
         </Layout.Section>
 
+        {/* 멀티 주문 모드 탭 바 */}
+        {multiMode && multiOrders.length > 0 && (
+          <Layout.Section>
+            <Box paddingBlockStart="100">
+              <Tabs tabs={tabs} selected={activeOrderIdx} onSelect={handleTabChange} />
+            </Box>
+          </Layout.Section>
+        )}
+
+        {/* 검수 리스트 및 작업 영역 */}
         <Layout.Section>
           {currentOrder ? (
             <BlockStack gap="400">
               <Card>
                 <BlockStack gap="400">
-                  <Text variant="headingMd" as="h2">{currentOrder.name} 검수 리스트</Text>
-                  
+                  {/* 주문 헤더 정보 */}
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="headingMd" as="h2">{currentOrder.name} 검수 리스트</Text>
+                    {currentOrder.email && (
+                      <Text variant="bodyMd" tone="subdued">이메일: {currentOrder.email}</Text>
+                    )}
+                  </InlineStack>
+
+                  {/* 진행율 정보 (심플 텍스트) */}
+                  <InlineStack align="space-between">
+                    <Text variant="bodySm" fontWeight="bold">검수 완료 현황</Text>
+                    <Text variant="bodySm" fontWeight="bold">
+                      완료: {currentOrder.items.reduce((a, i) => a + i.inspectedQuantity, 0)} / {currentOrder.items.reduce((a, i) => a + i.orderedQuantity, 0)}
+                    </Text>
+                  </InlineStack>
+
                   <form onSubmit={(e) => { e.preventDefault(); processBarcode(barcode); }}>
                     <TextField
                       label="상품 바코드 스캔"
@@ -554,20 +1037,115 @@ export default function Inspect() {
                     />
                   </form>
 
+                  {/* 진행 필터링 */}
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="headingSm" as="h3">진행 중인 상품 목록</Text>
+                    <InlineStack gap="100">
+                      <Button pressed={filterStatus === "all"} onClick={() => setFilterStatus("all")}>전체</Button>
+                      <Button pressed={filterStatus === "progress"} onClick={() => setFilterStatus("progress")}>진행중</Button>
+                      <Button pressed={filterStatus === "done"} onClick={() => setFilterStatus("done")}>완료</Button>
+                    </InlineStack>
+                  </InlineStack>
+
                   <div style={{ overflowX: "auto" }}>
                     <DataTable
                       columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                      headings={['이미지', '상품 정보', '바코드', '수량 (스캔/주문)', '상태/처리']}
+                      headings={['이미지', '상품 정보', '바코드', '수량 조절 / 처리', '상태/처리']}
                       rows={rows}
                     />
                   </div>
                   <Divider />
-                  <InlineStack align="end">
-                    <Button onClick={() => setCurrentOrder(null)}>취소</Button>
-                    <Button primary onClick={handleSave} loading={saveFetcher.state === "submitting"}>
-                      검수 데이터 최종 전송
-                    </Button>
+                  
+                  <InlineStack align="space-between">
+                    <Button onClick={handleCancelActiveOrder}>취소</Button>
+                    <InlineStack gap="200">
+                      <Button onClick={handleCompleteAll} disabled={currentOrder.items.every(item => item.inspectedQuantity === item.orderedQuantity && !item.issueType)}>
+                        전체 한번에 완료
+                      </Button>
+                      <Button primary onClick={handleSave} loading={saveFetcher.state === "submitting"}>
+                        검수 데이터 최종 전송
+                      </Button>
+                    </InlineStack>
                   </InlineStack>
+
+                  <Divider />
+
+                  {/* 스캔 로그 및 오류 목록 패널 */}
+                  <Layout>
+                    <Layout.Section variant="oneHalf">
+                      <Card>
+                        <BlockStack gap="200">
+                          <Text variant="headingSm" as="h3">📜 스캔 로그</Text>
+                          <div style={{
+                            maxHeight: "180px",
+                            overflowY: "auto",
+                            backgroundColor: "#f9fafb",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "6px",
+                            padding: "10px",
+                            fontSize: "12px",
+                            fontFamily: "monospace",
+                            lineHeight: "1.5"
+                          }}>
+                            {logs.length === 0 ? (
+                              <div style={{ color: "#9ca3af", textAlign: "center" }}>스캔 기록이 없습니다.</div>
+                            ) : (
+                              logs.map((log, index) => {
+                                let textColor = "#374151"; 
+                                if (log.type === "success") textColor = "#16a34a"; 
+                                if (log.type === "warning") textColor = "#d97706"; 
+                                if (log.type === "error") textColor = "#dc2626"; 
+                                return (
+                                  <div key={index} style={{ color: textColor, marginBottom: "4px" }}>
+                                    [{log.time}] {log.text}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </BlockStack>
+                      </Card>
+                    </Layout.Section>
+                    
+                    <Layout.Section variant="oneHalf">
+                      <Card>
+                        <BlockStack gap="200">
+                          <Text variant="headingSm" as="h3" tone="critical">❌ 오류 상품 목록</Text>
+                          <div style={{
+                            maxHeight: "180px",
+                            overflowY: "auto",
+                            backgroundColor: "#fef2f2",
+                            border: "1px solid #fee2e2",
+                            borderRadius: "6px",
+                            padding: "10px",
+                            fontSize: "12px",
+                            lineHeight: "1.5"
+                          }}>
+                            {errorItems.length === 0 ? (
+                              <div style={{ color: "#9ca3af", textAlign: "center" }}>감지된 스캔 오류가 없습니다.</div>
+                            ) : (
+                              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                <thead>
+                                  <tr style={{ borderBottom: "1px solid #fecaca", textAlign: "left", fontWeight: "bold" }}>
+                                    <th style={{ paddingBottom: "4px" }}>상품명</th>
+                                    <th style={{ paddingBottom: "4px" }}>SKU / 바코드</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {errorItems.map((err, index) => (
+                                    <tr key={index} style={{ borderBottom: "1px solid #fee2e2" }}>
+                                      <td style={{ padding: "4px 0", color: "#991b1b" }}>{err.name}</td>
+                                      <td style={{ padding: "4px 0", color: "#991b1b", fontFamily: "monospace" }}>{err.sku}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </BlockStack>
+                      </Card>
+                    </Layout.Section>
+                  </Layout>
                 </BlockStack>
               </Card>
             </BlockStack>
