@@ -372,13 +372,17 @@ export const action = async ({ request }) => {
     const pdfBuffer = await generatePdfBuffer(data.items, techTime);
     const mailTitle = `${clientTime} 기준 처리중`;
 
+    const smtpUser = process.env.SMTP_USER || "popeye.gmbh@gmail.com";
+    const smtpPass = process.env.SMTP_PASSWORD || "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";
+    console.log(`SMTP Debug (PickList) - Host: ${process.env.SMTP_HOST || "smtp-relay.brevo.com"}, User: ${smtpUser}, Password: ${smtpPass.substring(0, 12)}...${smtpPass.substring(smtpPass.length - 6)}`);
+
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
       port: parseInt(process.env.SMTP_PORT || "587"),
       secure: process.env.SMTP_SECURE === "true",
       auth: {
-        user: process.env.SMTP_USER || "popeye.gmbh@gmail.com",    
-        pass: process.env.SMTP_PASSWORD || "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"         
+        user: smtpUser,
+        pass: smtpPass
       }
     });
 
