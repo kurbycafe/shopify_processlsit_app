@@ -403,7 +403,7 @@ export const action = async ({ request }) => {
           secure: process.env.SMTP_SECURE === "true",
           auth: {
             user: process.env.SMTP_USER || "popeye.gmbh@gmail.com",    
-            pass: process.env.SMTP_PASSWORD || "xsmtpsib-4731677375a1f0726df82df1f23b64e2eec629c4fad4a563522091f77be395b7-AEb9TTePF0DFB8JE"         
+            pass: process.env.SMTP_PASSWORD || "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"         
           }
         });
 
