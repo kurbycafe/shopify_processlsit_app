@@ -24,6 +24,9 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const query = url.searchParams.get("query") || "";
   const status = url.searchParams.get("status") || "ALL";
+  const datePreset = url.searchParams.get("datePreset") || "ALL";
+  const startDate = url.searchParams.get("startDate") || "";
+  const endDate = url.searchParams.get("endDate") || "";
 
   const whereClause = { shop };
 
@@ -34,8 +37,46 @@ export const loader = async ({ request }) => {
   if (query.trim() !== "") {
     whereClause.OR = [
       { orderName: { contains: query, mode: "insensitive" } },
-      { inspectorName: { contains: query, mode: "insensitive" } }
+      { inspectorName: { contains: query, mode: "insensitive" } },
+      {
+        items: {
+          some: {
+            OR: [
+              { productTitle: { contains: query, mode: "insensitive" } },
+              { sku: { contains: query, mode: "insensitive" } },
+              { barcode: { contains: query, mode: "insensitive" } },
+              { substitutedProductTitle: { contains: query, mode: "insensitive" } }
+            ]
+          }
+        }
+      }
     ];
+  }
+
+  let start = null;
+  let end = null;
+
+  if (datePreset === "TODAY") {
+    start = dayjs().startOf("day").toDate();
+    end = dayjs().endOf("day").toDate();
+  } else if (datePreset === "3DAYS") {
+    start = dayjs().subtract(2, "day").startOf("day").toDate();
+    end = dayjs().endOf("day").toDate();
+  } else if (datePreset === "7DAYS") {
+    start = dayjs().subtract(6, "day").startOf("day").toDate();
+    end = dayjs().endOf("day").toDate();
+  } else if (datePreset === "30DAYS") {
+    start = dayjs().subtract(29, "day").startOf("day").toDate();
+    end = dayjs().endOf("day").toDate();
+  } else if (datePreset === "CUSTOM") {
+    if (startDate) start = dayjs(startDate).startOf("day").toDate();
+    if (endDate) end = dayjs(endDate).endOf("day").toDate();
+  }
+
+  if (start || end) {
+    whereClause.createdAt = {};
+    if (start) whereClause.createdAt.gte = start;
+    if (end) whereClause.createdAt.lte = end;
   }
 
   const records = await prisma.inspectionRecord.findMany({
@@ -44,43 +85,69 @@ export const loader = async ({ request }) => {
     include: { items: true }
   });
 
-  return { records, query, status };
+  return { records, query, status, datePreset, startDate, endDate };
 };
 
 export default function InspectionHistory() {
-  const { records, query: initialQuery, status: initialStatus } = useLoaderData();
+  const { records, query: initialQuery, status: initialStatus, datePreset: initialDatePreset, startDate: initialStartDate, endDate: initialEndDate } = useLoaderData();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [selectedStatus, setSelectedStatus] = useState(initialStatus);
+  const [datePreset, setDatePreset] = useState(initialDatePreset);
+  const [startDate, setStartDate] = useState(initialStartDate);
+  const [endDate, setEndDate] = useState(initialEndDate);
   const [selectedLog, setSelectedLog] = useState(null);
+
+  const updateSearchParams = (newParams) => {
+    const params = new URLSearchParams(searchParams);
+    Object.keys(newParams).forEach(key => {
+      const val = newParams[key];
+      if (val !== undefined && val !== null && val !== "" && val !== "ALL") {
+        params.set(key, val);
+      } else {
+        params.delete(key);
+      }
+    });
+    setSearchParams(params);
+  };
 
   const handleSearchChange = (value) => {
     setSearchQuery(value);
-    const params = new URLSearchParams(searchParams);
-    if (value) {
-      params.set("query", value);
-    } else {
-      params.delete("query");
-    }
-    setSearchParams(params);
+    updateSearchParams({ query: value });
   };
 
   const handleStatusChange = (value) => {
     setSelectedStatus(value);
-    const params = new URLSearchParams(searchParams);
-    if (value !== "ALL") {
-      params.set("status", value);
+    updateSearchParams({ status: value });
+  };
+
+  const handleDatePresetChange = (value) => {
+    setDatePreset(value);
+    if (value === "CUSTOM") {
+      updateSearchParams({ datePreset: value, startDate, endDate });
     } else {
-      params.delete("status");
+      updateSearchParams({ datePreset: value, startDate: "", endDate: "" });
     }
-    setSearchParams(params);
+  };
+
+  const handleStartDateChange = (value) => {
+    setStartDate(value);
+    updateSearchParams({ datePreset: "CUSTOM", startDate: value, endDate });
+  };
+
+  const handleEndDateChange = (value) => {
+    setEndDate(value);
+    updateSearchParams({ datePreset: "CUSTOM", startDate, endDate: value });
   };
 
   const handleClearFilters = () => {
     setSearchQuery("");
     setSelectedStatus("ALL");
+    setDatePreset("ALL");
+    setStartDate("");
+    setEndDate("");
     setSearchParams({});
   };
 
@@ -141,18 +208,18 @@ export default function InspectionHistory() {
           <BlockStack gap="400">
             <Text variant="headingSm" as="h3">검색 및 필터</Text>
             <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "flex-end" }}>
-              <div style={{ flex: 2, minWidth: "220px" }}>
+              <div style={{ flex: 2, minWidth: "240px" }}>
                 <TextField
-                  label="주문 번호 또는 검수자명 검색"
+                  label="주문 번호, 검수자명, 상품명, SKU 검색"
                   value={searchQuery}
                   onChange={handleSearchChange}
-                  placeholder="예: #1001, Soonchan"
+                  placeholder="예: #1001, 라면, SKU123"
                   autoComplete="off"
                   clearButton
                   onClearButtonClick={() => handleSearchChange("")}
                 />
               </div>
-              <div style={{ flex: 1, minWidth: "160px" }}>
+              <div style={{ flex: 1, minWidth: "150px" }}>
                 <Select
                   label="검수 상태"
                   options={[
@@ -166,7 +233,50 @@ export default function InspectionHistory() {
                   onChange={handleStatusChange}
                 />
               </div>
-              {(searchQuery || selectedStatus !== "ALL") && (
+              <div style={{ flex: 1, minWidth: "150px" }}>
+                <Select
+                  label="조회 기간"
+                  options={[
+                    { label: "전체 기간", value: "ALL" },
+                    { label: "오늘 (Today)", value: "TODAY" },
+                    { label: "최근 3일", value: "3DAYS" },
+                    { label: "최근 7일", value: "7DAYS" },
+                    { label: "최근 30일", value: "30DAYS" },
+                    { label: "직접 입력 (Custom)", value: "CUSTOM" }
+                  ]}
+                  value={datePreset}
+                  onChange={handleDatePresetChange}
+                />
+              </div>
+            </div>
+
+            {datePreset === "CUSTOM" && (
+              <Box style={{ background: "#f9fafb", padding: "12px", borderRadius: "8px", border: "1px solid #e5e7eb", marginTop: "12px" }}>
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: "140px" }}>
+                    <TextField
+                      label="시작 날짜"
+                      value={startDate}
+                      onChange={handleStartDateChange}
+                      type="date"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: "140px" }}>
+                    <TextField
+                      label="종료 날짜"
+                      value={endDate}
+                      onChange={handleEndDateChange}
+                      type="date"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+              </Box>
+            )}
+
+            {(searchQuery || selectedStatus !== "ALL" || datePreset !== "ALL" || startDate || endDate) && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button
                   onClick={handleClearFilters}
                   style={{
@@ -182,8 +292,8 @@ export default function InspectionHistory() {
                 >
                   필터 초기화
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </BlockStack>
         </Card>
 
