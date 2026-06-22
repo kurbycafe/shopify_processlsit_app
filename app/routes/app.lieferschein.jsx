@@ -80,7 +80,7 @@ export const loader = async ({ request }) => {
                 cancelledAt
                 displayFulfillmentStatus
                 customer {
-                  ordersCount
+                  numberOfOrders
                 }
                 shippingLines(first: 1) {
                   edges {
@@ -236,7 +236,7 @@ export const loader = async ({ request }) => {
         totalWeightKg: (totalGrams / 1000).toFixed(3),
         totalOrderQty,
         items: sortedItems,
-        isFirstPurchase: (node.customer?.ordersCount ?? 0) === 1,
+        isFirstPurchase: (node.customer?.numberOfOrders ?? 0) === 1,
       };
     });
 
