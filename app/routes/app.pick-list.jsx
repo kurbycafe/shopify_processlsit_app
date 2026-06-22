@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { Form, useLoaderData, useActionData, useSubmit, useSearchParams, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import nodemailer from "nodemailer";
 
 // ========================================================
 // 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
@@ -372,33 +371,49 @@ export const action = async ({ request }) => {
     const pdfBuffer = await generatePdfBuffer(data.items, techTime);
     const mailTitle = `${clientTime} 기준 처리중`;
 
-    const smtpUser = process.env.SMTP_USER || "popeye.gmbh@gmail.com";
-    const smtpPass = process.env.SMTP_PASSWORD || "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";
-    console.log(`SMTP Debug (PickList) - Host: ${process.env.SMTP_HOST || "smtp-relay.brevo.com"}, User: ${smtpUser}, Password: ${smtpPass.substring(0, 12)}...${smtpPass.substring(smtpPass.length - 6)}`);
-
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: process.env.SMTP_SECURE === "true",
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
-    });
-
     try {
-      await transporter.sendMail({
-        from: `"Shopify System" <${process.env.SMTP_USER || "popeye.gmbh@gmail.com"}>`,
-        to: "popeye.gmbh@gmail.com",
-        subject: mailTitle, 
-        attachments: [
-          {
-            filename: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`, 
-            content: pdfBuffer,
-            contentType: "application/pdf"
-          }
-        ]
+      const smtpUser = process.env.SMTP_USER || "popeye.gmbh@gmail.com";
+      const smtpPass = process.env.SMTP_PASSWORD || "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";
+
+      console.log(`Sending pick list PDF via Brevo HTTP API for title: ${mailTitle}...`);
+      
+      const base64Pdf = pdfBuffer.toString("base64");
+
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "api-key": smtpPass
+        },
+        body: JSON.stringify({
+          sender: {
+            name: "Shopify System",
+            email: smtpUser
+          },
+          to: [
+            {
+              email: "popeye.gmbh@gmail.com"
+            }
+          ],
+          subject: mailTitle,
+          htmlContent: "<html><body><p>Attached is the picking list PDF.</p></body></html>",
+          attachment: [
+            {
+              name: `picking-list-${techTime.replace(/[: ]/g, "-")}.pdf`,
+              content: base64Pdf
+            }
+          ]
+        })
       });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Brevo HTTP API responded with status ${response.status}: ${errText}`);
+      }
+
+      const resData = await response.json();
+      console.log(`Successfully sent pick list email via Brevo HTTP API:`, resData);
       return { success: true, message: "메일 전송에 성공했습니다." };
     } catch (err) {
       console.error("PDF 전송 오류:", err);

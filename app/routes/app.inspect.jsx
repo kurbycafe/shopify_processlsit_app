@@ -9,7 +9,6 @@ import {
 import { SearchIcon, BarcodeIcon, AlertTriangleIcon } from "@shopify/polaris-icons"; 
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import nodemailer from "nodemailer";
 
 async function getInspectorName(admin, session) {
   // 1. Try to get it from the online session
@@ -399,27 +398,40 @@ export const action = async ({ request }) => {
       try {
         const smtpUser = process.env.SMTP_USER || "popeye.gmbh@gmail.com";
         const smtpPass = process.env.SMTP_PASSWORD || "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";
-        console.log(`SMTP Debug - Host: ${process.env.SMTP_HOST || "smtp-relay.brevo.com"}, User: ${smtpUser}, Password: ${smtpPass.substring(0, 12)}...${smtpPass.substring(smtpPass.length - 6)}`);
-
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
-          port: parseInt(process.env.SMTP_PORT || "587"),
-          secure: process.env.SMTP_SECURE === "true",
-          auth: {
-            user: smtpUser,
-            pass: smtpPass
-          }
-        });
 
         const emailHtml = buildHtmlEmail(orderName, items);
 
-        await transporter.sendMail({
-          from: `"Dawayo System" <${process.env.SMTP_USER || "popeye.gmbh@gmail.com"}>`,
-          to: orderEmail,
-          subject: `[Dawayo] 주문 ${orderName} 처리 완료 알림 / Bestellbearbeitung abgeschlossen`,
-          html: emailHtml
+        console.log(`Sending completion email via Brevo HTTP API to ${orderEmail} for order ${orderName}...`);
+        
+        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          headers: {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": smtpPass
+          },
+          body: JSON.stringify({
+            sender: {
+              name: "Dawayo System",
+              email: smtpUser
+            },
+            to: [
+              {
+                email: orderEmail
+              }
+            ],
+            subject: `[Dawayo] 주문 ${orderName} 처리 완료 알림 / Bestellbearbeitung abgeschlossen`,
+            htmlContent: emailHtml
+          })
         });
-        console.log(`Successfully sent completion email to ${orderEmail} for order ${orderName}`);
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Brevo HTTP API responded with status ${response.status}: ${errText}`);
+        }
+
+        const resData = await response.json();
+        console.log(`Successfully sent email via Brevo HTTP API:`, resData);
       } catch (emailErr) {
         console.error("Failed to send completion email:", emailErr);
       }
