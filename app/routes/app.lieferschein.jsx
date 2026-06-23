@@ -388,6 +388,7 @@ export default function AdditionalPage() {
   const [printFilter, setPrintFilter] = useState("ALL"); // ✨ 인쇄 상태 필터 추가
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
   const [searchQuery, setSearchQuery] = useState(""); // ✨ 검색 텍스트 필터 추가
+  const [tempFilter, setTempFilter] = useState("ALL"); // ✨ 온도대 필터 추가
 
   useEffect(() => {
     if (loaderData?.orders) {
@@ -439,6 +440,11 @@ export default function AdditionalPage() {
       result = result.filter(o => o.isPrinted);
     }
 
+    // 3.6 온도대 필터 (Dry Only)
+    if (tempFilter === "DRY_ONLY") {
+      result = result.filter(o => o.isDryOnly);
+    }
+
     // 3.8 검색 텍스트 필터
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -457,7 +463,7 @@ export default function AdditionalPage() {
     }
 
     return result;
-  }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, printFilter, sortOrder, searchQuery]);
+  }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, printFilter, sortOrder, searchQuery, tempFilter]);
 
   useEffect(() => {
     setSelectedOrders([]);
@@ -613,6 +619,17 @@ export default function AdditionalPage() {
                     ]}
                     value={shippingFilter}
                     onChange={setShippingFilter}
+                  />
+                </Box>
+                <Box minWidth="150px">
+                  <Select
+                    label="온도대 구분"
+                    options={[
+                      {label: '전체 온도대', value: 'ALL'},
+                      {label: 'Dry Only (상온 제품만)', value: 'DRY_ONLY'},
+                    ]}
+                    value={tempFilter}
+                    onChange={setTempFilter}
                   />
                 </Box>
                 {/* ✨ 인쇄 상태 필터 UI 추가 */}

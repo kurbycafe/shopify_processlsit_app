@@ -615,7 +615,7 @@ export default function PickListPage() {
                 }}
               >
                 <option value="ALL">전체 온도대</option>
-                <option value="DRY_ONLY">☀️ 상온 제품만 (Dry)</option>
+                <option value="DRY_ONLY">Dry Only (상온 제품만)</option>
               </select>
             </div>
 
