@@ -26,17 +26,36 @@ export const action = async ({ request }) => {
       payload.map((order) =>
         prisma.inspectionRecord.upsert({
           where: { orderId: order.id },
-          update: { isLieferscheinPrinted: true },
+          update: { isLieferscheinPrinted: true, lieferscheinPrintedAt: new Date() },
           create: {
             orderId: order.id,
             orderName: order.name,
             shop: session.shop,
             status: "PENDING",
             isLieferscheinPrinted: true,
+            lieferscheinPrintedAt: new Date(),
           },
         })
       )
     );
+
+    return jsonResponse({ success: true });
+  }
+
+  if (intent === "reset_print_status") {
+    const orderId = formData.get("orderId");
+
+    await prisma.inspectionRecord.upsert({
+      where: { orderId },
+      update: { isLieferscheinPrinted: false, lieferscheinPrintedAt: null },
+      create: {
+        orderId,
+        shop: session.shop,
+        status: "PENDING",
+        isLieferscheinPrinted: false,
+        lieferscheinPrintedAt: null,
+      },
+    });
 
     return jsonResponse({ success: true });
   }
@@ -275,14 +294,28 @@ export const loader = async ({ request }) => {
     const orderIds = ordersWithCombinedInfo.map((o) => o.id);
     const printedRecords = await prisma.inspectionRecord.findMany({
       where: { orderId: { in: orderIds } },
-      select: { orderId: true, isLieferscheinPrinted: true, isPickListPrinted: true }
+      select: { orderId: true, isLieferscheinPrinted: true, lieferscheinPrintedAt: true, isPickListPrinted: true }
     });
 
     const ordersWithPrintStatus = ordersWithCombinedInfo.map((order) => {
       const dbRecord = printedRecords.find((r) => r.orderId === order.id);
+      
+      let printedAtStr = null;
+      if (dbRecord && dbRecord.lieferscheinPrintedAt) {
+        printedAtStr = new Date(dbRecord.lieferscheinPrintedAt).toLocaleString("de-DE", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        });
+      }
+
       return {
         ...order,
         isPrinted: dbRecord ? dbRecord.isLieferscheinPrinted : false,
+        printedAt: printedAtStr,
         isPickListPrinted: dbRecord ? dbRecord.isPickListPrinted : false
       };
     });
@@ -741,7 +774,14 @@ export default function AdditionalPage() {
                     <td>
                       {order.isPrinted ? (
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span className="status-badge-printed">인쇄 완료</span>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <span className="status-badge-printed">인쇄 완료</span>
+                            {order.printedAt && (
+                              <span style={{ fontSize: "10px", color: "#64748b", whiteSpace: "nowrap", fontFamily: "monospace" }}>
+                                {order.printedAt}
+                              </span>
+                            )}
+                          </div>
                           <button
                             onClick={() => handleResetPrint(order.id)}
                             style={{

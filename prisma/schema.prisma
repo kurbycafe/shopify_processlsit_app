@@ -37,6 +37,7 @@ model InspectionRecord {
   inspectorName         String?            // Name of the person who inspected
   status                String             // SUCCESS, FAILED, PARTIAL, ISSUE_REPORTED
   isLieferscheinPrinted Boolean   @default(false) // 납품서 출력 여부
+  lieferscheinPrintedAt DateTime?                 // 납품서 출력 일시
   isPickListPrinted     Boolean   @default(false) // 피킹 리스트 출력 여부
   startedAt             DateTime  @default(now())
   completedAt           DateTime?
