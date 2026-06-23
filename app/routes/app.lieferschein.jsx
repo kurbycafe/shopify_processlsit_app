@@ -2,7 +2,7 @@ import { useLoaderData, useFetcher } from "react-router";
 import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import styles from "../styles/app.lieferschein.css?url"; 
+import styles from "../styles/app.lieferschein.css?url";
 import { Select, BlockStack, InlineStack, Card, Text, Box, TextField } from "@shopify/polaris";
 
 export const links = () => [
@@ -44,12 +44,14 @@ export const action = async ({ request }) => {
 
   if (intent === "reset_print_status") {
     const orderId = formData.get("orderId");
+    const orderName = formData.get("orderName") || "N/A";
 
     await prisma.inspectionRecord.upsert({
       where: { orderId },
       update: { isLieferscheinPrinted: false, lieferscheinPrintedAt: null },
       create: {
         orderId,
+        orderName,
         shop: session.shop,
         status: "PENDING",
         isLieferscheinPrinted: false,
@@ -193,22 +195,22 @@ export const loader = async ({ request }) => {
         const posUpper = posRaw.trim().toUpperCase();
 
         let sortKey = "500_" + posUpper;
-        if (!posUpper)                  sortKey = "999_ZZZZZ";
-        else if (posUpper.includes("!"))    sortKey = "000_" + posUpper;
-        else if (posUpper.includes("L-A"))  sortKey = "100_" + posUpper;
-        else if (posUpper.includes("L-B"))  sortKey = "200_" + posUpper;
-        else if (posUpper.includes("L-C"))  sortKey = "300_" + posUpper;
-        else if (posUpper.includes("L-D"))  sortKey = "400_" + posUpper;
+        if (!posUpper) sortKey = "999_ZZZZZ";
+        else if (posUpper.includes("!")) sortKey = "000_" + posUpper;
+        else if (posUpper.includes("L-A")) sortKey = "100_" + posUpper;
+        else if (posUpper.includes("L-B")) sortKey = "200_" + posUpper;
+        else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
+        else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
 
         const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
 
         const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
-        const weightUnit  = variant?.inventoryItem?.measurement?.weight?.unit  ?? "GRAMS";
+        const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? "GRAMS";
         let grams = 0;
-        if      (weightUnit === "GRAMS")     grams = weightValue;
+        if (weightUnit === "GRAMS") grams = weightValue;
         else if (weightUnit === "KILOGRAMS") grams = weightValue * 1000;
-        else if (weightUnit === "POUNDS")    grams = weightValue * 453.592;
-        else if (weightUnit === "OUNCES")    grams = weightValue * 28.3495;
+        else if (weightUnit === "POUNDS") grams = weightValue * 453.592;
+        else if (weightUnit === "OUNCES") grams = weightValue * 28.3495;
 
         const variantGid = variant?.id || "";
         const isIcePackage = variantGid.endsWith("/54301230268745");
@@ -236,7 +238,7 @@ export const loader = async ({ request }) => {
       const sortedItems = [...rawItems].sort((a, b) =>
         a._finalSortString.localeCompare(b._finalSortString)
       );
-      const totalGrams    = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
+      const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
       const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
 
@@ -299,7 +301,7 @@ export const loader = async ({ request }) => {
 
     const ordersWithPrintStatus = ordersWithCombinedInfo.map((order) => {
       const dbRecord = printedRecords.find((r) => r.orderId === order.id);
-      
+
       let printedAtStr = null;
       if (dbRecord && dbRecord.lieferscheinPrintedAt) {
         printedAtStr = new Date(dbRecord.lieferscheinPrintedAt).toLocaleString("de-DE", {
@@ -329,31 +331,31 @@ export const loader = async ({ request }) => {
 
 // ─── 표준 Code 128B 바코드 엔진 ──────────────────────────────────────
 const CODE128_CHARS = [
-  "11011001100","11001101100","11001100110","10010011000","10010001100",
-  "10001001100","10011001000","10011000100","10001100100","11001001000",
-  "11001000100","11000100100","10110011100","10011011100","10011001110",
-  "10111001100","10011101100","10011100110","11001110010","11001011100",
-  "11001001110","11011100100","11001110100","11101101110","11101001100",
-  "11100101100","11100100110","11101100100","11100110100","11100110010",
-  "11011011000","11011000110","11000110110","10100011000","10001011000",
-  "10001000110","10110001000","10001101000","10001100010","11010001000",
-  "11000101000","11000100010","10110111000","10110001110","10001101110",
-  "10111011000","10111000110","10001110110","11101110110","11010001110",
-  "11000101110","11011101000","11011100010","11011101110","11101011000",
-  "11101000110","11100010110","11101101000","11101100010","11100011010",
-  "11101111010","11001000010","11110001010","10100110000","10100001100",
-  "10010110000","10010000110","10000101100","10000100110","10110010000",
-  "10110000100","10011010000","10011000010","10000110100","10000110010",
-  "11000010010","11001010000","11110111010","11000010100","10001111010",
-  "10100111100","10010111100","10010011110","10111100100","10011110100",
-  "10011110010","11110100100","11110010100","11110010010","11011011110",
-  "11011110110","11110110110","10101111000","10100011110","10001011110",
-  "10111101000","10111100010","11110101000","11110100010","10111011110",
-  "10111101110","11101011110","11110101110","11010000100","11010010000",
-  "11010011100","11000111010"
+  "11011001100", "11001101100", "11001100110", "10010011000", "10010001100",
+  "10001001100", "10011001000", "10011000100", "10001100100", "11001001000",
+  "11001000100", "11000100100", "10110011100", "10011011100", "10011001110",
+  "10111001100", "10011101100", "10011100110", "11001110010", "11001011100",
+  "11001001110", "11011100100", "11001110100", "11101101110", "11101001100",
+  "11100101100", "11100100110", "11101100100", "11100110100", "11100110010",
+  "11011011000", "11011000110", "11000110110", "10100011000", "10001011000",
+  "10001000110", "10110001000", "10001101000", "10001100010", "11010001000",
+  "11000101000", "11000100010", "10110111000", "10110001110", "10001101110",
+  "10111011000", "10111000110", "10001110110", "11101110110", "11010001110",
+  "11000101110", "11011101000", "11011100010", "11011101110", "11101011000",
+  "11101000110", "11100010110", "11101101000", "11101100010", "11100011010",
+  "11101111010", "11001000010", "11110001010", "10100110000", "10100001100",
+  "10010110000", "10010000110", "10000101100", "10000100110", "10110010000",
+  "10110000100", "10011010000", "10011000010", "10000110100", "10000110010",
+  "11000010010", "11001010000", "11110111010", "11000010100", "10001111010",
+  "10100111100", "10010111100", "10010011110", "10111100100", "10011110100",
+  "10011110010", "11110100100", "11110010100", "11110010010", "11011011110",
+  "11011110110", "11110110110", "10101111000", "10100011110", "10001011110",
+  "10111101000", "10111100010", "11110101000", "11110100010", "10111011110",
+  "10111101110", "11101011110", "11110101110", "11010000100", "11010010000",
+  "11010011100", "11000111010"
 ];
 const CODE128_START_B = 104;
-const CODE128_STOP    = "1100011101011";
+const CODE128_STOP = "1100011101011";
 
 function encodeCode128(text) {
   let checksum = CODE128_START_B;
@@ -407,8 +409,8 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
-  const fetcher = useFetcher(); 
-  
+  const fetcher = useFetcher();
+
   const [orders, setOrders] = useState([]);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [printedOrderIds, setPrintedOrderIds] = useState([]);
@@ -481,7 +483,7 @@ export default function AdditionalPage() {
     // 3.8 검색 텍스트 필터
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      result = result.filter(o => 
+      result = result.filter(o =>
         o.name.toLowerCase().includes(q) ||
         o.email.toLowerCase().includes(q) ||
         (o.shippingAddress?.name && o.shippingAddress.name.toLowerCase().includes(q))
@@ -529,7 +531,7 @@ export default function AdditionalPage() {
 
   const handlePrint = async () => {
     if (selectedOrders.length === 0) return;
-    
+
     const ordersPayload = selectedOrders.map((id) => {
       const order = orders.find((o) => o.id === id);
       return { id, name: order?.name || "" };
@@ -550,17 +552,18 @@ export default function AdditionalPage() {
       )
     );
     setSelectedOrders([]);
-    
+
     setTimeout(() => {
       window.print();
     }, 1200);
   };
 
-  const handleResetPrint = (orderId) => {
+  const handleResetPrint = (orderId, orderName) => {
     fetcher.submit(
       {
         intent: "reset_print_status",
         orderId: orderId,
+        orderName: orderName,
       },
       { method: "POST" }
     );
@@ -577,7 +580,7 @@ export default function AdditionalPage() {
 
   return (
     <div>
-      <div className="page-header">DAWAYO 패킹 시스템(개발중 - 출고용 사용금지)</div>
+      <div className="page-header">DAWAYO 패킹 시스템(개발중)</div>
 
       <div className="admin-panel">
         <p className="admin-help-text">
@@ -588,7 +591,7 @@ export default function AdditionalPage() {
           <Card background="bg-surface-secondary">
             <BlockStack gap="400">
               <Text variant="headingSm" as="h3">스마트 주문 필터링</Text>
-              
+
               <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", width: "100%" }}>
                 <div style={{ flex: 1, minWidth: "260px" }}>
                   <TextField
@@ -609,9 +612,9 @@ export default function AdditionalPage() {
                   <Select
                     label="결제 상태"
                     options={[
-                      {label: '전체 (Paid + Pending)', value: 'ALL'},
-                      {label: '✅ 결제 완료 (Paid)', value: 'PAID'},
-                      {label: '⏳ 결제 대기 (Pending)', value: 'PENDING'},
+                      { label: '전체 (Paid + Pending)', value: 'ALL' },
+                      { label: '✅ 결제 완료 (Paid)', value: 'PAID' },
+                      { label: '⏳ 결제 대기 (Pending)', value: 'PENDING' },
                     ]}
                     value={paymentFilter}
                     onChange={setPaymentFilter}
@@ -621,9 +624,9 @@ export default function AdditionalPage() {
                   <Select
                     label="국가 및 지역"
                     options={[
-                      {label: '모든 배송지', value: 'ALL'},
-                      {label: '독일 국내만 (Domestic)', value: 'DOMESTIC'},
-                      {label: '해외 배송만 (International)', value: 'INTERNATIONAL'},
+                      { label: '모든 배송지', value: 'ALL' },
+                      { label: '독일 국내만 (Domestic)', value: 'DOMESTIC' },
+                      { label: '해외 배송만 (International)', value: 'INTERNATIONAL' },
                     ]}
                     value={regionFilter}
                     onChange={setRegionFilter}
@@ -633,9 +636,9 @@ export default function AdditionalPage() {
                   <Select
                     label="상품 종류 및 복잡도"
                     options={[
-                      {label: '모든 주문', value: 'ALL'},
-                      {label: '단일 상품 (초스피드)', value: 'SINGLE'},
-                      {label: '다품종 대량 (15종↑)', value: 'COMPLEX'},
+                      { label: '모든 주문', value: 'ALL' },
+                      { label: '단일 상품 (초스피드)', value: 'SINGLE' },
+                      { label: '다품종 대량 (15종↑)', value: 'COMPLEX' },
                     ]}
                     value={complexityFilter}
                     onChange={setComplexityFilter}
@@ -645,10 +648,10 @@ export default function AdditionalPage() {
                   <Select
                     label="배송 수단 및 포장"
                     options={[
-                      {label: '모든 수단', value: 'ALL'},
-                      {label: '일반 배송 (Standard)', value: 'STANDARD'},
-                      {label: '특급 배송 (Express)', value: 'EXPRESS'},
-                      {label: '❄️ 냉장/냉동 포함', value: 'ICE'},
+                      { label: '모든 수단', value: 'ALL' },
+                      { label: '일반 배송 (Standard)', value: 'STANDARD' },
+                      { label: '특급 배송 (Express)', value: 'EXPRESS' },
+                      { label: '❄️ 냉장/냉동 포함', value: 'ICE' },
                     ]}
                     value={shippingFilter}
                     onChange={setShippingFilter}
@@ -658,8 +661,8 @@ export default function AdditionalPage() {
                   <Select
                     label="온도대 구분"
                     options={[
-                      {label: '전체 온도대', value: 'ALL'},
-                      {label: 'Dry Only (상온 제품만)', value: 'DRY_ONLY'},
+                      { label: '전체 온도대', value: 'ALL' },
+                      { label: 'Dry Only (상온 제품만)', value: 'DRY_ONLY' },
                     ]}
                     value={tempFilter}
                     onChange={setTempFilter}
@@ -670,9 +673,9 @@ export default function AdditionalPage() {
                   <Select
                     label="인쇄 상태"
                     options={[
-                      {label: '모든 주문', value: 'ALL'},
-                      {label: '⏳ 미출력 주문', value: 'UNPRINTED'},
-                      {label: '✅ 출력 완료', value: 'PRINTED'},
+                      { label: '모든 주문', value: 'ALL' },
+                      { label: '⏳ 미출력 주문', value: 'UNPRINTED' },
+                      { label: '✅ 출력 완료', value: 'PRINTED' },
                     ]}
                     value={printFilter}
                     onChange={setPrintFilter}
@@ -682,9 +685,9 @@ export default function AdditionalPage() {
                   <Select
                     label="정렬 기준"
                     options={[
-                      {label: '최신 주문순', value: 'DATE_DESC'},
-                      {label: '수량 적은 순', value: 'QTY_ASC'},
-                      {label: '수량 많은 순', value: 'QTY_DESC'},
+                      { label: '최신 주문순', value: 'DATE_DESC' },
+                      { label: '수량 적은 순', value: 'QTY_ASC' },
+                      { label: '수량 많은 순', value: 'QTY_DESC' },
                     ]}
                     value={sortOrder}
                     onChange={setSortOrder}
@@ -730,7 +733,7 @@ export default function AdditionalPage() {
               filteredOrders.map((order) => {
                 const isInternational = order.shippingAddress?.countryCode && order.shippingAddress.countryCode !== "DE";
                 const isPaid = order.financialStatus === "PAID" || order.financialStatus === "PARTIALLY_PAID";
-                
+
                 return (
                   <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
                     <td>
@@ -742,13 +745,13 @@ export default function AdditionalPage() {
                       />
                     </td>
                     <td className="order-name">{order.name}</td>
-                    
+
                     {/* ✨ 결제 상태 뱃지 출력 */}
                     <td>
                       {isPaid ? (
-                        <span style={{fontSize:"11px", background:"#dcfce7", color:"#166534", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>결제완료</span>
+                        <span style={{ fontSize: "11px", background: "#dcfce7", color: "#166534", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>결제완료</span>
                       ) : (
-                        <span style={{fontSize:"11px", background:"#fef08a", color:"#854d0e", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>{order.financialStatus}</span>
+                        <span style={{ fontSize: "11px", background: "#fef08a", color: "#854d0e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>{order.financialStatus}</span>
                       )}
                     </td>
 
@@ -758,14 +761,14 @@ export default function AdditionalPage() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                        {isInternational && <span style={{fontSize:"11px", background:"#fef08a", color:"#854d0e", padding:"2px 6px", borderRadius:"4px"}}>해외</span>}
+                        {isInternational && <span style={{ fontSize: "11px", background: "#fef08a", color: "#854d0e", padding: "2px 6px", borderRadius: "4px" }}>해외</span>}
                         {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
-                          <span style={{fontSize:"11px", background:"#fecaca", color:"#991b1b", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>EXPRESS</span>
+                          <span style={{ fontSize: "11px", background: "#fecaca", color: "#991b1b", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>EXPRESS</span>
                         )}
-                        {order.hasIcePackage && <span style={{fontSize:"11px", background:"#bfdbfe", color:"#1e3a8a", padding:"2px 6px", borderRadius:"4px"}}>냉장</span>}
-                        {order.isB2B && <span style={{fontSize:"11px", background:"#dbeafe", color:"#1e40af", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>B2B</span>}
+                        {order.hasIcePackage && <span style={{ fontSize: "11px", background: "#bfdbfe", color: "#1e3a8a", padding: "2px 6px", borderRadius: "4px" }}>냉장</span>}
+                        {order.isB2B && <span style={{ fontSize: "11px", background: "#dbeafe", color: "#1e40af", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>B2B</span>}
                         {order.hasCombinedShipping && (
-                          <span style={{fontSize:"11px", background:"#fef3c7", color:"#92400e", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>
+                          <span style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
                             ⚠️ 합포장 ({order.combinedCount}건)
                           </span>
                         )}
@@ -783,7 +786,7 @@ export default function AdditionalPage() {
                             )}
                           </div>
                           <button
-                            onClick={() => handleResetPrint(order.id)}
+                            onClick={() => handleResetPrint(order.id, order.name)}
                             style={{
                               padding: "2px 6px",
                               fontSize: "11px",
@@ -813,8 +816,8 @@ export default function AdditionalPage() {
       {activePrintOrders.length > 0 && (
         <div className="paper-viewport">
           {activePrintOrders.map((order) => {
-            const isInternational = order.shippingAddress?.country && 
-              order.shippingAddress.country !== "Germany" && 
+            const isInternational = order.shippingAddress?.country &&
+              order.shippingAddress.country !== "Germany" &&
               order.shippingAddress.countryCode !== "DE";
 
             const methodUpper = order.shippingMethod.toUpperCase();
@@ -835,7 +838,7 @@ export default function AdditionalPage() {
                   <div className="header-left">
                     <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
                       <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
-                      
+
                       {/* ⚡ 특급 배송 빨간색 잉크 스탬프 배지 */}
                       {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
                         <div style={{
@@ -904,7 +907,7 @@ export default function AdditionalPage() {
                       {order.isB2B && <div className="badge">B2B</div>}
                       {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
                     </div>
-                    
+
                     {/* ✨ 신규 배송 수단 & 해외 국가명 굵은 외곽선 텍스트 상자 배치 */}
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
                       <div style={{
@@ -996,7 +999,7 @@ export default function AdditionalPage() {
                             {item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
                             {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
                           </td>
-                          
+
                           <td className={`qty-cell ${isOriginalMultiQty ? "qty-cell-warning" : ""}`}>
                             × {item.quantity}
                             {isOriginalMultiQty && <span className="qty-warning-lbl">수량주의</span>}
