@@ -699,7 +699,7 @@ export default function Inspect() {
   };
 
   // Web Audio API를 활용한 효과음 재생기
-  const playSound = (type) => {
+  function playSound(type) {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
@@ -735,7 +735,7 @@ export default function Inspect() {
     }
   };
 
-  const processBarcode = (scannedBarcode) => {
+  function processBarcode(scannedBarcode) {
     if (!currentOrder || !scannedBarcode.trim()) return;
 
     const rawCode = scannedBarcode.trim();
@@ -806,7 +806,7 @@ export default function Inspect() {
     setBarcode("");
   };
 
-  const highlightRow = (itemId) => {
+  function highlightRow(itemId) {
     setHighlightedRowId(itemId);
     setTimeout(() => setHighlightedRowId(null), 800);
   };
