@@ -120,6 +120,7 @@ export const loader = async ({ request }) => {
                           germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
                           expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                           position: metafield(namespace: "custom", key: "position") { value }
+                          producttype: metafield(namespace: "custom", key: "producttype") { value }
                         }
                       }
                     }
@@ -208,6 +209,7 @@ export const loader = async ({ request }) => {
           germanTranslation: product?.germanTranslation?.value || "",
           expiryDate: product?.expiryDate?.value || "",
           position: posRaw,
+          productType: (product?.producttype?.value || "t").trim().toLowerCase(),
           _finalSortString: `${sortKey}___:::___${titleKey}`,
         };
       });
@@ -218,6 +220,18 @@ export const loader = async ({ request }) => {
       const totalGrams    = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
       const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
+
+      const isDryOnly = sortedItems.every(item => item.productType === "t" || !item.productType);
+      const hasChilled = sortedItems.some(item => item.productType === "k");
+      const hasFrozen = sortedItems.some(item => item.productType === "tk");
+
+      const companyUpper = (node.shippingAddress?.company || "").toUpperCase();
+      const nameUpper = (node.shippingAddress?.name || "").toUpperCase();
+      const isB2B = !!(
+        node.shippingAddress?.company ||
+        companyUpper.includes("GMBH") ||
+        nameUpper.includes("GMBH")
+      );
 
       return {
         id: node.id,
@@ -237,16 +251,34 @@ export const loader = async ({ request }) => {
         totalOrderQty,
         items: sortedItems,
         isFirstPurchase: (node.customer?.numberOfOrders ?? 0) === 1,
+        isDryOnly,
+        hasChilled,
+        hasFrozen,
+        isB2B,
       };
     });
 
-    const orderIds = orders.map((o) => o.id);
+    // 🔍 합포장(Combined Shipping) 감지
+    const emailCounts = {};
+    orders.forEach((o) => {
+      if (o.email && o.email !== "-") {
+        emailCounts[o.email] = (emailCounts[o.email] || 0) + 1;
+      }
+    });
+
+    const ordersWithCombinedInfo = orders.map((o) => ({
+      ...o,
+      hasCombinedShipping: o.email !== "-" && emailCounts[o.email] > 1,
+      combinedCount: o.email !== "-" ? emailCounts[o.email] : 0,
+    }));
+
+    const orderIds = ordersWithCombinedInfo.map((o) => o.id);
     const printedRecords = await prisma.inspectionRecord.findMany({
       where: { orderId: { in: orderIds } },
       select: { orderId: true, isLieferscheinPrinted: true, isPickListPrinted: true }
     });
 
-    const ordersWithPrintStatus = orders.map((order) => {
+    const ordersWithPrintStatus = ordersWithCombinedInfo.map((order) => {
       const dbRecord = printedRecords.find((r) => r.orderId === order.id);
       return {
         ...order,

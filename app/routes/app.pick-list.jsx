@@ -113,7 +113,13 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
         lineItems(first: 50) { 
           nodes {
             quantity name
-            variant { id sku barcode inventoryQuantity product { title } }
+            variant { 
+              id sku barcode inventoryQuantity 
+              product { 
+                title 
+                producttype: metafield(namespace: "custom", key: "producttype") { value }
+              } 
+            }
           }
         }
       }
@@ -137,7 +143,7 @@ function sortBinLocations(a, b) {
   return locA.localeCompare(locB);
 }
 
-async function loadPickListData(admin) {
+async function loadPickListData(admin, tempFilter = "ALL") {
   const itemMap = new Map();
   let hasNextPage = true;
   let after = null;
@@ -151,26 +157,33 @@ async function loadPickListData(admin) {
     for (const order of orders) {
       if (order.cancelledAt) continue;
 
-      const companyUpper = (order.shippingAddress?.company || "").toUpperCase();
-      const nameUpper = (order.shippingAddress?.name || "").toUpperCase();
-      const isB2B = !!(
-        order.shippingAddress?.company ||
-        companyUpper.includes("GMBH") ||
-        nameUpper.includes("GMBH")
-      );
-
-      const fStatus = order.displayFinancialStatus;
-      // 오직 결제 완료(PAID) 및 부분 결제 완료(PARTIALLY_PAID) 상태의 주문만 수집하되, B2B 주문(GmbH 또는 회사명이 있는 주문)은 결제 상태 무관하게 포함
-      if (fStatus === "PAID" || fStatus === "PARTIALLY_PAID" || isB2B) {
-        filteredOrders.push(order);
-      }
+      // 전체 추가해주고 (미처리 주문 전체를 수집)
+      filteredOrders.push(order);
     }
     hasNextPage = Boolean(payload?.data?.orders?.pageInfo?.hasNextPage);
     after = payload?.data?.orders?.pageInfo?.endCursor || null;
   }
 
-  // Aggregate items from filteredOrders
+  // 각 주문별 온도대 판별 및 필터 적용
+  const finalOrders = [];
   for (const order of filteredOrders) {
+    const items = order.lineItems?.nodes ?? [];
+    const isDryOnly = items.every((item) => {
+      const pType = (item.variant?.product?.producttype?.value || "t").trim().toLowerCase();
+      return pType === "t" || pType === "";
+    });
+
+    if (tempFilter === "DRY_ONLY") {
+      if (isDryOnly) {
+        finalOrders.push(order);
+      }
+    } else {
+      finalOrders.push(order);
+    }
+  }
+
+  // Aggregate items from finalOrders
+  for (const order of finalOrders) {
     const orderNumber = order.name;
     for (const lineItem of order?.lineItems?.nodes ?? []) {
       const variant = lineItem.variant;
@@ -204,7 +217,7 @@ async function loadPickListData(admin) {
 
   return {
     items,
-    totalOrdersCount: filteredOrders.length,
+    totalOrdersCount: finalOrders.length,
     totalUnfulfilledProducts: items.length,
     totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
   };
@@ -290,7 +303,9 @@ async function generatePdfBuffer(items, techTime) {
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  return await loadPickListData(admin);
+  const urlObj = new URL(request.url);
+  const tempFilter = urlObj.searchParams.get("tempFilter") || "ALL";
+  return await loadPickListData(admin, tempFilter);
 };
 
 export const action = async ({ request }) => {
@@ -302,7 +317,9 @@ export const action = async ({ request }) => {
 
   if (intent === "send-email") {
     const orderNames = JSON.parse(formData.get("orderNames") || "[]");
-    const data = await loadPickListData(admin);
+    const urlObj = new URL(request.url);
+    const tempFilter = urlObj.searchParams.get("tempFilter") || "ALL";
+    const data = await loadPickListData(admin, tempFilter);
 
     // 1. DB 업데이트 (피킹 리스트 출력 여부 기록 - 병렬 처리로 성능 최적화)
     const updatePromises = orderNames.map(async (orderName) => {
@@ -397,7 +414,7 @@ export const action = async ({ request }) => {
 // 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
 // ========================================================
 export default function PickListPage() {
-  const { items, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty } = useLoaderData();
+  const { items, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty, tempFilter } = useLoaderData();
   const actionData = useActionData(); 
   const submit = useSubmit();
 
@@ -574,9 +591,38 @@ export default function PickListPage() {
             </div>
           </div>
 
-          <s-button type="button" variant="primary" onClick={handlePrintAndEmail}>
-            프린트 및 이메일 PDF 전송
-          </s-button>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <label style={{ fontSize: "13px", fontWeight: "bold", color: "#475569" }}>온도대 구분:</label>
+              <select
+                value={tempFilter || "ALL"}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const params = new URLSearchParams(window.location.search);
+                  params.set("tempFilter", val);
+                  window.location.search = params.toString();
+                }}
+                style={{
+                  padding: "8px 12px",
+                  fontSize: "13px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  background: "#fff",
+                  color: "#1e293b",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                  outline: "none"
+                }}
+              >
+                <option value="ALL">전체 온도대</option>
+                <option value="DRY_ONLY">☀️ 상온 제품만 (Dry)</option>
+              </select>
+            </div>
+
+            <s-button type="button" variant="primary" onClick={handlePrintAndEmail}>
+              프린트 및 이메일 PDF 전송
+            </s-button>
+          </div>
         </div>
 
         <div style={tableWrapStyle}>
