@@ -23,7 +23,7 @@ export default function App() {
         <s-link href="/app/pick-list">처리중 리스트</s-link>
         <s-link href="/app/inspection-history">검수 내역</s-link>
         <s-link href="/app/returns">반품 검수</s-link>
-        <s-link href="/app/wave-picking">웨이브 피킹</s-link>
+        <s-link href="/app/container-catalog">컨테이너 카탈로그</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>

@@ -585,6 +585,63 @@ export default function Inspect() {
     }
   }, [currentOrder]);
 
+  // ✨ 글로벌 키보드 바코드 스캐너 리스너 (Hands-Free 스캔)
+  useEffect(() => {
+    if (!currentOrder) return; // 활성화된 주문이 없으면 동작하지 않음
+
+    let buffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e) => {
+      const activeEl = document.activeElement;
+      
+      // 현재 포커스가 일반 입력 필드나 텍스트 영역(검색창, 메모창 등)에 있는 경우 전역 캡처 차단.
+      // 바코드 입력창 자체에 포커스가 가 있을 때도 이중 인식을 방지하기 위해 전역 리스너는 건너뜁니다.
+      const isInputFocused = activeEl && (
+        activeEl.tagName === "INPUT" || 
+        activeEl.tagName === "TEXTAREA" || 
+        activeEl.isContentEditable
+      );
+
+      if (isInputFocused) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      
+      // 하드웨어 바코드 리더기는 연속 입력 간격이 극히 짧습니다 (보통 15ms 이하).
+      // 손으로 타이핑하는 것과 구분하기 위해 입력 간격 임계값을 40ms로 설정합니다.
+      const isFastKeystroke = (currentTime - lastKeyTime) < 40;
+      lastKeyTime = currentTime;
+
+      // 엔터 키가 입력되면 스캔 완료로 간주하여 수집된 버퍼를 전송합니다.
+      if (e.key === "Enter") {
+        if (buffer.length > 1) {
+          e.preventDefault(); // 기본 Enter 동작(폼 제출 등) 방지
+          const scannedCode = buffer.trim();
+          processBarcode(scannedCode);
+          buffer = "";
+        }
+        return;
+      }
+
+      // 문자 및 숫자 키만 버퍼에 기록 (컨트롤, 시프트, 알트 등 제어 키 제외)
+      if (e.key.length === 1) {
+        if (isFastKeystroke || buffer.length === 0) {
+          buffer += e.key;
+        } else {
+          // 키 입력 속도가 느릴 경우 사람이 타이핑하는 것으로 간주하여 버퍼를 리셋하고 새로 시작합니다.
+          buffer = e.key;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [currentOrder, barcodeRef, processBarcode]);
+
   const handleSearch = () => {
     if (!orderName.trim()) return;
     fetcher.submit({ intent: "fetch_order", orderName }, { method: "POST" });
@@ -980,7 +1037,7 @@ export default function Inspect() {
                       onChange={setOrderName}
                       autoComplete="off"
                       prefix={<Icon source={SearchIcon} />} 
-                      ref={orderSearchRef}
+                      inputRef={orderSearchRef}
                       disabled={!!currentOrder && !multiMode}
                     />
                   </form>
@@ -1048,7 +1105,7 @@ export default function Inspect() {
                       onChange={setBarcode}
                       autoComplete="off"
                       prefix={<Icon source={BarcodeIcon} />} 
-                      ref={barcodeRef}
+                      inputRef={barcodeRef}
                       helpText="상품의 바코드를 스캔하거나 우측의 +/- 버튼으로 수동 검수하세요."
                     />
                   </form>

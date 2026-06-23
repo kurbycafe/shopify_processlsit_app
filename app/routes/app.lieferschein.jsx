@@ -485,6 +485,23 @@ export default function AdditionalPage() {
     }, 1200);
   };
 
+  const handleResetPrint = (orderId) => {
+    fetcher.submit(
+      {
+        intent: "reset_print_status",
+        orderId: orderId,
+      },
+      { method: "POST" }
+    );
+
+    // 로컬 상태 즉시 업데이트
+    setOrders(prevOrders =>
+      prevOrders.map(order =>
+        order.id === orderId ? { ...order, isPrinted: false } : order
+      )
+    );
+  };
+
   const activePrintOrders = orders.filter((o) => printedOrderIds.includes(o.id));
 
   return (
@@ -660,13 +677,38 @@ export default function AdditionalPage() {
                     <td>
                       <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                         {isInternational && <span style={{fontSize:"11px", background:"#fef08a", color:"#854d0e", padding:"2px 6px", borderRadius:"4px"}}>해외</span>}
-                        {order.shippingMethod.toUpperCase().includes("EXPRESS") && <span style={{fontSize:"11px", background:"#fecaca", color:"#991b1b", padding:"2px 6px", borderRadius:"4px"}}>EXPRESS</span>}
+                        {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
+                          <span style={{fontSize:"11px", background:"#fecaca", color:"#991b1b", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>EXPRESS</span>
+                        )}
                         {order.hasIcePackage && <span style={{fontSize:"11px", background:"#bfdbfe", color:"#1e3a8a", padding:"2px 6px", borderRadius:"4px"}}>냉장</span>}
+                        {order.isB2B && <span style={{fontSize:"11px", background:"#dbeafe", color:"#1e40af", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>B2B</span>}
+                        {order.hasCombinedShipping && (
+                          <span style={{fontSize:"11px", background:"#fef3c7", color:"#92400e", padding:"2px 6px", borderRadius:"4px", fontWeight:"bold"}}>
+                            ⚠️ 합포장 ({order.combinedCount}건)
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td>
                       {order.isPrinted ? (
-                        <span className="status-badge-printed">인쇄 완료</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span className="status-badge-printed">인쇄 완료</span>
+                          <button
+                            onClick={() => handleResetPrint(order.id)}
+                            style={{
+                              padding: "2px 6px",
+                              fontSize: "11px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              background: "#f8fafc",
+                              cursor: "pointer",
+                              color: "#475569"
+                            }}
+                            className="no-print"
+                          >
+                            대기전환
+                          </button>
+                        </div>
                       ) : (
                         <span className="status-badge-ready">대기중</span>
                       )}
@@ -702,7 +744,63 @@ export default function AdditionalPage() {
               <div key={order.id} className="packing-slip">
                 <div className="header">
                   <div className="header-left">
-                    <div className="document-title">Lieferschein</div>
+                    <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+                      <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
+                      
+                      {/* ⚡ 특급 배송 빨간색 잉크 스탬프 배지 */}
+                      {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
+                        <div style={{
+                          border: "4px double #dc2626",
+                          color: "#dc2626",
+                          padding: "3px 8px",
+                          fontSize: "13px",
+                          fontWeight: "900",
+                          textTransform: "uppercase",
+                          transform: "rotate(-2.5deg)",
+                          display: "inline-block",
+                          fontFamily: "sans-serif",
+                          letterSpacing: "0.5px"
+                        }}>
+                          ⚡ {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
+                        </div>
+                      )}
+
+                      {/* 📦 B2B 도매 검정색 잉크 스탬프 배지 */}
+                      {order.isB2B && (
+                        <div style={{
+                          border: "4px double #1e293b",
+                          color: "#1e293b",
+                          padding: "3px 8px",
+                          fontSize: "13px",
+                          fontWeight: "900",
+                          textTransform: "uppercase",
+                          transform: "rotate(1.5deg)",
+                          display: "inline-block",
+                          fontFamily: "sans-serif",
+                          letterSpacing: "0.5px"
+                        }}>
+                          📦 B2B / WHOLESALE
+                        </div>
+                      )}
+
+                      {/* ⚠️ 합포장 경고 스탬프 배지 */}
+                      {order.hasCombinedShipping && (
+                        <div style={{
+                          border: "4px double #d97706",
+                          color: "#d97706",
+                          padding: "3px 8px",
+                          fontSize: "13px",
+                          fontWeight: "900",
+                          textTransform: "uppercase",
+                          transform: "rotate(-1.2deg)",
+                          display: "inline-block",
+                          fontFamily: "sans-serif",
+                          letterSpacing: "0.5px"
+                        }}>
+                          ⚠️ COMBINED SHIPPING ({order.combinedCount})
+                        </div>
+                      )}
+                    </div>
                     <table className="info-grid">
                       <tbody>
                         <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
@@ -714,7 +812,7 @@ export default function AdditionalPage() {
                       </tbody>
                     </table>
                     <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
-                      {order.shippingAddress?.company && <div className="badge">B2B</div>}
+                      {order.isB2B && <div className="badge">B2B</div>}
                       {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
                     </div>
                     

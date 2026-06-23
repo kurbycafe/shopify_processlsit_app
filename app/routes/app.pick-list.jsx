@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Form, useLoaderData, useActionData, useSubmit, useSearchParams, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import prisma from "../db.server";
 
 // ========================================================
 // 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
@@ -105,6 +106,10 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
         id name
         displayFinancialStatus
         cancelledAt
+        shippingAddress {
+          name
+          company
+        }
         lineItems(first: 50) { 
           nodes {
             quantity name
@@ -132,16 +137,11 @@ function sortBinLocations(a, b) {
   return locA.localeCompare(locB);
 }
 
-async function loadPickListData(admin, selectedTab = "all") {
+async function loadPickListData(admin) {
   const itemMap = new Map();
   let hasNextPage = true;
   let after = null;
-
-  let countAll = 0;
-  let countPaid = 0;
-  let countPending = 0;
-
-  const allOrders = [];
+  const filteredOrders = [];
 
   while (hasNextPage) {
     const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 50, after } });
@@ -150,42 +150,24 @@ async function loadPickListData(admin, selectedTab = "all") {
 
     for (const order of orders) {
       if (order.cancelledAt) continue;
+
+      const companyUpper = (order.shippingAddress?.company || "").toUpperCase();
+      const nameUpper = (order.shippingAddress?.name || "").toUpperCase();
+      const isB2B = !!(
+        order.shippingAddress?.company ||
+        companyUpper.includes("GMBH") ||
+        nameUpper.includes("GMBH")
+      );
+
       const fStatus = order.displayFinancialStatus;
-      if (fStatus === "REFUNDED" || fStatus === "VOIDED") continue;
-
-      allOrders.push(order);
-
-      const isPaid = fStatus === "PAID" || fStatus === "PARTIALLY_PAID";
-      const isPending = fStatus === "PENDING" || fStatus === "AUTHORIZED";
-
-      if (isPaid || isPending) {
-        countAll++;
-      }
-      if (isPaid) {
-        countPaid++;
-      }
-      if (isPending) {
-        countPending++;
+      // 오직 결제 완료(PAID) 및 부분 결제 완료(PARTIALLY_PAID) 상태의 주문만 수집하되, B2B 주문(GmbH 또는 회사명이 있는 주문)은 결제 상태 무관하게 포함
+      if (fStatus === "PAID" || fStatus === "PARTIALLY_PAID" || isB2B) {
+        filteredOrders.push(order);
       }
     }
     hasNextPage = Boolean(payload?.data?.orders?.pageInfo?.hasNextPage);
     after = payload?.data?.orders?.pageInfo?.endCursor || null;
   }
-
-  // Filter based on selectedTab
-  const filteredOrders = allOrders.filter(order => {
-    const fStatus = order.displayFinancialStatus;
-    const isPaid = fStatus === "PAID" || fStatus === "PARTIALLY_PAID";
-    const isPending = fStatus === "PENDING" || fStatus === "AUTHORIZED";
-
-    if (selectedTab === "paid") {
-      return isPaid;
-    } else if (selectedTab === "pending") {
-      return isPending;
-    }
-    // "all"
-    return isPaid || isPending;
-  });
 
   // Aggregate items from filteredOrders
   for (const order of filteredOrders) {
@@ -225,12 +207,6 @@ async function loadPickListData(admin, selectedTab = "all") {
     totalOrdersCount: filteredOrders.length,
     totalUnfulfilledProducts: items.length,
     totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
-    counts: {
-      all: countAll,
-      paid: countPaid,
-      pending: countPending
-    },
-    activeTab: selectedTab
   };
 }
 
@@ -314,9 +290,7 @@ async function generatePdfBuffer(items, techTime) {
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  const url = new URL(request.url);
-  const tab = url.searchParams.get("tab") || "all";
-  return await loadPickListData(admin, tab);
+  return await loadPickListData(admin);
 };
 
 export const action = async ({ request }) => {
@@ -328,45 +302,41 @@ export const action = async ({ request }) => {
 
   if (intent === "send-email") {
     const orderNames = JSON.parse(formData.get("orderNames") || "[]");
-    const activeTab = formData.get("activeTab") || "all";
-    const data = await loadPickListData(admin, activeTab);
+    const data = await loadPickListData(admin);
 
-    // 1. DB 업데이트 (피킹 리스트 출력 여부 기록)
-    // Shopify GraphQL을 통해 주문 번호로 ID를 조회하여 처리하는 대신,
-    // 대시보드에서 주문 번호 매칭이 가능하도록 처리 (ID를 모를 경우 name으로 매칭)
-    for (const orderName of orderNames) {
-      // 해당 주문 이름에 해당하는 InspectionRecord가 있는지 확인하고 업데이트
-      // ID를 모르므로 findFirst 후 업데이트하거나 upsert 사용 (orderId가 필수이므로 주의)
-      // 여기서는 주문 ID 조회를 위해 GraphQL 호출이 필요할 수 있으나 성능상
-      // 이미 로드된 data에서 매칭 정보를 찾거나, 나중에 대시보드에서 name으로도 조회 가능하도록 구성
-      
-      // 간단한 처리를 위해, 현재 주문 정보를 GraphQL로 다시 조회하여 ID를 확보
-      const orderQueryResponse = await admin.graphql(
-        `#graphql
-        query findOrderId($query: String!) {
-          orders(first: 1, query: $query) {
-            edges { node { id name } }
-          }
-        }`,
-        { variables: { query: `name:${orderName}` } }
-      );
-      const orderQueryJson = await orderQueryResponse.json();
-      const orderNode = orderQueryJson.data?.orders?.edges[0]?.node;
+    // 1. DB 업데이트 (피킹 리스트 출력 여부 기록 - 병렬 처리로 성능 최적화)
+    const updatePromises = orderNames.map(async (orderName) => {
+      try {
+        const orderQueryResponse = await admin.graphql(
+          `#graphql
+          query findOrderId($query: String!) {
+            orders(first: 1, query: $query) {
+              edges { node { id name } }
+            }
+          }`,
+          { variables: { query: `name:${orderName}` } }
+        );
+        const orderQueryJson = await orderQueryResponse.json();
+        const orderNode = orderQueryJson.data?.orders?.edges[0]?.node;
 
-      if (orderNode) {
-        await prisma.inspectionRecord.upsert({
-          where: { orderId: orderNode.id },
-          update: { isPickListPrinted: true },
-          create: {
-            orderId: orderNode.id,
-            orderName: orderNode.name,
-            shop: session.shop,
-            status: "PENDING",
-            isPickListPrinted: true,
-          },
-        });
+        if (orderNode) {
+          await prisma.inspectionRecord.upsert({
+            where: { orderId: orderNode.id },
+            update: { isPickListPrinted: true },
+            create: {
+              orderId: orderNode.id,
+              orderName: orderNode.name,
+              shop: session.shop,
+              status: "PENDING",
+              isPickListPrinted: true,
+            },
+          });
+        }
+      } catch (err) {
+        console.error(`DB update failed for order ${orderName}:`, err);
       }
-    }
+    });
+    await Promise.all(updatePromises);
 
     const pdfBuffer = await generatePdfBuffer(data.items, techTime);
     const mailTitle = `${clientTime} 기준 처리중`;
@@ -427,11 +397,9 @@ export const action = async ({ request }) => {
 // 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
 // ========================================================
 export default function PickListPage() {
-  const { items, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty, counts, activeTab } = useLoaderData();
+  const { items, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty } = useLoaderData();
   const actionData = useActionData(); 
   const submit = useSubmit();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   // ✨ 위치 미정 & 재고 부족 (10개 미만) 상품 수집
   const lowStockNoBinItems = useMemo(() => {
@@ -440,10 +408,6 @@ export default function PickListPage() {
       (item.inventoryQty !== null && item.inventoryQty < 10)
     );
   }, [items]);
-
-  const handleTabChange = (tabId) => {
-    navigate(`/app/pick-list?tab=${tabId}`);
-  };
 
   const handlePrintAndEmail = async () => {
     const now = new Date();
@@ -459,8 +423,7 @@ export default function PickListPage() {
         intent: "send-email", 
         clientTime: formattedTime, 
         techTime: techTime,
-        orderNames: JSON.stringify(Array.from(allOrderNames)),
-        activeTab: activeTab
+        orderNames: JSON.stringify(Array.from(allOrderNames))
       },
       { method: "post" }
     );
@@ -593,30 +556,7 @@ export default function PickListPage() {
           </div>
         )}
 
-        <div className="no-print" style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "14px", fontWeight: "bold", color: "#1e293b" }}>주문 필터 선택:</span>
-          <select
-            value={activeTab}
-            onChange={(e) => handleTabChange(e.target.value)}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              background: "#fff",
-              color: "#1e293b",
-              fontSize: "14px",
-              fontWeight: "600",
-              cursor: "pointer",
-              outline: "none",
-              boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
-              minWidth: "260px"
-            }}
-          >
-            <option value="all">전체 ({counts?.all || 0})</option>
-            <option value="paid">결제 완료 & 미처리 ({counts?.paid || 0})</option>
-            <option value="pending">결제 보류중 & 미처리 ({counts?.pending || 0})</option>
-          </select>
-        </div>
+
 
         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px" }}>
