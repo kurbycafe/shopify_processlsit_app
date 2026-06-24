@@ -456,6 +456,74 @@ export default function Inspect() {
   const barcodeRef = useRef(null);
   const orderSearchRef = useRef(null);
 
+  // ✨ 추가: 바코드 인라인 수동 수정을 위한 상태
+  const [editingBarcodeId, setEditingBarcodeId] = useState(null);
+  const [tempBarcode, setTempBarcode] = useState("");
+
+  // ✨ 추가: 카메라 바코드 스캐너 연동용 상태
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [html5QrcodeScanner, setHtml5QrcodeScanner] = useState(null);
+
+  // html5-qrcode 스크립트 동적 로딩 (CDN)
+  useEffect(() => {
+    if (!window.Html5Qrcode) {
+      const script = document.createElement("script");
+      script.src = "https://unpkg.com/html5-qrcode";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // 카메라 스캐너 라이프사이클 제어
+  useEffect(() => {
+    let scanner = null;
+    if (cameraModalOpen && window.Html5Qrcode) {
+      scanner = new window.Html5Qrcode("camera-scanner-view");
+      scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 15,
+          qrbox: { width: 260, height: 160 }
+        },
+        (decodedText) => {
+          processBarcode(decodedText);
+          playSound("success");
+          scanner.stop().then(() => {
+            setCameraModalOpen(false);
+          }).catch(err => console.error(err));
+        },
+        (errorMessage) => {}
+      ).then(() => {
+        setHtml5QrcodeScanner(scanner);
+      }).catch(err => {
+        console.error("Camera start error:", err);
+        alert("카메라 활성화에 실패했습니다. 권한 설정을 확인해 주세요.");
+        setCameraModalOpen(false);
+      });
+    }
+
+    return () => {
+      if (scanner) {
+        scanner.stop().catch(e => console.warn(e));
+      }
+    };
+  }, [cameraModalOpen]);
+
+  // 바코드 수동 수정 저장
+  const saveBarcode = (itemId) => {
+    if (!currentOrder) return;
+    const updatedItems = [...currentOrder.items];
+    const idx = updatedItems.findIndex(i => i.id === itemId);
+    if (idx > -1) {
+      updatedItems[idx].barcode = tempBarcode.trim();
+      updateActiveStates({ ...currentOrder, items: updatedItems });
+      setMessage({ type: "success", text: `[${updatedItems[idx].title}] 상품의 바코드가 수정되었습니다.` });
+      playSound("success");
+    }
+    setEditingBarcodeId(null);
+    setTimeout(() => barcodeRef.current?.focus(), 100);
+  };
+
   // ✨ 추가: 멀티 주문 모드, 스캔 로그, 에러 목록, 필터 상태 관리
   const [multiMode, setMultiMode] = useState(false);
   const [multiOrders, setMultiOrders] = useState([]);
@@ -583,6 +651,29 @@ export default function Inspect() {
     if (!currentOrder) {
       setTimeout(() => orderSearchRef.current?.focus(), 100);
     }
+  }, [currentOrder]);
+
+  // ✨ 추가: 마우스 클릭 후 빈 영역 선택 시 바코드 입력창 자동 재포커싱 (Hands-free 스캔 극대화)
+  useEffect(() => {
+    if (!currentOrder) return;
+    const handleDocumentClick = (e) => {
+      const interactiveTags = ["INPUT", "TEXTAREA", "BUTTON", "SELECT", "A"];
+      if (
+        interactiveTags.includes(e.target.tagName) || 
+        e.target.closest("button") || 
+        e.target.closest("a") || 
+        e.target.closest("select") || 
+        e.target.closest("input") || 
+        e.target.closest("textarea")
+      ) {
+        return;
+      }
+      setTimeout(() => {
+        barcodeRef.current?.focus();
+      }, 150);
+    };
+    document.addEventListener("click", handleDocumentClick);
+    return () => document.removeEventListener("click", handleDocumentClick);
   }, [currentOrder]);
 
   // ✨ 글로벌 키보드 바코드 스캐너 리스너 (Hands-Free 스캔)
@@ -804,6 +895,7 @@ export default function Inspect() {
     }
     
     setBarcode("");
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   function highlightRow(itemId) {
@@ -823,6 +915,7 @@ export default function Inspect() {
         updateActiveStates({ ...currentOrder, items: updatedItems });
       }
     }
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   const scanAllQuantity = (itemId) => {
@@ -845,6 +938,7 @@ export default function Inspect() {
     updateActiveStates(updatedOrder, [newLog, ...logs]);
     setMessage({ type: "success", text: newLog.text });
     playSound("success");
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   const markAsError = (title, sku) => {
@@ -863,6 +957,7 @@ export default function Inspect() {
     updateActiveStates(currentOrder, [newLog, ...logs], updatedErrors);
     setMessage({ type: "error", text: newLog.text });
     playSound("error");
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   // ✨ 문제 보고 모달 열기
@@ -905,6 +1000,7 @@ export default function Inspect() {
       updateActiveStates({ ...currentOrder, items: updatedItems });
     }
     setIssueModalOpen(false);
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   // ✨ 문제 보고 취소(초기화)
@@ -919,6 +1015,7 @@ export default function Inspect() {
       updatedItems[index].substitutedProductTitle = "";
       updateActiveStates({ ...currentOrder, items: updatedItems });
     }
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   // ✨ 전체 상품 완료 처리
@@ -935,6 +1032,7 @@ export default function Inspect() {
     updateActiveStates({ ...currentOrder, items: updatedItems });
     setMessage({ type: "success", text: "모든 상품의 검수 수량을 완료 처리했습니다." });
     playSound("success");
+    setTimeout(() => barcodeRef.current?.focus(), 150);
   };
 
   const handleSave = () => {
@@ -990,7 +1088,51 @@ export default function Inspect() {
           )}
         </BlockStack>
       </div>,
-      <div style={rowStyle}><Text variant="bodyMd" as="span" style={{ fontFamily: "monospace" }}>{item.barcode || "N/A"}</Text></div>,
+      <div style={rowStyle}>
+        {editingBarcodeId === item.id ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <input
+              type="text"
+              value={tempBarcode}
+              onChange={(e) => setTempBarcode(e.target.value)}
+              style={{
+                width: "120px",
+                padding: "4px 8px",
+                border: "1px solid #cbd5e1",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontFamily: "monospace",
+                outline: "none",
+                background: "#ffffff"
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveBarcode(item.id);
+                }
+              }}
+            />
+            <Button size="micro" onClick={() => saveBarcode(item.id)}>저장</Button>
+            <Button size="micro" onClick={() => setEditingBarcodeId(null)}>취소</Button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Text variant="bodyMd" as="span" style={{ fontFamily: "monospace" }}>
+              {item.barcode || "N/A"}
+            </Text>
+            <Button
+              size="micro"
+              variant="plain"
+              onClick={() => {
+                setEditingBarcodeId(item.id);
+                setTempBarcode(item.barcode || "");
+              }}
+            >
+              ✏️ 수정
+            </Button>
+          </div>
+        )}
+      </div>,
       
       <div style={rowStyle}>
         <BlockStack gap="100" align="center">
@@ -1099,15 +1241,33 @@ export default function Inspect() {
                   </InlineStack>
 
                   <form onSubmit={(e) => { e.preventDefault(); processBarcode(barcode); }}>
-                    <TextField
-                      label="상품 바코드 스캔"
-                      value={barcode}
-                      onChange={setBarcode}
-                      autoComplete="off"
-                      prefix={<Icon source={BarcodeIcon} />} 
-                      inputRef={barcodeRef}
-                      helpText="상품의 바코드를 스캔하거나 우측의 +/- 버튼으로 수동 검수하세요."
-                    />
+                    <InlineStack gap="300" align="start" blockAlign="end">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="상품 바코드 스캔"
+                          value={barcode}
+                          onChange={setBarcode}
+                          autoComplete="off"
+                          prefix={<Icon source={BarcodeIcon} />} 
+                          inputRef={barcodeRef}
+                          helpText="상품의 바코드를 스캔하거나 우측의 +/- 버튼으로 수동 검수하세요."
+                        />
+                      </div>
+                      <Box paddingBlockStart="400">
+                        <Button 
+                          icon={BarcodeIcon} 
+                          onClick={() => {
+                            if (!window.Html5Qrcode) {
+                              alert("카메라 스캔 라이브러리가 아직 로딩 중입니다. 잠시만 대기해 주세요.");
+                              return;
+                            }
+                            setCameraModalOpen(true);
+                          }}
+                        >
+                          📷 카메라 스캔
+                        </Button>
+                      </Box>
+                    </InlineStack>
                   </form>
 
                   {/* 진행 필터링 */}
@@ -1313,6 +1473,49 @@ export default function Inspect() {
               onChange={setIssueNote}
               multiline={2}
               placeholder="예: 파손품 발견, 전산 재고 오류 등"
+            />
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+      {/* 📷 카메라 바코드 스캐너 모달 */}
+      <Modal
+        open={cameraModalOpen}
+        onClose={() => {
+          if (html5QrcodeScanner) {
+            html5QrcodeScanner.stop().catch(e => console.warn(e));
+            setHtml5QrcodeScanner(null);
+          }
+          setCameraModalOpen(false);
+          setTimeout(() => barcodeRef.current?.focus(), 150);
+        }}
+        title="📷 카메라 바코드 스캔"
+        primaryAction={{
+          content: "닫기",
+          onAction: () => {
+            if (html5QrcodeScanner) {
+              html5QrcodeScanner.stop().catch(e => console.warn(e));
+              setHtml5QrcodeScanner(null);
+            }
+            setCameraModalOpen(false);
+            setTimeout(() => barcodeRef.current?.focus(), 150);
+          },
+        }}
+      >
+        <Modal.Section>
+          <BlockStack gap="400" align="center">
+            <Text as="p" tone="subdued">
+              기기의 카메라를 통해 바코드를 중앙 촬영 영역 안에 비춰주세요. (후면 카메라 자동 활성화)
+            </Text>
+            <div 
+              id="camera-scanner-view" 
+              style={{ 
+                width: "100%", 
+                maxWidth: "400px", 
+                height: "280px", 
+                backgroundColor: "#000000",
+                borderRadius: "8px",
+                overflow: "hidden"
+              }}
             />
           </BlockStack>
         </Modal.Section>

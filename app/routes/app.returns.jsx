@@ -90,6 +90,9 @@ export const action = async ({ request }) => {
 
   if (intent === "fetch_order") {
     const orderName = formData.get("orderName");
+    const cleanQuery = orderName.trim().replace(/^#/, "");
+    const queryStr = `name:${cleanQuery} OR name:#${cleanQuery} OR tracking_number:${orderName.trim()}`;
+
     const response = await admin.graphql(
       `#graphql
       query findOrder($query: String!) {
@@ -121,7 +124,7 @@ export const action = async ({ request }) => {
           }
         }
       }`,
-      { variables: { query: `name:${orderName}` } }
+      { variables: { query: queryStr } }
     );
 
     const json = await response.json();
@@ -354,12 +357,12 @@ export default function ReturnsPage() {
                 <Box grow>
                   <form onSubmit={(e) => { e.preventDefault(); handleOrderSearch(); }}>
                     <TextField
-                      label="반품 주문 번호 검색 (예: #1001)"
+                      label="반품 주문 번호 또는 송장번호 검색 (예: #1001, 송장 바코드 스캔)"
                       value={orderName}
                       onChange={setOrderName}
                       autoComplete="off"
                       prefix={<Icon source={SearchIcon} />}
-                      placeholder="# 주문 번호 입력"
+                      placeholder="# 주문 번호 또는 송장번호 입력"
                     />
                   </form>
                 </Box>

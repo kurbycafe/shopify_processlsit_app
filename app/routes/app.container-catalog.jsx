@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher, useSearchParams } from "react-router";
 import {
   Page, Layout, Card, TextField, BlockStack, InlineStack, Text,
   DataTable, Badge, Thumbnail, Button, Banner, Box, Icon, Divider, Grid
@@ -197,7 +197,22 @@ export const action = async ({ request }) => {
 // ========================================================
 export default function ContainerCatalog() {
   const fetcher = useFetcher();
+  const [searchParams] = useSearchParams();
   const [containerRef, setContainerRef] = useState("");
+  const [hasAutoFetched, setHasAutoFetched] = useState(false);
+
+  // ✨ 추가: 사용자 입력 도매단가 및 입수량 관리를 위한 State
+  const [customWholesalePrices, setCustomWholesalePrices] = useState({});
+  const [packQuantities, setPackQuantities] = useState({});
+
+  useEffect(() => {
+    const paramContainerRef = searchParams.get("containerRef");
+    if (paramContainerRef && !hasAutoFetched) {
+      setHasAutoFetched(true);
+      setContainerRef(paramContainerRef);
+      fetcher.submit({ intent: "fetch_container", containerRef: paramContainerRef }, { method: "POST" });
+    }
+  }, [searchParams, hasAutoFetched, fetcher]);
   
   const loading = fetcher.state === "submitting";
   const data = fetcher.data || {};
@@ -205,16 +220,37 @@ export default function ContainerCatalog() {
   const poName = data.poName || "";
   const error = data.error || null;
 
+  // 데이터 로드 시 입력 필드 값 초기화
+  useEffect(() => {
+    if (items.length > 0) {
+      setCustomWholesalePrices({});
+      setPackQuantities({});
+    }
+  }, [items]);
+
   // 통계 계산
   const totalSKUs = items.length;
   const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
-  const totalWholesaleValue = items.reduce((sum, item) => sum + (item.qty * item.wholesalePrice), 0);
-  const totalRetailValue = items.reduce((sum, item) => sum + (item.qty * item.retailPrice), 0);
-  const unmatchedCount = items.filter(item => !item.isMatched).length;
   
-  const avgMargin = totalRetailValue > 0 
-    ? ((totalRetailValue - totalWholesaleValue) / totalRetailValue) * 100 
-    : 0;
+  // 사용자가 입력한 도매가 기준으로 합계 계산 (입력값 없으면 Odoo 기본값 활용)
+  const totalWholesaleValue = items.reduce((sum, item) => {
+    const priceVal = customWholesalePrices[item.sku];
+    const price = priceVal !== undefined && priceVal !== ""
+      ? parseFloat(priceVal) || 0 
+      : item.wholesalePrice;
+    return sum + (item.qty * price);
+  }, 0);
+
+  // 총 박스 수량 계산
+  const totalBoxes = items.reduce((sum, item) => {
+    const boxQty = packQuantities[item.sku] ? parseInt(packQuantities[item.sku], 10) : 0;
+    if (boxQty > 0) {
+      return sum + Math.floor(item.qty / boxQty);
+    }
+    return sum;
+  }, 0);
+
+  const unmatchedCount = items.filter(item => !item.isMatched).length;
 
   const handleSearch = () => {
     if (!containerRef.trim()) return;
@@ -233,7 +269,6 @@ export default function ContainerCatalog() {
       return;
     }
 
-    // 통계 포맷용
     const fmtEur = (val) => `€${val.toFixed(2)}`;
     
     // HTML 템플릿 작성
@@ -405,21 +440,6 @@ export default function ContainerCatalog() {
       font-size: 13px;
     }
     
-    .margin-badge {
-      background-color: #dcfce7;
-      color: #15803d;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-weight: 700;
-      font-size: 11px;
-      display: inline-block;
-    }
-    
-    .margin-badge.negative {
-      background-color: #fee2e2;
-      color: #b91c1c;
-    }
-    
     .exp-badge {
       background-color: #fef3c7;
       color: #d97706;
@@ -487,8 +507,8 @@ export default function ContainerCatalog() {
         <div class="value">${fmtEur(totalWholesaleValue)}</div>
       </div>
       <div class="summary-card">
-        <div class="label">평균 마진율</div>
-        <div class="value" style="color: #15803d;">${avgMargin.toFixed(1)}%</div>
+        <div class="label">총 박스 수량</div>
+        <div class="value">${totalBoxes} 박스</div>
       </div>
     </div>
     
@@ -497,20 +517,35 @@ export default function ContainerCatalog() {
         <tr>
           <th style="width: 8%">이미지</th>
           <th style="width: 25%">상품 정보</th>
-          <th style="width: 22%">SKU / 바코드</th>
+          <th style="width: 20%">SKU / 바코드</th>
           <th style="width: 12%">유통기한</th>
-          <th style="width: 10%">입고수량</th>
-          <th style="width: 11%">도매단가</th>
-          <th style="width: 12%">소매단가(마진)</th>
+          <th style="width: 10%">총수량</th>
+          <th style="width: 13%">입수 (박스수)</th>
+          <th style="width: 12%">도매단가</th>
+          <th style="width: 10%">소매단가</th>
         </tr>
       </thead>
       <tbody>
   `;
 
     items.forEach(item => {
-      const marginPercent = item.retailPrice > 0 
-        ? ((item.retailPrice - item.wholesalePrice) / item.retailPrice) * 100 
-        : 0;
+      // 입력된 사용자 도매단가 반영
+      const priceVal = customWholesalePrices[item.sku];
+      const wholesalePrice = priceVal !== undefined && priceVal !== ""
+        ? parseFloat(priceVal) || 0 
+        : item.wholesalePrice;
+
+      // 박스당 입수 개수 및 박스 개수 계산
+      const boxQty = packQuantities[item.sku] ? parseInt(packQuantities[item.sku], 10) : 0;
+      const boxCount = boxQty > 0 ? Math.floor(item.qty / boxQty) : 0;
+      const remainder = boxQty > 0 ? item.qty % boxQty : 0;
+
+      let packHtml = "";
+      if (boxQty > 0) {
+        packHtml = `<span style="font-weight:600;">${boxQty}</span> <span style="font-size:11px;color:#64748b;">(${boxCount}박스${remainder > 0 ? ` + ${remainder}` : ""})</span>`;
+      } else {
+        packHtml = `<span style="color:#94a3b8;">-</span>`;
+      }
 
       const imgHtml = item.imageUrl 
         ? `<img class="prod-img" src="${item.imageUrl}" alt="product">` 
@@ -526,10 +561,6 @@ export default function ContainerCatalog() {
         ? `<svg class="barcode-svg" id="barcode-${item.sku}" data-value="${item.barcode}"></svg>`
         : `<span style="font-size:11px;color:#94a3b8;">바코드 없음</span>`;
 
-      const marginBadgeHtml = item.isMatched
-        ? `<div class="margin-badge ${marginPercent < 0 ? 'negative' : ''}">${marginPercent.toFixed(1)}%</div>`
-        : `<span style="font-size:11px;color:#94a3b8;">-</span>`;
-
       htmlContent += `
         <tr>
           <td style="text-align:center;">${imgHtml}</td>
@@ -544,10 +575,11 @@ export default function ContainerCatalog() {
               : `<span style="font-size:11px;color:#94a3b8;">N/A</span>`}
           </td>
           <td style="font-weight:700;font-family:monospace;">${item.qty.toLocaleString()}</td>
-          <td class="price-text">${fmtEur(item.wholesalePrice)}</td>
+          <td>${packHtml}</td>
+          <td class="price-text">${fmtEur(wholesalePrice)}</td>
           <td>
             ${item.isMatched 
-              ? `<div class="price-text" style="margin-bottom:3px;">${fmtEur(item.retailPrice)}</div>${marginBadgeHtml}`
+              ? `<div class="price-text">${fmtEur(item.retailPrice)}</div>`
               : `<span style="font-size:11px;color:#94a3b8;">N/A</span>`}
           </td>
         </tr>
@@ -599,10 +631,6 @@ export default function ContainerCatalog() {
 
   // 데이터 테이블 렌더링용 행 생성
   const tableRows = items.map(item => {
-    const marginPercent = item.retailPrice > 0 
-      ? ((item.retailPrice - item.wholesalePrice) / item.retailPrice) * 100 
-      : 0;
-
     const img = item.imageUrl 
       ? <Thumbnail source={item.imageUrl} alt={item.sku} size="small" />
       : <div style={{ width: "40px", height: "40px", backgroundColor: "#f1f5f9", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px" }}>📦</div>;
@@ -630,12 +658,68 @@ export default function ContainerCatalog() {
       ? <Badge tone="warning">{item.expiryDate}</Badge>
       : <Text variant="bodySm" color="subdued">N/A</Text>;
 
-    const marginBadge = item.isMatched ? (
-      <Badge tone={marginPercent < 0 ? "critical" : "success"}>
-        {marginPercent.toFixed(1)}%
-      </Badge>
-    ) : (
-      <Text variant="bodySm" color="subdued">-</Text>
+    // 박스 개수 계산
+    const boxQty = packQuantities[item.sku] ? parseInt(packQuantities[item.sku], 10) : 0;
+    const boxCount = boxQty > 0 ? Math.floor(item.qty / boxQty) : 0;
+    const remainder = boxQty > 0 ? item.qty % boxQty : 0;
+
+    let boxCountStr = "-";
+    if (boxQty > 0) {
+      boxCountStr = `${boxCount}박스`;
+      if (remainder > 0) {
+        boxCountStr += ` (+${remainder})`;
+      }
+    }
+
+    // 도매단가 입력 인풋 컴포넌트
+    const wholesaleInput = (
+      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        <span style={{ fontSize: "13px", color: "#64748b" }}>€</span>
+        <input
+          type="text"
+          value={customWholesalePrices[item.sku] !== undefined ? customWholesalePrices[item.sku] : item.wholesalePrice}
+          onChange={(e) => {
+            const val = e.target.value;
+            setCustomWholesalePrices(prev => ({ ...prev, [item.sku]: val }));
+          }}
+          style={{
+            width: "75px",
+            padding: "6px 8px",
+            border: "1px solid #cbd5e1",
+            borderRadius: "6px",
+            fontSize: "13px",
+            fontFamily: "monospace",
+            textAlign: "right",
+            outline: "none",
+            background: "#ffffff"
+          }}
+        />
+      </div>
+    );
+
+    // 입수량 입력 인풋 컴포넌트
+    const packInput = (
+      <input
+        type="number"
+        min="1"
+        value={packQuantities[item.sku] !== undefined ? packQuantities[item.sku] : ""}
+        placeholder="입수"
+        onChange={(e) => {
+          const val = e.target.value;
+          setPackQuantities(prev => ({ ...prev, [item.sku]: val }));
+        }}
+        style={{
+          width: "65px",
+          padding: "6px 8px",
+          border: "1px solid #cbd5e1",
+          borderRadius: "6px",
+          fontSize: "13px",
+          fontFamily: "monospace",
+          textAlign: "center",
+          outline: "none",
+          background: "#ffffff"
+        }}
+      />
     );
 
     return [
@@ -644,9 +728,10 @@ export default function ContainerCatalog() {
       nameSection,
       expiryBadge,
       <Text variant="bodyMd" fontWeight="bold" as="span" style={{ fontFamily: "monospace" }}>{item.qty.toLocaleString()}</Text>,
-      <Text variant="bodyMd" as="span" style={{ fontFamily: "monospace" }}>€{item.wholesalePrice.toFixed(2)}</Text>,
-      item.isMatched ? <Text variant="bodyMd" as="span" style={{ fontFamily: "monospace" }}>€{item.retailPrice.toFixed(2)}</Text> : <Text variant="bodySm" color="subdued">N/A</Text>,
-      marginBadge
+      packInput,
+      <Text variant="bodyMd" fontWeight="bold" as="span" style={{ color: "#008060", fontFamily: "monospace" }}>{boxCountStr}</Text>,
+      wholesaleInput,
+      item.isMatched ? <Text variant="bodyMd" as="span" style={{ fontFamily: "monospace" }}>€{item.retailPrice.toFixed(2)}</Text> : <Text variant="bodySm" color="subdued">N/A</Text>
     ];
   });
 
@@ -731,8 +816,8 @@ export default function ContainerCatalog() {
                 <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
                   <Card padding="400">
                     <BlockStack gap="100" align="center">
-                      <Text variant="bodySm" color="subdued" tone="uppercase" fontWeight="bold">평균 이익 마진</Text>
-                      <Text variant="headingLg" as="p" tone="success">{avgMargin.toFixed(1)}%</Text>
+                      <Text variant="bodySm" color="subdued" tone="uppercase" fontWeight="bold">총 박스 수량</Text>
+                      <Text variant="headingLg" as="p" tone="success">{totalBoxes} 박스</Text>
                     </BlockStack>
                   </Card>
                 </Grid.Cell>
@@ -760,8 +845,8 @@ export default function ContainerCatalog() {
                   
                   <div style={{ overflowX: "auto" }}>
                     <DataTable
-                      columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
-                      headings={['이미지', 'SKU / 바코드', '상품명 (Shopify / Odoo)', '유통기한', '수량', '도매가', '소매가', '마진율']}
+                      columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric']}
+                      headings={['이미지', 'SKU / 바코드', '상품명 (Shopify / Odoo)', '유통기한', '총 수량', '입수', '박스수', '도매가', '소매가']}
                       rows={tableRows}
                     />
                   </div>
