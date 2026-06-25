@@ -90,6 +90,8 @@ export const action = async ({ request }) => {
           price
           compareAtPrice
           image { url }
+          weight
+          weightUnit
           product {
             title
             germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
@@ -122,6 +124,8 @@ export const action = async ({ request }) => {
       expiryDate: variant.product?.expiryDate?.value || "",
       variantTitle: variant.title === "Default Title" ? "" : (variant.title || ""),
       imageUrl: variant.image?.url || "",
+      weight: variant.weight || 0,
+      weightUnit: variant.weightUnit || "KILOGRAMS",
     }));
 
     return jsonResponse({ copiesRequested, variants: formattedVariants });
@@ -145,6 +149,40 @@ function getDiscountInfo(price, compareAtPrice) {
     percent = Math.round(((original - current) / original) * 100);
   }
   return { hasDiscount, percent };
+}
+
+// 1kg당 가격 계산
+function getPricePerKg(price, weight, weightUnit) {
+  const p = Number(price);
+  const w = Number(weight);
+  if (!Number.isFinite(p) || !Number.isFinite(w) || w <= 0) return null;
+
+  let weightInKg = w;
+  const unit = String(weightUnit).toUpperCase();
+  if (unit === "GRAMS" || unit === "G") {
+    weightInKg = w / 1000;
+  } else if (unit === "OUNCES" || unit === "OZ") {
+    weightInKg = w * 0.0283495;
+  } else if (unit === "POUNDS" || unit === "LB" || unit === "LBS") {
+    weightInKg = w * 0.453592;
+  }
+
+  if (weightInKg <= 0) return null;
+  return p / weightInKg;
+}
+
+// 무게 포맷팅
+function formatWeight(weight, weightUnit) {
+  const w = Number(weight);
+  if (!Number.isFinite(w) || w <= 0) return "";
+  const unit = String(weightUnit).toUpperCase();
+  if (unit === "GRAMS" || unit === "G") {
+    return `${w}g`;
+  }
+  if (unit === "KILOGRAMS" || unit === "KG") {
+    return `${w}kg`;
+  }
+  return `${w} ${weightUnit}`;
 }
 
 function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showText = true }) {
@@ -188,6 +226,7 @@ function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showT
 function StoreLabel({ item, printMode = false, size = "62x29" }) {
   const displayTitle = item.germanTranslation || item.productTitle || "";
   const { hasDiscount: isAutoDiscount, percent: discountPercent } = getDiscountInfo(item.price, item.compareAtPrice);
+  const pricePerKg = getPricePerKg(item.price, item.weight, item.weightUnit);
   
   // badgeType이 AUTO(기본값)이면 할인 여부에 따라 SALE 적용, NONE이면 뱃지 없음 강제, 그 외에는 명시된 뱃지 적용
   const badgeVal = item.badgeType || "AUTO";
@@ -268,6 +307,11 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
             <div style={{ fontSize: "19px", fontWeight: "900", letterSpacing: "-0.5px", color: priceColor, lineHeight: "1" }}>
               {formatEuro(item.price)}
             </div>
+            {pricePerKg && (
+              <div style={{ fontSize: "7.5px", color: "#666", fontWeight: "700", marginTop: "1.5px" }}>
+                {formatWeight(item.weight, item.weightUnit)} ({formatEuro(pricePerKg)}/kg)
+              </div>
+            )}
             {isAutoDiscount && (
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "4px", marginTop: "2px" }}>
                 <span style={{ fontSize: "9px", color: "#dc2626", fontWeight: "800" }}>-{discountPercent}%</span>
@@ -360,6 +404,11 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
               </span>
               <span style={{ fontSize: "6.5px", color: "#666", fontWeight: "bold" }}>inkl. MwSt.</span>
             </div>
+            {pricePerKg && (
+              <div style={{ fontSize: "8px", color: "#555", fontWeight: "bold", marginTop: "1.5px" }}>
+                {formatWeight(item.weight, item.weightUnit)} ({formatEuro(pricePerKg)}/kg)
+              </div>
+            )}
             {isAutoDiscount && (
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "4px", marginTop: "2px" }}>
                 <span style={{ fontSize: "9.5px", color: "#dc2626", fontWeight: "800" }}>-{discountPercent}%</span>
@@ -394,7 +443,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
         minHeight: printMode ? "29mm" : "110px",
         height: "auto",
         boxSizing: "border-box",
-        padding: printMode ? "1.5mm 2.2mm" : "8px 10px",
+        padding: printMode ? "1.0mm 2.2mm" : "8px 10px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -407,17 +456,15 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
     >
       {/* 1. 상단 바코드바 + 바코드 숫자 & 배지 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #111111", paddingBottom: "2px", width: "100%" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "1px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           {item.barcode ? (
-            <Code128 value={item.barcode} height={20} moduleWidth={0.8} showText={false} />
+            <Code128 value={item.barcode} height={14} moduleWidth={0.7} showText={false} />
           ) : (
             <span style={{ fontSize: "7px", color: "#000000" }}>NO BARCODE</span>
           )}
-          {item.barcode && (
-            <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#000000", lineHeight: "1", marginTop: "1px" }}>
-              {item.barcode}
-            </span>
-          )}
+          <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#000000" }}>
+            {item.barcode || ""}
+          </span>
         </div>
         {finalBadgeType !== "NONE" && (
           <span style={{
@@ -460,8 +507,9 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
 
       {/* 3. 가격 및 SKU (하단 배치) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", width: "100%" }}>
-        <div style={{ fontSize: "8.5px", color: "#000000", fontFamily: "monospace", fontWeight: "bold" }}>
+        <div style={{ fontSize: "8px", color: "#000000", fontFamily: "monospace", fontWeight: "bold" }}>
           {item.sku ? "SKU: " + item.sku : ""}
+          {pricePerKg && ` | ${formatWeight(item.weight, item.weightUnit)} (${formatEuro(pricePerKg)}/kg)`}
         </div>
         
         <div style={{ textAlign: "right" }}>

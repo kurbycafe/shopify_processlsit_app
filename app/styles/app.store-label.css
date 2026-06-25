@@ -374,7 +374,7 @@
     width: 62mm !important;
     min-height: 29mm !important;
     height: auto !important;
-    padding: 1.6mm 2.1mm !important;
+    padding: 1.0mm 2.1mm !important;
     border: none !important; /* 62x29mm 용 기본 테두리만 인쇄 시 제거 */
   }
 
