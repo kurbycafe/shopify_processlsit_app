@@ -279,7 +279,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
 
         {/* 하단 바코드 */}
         <div style={{ width: "100%", display: "flex", justifyContent: "center", padding: "1px 0" }}>
-          <Code128 value={item.barcode || item.sku || "000000"} height={16} moduleWidth={0.62} fontSize={6} showText={!printMode} />
+          <Code128 value={item.barcode || item.sku || "000000"} height={32} moduleWidth={0.85} fontSize={6} showText={!printMode} />
         </div>
       </div>
     );
@@ -375,7 +375,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
             {item.sku ? "SKU: " + item.sku : ""}
           </div>
           <div style={{ display: "flex", justifyContent: "center", flex: 1, paddingLeft: "10px" }}>
-            <Code128 value={item.barcode || item.sku || "000000"} height={14} moduleWidth={0.7} fontSize={5.5} showText={!printMode} />
+            <Code128 value={item.barcode || item.sku || "000000"} height={30} moduleWidth={0.9} fontSize={5.5} showText={!printMode} />
           </div>
         </div>
       </div>
@@ -407,17 +407,17 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
     >
       {/* 1. 상단 바코드바 + 바코드 숫자 & 배지 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #111111", paddingBottom: "2px", width: "100%" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "1px" }}>
           {item.barcode ? (
-            <div style={{ transform: "scale(0.85)", transformOrigin: "left center" }}>
-              <Code128 value={item.barcode} height={10} moduleWidth={0.5} showText={false} />
-            </div>
+            <Code128 value={item.barcode} height={20} moduleWidth={0.8} showText={false} />
           ) : (
             <span style={{ fontSize: "7px", color: "#000000" }}>NO BARCODE</span>
           )}
-          <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#000000" }}>
-            {item.barcode || ""}
-          </span>
+          {item.barcode && (
+            <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#000000", lineHeight: "1", marginTop: "1px" }}>
+              {item.barcode}
+            </span>
+          )}
         </div>
         {finalBadgeType !== "NONE" && (
           <span style={{
