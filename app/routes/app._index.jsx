@@ -550,26 +550,6 @@ export default function Index() {
           gap: 16px;
         }
 
-        /* 화면이 넓은 데스크톱 환경(min-width: 1400px)에서는 좌우로 배치 */
-        @media (min-width: 1400px) {
-          .container-dashboard-layout {
-            flex-direction: row;
-            align-items: flex-start;
-          }
-          .container-table-section {
-            flex: 1.2;
-            min-width: 0;
-          }
-          .container-calendar-section {
-            flex: 1;
-            min-width: 240px;
-          }
-          /* 달력 영역이 좁아지므로 두 달력을 세로로 배치 */
-          .double-calendar-container {
-            grid-template-columns: 1fr;
-          }
-        }
-
         /* 📈 SVG 생산성 차트 스타일 */
         .productivity-chart-container {
           background: #ffffff;
