@@ -90,8 +90,14 @@ export const action = async ({ request }) => {
           price
           compareAtPrice
           image { url }
-          weight
-          weightUnit
+          inventoryItem {
+            measurement {
+              weight {
+                value
+                unit
+              }
+            }
+          }
           product {
             title
             germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
@@ -124,8 +130,8 @@ export const action = async ({ request }) => {
       expiryDate: variant.product?.expiryDate?.value || "",
       variantTitle: variant.title === "Default Title" ? "" : (variant.title || ""),
       imageUrl: variant.image?.url || "",
-      weight: variant.weight || 0,
-      weightUnit: variant.weightUnit || "KILOGRAMS",
+      weight: variant.inventoryItem?.measurement?.weight?.value || 0,
+      weightUnit: variant.inventoryItem?.measurement?.weight?.unit || "KILOGRAMS",
     }));
 
     return jsonResponse({ copiesRequested, variants: formattedVariants });
