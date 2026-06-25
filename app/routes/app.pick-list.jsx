@@ -475,7 +475,7 @@ export default function PickListPage() {
           .cell-text { font-size: 11px !important; line-height: 1.2 !important; }
         }
         
-        @media (max-width: 768px) {
+        @media screen and (max-width: 768px) {
           /* 모바일 환경에서는 테이블을 카드 형태로 변환하여 세로 스크롤 최적화 */
           .list-table-responsive thead {
             display: none !important;
