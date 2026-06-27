@@ -1,4 +1,4 @@
-import { useLoaderData, useFetcher, useNavigate, Link } from "react-router";
+import { useLoaderData, useFetcher, useNavigate, Link, useSearchParams } from "react-router";
 import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -68,21 +68,31 @@ export const action = async ({ request }) => {
 export const loader = async ({ request }) => {
   try {
     const { admin } = await authenticate.admin(request);
+    const url = new URL(request.url);
+    const queryParam = url.searchParams.get("query") || "";
+
+    let shopifyQuery = "";
+    if (queryParam) {
+      shopifyQuery = queryParam.trim();
+    }
 
     // ✨ 무한 페이지네이션을 위한 변수 설정
     let allEdges = [];
     let hasNextPage = true;
     let endCursor = null;
+    let pageCount = 0;
+    
+    // 검색 중일 때는 매칭 주문을 최대 100건(2페이지) 조회하고, 기본 목록일 때는 최근 주문 50건(1페이지)만 신속하게 조회합니다.
+    const maxPages = queryParam ? 2 : 1;
 
-    // ✨ 다음 페이지가 없을 때까지(전체 미처리 주문을 다 가져올 때까지) 반복
-    while (hasNextPage) {
+    while (hasNextPage && pageCount < maxPages) {
       const response = await admin.graphql(`
         #graphql
-        query getDawayoDetailedOrders($first: Int!, $after: String) {
+        query getDawayoDetailedOrders($first: Int!, $after: String, $query: String) {
           orders(
             first: $first,
             after: $after,
-            query: "fulfillment_status:unfulfilled", # ✨ financial_status:paid 조건 삭제 (전체 로드)
+            query: $query,
             sortKey: CREATED_AT,
             reverse: true
           ) {
@@ -163,7 +173,8 @@ export const loader = async ({ request }) => {
       `, {
         variables: {
           first: 50,
-          after: endCursor
+          after: endCursor,
+          query: shopifyQuery || null
         }
       });
 
@@ -181,6 +192,7 @@ export const loader = async ({ request }) => {
       allEdges = allEdges.concat(connection.edges || []);
       hasNextPage = connection.pageInfo.hasNextPage;
       endCursor = connection.pageInfo.endCursor;
+      pageCount++;
     }
 
     const validEdges = allEdges.filter((edge) => {
@@ -435,6 +447,7 @@ export default function AdditionalPage() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [orders, setOrders] = useState([]);
 
@@ -445,8 +458,19 @@ export default function AdditionalPage() {
   const [shippingFilter, setShippingFilter] = useState("ALL");
   const [printFilter, setPrintFilter] = useState("ALL"); // ✨ 인쇄 상태 필터 추가
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
-  const [searchQuery, setSearchQuery] = useState(""); // ✨ 검색 텍스트 필터 추가
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || ""); // ✨ 검색 텍스트 필터 추가
   const [tempFilter, setTempFilter] = useState("ALL"); // ✨ 온도대 필터 추가
+
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    const params = new URLSearchParams(searchParams);
+    if (value) {
+      params.set("query", value);
+    } else {
+      params.delete("query");
+    }
+    setSearchParams(params);
+  };
 
   useEffect(() => {
     if (loaderData?.orders) {
@@ -570,11 +594,11 @@ export default function AdditionalPage() {
                   <TextField
                     label="주문 번호, 고객 이메일, 수령인 이름 검색"
                     value={searchQuery}
-                    onChange={setSearchQuery}
+                    onChange={handleSearchChange}
                     placeholder="예: #1001, service@dawayo.de, Soonchan"
                     autoComplete="off"
                     clearButton
-                    onClearButtonClick={() => setSearchQuery("")}
+                    onClearButtonClick={() => handleSearchChange("")}
                   />
                 </div>
               </div>

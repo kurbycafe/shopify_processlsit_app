@@ -104,7 +104,7 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 }
 
 export const action = async ({ request, params }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
@@ -113,12 +113,16 @@ export const action = async ({ request, params }) => {
     const orderName = formData.get("orderName") || "N/A";
     const customShippingAddress = JSON.parse(formData.get("shippingAddress") || "null");
     const customBillingAddress = JSON.parse(formData.get("billingAddress") || "null");
+    const customVat = formData.get("customVat") || "";
+    const customerId = formData.get("customerId") || "";
 
+    // 1. Local database save
     await prisma.inspectionRecord.upsert({
       where: { orderId },
       update: {
         customShippingAddress,
         customBillingAddress,
+        customVat,
       },
       create: {
         orderId,
@@ -127,8 +131,48 @@ export const action = async ({ request, params }) => {
         status: "PENDING",
         customShippingAddress,
         customBillingAddress,
+        customVat,
       },
     });
+
+    // 2. Attempt to update Shopify customer metafield
+    if (customerId && customVat) {
+      try {
+        const response = await admin.graphql(`
+          #graphql
+          mutation setCustomerVat($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              metafields {
+                id
+                value
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `, {
+          variables: {
+            metafields: [
+              {
+                ownerId: customerId,
+                namespace: "custom",
+                key: "vat",
+                type: "single_line_text_field",
+                value: customVat,
+              }
+            ]
+          }
+        });
+        const resJson = await response.json();
+        if (resJson?.data?.metafieldsSet?.userErrors?.length > 0) {
+          console.warn("Shopify customer VAT metafield update user errors:", resJson.data.metafieldsSet.userErrors);
+        }
+      } catch (err) {
+        console.error("Failed to update Shopify customer VAT metafield:", err);
+      }
+    }
 
     return jsonResponse({ success: true });
   }
@@ -154,7 +198,17 @@ export const loader = async ({ request, params }) => {
           cancelledAt
           displayFulfillmentStatus
           customer {
+            id
             numberOfOrders
+            vat: metafield(namespace: "custom", key: "vat") {
+              id
+              value
+            }
+          }
+          taxLines {
+            title
+            rate
+            priceSet { shopMoney { amount currencyCode } }
           }
           totalPriceSet { shopMoney { amount currencyCode } }
           subtotalPriceSet { shopMoney { amount currencyCode } }
@@ -310,6 +364,12 @@ export const loader = async ({ request, params }) => {
       where: { orderId }
     });
 
+    const taxLines = (node.taxLines || []).map((tl) => ({
+      title: tl.title,
+      ratePercent: (tl.rate * 100).toFixed(0),
+      amount: tl.priceSet?.shopMoney?.amount || "0.00",
+    }));
+
     const orderData = {
       id: node.id,
       name: node.name,
@@ -340,6 +400,9 @@ export const loader = async ({ request, params }) => {
       currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
       customShippingAddress: dbRecord?.customShippingAddress || null,
       customBillingAddress: dbRecord?.customBillingAddress || null,
+      customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
+      customerId: node.customer?.id || null,
+      taxLines,
     };
 
     return jsonResponse({ order: orderData, error: null });
@@ -381,6 +444,8 @@ export default function OrderPrintDetailPage() {
     country: "",
   });
 
+  const [customVat, setCustomVat] = useState("");
+
   useEffect(() => {
     if (loaderData?.order) {
       setOrder(loaderData.order);
@@ -407,6 +472,8 @@ export default function OrderPrintDetailPage() {
         city: initialBilling.city || "",
         country: initialBilling.country || "",
       });
+
+      setCustomVat(o.customVat || "");
     }
   }, [loaderData]);
 
@@ -433,6 +500,8 @@ export default function OrderPrintDetailPage() {
         orderName: order.name,
         shippingAddress: JSON.stringify(shippingEdit),
         billingAddress: JSON.stringify(billingEdit),
+        customVat: customVat,
+        customerId: order.customerId || "",
       },
       { method: "POST" }
     );
@@ -442,6 +511,7 @@ export default function OrderPrintDetailPage() {
       ...prev,
       customShippingAddress: shippingEdit,
       customBillingAddress: billingEdit,
+      customVat: customVat,
     }));
   };
 
@@ -573,6 +643,11 @@ export default function OrderPrintDetailPage() {
               {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
               {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
               {currentBillingAddress?.country}
+              {order.customVat && (
+                <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
+                  USt-IdNr.: {order.customVat}
+                </div>
+              )}
             </div>
           </div>
           <div className="address-box">
@@ -756,6 +831,11 @@ export default function OrderPrintDetailPage() {
               {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
               {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
               {currentBillingAddress?.country}
+              {order.customVat && (
+                <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
+                  USt-IdNr.: {order.customVat}
+                </div>
+              )}
             </div>
           </div>
           <div className="address-box">
@@ -841,12 +921,25 @@ export default function OrderPrintDetailPage() {
                   {parseFloat(order.totalShipping).toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
-              <tr style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>inkl. MwSt.:</td>
-                <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
-                  {parseFloat(order.totalTax).toFixed(2)} {order.currencyCode}
-                </td>
-              </tr>
+              {order.taxLines && order.taxLines.length > 0 ? (
+                order.taxLines.map((tl, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
+                      inkl. {tl.ratePercent}% MwSt. ({tl.title}):
+                    </td>
+                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
+                      {parseFloat(tl.amount).toFixed(2)} {order.currencyCode}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>inkl. MwSt.:</td>
+                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
+                    {parseFloat(order.totalTax).toFixed(2)} {order.currencyCode}
+                  </td>
+                </tr>
+              )}
               <tr style={{ borderTop: '2px solid #111' }}>
                 <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gesamtsumme:</td>
                 <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
@@ -863,6 +956,10 @@ export default function OrderPrintDetailPage() {
             <div className="note-content">{order.note}</div>
           </div>
         )}
+
+        <div style={{ marginTop: "12px", fontSize: "10px", color: "#555", fontStyle: "italic", textAlign: "left" }}>
+          Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
+        </div>
 
         <div className="footer">
           <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
@@ -942,6 +1039,7 @@ export default function OrderPrintDetailPage() {
                       <div style={{ flex: 2 }}><TextField label="도시" value={billingEdit.city} onChange={(val) => setBillingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
                     </InlineStack>
                     <TextField label="국가" value={billingEdit.country} onChange={(val) => setBillingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
+                    <TextField label="고객 VAT 번호 (USt-IdNr.)" value={customVat} onChange={setCustomVat} autoComplete="off" placeholder="예: DE320890998" />
                   </BlockStack>
                 </Card>
 
