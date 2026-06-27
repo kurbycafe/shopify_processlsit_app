@@ -601,8 +601,8 @@ export default function AdditionalPage() {
                     label="결제 상태"
                     options={[
                       { label: '전체 (Paid + Pending)', value: 'ALL' },
-                      { label: '✅ 결제 완료 (Paid)', value: 'PAID' },
-                      { label: '⏳ 결제 대기 (Pending)', value: 'PENDING' },
+                      { label: '결제 완료 (Paid)', value: 'PAID' },
+                      { label: '결제 대기 (Pending)', value: 'PENDING' },
                     ]}
                     value={paymentFilter}
                     onChange={setPaymentFilter}
@@ -637,9 +637,9 @@ export default function AdditionalPage() {
                     label="온도대 구분"
                     options={[
                       { label: '전체 온도대', value: 'ALL' },
-                      { label: '☀️ 상온 전용 (Dry Only)', value: 'DRY_ONLY' },
-                      { label: '❄️ 냉장 포함 (Chilled)', value: 'CHILLED' },
-                      { label: '🧊 냉동 포함 (Frozen)', value: 'FROZEN' },
+                      { label: '상온 전용 (Dry Only)', value: 'DRY_ONLY' },
+                      { label: '냉장 포함 (Chilled)', value: 'CHILLED' },
+                      { label: '냉동 포함 (Frozen)', value: 'FROZEN' },
                     ]}
                     value={tempFilter}
                     onChange={setTempFilter}
@@ -651,8 +651,8 @@ export default function AdditionalPage() {
                     label="인쇄 상태"
                     options={[
                       { label: '모든 주문', value: 'ALL' },
-                      { label: '⏳ 미출력 주문', value: 'UNPRINTED' },
-                      { label: '✅ 출력 완료', value: 'PRINTED' },
+                      { label: '미출력 주문', value: 'UNPRINTED' },
+                      { label: '출력 완료', value: 'PRINTED' },
                     ]}
                     value={printFilter}
                     onChange={setPrintFilter}
@@ -739,21 +739,21 @@ export default function AdditionalPage() {
                         {order.isB2B && <span style={{ fontSize: "11px", background: "#dbeafe", color: "#1e40af", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>B2B</span>}
                         {order.hasCombinedShipping && (
                           <span style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
-                            ⚠️ 합포장 ({order.combinedCount}건)
+                            합포장 ({order.combinedCount}건)
                           </span>
                         )}
                         {order.isDryOnly ? (
-                          <span style={{ fontSize: "11px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "2px 6px", borderRadius: "4px" }}>☀️ 상온</span>
+                          <span style={{ fontSize: "11px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "2px 6px", borderRadius: "4px" }}>상온</span>
                         ) : (
                           <>
                             {order.hasChilled && (
-                              <span style={{ fontSize: "11px", background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>❄️ 냉장</span>
+                              <span style={{ fontSize: "11px", background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>냉장</span>
                             )}
                             {order.hasFrozen && (
-                              <span style={{ fontSize: "11px", background: "#faf5ff", color: "#6b21a8", border: "1px solid #e9d5ff", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>🧊 냉동</span>
+                              <span style={{ fontSize: "11px", background: "#faf5ff", color: "#6b21a8", border: "1px solid #e9d5ff", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>냉동</span>
                             )}
                             {order.hasIcePackage && (
-                              <span style={{ fontSize: "11px", background: "#ecfeff", color: "#0891b2", border: "1px solid #c5f2f7", padding: "2px 6px", borderRadius: "4px" }}>🧊 아이스팩</span>
+                              <span style={{ fontSize: "11px", background: "#ecfeff", color: "#0891b2", border: "1px solid #c5f2f7", padding: "2px 6px", borderRadius: "4px" }}>아이스팩</span>
                             )}
                           </>
                         )}

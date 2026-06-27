@@ -561,7 +561,7 @@ export default function OrderPrintDetailPage() {
                   fontFamily: "sans-serif",
                   letterSpacing: "0.5px"
                 }}>
-                  ⚡ {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
+                  {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
                 </div>
               )}
               {order.isB2B && (
@@ -577,7 +577,7 @@ export default function OrderPrintDetailPage() {
                   fontFamily: "sans-serif",
                   letterSpacing: "0.5px"
                 }}>
-                  📦 B2B / WHOLESALE
+                  B2B / WHOLESALE
                 </div>
               )}
             </div>
@@ -593,7 +593,7 @@ export default function OrderPrintDetailPage() {
             </table>
             <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
               {order.isB2B && <div className="badge">B2B</div>}
-              {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
+              {order.hasIcePackage && <div className="stamp-kuehl">KÜHLVERSAND</div>}
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
               <div style={{
@@ -617,7 +617,7 @@ export default function OrderPrintDetailPage() {
                   display: "inline-block",
                   color: "#b91c1c"
                 }}>
-                  ✈️ {order.shippingAddress?.country?.toUpperCase() || ""}
+                  {order.shippingAddress?.country?.toUpperCase() || ""}
                 </div>
               )}
             </div>
@@ -759,7 +759,7 @@ export default function OrderPrintDetailPage() {
               fontWeight: "bold",
               fontSize: "12px"
             }}>
-              ❤️ Vielen Dank für Ihre erste Bestellung! ❤️
+              Vielen Dank für Ihre erste Bestellung!
             </div>
           )}
           <table className="footer-grid">
@@ -799,7 +799,7 @@ export default function OrderPrintDetailPage() {
                   fontFamily: "sans-serif",
                   letterSpacing: "0.5px"
                 }}>
-                  📦 B2B / WHOLESALE
+                  B2B / WHOLESALE
                 </div>
               )}
             </div>
@@ -983,7 +983,7 @@ export default function OrderPrintDetailPage() {
               fontWeight: "bold",
               fontSize: "12px"
             }}>
-              ❤️ Vielen Dank für Ihre erste Bestellung! ❤️
+              Vielen Dank für Ihre erste Bestellung!
             </div>
           )}
           <table className="footer-grid">
@@ -1103,11 +1103,17 @@ export default function OrderPrintDetailPage() {
                     <Divider />
                     <div style={{ display: "flex", flexDirection: "column", gap: "20px", alignItems: "center", background: "#f1f5f9", padding: "20px", borderRadius: "8px", width: "100%", maxHeight: "800px", overflowY: "auto" }}>
                       {slips.map((slip, idx) => (
-                        <div key={idx} style={{ width: "calc(210mm * 0.85)", height: "calc(297mm * 0.85)", overflow: "hidden", position: "relative", flexShrink: 0 }}>
-                          <div style={{ transform: "scale(0.85)", transformOrigin: "top left", width: "210mm", height: "297mm", background: "#fff", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)", boxSizing: "border-box" }}>
-                            <div className="paper-viewport" style={{ padding: 0, background: "transparent" }}>
-                              {slip}
-                            </div>
+                        <div key={idx} style={{ 
+                          width: "210mm", 
+                          zoom: 0.85, 
+                          background: "#fff", 
+                          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)", 
+                          boxSizing: "border-box",
+                          flexShrink: 0,
+                          marginBottom: "10px"
+                        }}>
+                          <div className="paper-viewport" style={{ padding: 0, background: "transparent" }}>
+                            {slip}
                           </div>
                         </div>
                       ))}
