@@ -1,4 +1,4 @@
-import { useLoaderData, useFetcher, useNavigate } from "react-router";
+import { useLoaderData, useFetcher, useNavigate, Link } from "react-router";
 import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -697,21 +697,16 @@ export default function AdditionalPage() {
                 return (
                   <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
                     <td className="order-name">
-                      <button
-                        onClick={() => navigate(`/app/lieferschein/${order.id.split('/').pop()}`)}
+                      <Link
+                        to={`/app/lieferschein/${order.id.split('/').pop()}`}
                         style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
                           color: "#008060",
                           textDecoration: "underline",
-                          cursor: "pointer",
                           fontWeight: "bold",
-                          textAlign: "left"
                         }}
                       >
                         {order.name}
-                      </button>
+                      </Link>
                     </td>
 
                     <td>
