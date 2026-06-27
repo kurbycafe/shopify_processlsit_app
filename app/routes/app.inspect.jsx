@@ -524,10 +524,7 @@ export default function Inspect() {
     setTimeout(() => barcodeRef.current?.focus(), 100);
   };
 
-  // ✨ 추가: 멀티 주문 모드, 스캔 로그, 에러 목록, 필터 상태 관리
-  const [multiMode, setMultiMode] = useState(false);
-  const [multiOrders, setMultiOrders] = useState([]);
-  const [activeOrderIdx, setActiveOrderIdx] = useState(0);
+  // 스캔 로그, 에러 목록, 필터 상태 관리
   const [logs, setLogs] = useState([]);
   const [errorItems, setErrorItems] = useState([]);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -537,26 +534,11 @@ export default function Inspect() {
   const [searchParams] = useSearchParams();
   const [hasAutoFetched, setHasAutoFetched] = useState(false);
 
-  // ✨ 공통 상태 업데이트 헬퍼 함수 (멀티 모드 자동 연동)
+  // 공통 상태 업데이트 헬퍼 함수
   const updateActiveStates = (newOrder, newLogs = null, newErrors = null) => {
     setCurrentOrder(newOrder);
     if (newLogs !== null) setLogs(newLogs);
     if (newErrors !== null) setErrorItems(newErrors);
-
-    if (multiMode) {
-      setMultiOrders(prev => {
-        const next = [...prev];
-        if (next[activeOrderIdx]) {
-          next[activeOrderIdx] = {
-            ...next[activeOrderIdx],
-            order: newOrder,
-            logs: newLogs !== null ? newLogs : next[activeOrderIdx].logs,
-            errorItems: newErrors !== null ? newErrors : next[activeOrderIdx].errorItems,
-          };
-        }
-        return next;
-      });
-    }
   };
 
   // URL 파라미터 자동 패치 Effect
@@ -584,32 +566,10 @@ export default function Inspect() {
   useEffect(() => {
     if (fetcher.data?.order) {
       const order = fetcher.data.order;
-      if (multiMode) {
-        const alreadyExists = multiOrders.some(o => o.order.id === order.id || o.order.name === order.name);
-        if (alreadyExists) {
-          setMessage({ type: "error", text: `[${order.name}] 이미 로드된 주문입니다.` });
-          playSound("error");
-          setBarcode("");
-          return;
-        }
-        
-        const newOrderObj = { order, logs: [], errorItems: [] };
-        const newIndex = multiOrders.length;
-        setMultiOrders(prev => [...prev, newOrderObj]);
-        setActiveOrderIdx(newIndex);
-        
-        setCurrentOrder(order);
-        setLogs([]);
-        setErrorItems([]);
-        setBarcode("");
-        setMessage({ type: "success", text: `[${order.name}] 주문이 추가되었습니다 (총 ${newIndex + 1}건).` });
-        playSound("success");
-      } else {
-        updateActiveStates(order, [], []);
-        setBarcode("");
-        setMessage({ type: "success", text: `${order.name} 주문을 불러왔습니다.` });
-        playSound("success");
-      }
+      updateActiveStates(order, [], []);
+      setBarcode("");
+      setMessage({ type: "success", text: `${order.name} 주문을 불러왔습니다.` });
+      playSound("success");
       setTimeout(() => barcodeRef.current?.focus(), 100);
     } else if (fetcher.data?.error) {
       setMessage({ type: "error", text: fetcher.data.error });
@@ -621,28 +581,8 @@ export default function Inspect() {
   useEffect(() => {
     if (saveFetcher.data?.success) {
       setMessage({ type: "success", text: "검수 결과가 성공적으로 저장되었습니다." });
-      
-      if (multiMode) {
-        const remainingOrders = multiOrders.filter((_, idx) => idx !== activeOrderIdx);
-        setMultiOrders(remainingOrders);
-        
-        if (remainingOrders.length > 0) {
-          const nextIdx = Math.max(0, activeOrderIdx - 1);
-          setActiveOrderIdx(nextIdx);
-          const nextOrder = remainingOrders[nextIdx];
-          setCurrentOrder(nextOrder.order);
-          setLogs(nextOrder.logs || []);
-          setErrorItems(nextOrder.errorItems || []);
-        } else {
-          setCurrentOrder(null);
-          setLogs([]);
-          setErrorItems([]);
-          setOrderName("");
-        }
-      } else {
-        updateActiveStates(null, [], []);
-        setOrderName("");
-      }
+      updateActiveStates(null, [], []);
+      setOrderName("");
     }
   }, [saveFetcher.data]);
 
@@ -738,54 +678,10 @@ export default function Inspect() {
     fetcher.submit({ intent: "fetch_order", orderName }, { method: "POST" });
   };
 
-  const handleTabChange = (index) => {
-    if (multiOrders[activeOrderIdx]) {
-      setMultiOrders(prev => {
-        const next = [...prev];
-        next[activeOrderIdx] = {
-          order: currentOrder,
-          logs,
-          errorItems
-        };
-        return next;
-      });
-    }
-
-    const nextOrder = multiOrders[index];
-    if (nextOrder) {
-      setActiveOrderIdx(index);
-      setCurrentOrder(nextOrder.order);
-      setLogs(nextOrder.logs || []);
-      setErrorItems(nextOrder.errorItems || []);
-      setMessage({ type: "success", text: `${nextOrder.order.name} 주문 탭으로 전환했습니다.` });
-      setTimeout(() => barcodeRef.current?.focus(), 100);
-    }
-  };
-
   const handleCancelActiveOrder = () => {
     if (!confirm("현재 진행 중인 주문 데이터를 초기화/삭제하시겠습니까?")) return;
-
-    if (multiMode) {
-      const remainingOrders = multiOrders.filter((_, idx) => idx !== activeOrderIdx);
-      setMultiOrders(remainingOrders);
-      
-      if (remainingOrders.length > 0) {
-        const nextIdx = Math.max(0, activeOrderIdx - 1);
-        setActiveOrderIdx(nextIdx);
-        const nextOrder = remainingOrders[nextIdx];
-        setCurrentOrder(nextOrder.order);
-        setLogs(nextOrder.logs || []);
-        setErrorItems(nextOrder.errorItems || []);
-      } else {
-        setCurrentOrder(null);
-        setLogs([]);
-        setErrorItems([]);
-        setOrderName("");
-      }
-    } else {
-      updateActiveStates(null, [], []);
-      setOrderName("");
-    }
+    updateActiveStates(null, [], []);
+    setOrderName("");
     setMessage({ type: "info", text: "검수가 취소되었습니다." });
   };
 
@@ -1166,7 +1062,7 @@ export default function Inspect() {
       backAction={{ content: "대시보드", url: "/app" }}
     >
       <Layout>
-        {/* 주문 번호 검색 및 멀티 모드 카드 */}
+        {/* 주문 번호 검색 카드 */}
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
@@ -1180,23 +1076,14 @@ export default function Inspect() {
                       autoComplete="off"
                       prefix={<Icon source={SearchIcon} />} 
                       inputRef={orderSearchRef}
-                      disabled={!!currentOrder && !multiMode}
+                      disabled={!!currentOrder}
                     />
                   </form>
                 </Box>
                 <Box paddingBlockStart="500">
-                  <InlineStack gap="200">
-                    <Button onClick={handleSearch} loading={fetcher.state === "submitting"} disabled={!!currentOrder && !multiMode}>
-                      불러오기
-                    </Button>
-                    <Button 
-                      pressed={multiMode}
-                      onClick={() => setMultiMode(!multiMode)}
-                      disabled={!!currentOrder && !multiMode}
-                    >
-                      {multiMode ? "멀티 주문 모드 ON" : "멀티 주문 모드 OFF"}
-                    </Button>
-                  </InlineStack>
+                  <Button onClick={handleSearch} loading={fetcher.state === "submitting"} disabled={!!currentOrder}>
+                    불러오기
+                  </Button>
                 </Box>
               </InlineStack>
 
@@ -1208,15 +1095,6 @@ export default function Inspect() {
             </BlockStack>
           </Card>
         </Layout.Section>
-
-        {/* 멀티 주문 모드 탭 바 */}
-        {multiMode && multiOrders.length > 0 && (
-          <Layout.Section>
-            <Box paddingBlockStart="100">
-              <Tabs tabs={tabs} selected={activeOrderIdx} onSelect={handleTabChange} />
-            </Box>
-          </Layout.Section>
-        )}
 
         {/* 검수 리스트 및 작업 영역 */}
         <Layout.Section>

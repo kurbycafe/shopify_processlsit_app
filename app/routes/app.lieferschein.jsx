@@ -103,6 +103,11 @@ export const loader = async ({ request }) => {
                 customer {
                   numberOfOrders
                 }
+                totalPriceSet { shopMoney { amount currencyCode } }
+                subtotalPriceSet { shopMoney { amount currencyCode } }
+                totalTaxSet { shopMoney { amount currencyCode } }
+                totalShippingPriceSet { shopMoney { amount currencyCode } }
+                totalDiscountsSet { shopMoney { amount currencyCode } }
                 shippingLines(first: 1) {
                   edges {
                     node {
@@ -122,6 +127,10 @@ export const loader = async ({ request }) => {
                       id
                       title
                       quantity
+                      originalUnitPriceSet { shopMoney { amount currencyCode } }
+                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                      originalTotalSet { shopMoney { amount currencyCode } }
+                      discountedTotalSet { shopMoney { amount currencyCode } }
                       variant {
                         id
                         title
@@ -216,6 +225,11 @@ export const loader = async ({ request }) => {
         const isIcePackage = variantGid.endsWith("/54301230268745");
         const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
 
+        const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
+        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
+        const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
+        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
+
         return {
           id: item.id,
           title: (item.title || "").replace(" - Default Title", ""),
@@ -232,6 +246,10 @@ export const loader = async ({ request }) => {
           position: posRaw,
           productType: (product?.producttype?.value || "t").trim().toLowerCase(),
           _finalSortString: `${sortKey}___:::___${titleKey}`,
+          priceOriginal,
+          priceDiscounted,
+          totalOriginal,
+          totalDiscounted,
         };
       });
 
@@ -276,6 +294,12 @@ export const loader = async ({ request }) => {
         hasChilled,
         hasFrozen,
         isB2B,
+        totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
+        subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
+        totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
+        totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
+        totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
+        currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
       };
     });
 
@@ -424,6 +448,81 @@ export default function AdditionalPage() {
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
   const [searchQuery, setSearchQuery] = useState(""); // ✨ 검색 텍스트 필터 추가
   const [tempFilter, setTempFilter] = useState("ALL"); // ✨ 온도대 필터 추가
+
+  // ✨ 문서 출력 종류 및 설정 상태 추가
+  const [docMode, setDocMode] = useState("LIEFERSCHEIN"); // LIEFERSCHEIN | RECHNUNG | BOTH
+  const [showImages, setShowImages] = useState(true);
+  const [showBarcodes, setShowBarcodes] = useState(true);
+  const [showSkus, setShowSkus] = useState(true);
+
+  // 🏠 주소 커스텀 수정 상태
+  const [editedAddresses, setEditedAddresses] = useState({}); // { [orderId]: { shippingAddress: {...}, billingAddress: {...} } }
+  const [editingAddress, setEditingAddress] = useState({}); // { [orderId]: { shipping: boolean, billing: boolean } }
+
+  const startEditAddress = (orderId, type) => {
+    setEditingAddress(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [type]: true
+      }
+    }));
+    // 현재 주문 주소 데이터로 초기화
+    if (!editedAddresses[orderId] || !editedAddresses[orderId][type]) {
+      const order = orders.find(o => o.id === orderId);
+      const originalAddress = type === 'shipping' ? order?.shippingAddress : order?.billingAddress;
+      setEditedAddresses(prev => ({
+        ...prev,
+        [orderId]: {
+          ...prev[orderId],
+          [type]: originalAddress ? { ...originalAddress } : { name: "", company: "", address1: "", address2: "", zip: "", city: "", country: "" }
+        }
+      }));
+    }
+  };
+
+  const handleAddressChange = (orderId, type, field, value) => {
+    setEditedAddresses(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [type]: {
+          ...prev[orderId]?.[type],
+          [field]: value
+        }
+      }
+    }));
+  };
+
+  const saveAddress = (orderId, type) => {
+    setEditingAddress(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [type]: false
+      }
+    }));
+  };
+
+  const cancelAddress = (orderId, type) => {
+    setEditingAddress(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [type]: false
+      }
+    }));
+    // 취소 시 변경 내역 초기화하고 원래대로 복구
+    const order = orders.find(o => o.id === orderId);
+    const originalAddress = type === 'shipping' ? order?.shippingAddress : order?.billingAddress;
+    setEditedAddresses(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [type]: originalAddress ? { ...originalAddress } : { name: "", company: "", address1: "", address2: "", zip: "", city: "", country: "" }
+      }
+    }));
+  };
 
   useEffect(() => {
     if (loaderData?.orders) {
@@ -698,9 +797,47 @@ export default function AdditionalPage() {
           </Card>
         </Box>
 
+        <Box paddingBlockEnd="400">
+          <Card>
+            <BlockStack gap="300">
+              <Text variant="headingSm" as="h3">인쇄 및 출력 설정</Text>
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "center" }}>
+                <Box minWidth="240px">
+                  <Select
+                    label="출력 문서 종류"
+                    options={[
+                      { label: 'Lieferschein (납품서만)', value: 'LIEFERSCHEIN' },
+                      { label: 'Rechnung (영수증만)', value: 'RECHNUNG' },
+                      { label: 'Beide (납품서 + 영수증)', value: 'BOTH' },
+                    ]}
+                    value={docMode}
+                    onChange={setDocMode}
+                  />
+                </Box>
+                <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", marginTop: "16px" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", fontWeight: "500" }}>
+                    <input type="checkbox" checked={showImages} onChange={(e) => setShowImages(e.target.checked)} style={{ cursor: "pointer" }} />
+                    제품 이미지 표시
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", fontWeight: "500" }}>
+                    <input type="checkbox" checked={showBarcodes} onChange={(e) => setShowBarcodes(e.target.checked)} style={{ cursor: "pointer" }} />
+                    바코드 표시
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", fontWeight: "500" }}>
+                    <input type="checkbox" checked={showSkus} onChange={(e) => setShowSkus(e.target.checked)} style={{ cursor: "pointer" }} />
+                    SKU 및 상세정보 표시
+                  </label>
+                </div>
+              </div>
+            </BlockStack>
+          </Card>
+        </Box>
+
         <div className="print-action-row">
           <button className="print-btn" onClick={handlePrint} disabled={selectedOrders.length === 0}>
-            선택 항목 패킹슬립 인쇄하기 ({selectedOrders.length}개)
+            {docMode === "LIEFERSCHEIN" && `선택 항목 패킹슬립 인쇄하기 (${selectedOrders.length}개)`}
+            {docMode === "RECHNUNG" && `선택 항목 영수증(Rechnung) 인쇄하기 (${selectedOrders.length}개)`}
+            {docMode === "BOTH" && `선택 항목 납품서 + 영수증 인쇄하기 (${selectedOrders.length}개)`}
           </button>
         </div>
 
@@ -832,241 +969,629 @@ export default function AdditionalPage() {
               shippingBadgeText = "UPS Standard";
             }
 
-            return (
-              <div key={order.id} className="packing-slip">
-                <div className="header">
-                  <div className="header-left">
-                    <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
-                      <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
+            const currentBillingAddress = editedAddresses[order.id]?.billing || order.billingAddress;
+            const currentShippingAddress = editedAddresses[order.id]?.shipping || order.shippingAddress;
 
-                      {/* ⚡ 특급 배송 빨간색 잉크 스탬프 배지 */}
-                      {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
-                        <div style={{
-                          border: "4px double #dc2626",
-                          color: "#dc2626",
-                          padding: "3px 8px",
-                          fontSize: "13px",
-                          fontWeight: "900",
-                          textTransform: "uppercase",
-                          transform: "rotate(-2.5deg)",
-                          display: "inline-block",
-                          fontFamily: "sans-serif",
-                          letterSpacing: "0.5px"
-                        }}>
-                          ⚡ {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
-                        </div>
-                      )}
+            const slips = [];
 
-                      {/* 📦 B2B 도매 검정색 잉크 스탬프 배지 */}
-                      {order.isB2B && (
-                        <div style={{
-                          border: "4px double #1e293b",
-                          color: "#1e293b",
-                          padding: "3px 8px",
-                          fontSize: "13px",
-                          fontWeight: "900",
-                          textTransform: "uppercase",
-                          transform: "rotate(1.5deg)",
-                          display: "inline-block",
-                          fontFamily: "sans-serif",
-                          letterSpacing: "0.5px"
-                        }}>
-                          📦 B2B / WHOLESALE
-                        </div>
-                      )}
+            // 1. LIEFERSCHEIN LAYOUT
+            if (docMode === "LIEFERSCHEIN" || docMode === "BOTH") {
+              slips.push(
+                <div key={`${order.id}-lieferschein`} className="packing-slip lieferschein-slip">
+                  <div className="header">
+                    <div className="header-left">
+                      <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+                        <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
 
-                      {/* ⚠️ 합포장 경고 스탬프 배지 */}
-                      {order.hasCombinedShipping && (
-                        <div style={{
-                          border: "4px double #d97706",
-                          color: "#d97706",
-                          padding: "3px 8px",
-                          fontSize: "13px",
-                          fontWeight: "900",
-                          textTransform: "uppercase",
-                          transform: "rotate(-1.2deg)",
-                          display: "inline-block",
-                          fontFamily: "sans-serif",
-                          letterSpacing: "0.5px"
-                        }}>
-                          ⚠️ COMBINED SHIPPING ({order.combinedCount})
-                        </div>
-                      )}
-                    </div>
-                    <table className="info-grid">
-                      <tbody>
-                        <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
-                        <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
-                        <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
-                        <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
-                        <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                        <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
-                      </tbody>
-                    </table>
-                    <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
-                      {order.isB2B && <div className="badge">B2B</div>}
-                      {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
-                    </div>
+                        {/* ⚡ 특급 배송 빨간색 잉크 스탬프 배지 */}
+                        {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
+                          <div style={{
+                            border: "4px double #dc2626",
+                            color: "#dc2626",
+                            padding: "3px 8px",
+                            fontSize: "13px",
+                            fontWeight: "900",
+                            textTransform: "uppercase",
+                            transform: "rotate(-2.5deg)",
+                            display: "inline-block",
+                            fontFamily: "sans-serif",
+                            letterSpacing: "0.5px"
+                          }}>
+                            ⚡ {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
+                          </div>
+                        )}
 
-                    {/* ✨ 신규 배송 수단 & 해외 국가명 굵은 외곽선 텍스트 상자 배치 */}
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
-                      <div style={{
-                        padding: "6px 12px",
-                        border: "3px solid #111111",
-                        fontSize: "14px",
-                        fontWeight: "800",
-                        textTransform: "uppercase",
-                        display: "inline-block",
-                        color: "#111111"
-                      }}>
-                        {order.shippingMethod}
+                        {/* 📦 B2B 도매 검정색 잉크 스탬프 배지 */}
+                        {order.isB2B && (
+                          <div style={{
+                            border: "4px double #1e293b",
+                            color: "#1e293b",
+                            padding: "3px 8px",
+                            fontSize: "13px",
+                            fontWeight: "900",
+                            textTransform: "uppercase",
+                            transform: "rotate(1.5deg)",
+                            display: "inline-block",
+                            fontFamily: "sans-serif",
+                            letterSpacing: "0.5px"
+                          }}>
+                            📦 B2B / WHOLESALE
+                          </div>
+                        )}
+
+                        {/* ⚠️ 합포장 경고 스탬프 배지 */}
+                        {order.hasCombinedShipping && (
+                          <div style={{
+                            border: "4px double #d97706",
+                            color: "#d97706",
+                            padding: "3px 8px",
+                            fontSize: "13px",
+                            fontWeight: "900",
+                            textTransform: "uppercase",
+                            transform: "rotate(-1.2deg)",
+                            display: "inline-block",
+                            fontFamily: "sans-serif",
+                            letterSpacing: "0.5px"
+                          }}>
+                            ⚠️ COMBINED SHIPPING ({order.combinedCount})
+                          </div>
+                        )}
                       </div>
-                      {isInternational && (
+                      <table className="info-grid">
+                        <tbody>
+                          <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
+                          <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
+                          <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
+                          <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
+                          <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
+                          <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                        </tbody>
+                      </table>
+                      <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
+                        {order.isB2B && <div className="badge">B2B</div>}
+                        {order.hasIcePackage && <div className="stamp-kuehl">❄ KÜHLVERSAND</div>}
+                      </div>
+
+                      {/* ✨ 신규 배송 수단 & 해외 국가명 굵은 외곽선 텍스트 상자 배치 */}
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
                         <div style={{
                           padding: "6px 12px",
-                          border: "4px solid #b91c1c",
-                          fontSize: "16px",
-                          fontWeight: "900",
+                          border: "3px solid #111111",
+                          fontSize: "14px",
+                          fontWeight: "800",
                           textTransform: "uppercase",
                           display: "inline-block",
-                          color: "#b91c1c"
+                          color: "#111111"
                         }}>
-                          ✈️ {order.shippingAddress.country.toUpperCase()}
+                          {order.shippingMethod}
+                        </div>
+                        {isInternational && (
+                          <div style={{
+                            padding: "6px 12px",
+                            border: "4px solid #b91c1c",
+                            fontSize: "16px",
+                            fontWeight: "900",
+                            textTransform: "uppercase",
+                            display: "inline-block",
+                            color: "#b91c1c"
+                          }}>
+                            ✈️ {order.shippingAddress.country.toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="header-right">
+                      <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
+                      {showBarcodes && (
+                        <div className="barcode-wrapper">
+                          <div className="barcode-title">Order Barcode</div>
+                          <Code128 value={order.name} height={38} moduleWidth={1.2} />
                         </div>
                       )}
                     </div>
                   </div>
-                  <div className="header-right">
-                    <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
-                    <div className="barcode-wrapper">
-                      <div className="barcode-title">Order Barcode</div>
-                      <Code128 value={order.name} height={38} moduleWidth={1.2} />
+
+                  <div className="address-row">
+                    {/* Rechnungsadresse */}
+                    <div className="address-box">
+                      <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Rechnungsadresse</span>
+                        {!editingAddress[order.id]?.billing && (
+                          <button 
+                            type="button" 
+                            className="address-edit-toggle no-print" 
+                            onClick={() => startEditAddress(order.id, 'billing')}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#2563eb",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                              padding: 0,
+                              textDecoration: "underline"
+                            }}
+                          >
+                            ✎ 수정
+                          </button>
+                        )}
+                      </div>
+                      {editingAddress[order.id]?.billing && (
+                        <div className="address-edit-form no-print" style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          <input type="text" placeholder="이름" value={editedAddresses[order.id]?.billing?.name || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'name', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="회사(선택)" value={editedAddresses[order.id]?.billing?.company || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'company', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 1" value={editedAddresses[order.id]?.billing?.address1 || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'address1', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 2(선택)" value={editedAddresses[order.id]?.billing?.address2 || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'address2', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <input type="text" placeholder="우편번호" value={editedAddresses[order.id]?.billing?.zip || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'zip', e.target.value)} style={{ width: '40%', fontSize: "11px", padding: "2px 4px" }} />
+                            <input type="text" placeholder="도시" value={editedAddresses[order.id]?.billing?.city || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'city', e.target.value)} style={{ width: '60%', fontSize: "11px", padding: "2px 4px" }} />
+                          </div>
+                          <input type="text" placeholder="국가" value={editedAddresses[order.id]?.billing?.country || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'country', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                            <button type="button" className="address-btn save" onClick={() => saveAddress(order.id, 'billing')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#2563eb", color: "white", border: "none", borderRadius: "3px", cursor: "pointer" }}>저장</button>
+                            <button type="button" className="address-btn cancel" onClick={() => cancelAddress(order.id, 'billing')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "3px", cursor: "pointer" }}>취소</button>
+                          </div>
+                        </div>
+                      )}
+                      <div className={`address-content-wrapper ${editingAddress[order.id]?.billing ? "editing-active" : ""}`}>
+                        <div className="address-content normal-address-text">
+                          <strong>{currentBillingAddress?.name || "-"}</strong><br />
+                          {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
+                          {currentBillingAddress?.address1}<br />
+                          {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
+                          {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
+                          {currentBillingAddress?.country}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Lieferadresse */}
+                    <div className="address-box">
+                      <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Lieferadresse</span>
+                        {!editingAddress[order.id]?.shipping && (
+                          <button 
+                            type="button" 
+                            className="address-edit-toggle no-print" 
+                            onClick={() => startEditAddress(order.id, 'shipping')}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#2563eb",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                              padding: 0,
+                              textDecoration: "underline"
+                            }}
+                          >
+                            ✎ 수정
+                          </button>
+                        )}
+                      </div>
+                      {editingAddress[order.id]?.shipping && (
+                        <div className="address-edit-form no-print" style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          <input type="text" placeholder="이름" value={editedAddresses[order.id]?.shipping?.name || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'name', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="회사(선택)" value={editedAddresses[order.id]?.shipping?.company || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'company', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 1" value={editedAddresses[order.id]?.shipping?.address1 || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'address1', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 2(선택)" value={editedAddresses[order.id]?.shipping?.address2 || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'address2', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <input type="text" placeholder="우편번호" value={editedAddresses[order.id]?.shipping?.zip || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'zip', e.target.value)} style={{ width: '40%', fontSize: "11px", padding: "2px 4px" }} />
+                            <input type="text" placeholder="도시" value={editedAddresses[order.id]?.shipping?.city || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'city', e.target.value)} style={{ width: '60%', fontSize: "11px", padding: "2px 4px" }} />
+                          </div>
+                          <input type="text" placeholder="국가" value={editedAddresses[order.id]?.shipping?.country || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'country', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                            <button type="button" className="address-btn save" onClick={() => saveAddress(order.id, 'shipping')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#2563eb", color: "white", border: "none", borderRadius: "3px", cursor: "pointer" }}>저장</button>
+                            <button type="button" className="address-btn cancel" onClick={() => cancelAddress(order.id, 'shipping')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "3px", cursor: "pointer" }}>취소</button>
+                          </div>
+                        </div>
+                      )}
+                      <div className={`address-content-wrapper ${editingAddress[order.id]?.shipping ? "editing-active" : ""}`}>
+                        <div className="address-content normal-address-text">
+                          <strong>{currentShippingAddress?.name || "-"}</strong><br />
+                          {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
+                          {currentShippingAddress?.address1}<br />
+                          {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
+                          {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
+                          {currentShippingAddress?.country}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="address-row">
-                  <div className="address-box">
-                    <div className="section-title">Rechnungsadresse</div>
-                    <div className="address-content">
-                      <strong>{order.billingAddress?.name || "-"}</strong><br />
-                      {order.billingAddress?.address1}<br />
-                      {order.billingAddress?.zip} {order.billingAddress?.city}
-                    </div>
-                  </div>
-                  <div className="address-box">
-                    <div className="section-title">Lieferadresse</div>
-                    <div className="address-content">
-                      <strong>{order.shippingAddress?.name || "-"}</strong><br />
-                      {order.shippingAddress?.address1}<br />
-                      {order.shippingAddress?.zip} {order.shippingAddress?.city}
-                    </div>
-                  </div>
-                </div>
-
-                <table className="order-table">
-                  <thead>
-                    <tr>
-                      <th className="order-th-image">Bild</th>
-                      <th>Produkt</th>
-                      <th className="order-th-qty">Menge</th>
-                      <th className="order-th-location">Lagerplatz</th>
-                      <th className="order-th-barcode">Barcode</th>
-                      <th className="order-th-check">✓</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.items.map((item) => {
-                      const isOriginalMultiQty = item.quantity > 1;
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            {item.imageUrl ? (
-                              <img className="product-image" src={item.imageUrl} alt="" />
-                            ) : (
-                              <div className="product-image-placeholder" />
-                            )}
-                          </td>
-                          <td>
-                            <div className="product-title">
-                              {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
-                              {item.title}
-                            </div>
-                            {item.germanTranslation && (
-                              <div className="german-title">{item.germanTranslation}</div>
-                            )}
-                            {item.sku && <div className="sku">SKU: {item.sku}</div>}
-                            {item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
-                            {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
-                          </td>
-
-                          <td className={`qty-cell ${isOriginalMultiQty ? "qty-cell-warning" : ""}`}>
-                            × {item.quantity}
-                            {isOriginalMultiQty && <span className="qty-warning-lbl">수량주의</span>}
-                          </td>
-
-                          <td>
-                            {item.position ? (
-                              <div className="location-tag">{item.position}</div>
-                            ) : (
-                              <span className="missing-value">—</span>
-                            )}
-                          </td>
-                          <td className="barcode-cell">
-                            {item.barcode ? (
-                              <Code128 value={item.barcode} height={36} moduleWidth={1.1} />
-                            ) : (
-                              <span className="missing-value">—</span>
-                            )}
-                          </td>
-                          <td className="check-cell">□</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                {order.note && (
-                  <div className="note-box">
-                    <div className="note-title">Lieferhinweis</div>
-                    <div className="note-content">{order.note}</div>
-                  </div>
-                )}
-
-                <div className="picker-box">
-                  <span>Gepackt von: _____________________</span>
-                  <span>Kontrolliert von: _____________________</span>
-                </div>
-
-                <div className="footer">
-                  <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
-                  {order.isFirstPurchase && (
-                    <div style={{
-                      textAlign: "center",
-                      margin: "8px 0",
-                      padding: "8px",
-                      border: "2px dashed #b91c1c",
-                      borderRadius: "6px",
-                      background: "#fff5f5",
-                      color: "#b91c1c",
-                      fontWeight: "bold",
-                      fontSize: "12px"
-                    }}>
-                      ❤️ Vielen Dank für Ihre erste Bestellung! ❤️
-                    </div>
-                  )}
-                  <table className="footer-grid">
-                    <tbody>
+                  <table className="order-table">
+                    <thead>
                       <tr>
-                        <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
-                        <td><span className="footer-label">Email</span>service@dawayo.de</td>
-                        <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
-                        <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                        {showImages && <th className="order-th-image">Bild</th>}
+                        <th>Produkt</th>
+                        <th className="order-th-qty">Menge</th>
+                        {showSkus && <th className="order-th-location">Lagerplatz</th>}
+                        {showBarcodes && <th className="order-th-barcode">Barcode</th>}
+                        <th className="order-th-check">✓</th>
                       </tr>
+                    </thead>
+                    <tbody>
+                      {order.items.map((item) => {
+                        const isOriginalMultiQty = item.quantity > 1;
+                        return (
+                          <tr key={item.id}>
+                            {showImages && (
+                              <td>
+                                {item.imageUrl ? (
+                                  <img className="product-image" src={item.imageUrl} alt="" />
+                                ) : (
+                                  <div className="product-image-placeholder" />
+                                )}
+                              </td>
+                            )}
+                            <td>
+                              <div className="product-title">
+                                {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
+                                {item.title}
+                              </div>
+                              {item.germanTranslation && (
+                                <div className="german-title">{item.germanTranslation}</div>
+                              )}
+                              {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
+                              {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
+                              {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
+                            </td>
+
+                            <td className={`qty-cell ${isOriginalMultiQty ? "qty-cell-warning" : ""}`}>
+                              × {item.quantity}
+                              {isOriginalMultiQty && <span className="qty-warning-lbl">수량주의</span>}
+                            </td>
+
+                            {showSkus && (
+                              <td>
+                                {item.position ? (
+                                  <div className="location-tag">{item.position}</div>
+                                ) : (
+                                  <span className="missing-value">—</span>
+                                )}
+                              </td>
+                            )}
+                            {showBarcodes && (
+                              <td className="barcode-cell">
+                                {item.barcode ? (
+                                  <Code128 value={item.barcode} height={36} moduleWidth={1.1} />
+                                ) : (
+                                  <span className="missing-value">—</span>
+                                )}
+                              </td>
+                            )}
+                            <td className="check-cell">□</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
-                  <div className="shop-name">dawayo.de</div>
+
+                  {order.note && (
+                    <div className="note-box">
+                      <div className="note-title">Lieferhinweis</div>
+                      <div className="note-content">{order.note}</div>
+                    </div>
+                  )}
+
+                  <div className="picker-box">
+                    <span>Gepackt von: _____________________</span>
+                    <span>Kontrolliert von: _____________________</span>
+                  </div>
+
+                  <div className="footer">
+                    <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
+                    {order.isFirstPurchase && (
+                      <div style={{
+                        textAlign: "center",
+                        margin: "8px 0",
+                        padding: "8px",
+                        border: "2px dashed #b91c1c",
+                        borderRadius: "6px",
+                        background: "#fff5f5",
+                        color: "#b91c1c",
+                        fontWeight: "bold",
+                        fontSize: "12px"
+                      }}>
+                        ❤️ Vielen Dank für Ihre erste Bestellung! ❤️
+                      </div>
+                    )}
+                    <table className="footer-grid">
+                      <tbody>
+                        <tr>
+                          <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
+                          <td><span className="footer-label">Email</span>service@dawayo.de</td>
+                          <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
+                          <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <div className="shop-name">dawayo.de</div>
+                  </div>
                 </div>
+              );
+            }
+
+            // 2. RECHNUNG LAYOUT
+            if (docMode === "RECHNUNG" || docMode === "BOTH") {
+              slips.push(
+                <div key={`${order.id}-rechnung`} className="packing-slip rechnung-slip">
+                  <div className="header">
+                    <div className="header-left">
+                      <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+                        <div className="document-title" style={{ margin: 0 }}>Rechnung</div>
+
+                        {/* 📦 B2B 도매 검정색 잉크 스탬프 배지 */}
+                        {order.isB2B && (
+                          <div style={{
+                            border: "4px double #1e293b",
+                            color: "#1e293b",
+                            padding: "3px 8px",
+                            fontSize: "13px",
+                            fontWeight: "900",
+                            textTransform: "uppercase",
+                            transform: "rotate(1.5deg)",
+                            display: "inline-block",
+                            fontFamily: "sans-serif",
+                            letterSpacing: "0.5px"
+                          }}>
+                            📦 B2B / WHOLESALE
+                          </div>
+                        )}
+                      </div>
+                      <table className="info-grid">
+                        <tbody>
+                          <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
+                          <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
+                          <tr><td className="info-label">Rechnungsdatum</td><td className="info-value">{order.createdAt}</td></tr>
+                          <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
+                          <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
+                          <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="header-right">
+                      <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
+                      {showBarcodes && (
+                        <div className="barcode-wrapper">
+                          <div className="barcode-title">Order Barcode</div>
+                          <Code128 value={order.name} height={38} moduleWidth={1.2} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="address-row">
+                    {/* Rechnungsadresse */}
+                    <div className="address-box">
+                      <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Rechnungsadresse</span>
+                        {!editingAddress[order.id]?.billing && (
+                          <button 
+                            type="button" 
+                            className="address-edit-toggle no-print" 
+                            onClick={() => startEditAddress(order.id, 'billing')}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#2563eb",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                              padding: 0,
+                              textDecoration: "underline"
+                            }}
+                          >
+                            ✎ 수정
+                          </button>
+                        )}
+                      </div>
+                      {editingAddress[order.id]?.billing && (
+                        <div className="address-edit-form no-print" style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          <input type="text" placeholder="이름" value={editedAddresses[order.id]?.billing?.name || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'name', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="회사(선택)" value={editedAddresses[order.id]?.billing?.company || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'company', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 1" value={editedAddresses[order.id]?.billing?.address1 || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'address1', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 2(선택)" value={editedAddresses[order.id]?.billing?.address2 || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'address2', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <input type="text" placeholder="우편번호" value={editedAddresses[order.id]?.billing?.zip || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'zip', e.target.value)} style={{ width: '40%', fontSize: "11px", padding: "2px 4px" }} />
+                            <input type="text" placeholder="도시" value={editedAddresses[order.id]?.billing?.city || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'city', e.target.value)} style={{ width: '60%', fontSize: "11px", padding: "2px 4px" }} />
+                          </div>
+                          <input type="text" placeholder="국가" value={editedAddresses[order.id]?.billing?.country || ''} onChange={(e) => handleAddressChange(order.id, 'billing', 'country', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                            <button type="button" className="address-btn save" onClick={() => saveAddress(order.id, 'billing')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#2563eb", color: "white", border: "none", borderRadius: "3px", cursor: "pointer" }}>저장</button>
+                            <button type="button" className="address-btn cancel" onClick={() => cancelAddress(order.id, 'billing')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "3px", cursor: "pointer" }}>취소</button>
+                          </div>
+                        </div>
+                      )}
+                      <div className={`address-content-wrapper ${editingAddress[order.id]?.billing ? "editing-active" : ""}`}>
+                        <div className="address-content normal-address-text">
+                          <strong>{currentBillingAddress?.name || "-"}</strong><br />
+                          {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
+                          {currentBillingAddress?.address1}<br />
+                          {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
+                          {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
+                          {currentBillingAddress?.country}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Lieferadresse */}
+                    <div className="address-box">
+                      <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Lieferadresse</span>
+                        {!editingAddress[order.id]?.shipping && (
+                          <button 
+                            type="button" 
+                            className="address-edit-toggle no-print" 
+                            onClick={() => startEditAddress(order.id, 'shipping')}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#2563eb",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                              padding: 0,
+                              textDecoration: "underline"
+                            }}
+                          >
+                            ✎ 수정
+                          </button>
+                        )}
+                      </div>
+                      {editingAddress[order.id]?.shipping && (
+                        <div className="address-edit-form no-print" style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          <input type="text" placeholder="이름" value={editedAddresses[order.id]?.shipping?.name || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'name', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="회사(선택)" value={editedAddresses[order.id]?.shipping?.company || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'company', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 1" value={editedAddresses[order.id]?.shipping?.address1 || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'address1', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <input type="text" placeholder="주소 2(선택)" value={editedAddresses[order.id]?.shipping?.address2 || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'address2', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <input type="text" placeholder="우편번호" value={editedAddresses[order.id]?.shipping?.zip || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'zip', e.target.value)} style={{ width: '40%', fontSize: "11px", padding: "2px 4px" }} />
+                            <input type="text" placeholder="도시" value={editedAddresses[order.id]?.shipping?.city || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'city', e.target.value)} style={{ width: '60%', fontSize: "11px", padding: "2px 4px" }} />
+                          </div>
+                          <input type="text" placeholder="국가" value={editedAddresses[order.id]?.shipping?.country || ''} onChange={(e) => handleAddressChange(order.id, 'shipping', 'country', e.target.value)} style={{ fontSize: "11px", padding: "2px 4px" }} />
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                            <button type="button" className="address-btn save" onClick={() => saveAddress(order.id, 'shipping')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#2563eb", color: "white", border: "none", borderRadius: "3px", cursor: "pointer" }}>저장</button>
+                            <button type="button" className="address-btn cancel" onClick={() => cancelAddress(order.id, 'shipping')} style={{ padding: "2px 6px", fontSize: "10px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "3px", cursor: "pointer" }}>취소</button>
+                          </div>
+                        </div>
+                      )}
+                      <div className={`address-content-wrapper ${editingAddress[order.id]?.shipping ? "editing-active" : ""}`}>
+                        <div className="address-content normal-address-text">
+                          <strong>{currentShippingAddress?.name || "-"}</strong><br />
+                          {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
+                          {currentShippingAddress?.address1}<br />
+                          {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
+                          {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
+                          {currentShippingAddress?.country}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <table className="order-table">
+                    <thead>
+                      <tr>
+                        {showImages && <th className="order-th-image">Bild</th>}
+                        <th>Produkt</th>
+                        <th className="order-th-qty" style={{ textAlign: 'center' }}>Menge</th>
+                        <th style={{ width: '90px', textAlign: 'right' }}>Einzelpreis</th>
+                        <th style={{ width: '90px', textAlign: 'right' }}>Gesamtpreis</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {order.items.map((item) => {
+                        return (
+                          <tr key={item.id}>
+                            {showImages && (
+                              <td>
+                                {item.imageUrl ? (
+                                  <img className="product-image" src={item.imageUrl} alt="" />
+                                ) : (
+                                  <div className="product-image-placeholder" />
+                                )}
+                              </td>
+                            )}
+                            <td>
+                              <div className="product-title">{item.title}</div>
+                              {item.germanTranslation && (
+                                <div className="german-title">{item.germanTranslation}</div>
+                              )}
+                              {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
+                              {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
+                              {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
+                            </td>
+                            <td className="qty-cell-rechnung" style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold' }}>
+                              {item.quantity}
+                            </td>
+                            <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
+                              {parseFloat(item.priceDiscounted).toFixed(2)} {order.currencyCode}
+                            </td>
+                            <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                              {parseFloat(item.totalDiscounted).toFixed(2)} {order.currencyCode}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  <div className="invoice-summary-wrapper" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                    <table className="invoice-summary-table" style={{ width: '280px', borderCollapse: 'collapse' }}>
+                      <tbody>
+                        <tr style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Zwischensumme:</td>
+                          <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
+                            {parseFloat(order.subtotalPrice).toFixed(2)} {order.currencyCode}
+                          </td>
+                        </tr>
+                        {parseFloat(order.totalDiscounts) > 0 && (
+                          <tr style={{ borderBottom: '1px solid #eee' }}>
+                            <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
+                            <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
+                              -{parseFloat(order.totalDiscounts).toFixed(2)} {order.currencyCode}
+                            </td>
+                          </tr>
+                        )}
+                        <tr style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Versandkosten:</td>
+                          <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
+                            {parseFloat(order.totalShipping).toFixed(2)} {order.currencyCode}
+                          </td>
+                        </tr>
+                        <tr style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>inkl. MwSt.:</td>
+                          <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
+                            {parseFloat(order.totalTax).toFixed(2)} {order.currencyCode}
+                          </td>
+                        </tr>
+                        <tr style={{ borderTop: '2px solid #111' }}>
+                          <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gesamtsumme:</td>
+                          <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
+                            {parseFloat(order.totalPrice).toFixed(2)} {order.currencyCode}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {order.note && (
+                    <div className="note-box">
+                      <div className="note-title">Bestellhinweis</div>
+                      <div className="note-content">{order.note}</div>
+                    </div>
+                  )}
+
+                  <div className="footer">
+                    <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
+                    {order.isFirstPurchase && (
+                      <div style={{
+                        textAlign: "center",
+                        margin: "8px 0",
+                        padding: "8px",
+                        border: "2px dashed #b91c1c",
+                        borderRadius: "6px",
+                        background: "#fff5f5",
+                        color: "#b91c1c",
+                        fontWeight: "bold",
+                        fontSize: "12px"
+                      }}>
+                        ❤️ Vielen Dank für Ihre erste Bestellung! ❤️
+                      </div>
+                    )}
+                    <table className="footer-grid">
+                      <tbody>
+                        <tr>
+                          <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
+                          <td><span className="footer-label">Email</span>service@dawayo.de</td>
+                          <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
+                          <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <div className="shop-name">dawayo.de</div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={order.id} style={{ display: "contents" }}>
+                {slips}
               </div>
             );
           })}

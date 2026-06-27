@@ -442,14 +442,14 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   // ==========================================
   return (
     <div 
-      className={`store-label \${printMode ? "store-label-print" : ""}`} 
+      className={`store-label ${printMode ? "store-label-print" : ""}`} 
       style={{ 
         position: "relative",
         width: printMode ? "62mm" : "234px",
         minHeight: printMode ? "29mm" : "110px",
-        height: "auto",
+        height: printMode ? "29mm" : "auto",
         boxSizing: "border-box",
-        padding: printMode ? "1.0mm 2.2mm" : "8px 10px",
+        padding: printMode ? "0.8mm 1.8mm" : "8px 10px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -461,14 +461,14 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
       }}
     >
       {/* 1. 상단 바코드바 + 바코드 숫자 & 배지 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #111111", paddingBottom: "2px", width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #111111", paddingBottom: "1px", width: "100%" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           {item.barcode ? (
             <Code128 value={item.barcode} height={14} moduleWidth={0.7} showText={false} />
           ) : (
             <span style={{ fontSize: "7px", color: "#000000" }}>NO BARCODE</span>
           )}
-          <span style={{ fontSize: "7.5px", fontFamily: "monospace", fontWeight: "bold", color: "#000000" }}>
+          <span style={{ fontSize: "8px", fontFamily: "monospace", fontWeight: "bold", color: "#000000" }}>
             {item.barcode || ""}
           </span>
         </div>
@@ -476,7 +476,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
           <span style={{
             background: "#000000",
             color: "#ffffff",
-            fontSize: "8px",
+            fontSize: "8.5px",
             fontWeight: "900",
             padding: "1px 4px",
             borderRadius: "2px",
@@ -489,54 +489,69 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
       </div>
 
       {/* 2. 상품명 및 유통기한 */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", margin: "2px 0", width: "100%" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", margin: "1px 0", width: "100%" }}>
         <div style={{ 
-          fontSize: "9.5px", 
+          fontSize: "10.5px", 
           fontWeight: "800", 
-          lineHeight: "1.15", 
+          lineHeight: "1.05", 
           color: "#000000", 
-          wordBreak: "break-all"
+          wordBreak: "break-all",
+          margin: 0,
+          padding: 0
         }}>
           {displayTitle}
         </div>
         {item.productTitle && item.productTitle !== displayTitle && (
-          <div style={{ fontSize: "8.5px", color: "#000000", fontWeight: "600", marginTop: "1px", wordBreak: "break-all" }}>
+          <div style={{ 
+            fontSize: "9.5px", 
+            color: "#000000", 
+            fontWeight: "600", 
+            marginTop: "0px", 
+            wordBreak: "break-all",
+            lineHeight: "1.05"
+          }}>
             {item.productTitle}
           </div>
         )}
         {item.expiryDate && (
-          <div style={{ fontSize: "7px", color: "#000000", fontWeight: "700", marginTop: "1px" }}>
+          <div style={{ 
+            fontSize: "7.5px", 
+            color: "#000000", 
+            fontWeight: "700", 
+            marginTop: "0px",
+            lineHeight: "1.05"
+          }}>
             MHD: {item.expiryDate}
           </div>
         )}
       </div>
 
       {/* 3. 가격 및 SKU (하단 배치) */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", width: "100%" }}>
-        <div style={{ fontSize: "8px", color: "#000000", fontFamily: "monospace", fontWeight: "bold" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", width: "100%", marginTop: "0px" }}>
+        <div style={{ fontSize: "8.5px", color: "#000000", fontFamily: "monospace", fontWeight: "bold", lineHeight: "1.05" }}>
           {item.sku ? "SKU: " + item.sku : ""}
           {pricePerKg && ` | ${formatWeight(item.weight, item.weightUnit)} (${formatEuro(pricePerKg)}/kg)`}
         </div>
         
         <div style={{ textAlign: "right" }}>
           {finalBadgeType === "SALE" && isAutoDiscount ? (
-            <div style={{ display: "flex", alignItems: "flex-end", gap: "4px" }}>
-              <span style={{ fontSize: "7.5px", color: "#000000", textDecoration: "line-through", paddingBottom: "1px" }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: "3px" }}>
+              <span style={{ fontSize: "8px", color: "#000000", textDecoration: "line-through", paddingBottom: "1px" }}>
                 {formatEuro(item.compareAtPrice)}
               </span>
-              <span style={{ fontSize: "13px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
+              <span style={{ fontSize: "14px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
                 {formatEuro(item.price)}
               </span>
-              <span style={{ fontSize: "8px", fontWeight: "900", background: "#000000", color: "#ffffff", padding: "1px 3px", borderRadius: "2px", lineHeight: "1" }}>
+              <span style={{ fontSize: "8.5px", fontWeight: "900", background: "#000000", color: "#ffffff", padding: "1px 3px", borderRadius: "2px", lineHeight: "1" }}>
                 -{discountPercent}%
               </span>
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "baseline", gap: "2px" }}>
-              <span style={{ fontSize: "14px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
+              <span style={{ fontSize: "15px", fontWeight: "900", color: "#000000", lineHeight: "1" }}>
                 {formatEuro(item.price)}
               </span>
-              <span style={{ fontSize: "6.5px", color: "#000000", fontWeight: "bold" }}>inkl. MwSt.</span>
+              <span style={{ fontSize: "7px", color: "#000000", fontWeight: "bold" }}>inkl. MwSt.</span>
             </div>
           )}
         </div>

@@ -628,3 +628,74 @@
     border-color: #b91c1c !important;
   }
 }
+
+/* Address Form styling */
+.address-edit-form input {
+  padding: 4px 6px;
+  font-size: 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.address-edit-form input:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.address-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.address-btn.save {
+  background: #2563eb;
+  color: white;
+  border: 1px solid #2563eb;
+}
+
+.address-btn.cancel {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+
+.editing-active .normal-address-text {
+  display: none;
+}
+
+/* Invoice (Rechnung) specific styling */
+.invoice-summary-wrapper {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.invoice-summary-table {
+  width: 280px;
+  border-collapse: collapse;
+}
+
+.qty-cell-rechnung {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.no-print {
+  /* Visible on screen, hidden in print media */
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .editing-active .normal-address-text {
+    display: block !important;
+  }
+}
