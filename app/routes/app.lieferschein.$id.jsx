@@ -622,10 +622,14 @@ export default function OrderPrintDetailPage() {
               )}
             </div>
           </div>
-          <div className="header-right">
-            <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
+          <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
+            <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
+            <div><strong>Popeye GmbH</strong></div>
+            <div>Erkrather Straße 343</div>
+            <div>40231 Düsseldorf</div>
+            <div>Deutschland</div>
             {showBarcodes && (
-              <div className="barcode-wrapper">
+              <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
                 <div className="barcode-title">Order Barcode</div>
                 <Code128 value={order.name} height={38} moduleWidth={1.2} />
               </div>
@@ -761,7 +765,7 @@ export default function OrderPrintDetailPage() {
           <table className="footer-grid">
             <tbody>
               <tr>
-                <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
+                <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
                 <td><span className="footer-label">Email</span>service@dawayo.de</td>
                 <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
                 <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
@@ -810,10 +814,14 @@ export default function OrderPrintDetailPage() {
               </tbody>
             </table>
           </div>
-          <div className="header-right">
-            <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
+          <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
+            <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
+            <div><strong>Popeye GmbH</strong></div>
+            <div>Erkrather Straße 343</div>
+            <div>40231 Düsseldorf</div>
+            <div>Deutschland</div>
             {showBarcodes && (
-              <div className="barcode-wrapper">
+              <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
                 <div className="barcode-title">Order Barcode</div>
                 <Code128 value={order.name} height={38} moduleWidth={1.2} />
               </div>
@@ -981,7 +989,7 @@ export default function OrderPrintDetailPage() {
           <table className="footer-grid">
             <tbody>
               <tr>
-                <td><span className="footer-label">Geschäftsführer</span>Soonchan Kwon</td>
+                <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
                 <td><span className="footer-label">Email</span>service@dawayo.de</td>
                 <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
                 <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
