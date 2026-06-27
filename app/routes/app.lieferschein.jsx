@@ -522,11 +522,6 @@ export default function AdditionalPage() {
     return result;
   }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, printFilter, sortOrder, searchQuery, tempFilter]);
 
-  useEffect(() => {
-    setSelectedOrders([]);
-  }, [filteredOrders]);
-
-
   if (loaderData?.error) {
     return (
       <div className="error-container">
@@ -536,49 +531,6 @@ export default function AdditionalPage() {
       </div>
     );
   }
-
-  const handleSelectAll = (e) => {
-    if (e.target.checked) {
-      setSelectedOrders(filteredOrders.filter(o => !o.isPrinted).map((o) => o.id));
-    } else {
-      setSelectedOrders([]);
-    }
-  };
-
-  const handleSelectOrder = (id, checked) => {
-    setSelectedOrders((prev) =>
-      checked ? [...prev, id] : prev.filter((item) => item !== id)
-    );
-  };
-
-  const handlePrint = async () => {
-    if (selectedOrders.length === 0) return;
-
-    const ordersPayload = selectedOrders.map((id) => {
-      const order = orders.find((o) => o.id === id);
-      return { id, name: order?.name || "" };
-    });
-
-    fetcher.submit(
-      {
-        intent: "mark_multiple_as_printed",
-        ordersPayload: JSON.stringify(ordersPayload),
-      },
-      { method: "POST" }
-    );
-
-    setPrintedOrderIds(prev => [...prev, ...selectedOrders]);
-    setOrders(prevOrders =>
-      prevOrders.map(order =>
-        selectedOrders.includes(order.id) ? { ...order, isPrinted: true } : order
-      )
-    );
-    setSelectedOrders([]);
-
-    setTimeout(() => {
-      window.print();
-    }, 1200);
-  };
 
   const handleResetPrint = (orderId, orderName) => {
     fetcher.submit(
@@ -597,8 +549,6 @@ export default function AdditionalPage() {
       )
     );
   };
-
-  const activePrintOrders = orders.filter((o) => printedOrderIds.includes(o.id));
 
   return (
     <div>
