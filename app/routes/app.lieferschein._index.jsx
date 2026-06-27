@@ -71,7 +71,7 @@ export const loader = async ({ request }) => {
     const url = new URL(request.url);
     const queryParam = url.searchParams.get("query") || "";
 
-    let shopifyQuery = "";
+    let shopifyQuery = "fulfillment_status:unfulfilled";
     if (queryParam) {
       shopifyQuery = queryParam.trim();
     }
