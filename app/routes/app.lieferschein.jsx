@@ -1,4 +1,4 @@
-import { useLoaderData, useFetcher, Link } from "react-router";
+import { useLoaderData, useFetcher, useNavigate } from "react-router";
 import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -434,6 +434,7 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
+  const navigate = useNavigate();
 
   const [orders, setOrders] = useState([]);
 
@@ -696,9 +697,21 @@ export default function AdditionalPage() {
                 return (
                   <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
                     <td className="order-name">
-                      <Link to={`/app/lieferschein/${order.id.split('/').pop()}`} style={{ color: "#008060", textDecoration: "underline" }}>
+                      <button
+                        onClick={() => navigate(`/app/lieferschein/${order.id.split('/').pop()}`)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          color: "#008060",
+                          textDecoration: "underline",
+                          cursor: "pointer",
+                          fontWeight: "bold",
+                          textAlign: "left"
+                        }}
+                      >
                         {order.name}
-                      </Link>
+                      </button>
                     </td>
 
                     <td>
