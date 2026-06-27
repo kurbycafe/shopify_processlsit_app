@@ -690,6 +690,10 @@
   /* Visible on screen, hidden in print media */
 }
 
+.print-only-viewport {
+  display: none;
+}
+
 @media print {
   .no-print {
     display: none !important;
@@ -697,5 +701,14 @@
   
   .editing-active .normal-address-text {
     display: block !important;
+  }
+
+  .print-only-viewport {
+    display: block !important;
+  }
+
+  body, html {
+    overflow: visible !important;
+    height: auto !important;
   }
 }
