@@ -136,7 +136,7 @@ export const action = async ({ request, params }) => {
     });
 
     // 2. Attempt to update Shopify customer metafield
-    if (customerId && customVat) {
+    if (customerId) {
       try {
         const response = await admin.graphql(`
           #graphql
@@ -1101,12 +1101,16 @@ export default function OrderPrintDetailPage() {
                   <BlockStack gap="200">
                     <Text variant="headingMd" as="h3">인쇄 미리보기 (A4)</Text>
                     <Divider />
-                    <div style={{ display: "flex", justifyContent: "center", background: "#f1f5f9", padding: "20px", borderRadius: "8px" }}>
-                      <div style={{ transform: "scale(0.85)", transformOrigin: "top center", height: "calc(297mm * 0.85)", width: "210mm" }}>
-                        <div className="paper-viewport" style={{ padding: 0, background: "transparent" }}>
-                          {slips}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "20px", alignItems: "center", background: "#f1f5f9", padding: "20px", borderRadius: "8px", width: "100%", maxHeight: "800px", overflowY: "auto" }}>
+                      {slips.map((slip, idx) => (
+                        <div key={idx} style={{ width: "calc(210mm * 0.85)", height: "calc(297mm * 0.85)", overflow: "hidden", position: "relative", flexShrink: 0 }}>
+                          <div style={{ transform: "scale(0.85)", transformOrigin: "top left", width: "210mm", height: "297mm", background: "#fff", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)", boxSizing: "border-box" }}>
+                            <div className="paper-viewport" style={{ padding: 0, background: "transparent" }}>
+                              {slip}
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      ))}
                     </div>
                   </BlockStack>
                 </Card>

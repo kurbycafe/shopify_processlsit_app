@@ -455,7 +455,6 @@ export default function AdditionalPage() {
   const [paymentFilter, setPaymentFilter] = useState("ALL");
   const [regionFilter, setRegionFilter] = useState("ALL");
   const [complexityFilter, setComplexityFilter] = useState("ALL");
-  const [shippingFilter, setShippingFilter] = useState("ALL");
   const [printFilter, setPrintFilter] = useState("ALL"); // ✨ 인쇄 상태 필터 추가
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || ""); // ✨ 검색 텍스트 필터 추가
@@ -503,18 +502,6 @@ export default function AdditionalPage() {
       result = result.filter(o => o.items.length >= 15);
     }
 
-    // 3. 배송 수단 필터
-    if (shippingFilter === "STANDARD") {
-      result = result.filter(o => {
-        const method = o.shippingMethod.toUpperCase();
-        return !method.includes("EXPRESS") && (method.includes("DHL") || method.includes("STANDARD"));
-      });
-    } else if (shippingFilter === "EXPRESS") {
-      result = result.filter(o => o.shippingMethod.toUpperCase().includes("EXPRESS"));
-    } else if (shippingFilter === "ICE") {
-      result = result.filter(o => o.hasIcePackage);
-    }
-
     // 3.5 인쇄 상태 필터
     if (printFilter === "UNPRINTED") {
       result = result.filter(o => !o.isPrinted);
@@ -522,9 +509,13 @@ export default function AdditionalPage() {
       result = result.filter(o => o.isPrinted);
     }
 
-    // 3.6 온도대 필터 (Dry Only)
+    // 3.6 온도대 필터
     if (tempFilter === "DRY_ONLY") {
       result = result.filter(o => o.isDryOnly);
+    } else if (tempFilter === "CHILLED") {
+      result = result.filter(o => o.hasChilled);
+    } else if (tempFilter === "FROZEN") {
+      result = result.filter(o => o.hasFrozen);
     }
 
     // 3.8 검색 텍스트 필터
@@ -545,7 +536,7 @@ export default function AdditionalPage() {
     }
 
     return result;
-  }, [orders, paymentFilter, regionFilter, complexityFilter, shippingFilter, printFilter, sortOrder, searchQuery, tempFilter]);
+  }, [orders, paymentFilter, regionFilter, complexityFilter, printFilter, sortOrder, searchQuery, tempFilter]);
 
   if (loaderData?.error) {
     return (
@@ -643,23 +634,12 @@ export default function AdditionalPage() {
                 </Box>
                 <Box minWidth="150px">
                   <Select
-                    label="배송 수단 및 포장"
-                    options={[
-                      { label: '모든 수단', value: 'ALL' },
-                      { label: '일반 배송 (Standard)', value: 'STANDARD' },
-                      { label: '특급 배송 (Express)', value: 'EXPRESS' },
-                      { label: '❄️ 냉장/냉동 포함', value: 'ICE' },
-                    ]}
-                    value={shippingFilter}
-                    onChange={setShippingFilter}
-                  />
-                </Box>
-                <Box minWidth="150px">
-                  <Select
                     label="온도대 구분"
                     options={[
                       { label: '전체 온도대', value: 'ALL' },
-                      { label: 'Dry Only (상온 제품만)', value: 'DRY_ONLY' },
+                      { label: '☀️ 상온 전용 (Dry Only)', value: 'DRY_ONLY' },
+                      { label: '❄️ 냉장 포함 (Chilled)', value: 'CHILLED' },
+                      { label: '🧊 냉동 포함 (Frozen)', value: 'FROZEN' },
                     ]}
                     value={tempFilter}
                     onChange={setTempFilter}
@@ -694,6 +674,11 @@ export default function AdditionalPage() {
             </BlockStack>
           </Card>
         </Box>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBlockStart: "20px", marginBlockEnd: "10px" }}>
+          <div style={{ fontSize: "15px", color: "#1e293b", fontWeight: "bold" }}>
+            주문 목록 (필터 결과: <span style={{ color: "#008060" }}>{filteredOrders.length}</span>건 / 전체: {orders.length}건)
+          </div>
+        </div>
 
         <table className="list-table">
           <thead>
@@ -751,12 +736,26 @@ export default function AdditionalPage() {
                         {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
                           <span style={{ fontSize: "11px", background: "#fecaca", color: "#991b1b", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>EXPRESS</span>
                         )}
-                        {order.hasIcePackage && <span style={{ fontSize: "11px", background: "#bfdbfe", color: "#1e3a8a", padding: "2px 6px", borderRadius: "4px" }}>냉장</span>}
                         {order.isB2B && <span style={{ fontSize: "11px", background: "#dbeafe", color: "#1e40af", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>B2B</span>}
                         {order.hasCombinedShipping && (
                           <span style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
                             ⚠️ 합포장 ({order.combinedCount}건)
                           </span>
+                        )}
+                        {order.isDryOnly ? (
+                          <span style={{ fontSize: "11px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "2px 6px", borderRadius: "4px" }}>☀️ 상온</span>
+                        ) : (
+                          <>
+                            {order.hasChilled && (
+                              <span style={{ fontSize: "11px", background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>❄️ 냉장</span>
+                            )}
+                            {order.hasFrozen && (
+                              <span style={{ fontSize: "11px", background: "#faf5ff", color: "#6b21a8", border: "1px solid #e9d5ff", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>🧊 냉동</span>
+                            )}
+                            {order.hasIcePackage && (
+                              <span style={{ fontSize: "11px", background: "#ecfeff", color: "#0891b2", border: "1px solid #c5f2f7", padding: "2px 6px", borderRadius: "4px" }}>🧊 아이스팩</span>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
