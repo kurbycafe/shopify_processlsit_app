@@ -236,20 +236,25 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
+  const today = dayjs().format('YYYY-MM-DD');
+  const threeDaysAgo = dayjs().subtract(3, 'day').format('YYYY-MM-DD');
+
   const response = await admin.graphql(
     `#graphql
-    query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!) {
-      unfulfilled: ordersCount(query: $unfulfilledQuery) {
-        count
-      }
-      partially_fulfilled: ordersCount(query: $partialQuery) {
-        count
-      }
+    query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!, $delayedQuery: String!, $todayTotalQuery: String!, $todayFulfilledQuery: String!) {
+      unfulfilled: ordersCount(query: $unfulfilledQuery) { count }
+      partially_fulfilled: ordersCount(query: $partialQuery) { count }
+      delayed: ordersCount(query: $delayedQuery) { count }
+      todayTotal: ordersCount(query: $todayTotalQuery) { count }
+      todayFulfilled: ordersCount(query: $todayFulfilledQuery) { count }
     }`,
     {
       variables: {
         unfulfilledQuery: "fulfillment_status:unfulfilled",
         partialQuery: "fulfillment_status:partially_fulfilled",
+        delayedQuery: `fulfillment_status:unfulfilled created_at:<${threeDaysAgo}`,
+        todayTotalQuery: `created_at:>=${today}`,
+        todayFulfilledQuery: `created_at:>=${today} fulfillment_status:shipped`,
       },
     }
   );
@@ -257,10 +262,17 @@ export const loader = async ({ request }) => {
   const statsJson = await response.json();
   const unfulfilledCount = statsJson.data?.unfulfilled?.count || 0;
   const partiallyFulfilledCount = statsJson.data?.partially_fulfilled?.count || 0;
+  const delayedCount = statsJson.data?.delayed?.count || 0;
+  const todayTotalCount = statsJson.data?.todayTotal?.count || 0;
+  const todayFulfilledCount = statsJson.data?.todayFulfilled?.count || 0;
+  const readyToFulfillCount = Math.max(0, unfulfilledCount - delayedCount);
 
   // 최근 검수 기록 (DB)
   const recentLogs = await prisma.inspectionRecord.findMany({
-    where: { shop },
+    where: { 
+      shop,
+      status: { not: "PENDING" }
+    },
     orderBy: { createdAt: "desc" },
     take: 5,
     include: { items: true }
@@ -273,7 +285,8 @@ export const loader = async ({ request }) => {
   const pastRecordsForChart = await prisma.inspectionRecord.findMany({
     where: {
       shop,
-      createdAt: { gte: sevenDaysAgo }
+      createdAt: { gte: sevenDaysAgo },
+      status: { not: "PENDING" }
     },
     select: {
       status: true,
@@ -308,6 +321,10 @@ export const loader = async ({ request }) => {
   return {
     unfulfilledCount,
     partiallyFulfilledCount,
+    delayedCount,
+    readyToFulfillCount,
+    todayTotalCount,
+    todayFulfilledCount,
     recentLogs,
     upcomingContainers,
     chartData,
@@ -329,7 +346,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Index() {
-  const { unfulfilledCount, partiallyFulfilledCount, recentLogs, upcomingContainers, chartData } = useLoaderData();
+  const { unfulfilledCount, partiallyFulfilledCount, delayedCount, readyToFulfillCount, todayTotalCount, todayFulfilledCount, recentLogs, upcomingContainers, chartData } = useLoaderData();
   const [selectedLog, setSelectedLog] = useState(null);
   const navigate = useNavigate();
   const calendarMonths = getCalendarMonths();
@@ -589,15 +606,59 @@ export default function Index() {
         }
       `}</style>
       <Layout>
+        {/* Quick Actions Panel */}
+        <Layout.Section>
+          <Card padding="400">
+            <InlineStack align="space-between" blockAlign="center">
+              <Text variant="headingMd" as="h2">⚡ 빠른 작업</Text>
+              <InlineStack gap="300">
+                <button
+                  className="continue-btn"
+                  style={{ background: "#1f2937", padding: "8px 16px" }}
+                  onClick={() => navigate('/app/lieferschein')}
+                >
+                  🖨️ 인쇄 대기 명세서 출력
+                </button>
+                <button
+                  className="continue-btn"
+                  style={{ background: "#f59e0b", padding: "8px 16px" }}
+                  onClick={() => navigate('/app/pick-list')}
+                >
+                  📋 총합 피킹 리스트 생성
+                </button>
+                <button
+                  className="continue-btn"
+                  style={{ background: "#008060", padding: "8px 16px" }}
+                  onClick={() => navigate('/app/inspect')}
+                >
+                  📦 새로운 검수 시작
+                </button>
+              </InlineStack>
+            </InlineStack>
+          </Card>
+        </Layout.Section>
+
         {/* 주문 현황 요약 */}
         <Layout.Section>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "8px", marginTop: "16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "8px" }}>
+            <div className="dashboard-metric-card metric-success">
+              <BlockStack gap="200">
+                <Text variant="headingMd" as="h2" tone="subdued">당장 출고 가능</Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="heading2xl" as="p" tone="success">
+                    {readyToFulfillCount}
+                  </Text>
+                  <Icon source={CheckCircleIcon} tone="success" />
+                </InlineStack>
+              </BlockStack>
+            </div>
+
             <div className="dashboard-metric-card metric-critical">
               <BlockStack gap="200">
-                <Text variant="headingMd" as="h2" tone="subdued">미배송 주문</Text>
+                <Text variant="headingMd" as="h2" tone="subdued">출고 지연 (3일 이상)</Text>
                 <InlineStack align="space-between" blockAlign="center">
                   <Text variant="heading2xl" as="p" tone="critical">
-                    {unfulfilledCount}
+                    {delayedCount}
                   </Text>
                   <Icon source={AlertTriangleIcon} tone="critical" />
                 </InlineStack>
@@ -616,15 +677,27 @@ export default function Index() {
               </BlockStack>
             </div>
             
-            <div className="dashboard-metric-card metric-success">
+            <div className="dashboard-metric-card" style={{ borderLeft: "5px solid #3b82f6" }}>
               <BlockStack gap="200">
-                <Text variant="headingMd" as="h2" tone="subdued">오늘 검수 완료</Text>
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text variant="heading2xl" as="p" tone="success">
-                    {recentLogs.filter(log => dayjs(log.createdAt).isSame(dayjs(), 'day')).length}
-                  </Text>
-                  <Icon source={CheckCircleIcon} tone="success" />
-                </InlineStack>
+                <Text variant="headingMd" as="h2" tone="subdued">오늘의 진행률</Text>
+                <BlockStack gap="100">
+                  <InlineStack align="space-between" blockAlign="end">
+                    <Text variant="heading2xl" as="p" style={{ color: "#3b82f6" }}>
+                      {todayTotalCount > 0 ? Math.round((todayFulfilledCount / todayTotalCount) * 100) : 0}%
+                    </Text>
+                    <Text variant="bodyMd" color="subdued">
+                      {todayFulfilledCount} / {todayTotalCount} 건
+                    </Text>
+                  </InlineStack>
+                  <div style={{ width: "100%", height: "8px", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${todayTotalCount > 0 ? Math.round((todayFulfilledCount / todayTotalCount) * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "#3b82f6",
+                      transition: "width 0.5s ease"
+                    }} />
+                  </div>
+                </BlockStack>
               </BlockStack>
             </div>
           </div>

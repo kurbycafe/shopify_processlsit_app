@@ -32,6 +32,8 @@ export const loader = async ({ request }) => {
 
   if (status !== "ALL") {
     whereClause.status = status;
+  } else {
+    whereClause.status = { not: "PENDING" };
   }
 
   if (query.trim() !== "") {

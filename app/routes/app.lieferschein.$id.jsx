@@ -1015,16 +1015,9 @@ export default function OrderPrintDetailPage() {
           </table>
         </div>
 
-        {order.note && (
-          <div className="note-box">
-            <div className="note-title">Bestellhinweis</div>
-            <div className="note-content">{order.note}</div>
+          <div style={{ marginTop: "12px", fontSize: "10px", color: "#555", fontStyle: "italic", textAlign: "left" }}>
+            Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
           </div>
-        )}
-
-        <div style={{ marginTop: "12px", fontSize: "10px", color: "#555", fontStyle: "italic", textAlign: "left" }}>
-          Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
-        </div>
 
         <div className="footer">
           <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
