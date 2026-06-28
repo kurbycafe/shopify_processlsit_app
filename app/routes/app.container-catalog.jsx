@@ -62,7 +62,7 @@ async function fetchOdooContainerProducts(containerRef) {
       ODOO_DB, uid, ODOO_API_KEY,
       "purchase.order.line", "read",
       [po.order_line],
-      { fields: ["id", "product_id", "product_qty", "price_unit", "name"] }
+      { fields: ["id", "product_id", "product_qty", "price_unit", "name", "unit_per_box", "box_qty"] }
     ]);
 
     // 4. 제품 상세 정보(SKU/default_code, 바코드) 조회
@@ -87,7 +87,9 @@ async function fetchOdooContainerProducts(containerRef) {
         barcode: prod?.barcode || "",
         odooName: l.name || prod?.name || "",
         qty: l.product_qty || 0,
-        wholesalePrice: l.price_unit || 0
+        wholesalePrice: l.price_unit || 0,
+        unitPerBox: l.unit_per_box || 0,
+        boxQty: l.box_qty || 0
       };
     });
 
@@ -179,7 +181,9 @@ export const action = async ({ request }) => {
           wholesalePrice: item.wholesalePrice,
           retailPrice: shopifyVar?.price ? parseFloat(shopifyVar.price) : 0,
           expiryDate: shopifyVar?.product?.expiryDate?.value || "N/A",
-          isMatched: !!shopifyVar
+          isMatched: !!shopifyVar,
+          unitPerBox: item.unitPerBox,
+          boxQty: item.boxQty
         };
       });
 
@@ -201,9 +205,22 @@ export default function ContainerCatalog() {
   const [containerRef, setContainerRef] = useState("");
   const [hasAutoFetched, setHasAutoFetched] = useState(false);
 
-  // ✨ 추가: 사용자 입력 도매단가 및 입수량 관리를 위한 State
+  // 사용자 입력 도매단가 및 입수량 관리를 위한 State
   const [customWholesalePrices, setCustomWholesalePrices] = useState({});
   const [packQuantities, setPackQuantities] = useState({});
+  const [bulkDiscountRate, setBulkDiscountRate] = useState("");
+
+  const handleApplyBulkDiscount = () => {
+    const rate = parseFloat(bulkDiscountRate) || 0;
+    const newPrices = { ...customWholesalePrices };
+    items.forEach(item => {
+      if (item.isMatched && item.retailPrice > 0) {
+        const discountedPrice = item.retailPrice * (1 - rate / 100);
+        newPrices[item.sku] = discountedPrice.toFixed(2);
+      }
+    });
+    setCustomWholesalePrices(newPrices);
+  };
 
   useEffect(() => {
     const paramContainerRef = searchParams.get("containerRef");
@@ -224,7 +241,13 @@ export default function ContainerCatalog() {
   useEffect(() => {
     if (items.length > 0) {
       setCustomWholesalePrices({});
-      setPackQuantities({});
+      const initialPacks = {};
+      items.forEach(item => {
+        if (item.unitPerBox) {
+          initialPacks[item.sku] = item.unitPerBox.toString();
+        }
+      });
+      setPackQuantities(initialPacks);
     }
   }, [items]);
 
@@ -342,36 +365,6 @@ export default function ContainerCatalog() {
       color: #64748b;
     }
     
-    /* 요약 요율 보드 */
-    .summary-board {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 15px;
-      background-color: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 30px;
-    }
-    
-    .summary-card {
-      text-align: center;
-    }
-    
-    .summary-card .label {
-      font-size: 11px;
-      color: #64748b;
-      text-transform: uppercase;
-      margin-bottom: 5px;
-      font-weight: 600;
-    }
-    
-    .summary-card .value {
-      font-size: 18px;
-      font-weight: 700;
-      color: #0f172a;
-    }
-    
     /* 테이블 스타일 */
     table.catalog-table {
       width: 100%;
@@ -385,7 +378,7 @@ export default function ContainerCatalog() {
       font-weight: 600;
       font-size: 12px;
       text-transform: uppercase;
-      padding: 10px;
+      padding: 12px 10px;
       text-align: left;
       border: 1px solid #0f172a;
     }
@@ -406,6 +399,20 @@ export default function ContainerCatalog() {
       background-color: #f8fafc;
     }
     
+    .prod-img-placeholder {
+      width: 60px;
+      height: 60px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background-color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    
     .prod-title {
       font-weight: 700;
       color: #0f172a;
@@ -419,42 +426,17 @@ export default function ContainerCatalog() {
       margin: 0;
     }
     
-    .sku-badge {
-      font-family: monospace;
-      background-color: #f1f5f9;
-      padding: 2px 6px;
-      border-radius: 4px;
+    .unmatched-label {
+      color: #ef4444;
       font-size: 11px;
-      color: #334155;
-      border: 1px solid #e2e8f0;
-    }
-    
-    .barcode-svg {
-      margin-top: 5px;
-      display: block;
+      font-weight: 600;
+      margin-top: 2px;
     }
     
     .price-text {
       font-weight: 600;
       font-family: monospace;
       font-size: 13px;
-    }
-    
-    .exp-badge {
-      background-color: #fef3c7;
-      color: #d97706;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-weight: 600;
-      font-size: 11px;
-      display: inline-block;
-    }
-    
-    .unmatched-label {
-      color: #ef4444;
-      font-size: 11px;
-      font-weight: 600;
-      margin-top: 2px;
     }
     
     /* 인쇄 최적화 */
@@ -485,7 +467,7 @@ export default function ContainerCatalog() {
     <div class="catalog-header">
       <div class="header-left">
         <h1>WHOLESALE CATALOG</h1>
-        <p>도매 수입 컨테이너 상품 리스트 및 단가 안내</p>
+        <p>도매 수입 상품 리스트 및 단가 안내</p>
       </div>
       <div class="header-right">
         <div class="ref-tag">CONTAINER: ${poName}</div>
@@ -493,36 +475,14 @@ export default function ContainerCatalog() {
       </div>
     </div>
     
-    <div class="summary-board">
-      <div class="summary-card">
-        <div class="label">총 상품 종류</div>
-        <div class="value">${totalSKUs} SKUs</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">총 컨테이너 수량</div>
-        <div class="value">${totalQty.toLocaleString()} 개</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">도매 원가 합계</div>
-        <div class="value">${fmtEur(totalWholesaleValue)}</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">총 박스 수량</div>
-        <div class="value">${totalBoxes} 박스</div>
-      </div>
-    </div>
-    
     <table class="catalog-table">
       <thead>
         <tr>
-          <th style="width: 8%">이미지</th>
-          <th style="width: 25%">상품 정보</th>
-          <th style="width: 20%">SKU / 바코드</th>
-          <th style="width: 12%">유통기한</th>
-          <th style="width: 10%">총수량</th>
-          <th style="width: 13%">입수 (박스수)</th>
-          <th style="width: 12%">도매단가</th>
-          <th style="width: 10%">소매단가</th>
+          <th style="width: 12%">사진</th>
+          <th style="width: 48%">상품명</th>
+          <th style="width: 16%; text-align: center;">Box당 입수 (Unit Per Box)</th>
+          <th style="width: 12%">도매가</th>
+          <th style="width: 12%">소매가</th>
         </tr>
       </thead>
       <tbody>
@@ -535,47 +495,26 @@ export default function ContainerCatalog() {
         ? parseFloat(priceVal) || 0 
         : item.wholesalePrice;
 
-      // 박스당 입수 개수 및 박스 개수 계산
+      // 박스당 입수 개수
       const boxQty = packQuantities[item.sku] ? parseInt(packQuantities[item.sku], 10) : 0;
-      const boxCount = boxQty > 0 ? Math.floor(item.qty / boxQty) : 0;
-      const remainder = boxQty > 0 ? item.qty % boxQty : 0;
-
-      let packHtml = "";
-      if (boxQty > 0) {
-        packHtml = `<span style="font-weight:600;">${boxQty}</span> <span style="font-size:11px;color:#64748b;">(${boxCount}박스${remainder > 0 ? ` + ${remainder}` : ""})</span>`;
-      } else {
-        packHtml = `<span style="color:#94a3b8;">-</span>`;
-      }
 
       const imgHtml = item.imageUrl 
         ? `<img class="prod-img" src="${item.imageUrl}" alt="product">` 
-        : `<div class="prod-img" style="display:flex;align-items:center;justify-content:center;font-size:24px;color:#cbd5e1;">📦</div>`;
+        : `<div class="prod-img-placeholder">NO IMAGE</div>`;
 
       const titleHtml = item.isMatched 
         ? `<h3 class="prod-title">${item.shopifyName}</h3>
            <p class="prod-subtitle">${item.variantTitle || "기본 단품"}</p>`
         : `<h3 class="prod-title">${item.odooName}</h3>
-           <div class="unmatched-label">⚠️ Shopify 미등록 상품</div>`;
-
-      const barcodeHtml = (item.barcode && item.barcode !== "N/A" && item.barcode !== "false")
-        ? `<svg class="barcode-svg" id="barcode-${item.sku}" data-value="${item.barcode}"></svg>`
-        : `<span style="font-size:11px;color:#94a3b8;">바코드 없음</span>`;
+           <div class="unmatched-label">Shopify 미등록 상품</div>`;
 
       htmlContent += `
         <tr>
           <td style="text-align:center;">${imgHtml}</td>
           <td>${titleHtml}</td>
-          <td>
-            <span class="sku-badge">SKU: ${item.sku || "N/A"}</span>
-            ${barcodeHtml}
+          <td style="font-weight:600; text-align:center;">
+            ${boxQty > 0 ? boxQty : "-"}
           </td>
-          <td>
-            ${item.expiryDate && item.expiryDate !== "N/A" 
-              ? `<span class="exp-badge">${item.expiryDate}</span>` 
-              : `<span style="font-size:11px;color:#94a3b8;">N/A</span>`}
-          </td>
-          <td style="font-weight:700;font-family:monospace;">${item.qty.toLocaleString()}</td>
-          <td>${packHtml}</td>
           <td class="price-text">${fmtEur(wholesalePrice)}</td>
           <td>
             ${item.isMatched 
@@ -591,13 +530,8 @@ export default function ContainerCatalog() {
     </table>
   </div>
   
-  <!-- JsBarcode 로드 및 실행 -->
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
   <script>
     window.onload = function() {
-      // 모든 바코드 svg 렌더링
-      const svgs = document.querySelectorAll('.barcode-svg');
-      svgs.forEach(svg => {
         const value = svg.getAttribute('data-value');
         if (value) {
           try {
@@ -824,11 +758,33 @@ export default function ContainerCatalog() {
               </Grid>
             </Layout.Section>
 
+            {/* 도매단가 일괄 적용 카드 */}
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="300">
+                  <Text variant="headingSm" as="h3">도매단가 일괄 설정 (소매가 기준 할인)</Text>
+                  <InlineStack gap="300" align="start" blockAlign="end">
+                    <div style={{ width: "150px" }}>
+                      <TextField
+                        label="소매가 대비 할인율"
+                        type="number"
+                        value={bulkDiscountRate}
+                        onChange={setBulkDiscountRate}
+                        autoComplete="off"
+                        suffix="%"
+                      />
+                    </div>
+                    <Button onClick={handleApplyBulkDiscount}>소매가 대비 일괄 할인 적용</Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+
             {unmatchedCount > 0 && (
               <Layout.Section>
                 <Banner tone="warning" title="Shopify 상품 정보 미매칭 안내">
                   <p>
-                    로드된 {totalSKUs}개의 상품 중 <strong>{unmatchedCount}개</strong>가 Shopify 스토어에 등록되어 있지 않거나 SKU가 일치하지 않습니다. 
+                    로드된 {totalSKUs}개의 상품 중 {unmatchedCount}개가 Shopify 스토어에 등록되어 있지 않거나 SKU가 일치하지 않습니다. 
                     미등록 상품은 도매 카탈로그 PDF 출력 시 임시 Odoo 제품명으로 표기되며 소매 가격 및 사진이 제공되지 않습니다.
                   </p>
                 </Banner>

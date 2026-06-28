@@ -215,6 +215,7 @@ export const loader = async ({ request, params }) => {
           totalTaxSet { shopMoney { amount currencyCode } }
           totalShippingPriceSet { shopMoney { amount currencyCode } }
           totalDiscountsSet { shopMoney { amount currencyCode } }
+          totalRefundedSet { shopMoney { amount currencyCode } }
           shippingLines(first: 1) {
             edges {
               node {
@@ -397,6 +398,7 @@ export const loader = async ({ request, params }) => {
       totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
       totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
       totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
+      totalRefunded: node.totalRefundedSet?.shopMoney?.amount || "0.00",
       currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
       customShippingAddress: dbRecord?.customShippingAddress || null,
       customBillingAddress: dbRecord?.customBillingAddress || null,
@@ -954,6 +956,22 @@ export default function OrderPrintDetailPage() {
                   {parseFloat(order.totalPrice).toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
+              {parseFloat(order.totalRefunded) > 0 && (
+                <>
+                  <tr style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#b91c1c', fontWeight: 'bold' }}>Erstattet (Refunded):</td>
+                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c', fontWeight: 'bold' }}>
+                      -{parseFloat(order.totalRefunded).toFixed(2)} {order.currencyCode}
+                    </td>
+                  </tr>
+                  <tr style={{ borderTop: '1px solid #111', borderBottom: '2px double #111' }}>
+                    <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gezahlter Betrag (Net Paid):</td>
+                    <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
+                      {(parseFloat(order.totalPrice) - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
+                    </td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>
