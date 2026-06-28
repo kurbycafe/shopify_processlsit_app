@@ -182,83 +182,88 @@ export const action = async ({ request, params }) => {
 
 export const loader = async ({ request, params }) => {
   const { admin } = await authenticate.admin(request);
-  const orderId = `gid://shopify/Order/${params.id}`;
+  
+  // Split params.id by comma to support bulk printing
+  const rawIds = params.id.split(",");
+  const orderGids = rawIds.map(id => `gid://shopify/Order/${id.trim()}`);
 
   try {
     const response = await admin.graphql(`
       #graphql
-      query getSingleOrder($id: ID!) {
-        order(id: $id) {
-          id
-          name
-          createdAt
-          email
-          note
-          displayFinancialStatus
-          cancelledAt
-          displayFulfillmentStatus
-          customer {
+      query getDetailedOrders($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Order {
             id
-            numberOfOrders
-            vat: metafield(namespace: "custom", key: "vat") {
+            name
+            createdAt
+            email
+            note
+            displayFinancialStatus
+            cancelledAt
+            displayFulfillmentStatus
+            customer {
               id
-              value
-            }
-          }
-          taxLines {
-            title
-            rate
-            priceSet { shopMoney { amount currencyCode } }
-          }
-          totalPriceSet { shopMoney { amount currencyCode } }
-          subtotalPriceSet { shopMoney { amount currencyCode } }
-          totalTaxSet { shopMoney { amount currencyCode } }
-          totalShippingPriceSet { shopMoney { amount currencyCode } }
-          totalDiscountsSet { shopMoney { amount currencyCode } }
-          totalRefundedSet { shopMoney { amount currencyCode } }
-          shippingLines(first: 1) {
-            edges {
-              node {
-                title
+              numberOfOrders
+              vat: metafield(namespace: "custom", key: "vat") {
+                id
+                value
               }
             }
-          }
-          billingAddress {
-            name company address1 address2 zip city country phone countryCode
-          }
-          shippingAddress {
-            name company address1 address2 zip city country phone countryCode
-          }
-          lineItems(first: 50) {
-            edges {
-              node {
-                id
-                title
-                quantity
-                originalUnitPriceSet { shopMoney { amount currencyCode } }
-                discountedUnitPriceSet { shopMoney { amount currencyCode } }
-                originalTotalSet { shopMoney { amount currencyCode } }
-                discountedTotalSet { shopMoney { amount currencyCode } }
-                variant {
+            taxLines {
+              title
+              rate
+              priceSet { shopMoney { amount currencyCode } }
+            }
+            totalPriceSet { shopMoney { amount currencyCode } }
+            subtotalPriceSet { shopMoney { amount currencyCode } }
+            totalTaxSet { shopMoney { amount currencyCode } }
+            totalShippingPriceSet { shopMoney { amount currencyCode } }
+            totalDiscountsSet { shopMoney { amount currencyCode } }
+            totalRefundedSet { shopMoney { amount currencyCode } }
+            shippingLines(first: 1) {
+              edges {
+                node {
+                  title
+                }
+              }
+            }
+            billingAddress {
+              name company address1 address2 zip city country phone countryCode
+            }
+            shippingAddress {
+              name company address1 address2 zip city country phone countryCode
+            }
+            lineItems(first: 50) {
+              edges {
+                node {
                   id
                   title
-                  sku
-                  barcode
-                  inventoryItem {
-                    measurement {
-                      weight {
-                        value
-                        unit
+                  quantity
+                  originalUnitPriceSet { shopMoney { amount currencyCode } }
+                  discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                  originalTotalSet { shopMoney { amount currencyCode } }
+                  discountedTotalSet { shopMoney { amount currencyCode } }
+                  variant {
+                    id
+                    title
+                    sku
+                    barcode
+                    inventoryItem {
+                      measurement {
+                        weight {
+                          value
+                          unit
+                        }
                       }
                     }
-                  }
-                  image { url src } 
-                  product {
-                    featuredImage { url src } 
-                    germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                    expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                    position: metafield(namespace: "custom", key: "position") { value }
-                    producttype: metafield(namespace: "custom", key: "producttype") { value }
+                    image { url src } 
+                    product {
+                      featuredImage { url src } 
+                      germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                      expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                      position: metafield(namespace: "custom", key: "position") { value }
+                      producttype: metafield(namespace: "custom", key: "producttype") { value }
+                    }
                   }
                 }
               }
@@ -268,7 +273,7 @@ export const loader = async ({ request, params }) => {
       }
     `, {
       variables: {
-        id: orderId
+        ids: orderGids
       }
     });
 
@@ -277,140 +282,146 @@ export const loader = async ({ request, params }) => {
       throw new Error(responseJson.errors.map(e => e.message).join(", "));
     }
 
-    const node = responseJson?.data?.order;
-    if (!node) {
+    const nodes = responseJson?.data?.nodes || [];
+    const ordersData = [];
+
+    for (const node of nodes) {
+      if (!node) continue;
+
+      const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
+
+      const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
+        const item = itemEdge.node;
+        const variant = item.variant;
+        const product = variant?.product;
+
+        const posRaw = product?.position?.value || "";
+        const posUpper = posRaw.trim().toUpperCase();
+
+        let sortKey = "500_" + posUpper;
+        if (!posUpper) sortKey = "999_ZZZZZ";
+        else if (posUpper.includes("!")) sortKey = "000_" + posUpper;
+        else if (posUpper.includes("L-A")) sortKey = "100_" + posUpper;
+        else if (posUpper.includes("L-B")) sortKey = "200_" + posUpper;
+        else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
+        else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
+
+        const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
+
+        const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
+        const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? "GRAMS";
+        let grams = 0;
+        if (weightUnit === "GRAMS") grams = weightValue;
+        else if (weightUnit === "KILOGRAMS") grams = weightValue * 1000;
+        else if (weightUnit === "POUNDS") grams = weightValue * 453.592;
+        else if (weightUnit === "OUNCES") grams = weightValue * 28.3495;
+
+        const variantGid = variant?.id || "";
+        const isIcePackage = variantGid.endsWith("/54301230268745");
+        const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
+
+        const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
+        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
+        const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
+        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
+
+        return {
+          id: item.id,
+          title: (item.title || "").replace(" - Default Title", ""),
+          quantity: item.quantity || 0,
+          sku: variant?.sku || "",
+          weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
+          gramsTotal: grams * (item.quantity || 0),
+          barcode: variant?.barcode || "",
+          variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
+          imageUrl,
+          isIcePackage,
+          germanTranslation: product?.germanTranslation?.value || "",
+          expiryDate: product?.expiryDate?.value || "",
+          position: posRaw,
+          productType: (product?.producttype?.value || "t").trim().toLowerCase(),
+          _finalSortString: `${sortKey}___:::___${titleKey}`,
+          priceOriginal,
+          priceDiscounted,
+          totalOriginal,
+          totalDiscounted,
+        };
+      });
+
+      const sortedItems = [...rawItems].sort((a, b) =>
+        a._finalSortString.localeCompare(b._finalSortString)
+      );
+      const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
+      const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
+      const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
+
+      const isDryOnly = sortedItems.every(item => item.productType === "t" || !item.productType);
+      const hasChilled = sortedItems.some(item => item.productType === "k");
+      const hasFrozen = sortedItems.some(item => item.productType === "tk");
+
+      const companyUpper = (node.shippingAddress?.company || "").toUpperCase();
+      const nameUpper = (node.shippingAddress?.name || "").toUpperCase();
+      const isB2B = !!(
+        node.shippingAddress?.company ||
+        companyUpper.includes("GMBH") ||
+        nameUpper.includes("GMBH")
+      );
+
+      const dbRecord = await prisma.inspectionRecord.findUnique({
+        where: { orderId: node.id }
+      });
+
+      const taxLines = (node.taxLines || []).map((tl) => ({
+        title: tl.title,
+        ratePercent: (tl.rate * 100).toFixed(0),
+        amount: tl.priceSet?.shopMoney?.amount || "0.00",
+      }));
+
+      ordersData.push({
+        id: node.id,
+        name: node.name,
+        createdAt: node.createdAt ? new Date(node.createdAt).toLocaleDateString("de-DE") : "-",
+        createdTime: node.createdAt
+          ? new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
+          : "-",
+        email: node.email || "-",
+        note: node.note || "",
+        financialStatus: node.displayFinancialStatus || "UNKNOWN",
+        shippingMethod: shippingTitle,
+        billingAddress: node.billingAddress || null,
+        shippingAddress: node.shippingAddress || null,
+        hasIcePackage,
+        totalWeightKg: (totalGrams / 1000).toFixed(3),
+        totalOrderQty,
+        items: sortedItems,
+        isFirstPurchase: (node.customer?.numberOfOrders ?? 0) === 1,
+        isDryOnly,
+        hasChilled,
+        hasFrozen,
+        isB2B,
+        totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
+        subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
+        totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
+        totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
+        totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
+        totalRefunded: node.totalRefundedSet?.shopMoney?.amount || "0.00",
+        currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
+        customShippingAddress: dbRecord?.customShippingAddress || null,
+        customBillingAddress: dbRecord?.customBillingAddress || null,
+        customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
+        customerId: node.customer?.id || null,
+        taxLines,
+      });
+    }
+
+    if (ordersData.length === 0) {
       throw new Error("주문을 찾을 수 없습니다.");
     }
 
-    const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
-
-    const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
-      const item = itemEdge.node;
-      const variant = item.variant;
-      const product = variant?.product;
-
-      const posRaw = product?.position?.value || "";
-      const posUpper = posRaw.trim().toUpperCase();
-
-      let sortKey = "500_" + posUpper;
-      if (!posUpper) sortKey = "999_ZZZZZ";
-      else if (posUpper.includes("!")) sortKey = "000_" + posUpper;
-      else if (posUpper.includes("L-A")) sortKey = "100_" + posUpper;
-      else if (posUpper.includes("L-B")) sortKey = "200_" + posUpper;
-      else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
-      else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
-
-      const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
-
-      const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
-      const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? "GRAMS";
-      let grams = 0;
-      if (weightUnit === "GRAMS") grams = weightValue;
-      else if (weightUnit === "KILOGRAMS") grams = weightValue * 1000;
-      else if (weightUnit === "POUNDS") grams = weightValue * 453.592;
-      else if (weightUnit === "OUNCES") grams = weightValue * 28.3495;
-
-      const variantGid = variant?.id || "";
-      const isIcePackage = variantGid.endsWith("/54301230268745");
-      const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
-
-      const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
-      const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
-      const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
-      const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
-
-      return {
-        id: item.id,
-        title: (item.title || "").replace(" - Default Title", ""),
-        quantity: item.quantity || 0,
-        sku: variant?.sku || "",
-        weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
-        gramsTotal: grams * (item.quantity || 0),
-        barcode: variant?.barcode || "",
-        variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
-        imageUrl,
-        isIcePackage,
-        germanTranslation: product?.germanTranslation?.value || "",
-        expiryDate: product?.expiryDate?.value || "",
-        position: posRaw,
-        productType: (product?.producttype?.value || "t").trim().toLowerCase(),
-        _finalSortString: `${sortKey}___:::___${titleKey}`,
-        priceOriginal,
-        priceDiscounted,
-        totalOriginal,
-        totalDiscounted,
-      };
-    });
-
-    const sortedItems = [...rawItems].sort((a, b) =>
-      a._finalSortString.localeCompare(b._finalSortString)
-    );
-    const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
-    const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
-    const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
-
-    const isDryOnly = sortedItems.every(item => item.productType === "t" || !item.productType);
-    const hasChilled = sortedItems.some(item => item.productType === "k");
-    const hasFrozen = sortedItems.some(item => item.productType === "tk");
-
-    const companyUpper = (node.shippingAddress?.company || "").toUpperCase();
-    const nameUpper = (node.shippingAddress?.name || "").toUpperCase();
-    const isB2B = !!(
-      node.shippingAddress?.company ||
-      companyUpper.includes("GMBH") ||
-      nameUpper.includes("GMBH")
-    );
-
-    const dbRecord = await prisma.inspectionRecord.findUnique({
-      where: { orderId }
-    });
-
-    const taxLines = (node.taxLines || []).map((tl) => ({
-      title: tl.title,
-      ratePercent: (tl.rate * 100).toFixed(0),
-      amount: tl.priceSet?.shopMoney?.amount || "0.00",
-    }));
-
-    const orderData = {
-      id: node.id,
-      name: node.name,
-      createdAt: node.createdAt ? new Date(node.createdAt).toLocaleDateString("de-DE") : "-",
-      createdTime: node.createdAt
-        ? new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
-        : "-",
-      email: node.email || "-",
-      note: node.note || "",
-      financialStatus: node.displayFinancialStatus || "UNKNOWN",
-      shippingMethod: shippingTitle,
-      billingAddress: node.billingAddress || null,
-      shippingAddress: node.shippingAddress || null,
-      hasIcePackage,
-      totalWeightKg: (totalGrams / 1000).toFixed(3),
-      totalOrderQty,
-      items: sortedItems,
-      isFirstPurchase: (node.customer?.numberOfOrders ?? 0) === 1,
-      isDryOnly,
-      hasChilled,
-      hasFrozen,
-      isB2B,
-      totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
-      subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
-      totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
-      totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
-      totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
-      totalRefunded: node.totalRefundedSet?.shopMoney?.amount || "0.00",
-      currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
-      customShippingAddress: dbRecord?.customShippingAddress || null,
-      customBillingAddress: dbRecord?.customBillingAddress || null,
-      customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
-      customerId: node.customer?.id || null,
-      taxLines,
-    };
-
-    return jsonResponse({ order: orderData, error: null });
+    return jsonResponse({ orders: ordersData, error: null });
   } catch (err) {
     console.error("Single Order Loader error:", err);
-    return jsonResponse({ order: null, error: err.message });
+    return jsonResponse({ orders: null, error: err.message });
   }
 };
 
@@ -419,11 +430,14 @@ export default function OrderPrintDetailPage() {
   const fetcher = useFetcher();
   const navigate = useNavigate();
 
-  const [order, setOrder] = useState(loaderData?.order);
+  const [orders, setOrders] = useState(loaderData?.orders || []);
   const [docMode, setDocMode] = useState("LIEFERSCHEIN"); // LIEFERSCHEIN | RECHNUNG | BOTH
   const [showImages, setShowImages] = useState(true);
   const [showBarcodes, setShowBarcodes] = useState(true);
   const [showSkus, setShowSkus] = useState(true);
+
+  // For editing address of the first order (only used when orders.length === 1)
+  const order = orders[0] || null;
 
   // Address edit state (local for the form)
   const [shippingEdit, setShippingEdit] = useState({
@@ -449,9 +463,9 @@ export default function OrderPrintDetailPage() {
   const [customVat, setCustomVat] = useState("");
 
   useEffect(() => {
-    if (loaderData?.order) {
-      setOrder(loaderData.order);
-      const o = loaderData.order;
+    if (loaderData?.orders && loaderData.orders.length > 0) {
+      setOrders(loaderData.orders);
+      const o = loaderData.orders[0];
       const initialShipping = o.customShippingAddress || o.shippingAddress || {};
       const initialBilling = o.customBillingAddress || o.billingAddress || {};
 
@@ -479,7 +493,7 @@ export default function OrderPrintDetailPage() {
     }
   }, [loaderData]);
 
-  if (loaderData?.error || !order) {
+  if (loaderData?.error || orders.length === 0) {
     return (
       <Page title="오류" backAction={{ content: "목록으로", onAction: () => navigate("/app/lieferschein") }}>
         <Layout>
@@ -496,6 +510,7 @@ export default function OrderPrintDetailPage() {
   }
 
   const handleSaveAddress = () => {
+    if (!order) return;
     fetcher.submit(
       {
         intent: "save_address",
@@ -508,44 +523,68 @@ export default function OrderPrintDetailPage() {
       { method: "POST" }
     );
 
-    // Update local preview state
-    setOrder(prev => ({
-      ...prev,
+    // Update local preview state for the first order
+    setOrders(prev => prev.map((o, idx) => idx === 0 ? {
+      ...o,
       customShippingAddress: shippingEdit,
       customBillingAddress: billingEdit,
       customVat: customVat,
-    }));
+    } : o));
   };
 
   const handlePrint = () => {
+    const originalTitle = document.title;
+    if (orders.length === 1) {
+      const o = orders[0];
+      let docTypeName = "Lieferschein";
+      if (docMode === "RECHNUNG") {
+        docTypeName = "Rechnung";
+      } else if (docMode === "BOTH") {
+        docTypeName = "Lieferschein_Rechnung";
+      }
+      document.title = `[${o.name}] ${docTypeName}`;
+    } else {
+      const now = new Date();
+      const yyyymmddhhmmss = now.getFullYear() +
+        String(now.getMonth() + 1).padStart(2, '0') +
+        String(now.getDate()).padStart(2, '0') +
+        String(now.getHours()).padStart(2, '0') +
+        String(now.getMinutes()).padStart(2, '0') +
+        String(now.getSeconds()).padStart(2, '0');
+      document.title = `lieferschein - ${yyyymmddhhmmss}`;
+    }
     window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 50);
   };
-
-  const isInternational = order.shippingAddress?.country &&
-    order.shippingAddress.country !== "Germany" &&
-    order.shippingAddress.countryCode !== "DE";
-
-  const methodUpper = order.shippingMethod.toUpperCase();
-  let shippingBadgeText = null;
-  if (methodUpper.includes("DHL")) {
-    shippingBadgeText = "DHL Standard";
-  } else if (methodUpper.includes("UPS EXPRESS SAVER")) {
-    shippingBadgeText = "UPS Express Saver";
-  } else if (methodUpper.includes("UPS EXPRESS")) {
-    shippingBadgeText = "UPS Express";
-  } else if (methodUpper.includes("UPS STANDARD")) {
-    shippingBadgeText = "UPS Standard";
-  }
-
-  const currentBillingAddress = order.customBillingAddress || order.billingAddress;
-  const currentShippingAddress = order.customShippingAddress || order.shippingAddress;
 
   const slips = [];
 
-  // 1. LIEFERSCHEIN LAYOUT
-  if (docMode === "LIEFERSCHEIN" || docMode === "BOTH") {
-    slips.push(
-      <div key="lieferschein-slip" className="packing-slip lieferschein-slip">
+  orders.forEach((order) => {
+    const isInternational = order.shippingAddress?.country &&
+      order.shippingAddress.country !== "Germany" &&
+      order.shippingAddress.countryCode !== "DE";
+
+    const methodUpper = order.shippingMethod.toUpperCase();
+    let shippingBadgeText = null;
+    if (methodUpper.includes("DHL")) {
+      shippingBadgeText = "DHL Standard";
+    } else if (methodUpper.includes("UPS EXPRESS SAVER")) {
+      shippingBadgeText = "UPS Express Saver";
+    } else if (methodUpper.includes("UPS EXPRESS")) {
+      shippingBadgeText = "UPS Express";
+    } else if (methodUpper.includes("UPS STANDARD")) {
+      shippingBadgeText = "UPS Standard";
+    }
+
+    const currentBillingAddress = order.customBillingAddress || order.billingAddress;
+    const currentShippingAddress = order.customShippingAddress || order.shippingAddress;
+
+    // 1. LIEFERSCHEIN LAYOUT
+    if (docMode === "LIEFERSCHEIN" || docMode === "BOTH") {
+      slips.push(
+        <div key={`lieferschein-slip-${order.id}`} className="packing-slip lieferschein-slip">
         <div className="header">
           <div className="header-left">
             <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
@@ -780,10 +819,10 @@ export default function OrderPrintDetailPage() {
     );
   }
 
-  // 2. RECHNUNG LAYOUT
-  if (docMode === "RECHNUNG" || docMode === "BOTH") {
-    slips.push(
-      <div key="rechnung-slip" className="packing-slip rechnung-slip">
+    // 2. RECHNUNG LAYOUT
+    if (docMode === "RECHNUNG" || docMode === "BOTH") {
+      slips.push(
+        <div key={`rechnung-slip-${order.id}`} className="packing-slip rechnung-slip">
         <div className="header">
           <div className="header-left">
             <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
@@ -1019,12 +1058,13 @@ export default function OrderPrintDetailPage() {
       </div>
     );
   }
+  });
 
   return (
     <div className="order-detail-page">
       <div className="no-print">
         <Page
-          title={`주문 내역서 출력: ${order.name}`}
+          title={orders.length === 1 ? `주문 내역서 출력: ${order?.name || ""}` : `복수 주문 내역서 출력 (${orders.length}건)`}
           backAction={{
             content: "목록으로",
             onAction: () => navigate("/app/lieferschein"),
@@ -1036,46 +1076,57 @@ export default function OrderPrintDetailPage() {
         >
           <Layout>
             {/* 왼쪽: 주소 편집기 */}
-            <Layout.Section variant="oneThird">
-              <BlockStack gap="400">
+            {orders.length === 1 ? (
+              <Layout.Section variant="oneThird">
+                <BlockStack gap="400">
+                  <Card>
+                    <BlockStack gap="400">
+                      <Text variant="headingMd" as="h3">수령인 주소 수정 (Lieferadresse)</Text>
+                      <TextField label="이름" value={shippingEdit.name} onChange={(val) => setShippingEdit(prev => ({ ...prev, name: val }))} autoComplete="off" />
+                      <TextField label="회사" value={shippingEdit.company} onChange={(val) => setShippingEdit(prev => ({ ...prev, company: val }))} autoComplete="off" />
+                      <TextField label="주소 1" value={shippingEdit.address1} onChange={(val) => setShippingEdit(prev => ({ ...prev, address1: val }))} autoComplete="off" />
+                      <TextField label="주소 2" value={shippingEdit.address2} onChange={(val) => setShippingEdit(prev => ({ ...prev, address2: val }))} autoComplete="off" />
+                      <InlineStack gap="200" wrap={false}>
+                        <div style={{ flex: 1 }}><TextField label="우편번호" value={shippingEdit.zip} onChange={(val) => setShippingEdit(prev => ({ ...prev, zip: val }))} autoComplete="off" /></div>
+                        <div style={{ flex: 2 }}><TextField label="도시" value={shippingEdit.city} onChange={(val) => setShippingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
+                      </InlineStack>
+                      <TextField label="국가" value={shippingEdit.country} onChange={(val) => setShippingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
+                    </BlockStack>
+                  </Card>
+
+                  <Card>
+                    <BlockStack gap="400">
+                      <Text variant="headingMd" as="h3">영수증 주소 수정 (Rechnungsadresse)</Text>
+                      <TextField label="이름" value={billingEdit.name} onChange={(val) => setBillingEdit(prev => ({ ...prev, name: val }))} autoComplete="off" />
+                      <TextField label="회사" value={billingEdit.company} onChange={(val) => setBillingEdit(prev => ({ ...prev, company: val }))} autoComplete="off" />
+                      <TextField label="주소 1" value={billingEdit.address1} onChange={(val) => setBillingEdit(prev => ({ ...prev, address1: val }))} autoComplete="off" />
+                      <TextField label="주소 2" value={billingEdit.address2} onChange={(val) => setBillingEdit(prev => ({ ...prev, address2: val }))} autoComplete="off" />
+                      <InlineStack gap="200" wrap={false}>
+                        <div style={{ flex: 1 }}><TextField label="우편번호" value={billingEdit.zip} onChange={(val) => setBillingEdit(prev => ({ ...prev, zip: val }))} autoComplete="off" /></div>
+                        <div style={{ flex: 2 }}><TextField label="도시" value={billingEdit.city} onChange={(val) => setBillingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
+                      </InlineStack>
+                      <TextField label="국가" value={billingEdit.country} onChange={(val) => setBillingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
+                      <TextField label="고객 VAT 번호 (USt-IdNr.)" value={customVat} onChange={setCustomVat} autoComplete="off" placeholder="예: DE320890998" />
+                    </BlockStack>
+                  </Card>
+
+                  <Card>
+                    <Button variant="primary" fullWidth onClick={handleSaveAddress} loading={fetcher.state === "submitting"}>
+                      주소 수정본 저장하기
+                    </Button>
+                  </Card>
+                </BlockStack>
+              </Layout.Section>
+            ) : (
+              <Layout.Section variant="oneThird">
                 <Card>
-                  <BlockStack gap="400">
-                    <Text variant="headingMd" as="h3">수령인 주소 수정 (Lieferadresse)</Text>
-                    <TextField label="이름" value={shippingEdit.name} onChange={(val) => setShippingEdit(prev => ({ ...prev, name: val }))} autoComplete="off" />
-                    <TextField label="회사" value={shippingEdit.company} onChange={(val) => setShippingEdit(prev => ({ ...prev, company: val }))} autoComplete="off" />
-                    <TextField label="주소 1" value={shippingEdit.address1} onChange={(val) => setShippingEdit(prev => ({ ...prev, address1: val }))} autoComplete="off" />
-                    <TextField label="주소 2" value={shippingEdit.address2} onChange={(val) => setShippingEdit(prev => ({ ...prev, address2: val }))} autoComplete="off" />
-                    <InlineStack gap="200" wrap={false}>
-                      <div style={{ flex: 1 }}><TextField label="우편번호" value={shippingEdit.zip} onChange={(val) => setShippingEdit(prev => ({ ...prev, zip: val }))} autoComplete="off" /></div>
-                      <div style={{ flex: 2 }}><TextField label="도시" value={shippingEdit.city} onChange={(val) => setShippingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
-                    </InlineStack>
-                    <TextField label="국가" value={shippingEdit.country} onChange={(val) => setShippingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
+                  <BlockStack gap="200">
+                    <Text variant="headingMd" as="h3">복수 주문 출력 모드</Text>
+                    <Text as="p" color="subdued">복수 주문 인쇄 시에는 개별 주소 수정 기능이 비활성화됩니다. 각 주문의 기본 배송지/청구지 주소로 출력됩니다.</Text>
                   </BlockStack>
                 </Card>
-
-                <Card>
-                  <BlockStack gap="400">
-                    <Text variant="headingMd" as="h3">영수증 주소 수정 (Rechnungsadresse)</Text>
-                    <TextField label="이름" value={billingEdit.name} onChange={(val) => setBillingEdit(prev => ({ ...prev, name: val }))} autoComplete="off" />
-                    <TextField label="회사" value={billingEdit.company} onChange={(val) => setBillingEdit(prev => ({ ...prev, company: val }))} autoComplete="off" />
-                    <TextField label="주소 1" value={billingEdit.address1} onChange={(val) => setBillingEdit(prev => ({ ...prev, address1: val }))} autoComplete="off" />
-                    <TextField label="주소 2" value={billingEdit.address2} onChange={(val) => setBillingEdit(prev => ({ ...prev, address2: val }))} autoComplete="off" />
-                    <InlineStack gap="200" wrap={false}>
-                      <div style={{ flex: 1 }}><TextField label="우편번호" value={billingEdit.zip} onChange={(val) => setBillingEdit(prev => ({ ...prev, zip: val }))} autoComplete="off" /></div>
-                      <div style={{ flex: 2 }}><TextField label="도시" value={billingEdit.city} onChange={(val) => setBillingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
-                    </InlineStack>
-                    <TextField label="국가" value={billingEdit.country} onChange={(val) => setBillingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
-                    <TextField label="고객 VAT 번호 (USt-IdNr.)" value={customVat} onChange={setCustomVat} autoComplete="off" placeholder="예: DE320890998" />
-                  </BlockStack>
-                </Card>
-
-                <Card>
-                  <Button variant="primary" fullWidth onClick={handleSaveAddress} loading={fetcher.state === "submitting"}>
-                    주소 수정본 저장하기
-                  </Button>
-                </Card>
-              </BlockStack>
-            </Layout.Section>
+              </Layout.Section>
+            )}
 
             {/* 오른쪽: 인쇄 설정 */}
             <Layout.Section>
