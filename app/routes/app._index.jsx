@@ -610,28 +610,28 @@ export default function Index() {
         <Layout.Section>
           <Card padding="400">
             <InlineStack align="space-between" blockAlign="center">
-              <Text variant="headingMd" as="h2">⚡ 빠른 작업</Text>
+              <Text variant="headingMd" as="h2">빠른 작업</Text>
               <InlineStack gap="300">
                 <button
                   className="continue-btn"
                   style={{ background: "#1f2937", padding: "8px 16px" }}
                   onClick={() => navigate('/app/lieferschein')}
                 >
-                  🖨️ 인쇄 대기 명세서 출력
+                  명세서 출력
                 </button>
                 <button
                   className="continue-btn"
                   style={{ background: "#f59e0b", padding: "8px 16px" }}
                   onClick={() => navigate('/app/pick-list')}
                 >
-                  📋 총합 피킹 리스트 생성
+                  피킹 리스트 생성
                 </button>
                 <button
                   className="continue-btn"
                   style={{ background: "#008060", padding: "8px 16px" }}
                   onClick={() => navigate('/app/inspect')}
                 >
-                  📦 새로운 검수 시작
+                  신규 검수 시작
                 </button>
               </InlineStack>
             </InlineStack>
@@ -783,7 +783,7 @@ export default function Index() {
         <Layout.Section variant="oneHalf">
           <Card>
             <BlockStack gap="400">
-              <Text variant="headingMd" as="h2">🚢 컨테이너 입고 일정</Text>
+              <Text variant="headingMd" as="h2">컨테이너 입고 일정</Text>
               {upcomingContainers && upcomingContainers.length > 0 ? (
                 <div className="container-dashboard-layout">
                   {/* 왼쪽: 입고 일정 테이블 */}

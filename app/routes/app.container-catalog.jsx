@@ -45,7 +45,7 @@ async function fetchOdooContainerProducts(containerRef) {
       ODOO_DB, uid, ODOO_API_KEY,
       "purchase.order", "search_read",
       [[["name", "ilike", containerRef]]],
-      { fields: ["id", "name", "order_line"], limit: 1 }
+      { fields: ["id", "name", "order_line", "partner_id"], limit: 1 }
     ]);
 
     if (!pos || pos.length === 0) {
@@ -53,8 +53,10 @@ async function fetchOdooContainerProducts(containerRef) {
     }
 
     const po = pos[0];
+    const partnerId = po.partner_id ? po.partner_id[1] : "알 수 없음";
+
     if (!po.order_line || po.order_line.length === 0) {
-      return { poName: po.name, items: [] };
+      return { poName: po.name, partnerId, items: [] };
     }
 
     // 3. Purchase Order Lines 상세 조회
@@ -93,7 +95,7 @@ async function fetchOdooContainerProducts(containerRef) {
       };
     });
 
-    return { poName: po.name, items };
+    return { poName: po.name, partnerId, items };
   } catch (error) {
     console.error("Odoo Fetch Error:", error);
     throw error;
@@ -121,9 +123,9 @@ export const action = async ({ request }) => {
 
     try {
       // 1. Odoo에서 컨테이너 상품 리스트 조회
-      const { poName, items } = await fetchOdooContainerProducts(containerRef);
+      const { poName, partnerId, items } = await fetchOdooContainerProducts(containerRef);
       if (items.length === 0) {
-        return { poName, items: [], error: "컨테이너에 포함된 상품 내역이 없습니다." };
+        return { poName, partnerId, items: [], error: "컨테이너에 포함된 상품 내역이 없습니다." };
       }
 
       // 2. Shopify 상품 Variants SKU 매칭 조회 (20개씩 청크 분할 쿼리)
@@ -187,7 +189,7 @@ export const action = async ({ request }) => {
         };
       });
 
-      return { poName, items: matchedItems };
+      return { poName, partnerId, items: matchedItems };
     } catch (err) {
       return { error: `불러오기 실패: ${err.message}` };
     }
@@ -235,6 +237,7 @@ export default function ContainerCatalog() {
   const data = fetcher.data || {};
   const items = data.items || [];
   const poName = data.poName || "";
+  const partnerId = data.partnerId || "";
   const error = data.error || null;
 
   // 데이터 로드 시 입력 필드 값 초기화
@@ -471,6 +474,7 @@ export default function ContainerCatalog() {
       </div>
       <div class="header-right">
         <div class="ref-tag">CONTAINER: ${poName}</div>
+        <div class="ref-tag" style="background: #f8fafc; color: #475569; border-color: #cbd5e1; margin-top: 4px;">SUPPLIER: ${partnerId || 'N/A'}</div>
         <div class="date">출력일: ${new Date().toLocaleDateString('ko-KR')}</div>
       </div>
     </div>
@@ -795,7 +799,12 @@ export default function ContainerCatalog() {
               <Card>
                 <BlockStack gap="400">
                   <InlineStack align="space-between" blockAlign="center">
-                    <Text variant="headingMd" as="h2">컨테이너 상품 매칭 상세 ({poName})</Text>
+                    <BlockStack gap="100">
+                      <Text variant="headingMd" as="h2">컨테이너 상품 매칭 상세 ({poName})</Text>
+                      {partnerId && (
+                        <Text variant="bodyMd" tone="subdued">공급사: {partnerId}</Text>
+                      )}
+                    </BlockStack>
                     <Button primary icon={PrintIcon} onClick={handlePrintCatalog}>도매 카탈로그 인쇄 / PDF 저장</Button>
                   </InlineStack>
                   
