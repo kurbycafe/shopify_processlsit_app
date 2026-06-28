@@ -63,7 +63,7 @@ async function getUpcomingContainers() {
     }
 
     const pickingController = new AbortController();
-    const pickingTimeoutId = setTimeout(() => pickingController.abort(), 2500);
+    const pickingTimeoutId = setTimeout(() => pickingController.abort(), 8000); // 타임아웃 8초로 연장
 
     const pickingsResponse = await fetch(ODOO_URL, {
       method: "POST",
@@ -75,11 +75,12 @@ async function getUpcomingContainers() {
           ["state", "!=", "cancel"],
           "|",
           ["picking_type_id.code", "=", "incoming"],
-          ["name", "like", "/IN/"]
+          ["name", "like", "/IN/"],
+          ["origin", "!=", false]
         ]],
         {
           fields: ["id", "name", "origin", "scheduled_date", "state", "partner_id"],
-          order: "scheduled_date desc, id desc",
+          order: "origin desc, id desc",
           limit: 5
         }
       ])),
@@ -108,11 +109,7 @@ async function getUpcomingContainers() {
 
 function getFallbackSchedule() {
   // 방어적 설계를 위한 오프라인/오류 상황 대비 백업 데이터
-  return [
-    { id: 1115, name: "JP/IN/00040", containerRef: "2026-00260", eta: "2026-06-25", state: "assigned", supplier: "RICEFIELD Ltd" },
-    { id: 1114, name: "JP/IN/00039", containerRef: "2026-00259", eta: "2026-07-02", state: "confirmed", supplier: "SAMYIP Corp" },
-    { id: 1113, name: "JP/IN/00038", containerRef: "2026-00258", eta: "2026-06-20", state: "done", supplier: "Flying Goose" }
-  ];
+  return [];
 }
 
 function getCalendarMonths() {

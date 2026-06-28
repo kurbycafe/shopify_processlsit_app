@@ -315,18 +315,22 @@ export const loader = async ({ request }) => {
       };
     });
 
-    // 🔍 합포장(Combined Shipping) 감지
-    const emailCounts = {};
+    // 🔍 합포장(Combined Shipping) 감지 및 주문번호 수집
+    const emailOrders = {};
     orders.forEach((o) => {
       if (o.email && o.email !== "-") {
-        emailCounts[o.email] = (emailCounts[o.email] || 0) + 1;
+        if (!emailOrders[o.email]) {
+          emailOrders[o.email] = [];
+        }
+        emailOrders[o.email].push(o.name);
       }
     });
 
     const ordersWithCombinedInfo = orders.map((o) => ({
       ...o,
-      hasCombinedShipping: o.email !== "-" && emailCounts[o.email] > 1,
-      combinedCount: o.email !== "-" ? emailCounts[o.email] : 0,
+      hasCombinedShipping: o.email !== "-" && emailOrders[o.email]?.length > 1,
+      combinedCount: o.email !== "-" ? emailOrders[o.email]?.length : 0,
+      combinedOrderNames: o.email !== "-" ? emailOrders[o.email] : [],
     }));
 
     const orderIds = ordersWithCombinedInfo.map((o) => o.id);
@@ -738,8 +742,11 @@ export default function AdditionalPage() {
                         )}
                         {order.isB2B && <span style={{ fontSize: "11px", background: "#dbeafe", color: "#1e40af", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>B2B</span>}
                         {order.hasCombinedShipping && (
-                          <span style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
-                            합포장 ({order.combinedCount}건)
+                          <span 
+                            title={`합포장 주문 목록: ${order.combinedOrderNames.join(", ")}`}
+                            style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold", cursor: "help" }}
+                          >
+                            합포장 ({order.combinedCount}건: {order.combinedOrderNames.filter(name => name !== order.name).join(", ")})
                           </span>
                         )}
                         {order.isDryOnly ? (

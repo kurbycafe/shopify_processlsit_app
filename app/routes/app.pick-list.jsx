@@ -274,8 +274,25 @@ async function generatePdfBuffer(items, techTime) {
 
     page.drawLine({ start: { x: 40, y: currentY - 4 }, end: { x: pageWidth - 40, y: currentY - 4 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
 
-    const cleanLocation = item.binLocation.replace(/신창고/g, "NEW").replace(/매장창고/g, "STORE");
-    const safeTitle = item.productName.replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item");
+    // 💡 PDF 기본 폰트(Helvetica)는 한글을 지원하지 않으므로 한글 및 비-WinAnsi 문자를 안전하게 치환/제거합니다.
+    const cleanLocation = item.binLocation
+      .replace(/신창고/g, "NEW")
+      .replace(/매장창고/g, "STORE")
+      .replace(/위치 미정/g, "Pending")
+      .replace(/위치 미지정/g, "No Bin")
+      .replace(/조회중/g, "Querying")
+      .replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "")
+      .split("")
+      .map(char => (char.charCodeAt(0) <= 255 ? char : ""))
+      .join("")
+      .trim();
+
+    const safeTitle = item.productName
+      .replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item")
+      .split("")
+      .map(char => (char.charCodeAt(0) <= 255 ? char : ""))
+      .join("")
+      .trim();
 
     // 💡 텍스트가 가로로 넘쳐서 짤리는 걸 막기 위해 글자 수 제한 규칙(Substring)을 타이트하게 적용
     page.drawText(cleanLocation.substring(0, 24), { x: colX.location + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
