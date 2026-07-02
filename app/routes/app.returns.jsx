@@ -145,7 +145,7 @@ export const action = async ({ request }) => {
       barcode: edge.node.variant?.barcode || "",
       imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
       orderedQuantity: edge.node.quantity,
-      returnedQuantity: 0,
+      returnedQuantity: edge.node.quantity, // 기본 반품 등록 수량을 최대 주문 수량으로 설정
     }));
 
     return { order: { id: order.id, name: order.name, items } };
@@ -267,6 +267,9 @@ export default function ReturnsPage() {
   const [returnReasonType, setReturnReasonType] = useState("NONE");
   const [returnReasonDetails, setReturnReasonDetails] = useState("");
   
+  // 편집 가능한 검수자 이름 상태
+  const [inspector, setInspector] = useState(inspectorName || "");
+  
   const barcodeRef = useRef(null);
 
   // Audio feedback helper
@@ -332,6 +335,7 @@ export default function ReturnsPage() {
       setCarrier("NONE");
       setReturnReasonType("NONE");
       setReturnReasonDetails("");
+      setInspector(inspectorName || "");
       playSound("success");
     }
   }, [saveFetcher.data]);
@@ -398,7 +402,7 @@ export default function ReturnsPage() {
         isProcessed: String(isProcessed),
         processingType: isProcessed ? processingType : "",
         processingNotes: isProcessed ? processingNotes : "",
-        inspectorName: inspectorName || "",
+        inspectorName: inspector || "",
         returnedAt: returnedAt,
         items: JSON.stringify(returnedItems),
         carrier: carrier !== "NONE" ? carrier : "",
@@ -502,8 +506,9 @@ export default function ReturnsPage() {
                   <div style={{ flex: 1, minWidth: "200px" }}>
                     <TextField
                       label="반품 검수자명"
-                      value={inspectorName}
-                      disabled
+                      value={inspector}
+                      onChange={setInspector}
+                      autoComplete="off"
                       prefix={<Icon source={PersonIcon} />}
                     />
                   </div>
@@ -517,9 +522,6 @@ export default function ReturnsPage() {
                         { label: "선택 안 함 (NONE)", value: "NONE" },
                         { label: "DHL", value: "DHL" },
                         { label: "UPS", value: "UPS" },
-                        { label: "DPD", value: "DPD" },
-                        { label: "FedEx", value: "FEDEX" },
-                        { label: "기타 택배사", value: "OTHER" },
                       ]}
                       value={carrier}
                       onChange={setCarrier}
