@@ -17,7 +17,8 @@ import {
   Divider,
   Icon,
   EmptyState,
-  Checkbox
+  Checkbox,
+  Select
 } from "@shopify/polaris";
 import { SearchIcon, BarcodeIcon, CalendarIcon, PersonIcon } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
@@ -46,7 +47,9 @@ async function getInspectorName(admin, session) {
         return `${firstName || ""} ${lastName || ""}`.trim();
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    // Ignore error fetching current staff member details
+  }
 
   try {
     const shopResponse = await admin.graphql(
@@ -61,7 +64,9 @@ async function getInspectorName(admin, session) {
     if (shopJson.data?.shop?.shopOwner) {
       return shopJson.data.shop.shopOwner;
     }
-  } catch (e) {}
+  } catch (e) {
+    // Ignore error fetching shop owner details
+  }
 
   return "알 수 없음";
 }
@@ -151,11 +156,19 @@ export const action = async ({ request }) => {
     const isDamaged = formData.get("isDamaged") === "true";
     const damageReason = formData.get("damageReason") || "";
     const isProcessed = formData.get("isProcessed") === "true";
+    const processingType = formData.get("processingType") || null;
+    const processingNotes = formData.get("processingNotes") || null;
     const inspectorName = formData.get("inspectorName") || "";
     const returnedAtStr = formData.get("returnedAt");
     const items = JSON.parse(formData.get("items") || "[]");
+    
+    // 신규 추가된 반송 정보 필드
+    const carrier = formData.get("carrier") || null;
+    const returnReasonType = formData.get("returnReasonType") || null;
+    const returnReasonDetails = formData.get("returnReasonDetails") || null;
 
     const returnedAt = returnedAtStr ? new Date(returnedAtStr) : new Date();
+    const processedAt = isProcessed ? new Date() : null;
 
     const record = await prisma.returnRecord.create({
       data: {
@@ -164,8 +177,14 @@ export const action = async ({ request }) => {
         isDamaged,
         damageReason,
         isProcessed,
+        processingType: isProcessed ? processingType : null,
+        processingNotes: isProcessed ? processingNotes : null,
+        processedAt,
         inspectorName,
         shop,
+        carrier,
+        returnReasonType,
+        returnReasonDetails,
         items: {
           create: items.map(item => ({
             productTitle: item.title,
@@ -184,6 +203,49 @@ export const action = async ({ request }) => {
   return null;
 };
 
+const processingTypeOptions = [
+  { label: "재입고 (RESTOCK)", value: "RESTOCK" },
+  { label: "폐기 처리 (DISCARD)", value: "DISCARD" },
+  { label: "환불 완료 (REFUND)", value: "REFUND" },
+  { label: "교환 처리 (EXCHANGE)", value: "EXCHANGE" },
+  { label: "기타 (OTHER)", value: "OTHER" },
+];
+
+const getProcessingBadge = (record) => {
+  if (!record.isProcessed) {
+    return <Badge tone="attention">대기중</Badge>;
+  }
+
+  const type = record.processingType;
+  let text = "완료";
+  let tone = "info";
+
+  switch (type) {
+    case "RESTOCK":
+      text = "재입고";
+      tone = "success";
+      break;
+    case "DISCARD":
+      text = "폐기";
+      tone = "warning";
+      break;
+    case "REFUND":
+      text = "환불 완료";
+      tone = "critical";
+      break;
+    case "EXCHANGE":
+      text = "교환";
+      tone = "info";
+      break;
+    case "OTHER":
+      text = "기타";
+      tone = "subdued";
+      break;
+  }
+
+  return <Badge tone={tone}>{text}</Badge>;
+};
+
 export default function ReturnsPage() {
   const { inspectorName, returnHistory } = useLoaderData();
   const fetcher = useFetcher();
@@ -196,7 +258,14 @@ export default function ReturnsPage() {
   const [isDamaged, setIsDamaged] = useState(false);
   const [damageReason, setDamageReason] = useState("");
   const [isProcessed, setIsProcessed] = useState(false);
+  const [processingType, setProcessingType] = useState("RESTOCK");
+  const [processingNotes, setProcessingNotes] = useState("");
   const [message, setMessage] = useState(null);
+  
+  // 신규 추가된 반송 정보 상태
+  const [carrier, setCarrier] = useState("NONE");
+  const [returnReasonType, setReturnReasonType] = useState("NONE");
+  const [returnReasonDetails, setReturnReasonDetails] = useState("");
   
   const barcodeRef = useRef(null);
 
@@ -232,7 +301,9 @@ export default function ReturnsPage() {
         osc.start(ctx.currentTime);
         osc.stop(ctx.currentTime + 0.35);
       }
-    } catch (e) {}
+    } catch (e) {
+      // Ignore audio playback errors if AudioContext is unsupported
+    }
   };
 
   useEffect(() => {
@@ -256,6 +327,11 @@ export default function ReturnsPage() {
       setIsDamaged(false);
       setDamageReason("");
       setIsProcessed(false);
+      setProcessingType("RESTOCK");
+      setProcessingNotes("");
+      setCarrier("NONE");
+      setReturnReasonType("NONE");
+      setReturnReasonDetails("");
       playSound("success");
     }
   }, [saveFetcher.data]);
@@ -320,23 +396,28 @@ export default function ReturnsPage() {
         isDamaged: String(isDamaged),
         damageReason: isDamaged ? damageReason : "",
         isProcessed: String(isProcessed),
+        processingType: isProcessed ? processingType : "",
+        processingNotes: isProcessed ? processingNotes : "",
         inspectorName: inspectorName || "",
         returnedAt: returnedAt,
-        items: JSON.stringify(returnedItems)
+        items: JSON.stringify(returnedItems),
+        carrier: carrier !== "NONE" ? carrier : "",
+        returnReasonType: returnReasonType !== "NONE" ? returnReasonType : "",
+        returnReasonDetails: returnReasonDetails || ""
       },
       { method: "POST" }
     );
   };
 
   const rows = currentOrder?.items.map(item => [
-    <Thumbnail source={item.imageUrl || ""} alt={item.title} size="small" />,
-    <BlockStack gap="100">
+    <Thumbnail key={`img-${item.id}`} source={item.imageUrl || ""} alt={item.title} size="small" />,
+    <BlockStack key={`info-${item.id}`} gap="100">
       <Text variant="bodyMd" fontWeight="bold">{item.title}</Text>
       <Text variant="bodySm" color="subdued">{item.variantTitle} | SKU: {item.sku || "N/A"}</Text>
     </BlockStack>,
     item.barcode || "N/A",
     `${item.orderedQuantity}개`,
-    <InlineStack wrap={false} align="center" gap="200">
+    <InlineStack key={`qty-${item.id}`} wrap={false} align="center" gap="200">
       <Button size="micro" onClick={() => adjustQuantity(item.id, -1)}>-</Button>
       <Text variant="bodyLg" fontWeight="bold">{item.returnedQuantity} 개</Text>
       <Button size="micro" onClick={() => adjustQuantity(item.id, 1)}>+</Button>
@@ -428,6 +509,48 @@ export default function ReturnsPage() {
                   </div>
                 </div>
 
+                <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", marginTop: "10px" }}>
+                  <div style={{ flex: 1, minWidth: "200px" }}>
+                    <Select
+                      label="반송 택배사"
+                      options={[
+                        { label: "선택 안 함 (NONE)", value: "NONE" },
+                        { label: "DHL", value: "DHL" },
+                        { label: "UPS", value: "UPS" },
+                        { label: "DPD", value: "DPD" },
+                        { label: "FedEx", value: "FEDEX" },
+                        { label: "기타 택배사", value: "OTHER" },
+                      ]}
+                      value={carrier}
+                      onChange={setCarrier}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: "200px" }}>
+                    <Select
+                      label="반송 귀책 구분"
+                      options={[
+                        { label: "선택 안 함 (NONE)", value: "NONE" },
+                        { label: "고객 귀책 (주소 오류, 장기 부재, 수취 거부 등)", value: "CUSTOMER_ERROR" },
+                        { label: "배송사 귀책 (배송 지연, 오배송, 분실 등)", value: "CARRIER_ERROR" },
+                        { label: "단순 변심 (고객 단순 반품)", value: "CHANGE_OF_MIND" },
+                        { label: "기타 사유", value: "OTHER" },
+                      ]}
+                      value={returnReasonType}
+                      onChange={setReturnReasonType}
+                    />
+                  </div>
+                </div>
+
+                {returnReasonType !== "NONE" && (
+                  <TextField
+                    label="상세 반송 사유"
+                    value={returnReasonDetails}
+                    onChange={setReturnReasonDetails}
+                    placeholder="예: 주소 불명으로 인한 반송 / 고객 이사로 인한 수취 거부 / DHL 오배송"
+                    autoComplete="off"
+                  />
+                )}
+
                 <InlineStack gap="600">
                   <Checkbox
                     label="물품 파손 있음 (Damaged)"
@@ -449,6 +572,28 @@ export default function ReturnsPage() {
                     placeholder="예: 포장 훼손, 유통기한 임박, 용기 파손 등 사유를 적어주세요."
                     multiline={2}
                   />
+                )}
+
+                {isProcessed && (
+                  <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", marginTop: "10px" }}>
+                    <div style={{ flex: 1, minWidth: "200px" }}>
+                      <Select
+                        label="반품 처리 방식"
+                        options={processingTypeOptions}
+                        value={processingType}
+                        onChange={setProcessingType}
+                      />
+                    </div>
+                    <div style={{ flex: 2, minWidth: "300px" }}>
+                      <TextField
+                        label="처리 세부 메모"
+                        value={processingNotes}
+                        onChange={setProcessingNotes}
+                        placeholder="예: 재입고 완료 / 환불 신청 완료 / 폐기함"
+                        multiline={1}
+                      />
+                    </div>
+                  </div>
                 )}
 
                 <Divider />
@@ -476,10 +621,13 @@ export default function ReturnsPage() {
                       <tr style={{ borderBottom: "2px solid #e1e3e5", textAlign: "left" }}>
                         <th style={{ padding: "10px 8px" }}>주문번호</th>
                         <th style={{ padding: "10px 8px" }}>반송 받은날짜</th>
+                        <th style={{ padding: "10px 8px" }}>배송사 / 귀책</th>
+                        <th style={{ padding: "10px 8px" }}>상세 반송 사유</th>
                         <th style={{ padding: "10px 8px" }}>상태</th>
                         <th style={{ padding: "10px 8px" }}>검수자</th>
                         <th style={{ padding: "10px 8px" }}>반품 내역 요약</th>
-                        <th style={{ padding: "10px 8px" }}>처리 여부</th>
+                        <th style={{ padding: "10px 8px" }}>처리 여부 / 방식</th>
+                        <th style={{ padding: "10px 8px" }}>처리 상세 메모</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -487,6 +635,23 @@ export default function ReturnsPage() {
                         <tr key={item.id} style={{ borderBottom: "1px solid #e1e3e5" }}>
                           <td style={{ padding: "10px 8px", fontWeight: "bold" }}>{item.orderName}</td>
                           <td style={{ padding: "10px 8px" }}>{dayjs(item.returnedAt).format("YYYY-MM-DD")}</td>
+                          <td style={{ padding: "10px 8px" }}>
+                            <InlineStack gap="100">
+                              {item.carrier ? (
+                                <Badge tone={item.carrier === "DHL" ? "attention" : item.carrier === "UPS" ? "info" : "subdued"}>
+                                  {item.carrier}
+                                </Badge>
+                              ) : null}
+                              {item.returnReasonType === "CUSTOMER_ERROR" && <Badge tone="warning">고객 귀책</Badge>}
+                              {item.returnReasonType === "CARRIER_ERROR" && <Badge tone="critical">배송사 귀책</Badge>}
+                              {item.returnReasonType === "CHANGE_OF_MIND" && <Badge tone="info">단순 변심</Badge>}
+                              {item.returnReasonType === "OTHER" && <Badge tone="subdued">기타</Badge>}
+                              {!item.carrier && !item.returnReasonType && "-"}
+                            </InlineStack>
+                          </td>
+                          <td style={{ padding: "10px 8px", fontSize: "13px" }}>
+                            {item.returnReasonDetails || "-"}
+                          </td>
                           <td style={{ padding: "10px 8px" }}>
                             {item.isDamaged ? (
                               <Badge tone="critical">🚨 파손 ({item.damageReason || "사유 미정"})</Badge>
@@ -499,11 +664,10 @@ export default function ReturnsPage() {
                             {item.items.map(subItem => `${subItem.productTitle} (${subItem.quantity}개)`).join(", ")}
                           </td>
                           <td style={{ padding: "10px 8px" }}>
-                            {item.isProcessed ? (
-                              <Badge tone="info">완료</Badge>
-                            ) : (
-                              <Badge tone="attention">대기중</Badge>
-                            )}
+                            {getProcessingBadge(item)}
+                          </td>
+                          <td style={{ padding: "10px 8px", fontSize: "13px", color: "#5c5f62" }}>
+                            {item.processingNotes || "-"}
                           </td>
                         </tr>
                       ))}
