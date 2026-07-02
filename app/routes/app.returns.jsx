@@ -166,6 +166,7 @@ export const action = async ({ request }) => {
     const carrier = formData.get("carrier") || null;
     const returnReasonType = formData.get("returnReasonType") || null;
     const returnReasonDetails = formData.get("returnReasonDetails") || null;
+    const storageLocation = formData.get("storageLocation") || null;
 
     const returnedAt = returnedAtStr ? new Date(returnedAtStr) : new Date();
     const processedAt = isProcessed ? new Date() : null;
@@ -185,6 +186,7 @@ export const action = async ({ request }) => {
         carrier,
         returnReasonType,
         returnReasonDetails,
+        storageLocation,
         items: {
           create: items.map(item => ({
             productTitle: item.title,
@@ -266,6 +268,7 @@ export default function ReturnsPage() {
   const [carrier, setCarrier] = useState("NONE");
   const [returnReasonType, setReturnReasonType] = useState("NONE");
   const [returnReasonDetails, setReturnReasonDetails] = useState("");
+  const [storageLocation, setStorageLocation] = useState("");
   
   // 편집 가능한 검수자 이름 상태
   const [inspector, setInspector] = useState(inspectorName || "");
@@ -336,6 +339,7 @@ export default function ReturnsPage() {
       setReturnReasonType("NONE");
       setReturnReasonDetails("");
       setInspector(inspectorName || "");
+      setStorageLocation("");
       playSound("success");
     }
   }, [saveFetcher.data]);
@@ -407,7 +411,8 @@ export default function ReturnsPage() {
         items: JSON.stringify(returnedItems),
         carrier: carrier !== "NONE" ? carrier : "",
         returnReasonType: returnReasonType !== "NONE" ? returnReasonType : "",
-        returnReasonDetails: returnReasonDetails || ""
+        returnReasonDetails: returnReasonDetails || "",
+        storageLocation: storageLocation || ""
       },
       { method: "POST" }
     );
@@ -510,6 +515,15 @@ export default function ReturnsPage() {
                       onChange={setInspector}
                       autoComplete="off"
                       prefix={<Icon source={PersonIcon} />}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: "200px" }}>
+                    <TextField
+                      label="반송 보관 위치"
+                      value={storageLocation}
+                      onChange={setStorageLocation}
+                      placeholder="예: A구역 반품대, 3번 선반 등"
+                      autoComplete="off"
                     />
                   </div>
                 </div>
@@ -627,6 +641,7 @@ export default function ReturnsPage() {
                         <th style={{ padding: "10px 8px" }}>상세 반송 사유</th>
                         <th style={{ padding: "10px 8px" }}>상태</th>
                         <th style={{ padding: "10px 8px" }}>검수자</th>
+                        <th style={{ padding: "10px 8px" }}>보관 위치</th>
                         <th style={{ padding: "10px 8px" }}>반품 내역 요약</th>
                         <th style={{ padding: "10px 8px" }}>처리 여부 / 방식</th>
                         <th style={{ padding: "10px 8px" }}>처리 상세 메모</th>
@@ -662,6 +677,7 @@ export default function ReturnsPage() {
                             )}
                           </td>
                           <td style={{ padding: "10px 8px" }}>{item.inspectorName || "알 수 없음"}</td>
+                          <td style={{ padding: "10px 8px", fontWeight: "500" }}>{item.storageLocation || "-"}</td>
                           <td style={{ padding: "10px 8px" }}>
                             {item.items.map(subItem => `${subItem.productTitle} (${subItem.quantity}개)`).join(", ")}
                           </td>

@@ -86,6 +86,7 @@ model ReturnRecord {
   carrier         String?      // 반송 택배사 (예: DHL, UPS, DPD, FEDEX, OTHER, NONE)
   returnReasonType String?     // 반송 귀책 구분 (예: CUSTOMER_ERROR, CARRIER_ERROR, CHANGE_OF_MIND, OTHER)
   returnReasonDetails String?   // 상세 반송 사유 (예: 주소 불명 등)
+  storageLocation String?      // 반송 보관 위치
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   items           ReturnItem[]
