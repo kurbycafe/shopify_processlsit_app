@@ -22,7 +22,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
@@ -154,27 +154,37 @@ export const action = async ({ request }) => {
 
       const draftOrderId = createJson.data.draftOrderCreate.draftOrder.id;
 
-      // 2. Complete Draft Order to register sales and deduct stock
-      const completeRes = await admin.graphql(`
-        mutation completeDraft($id: ID!) {
-          draftOrderComplete(id: $id, paymentPending: false, bypassCartValidations: true) {
-            draftOrder {
-              order {
-                id
+      // 2. Complete Draft Order to register sales and deduct stock via unstable API for bypassCartValidations
+      const completeRes = await fetch(`https://${session.shop}/admin/api/unstable/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": session.accessToken
+        },
+        body: JSON.stringify({
+          query: `
+            mutation completeDraft($id: ID!) {
+              draftOrderComplete(id: $id, paymentPending: false, bypassCartValidations: true) {
+                draftOrder {
+                  order {
+                    id
+                  }
+                }
+                userErrors {
+                  field
+                  message
+                }
               }
             }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `, { variables: { id: draftOrderId } });
+          `,
+          variables: { id: draftOrderId }
+        })
+      });
 
       const completeJson = await completeRes.json();
       if (completeJson.errors || completeJson.data?.draftOrderComplete?.userErrors?.length > 0) {
         const errors = completeJson.errors || completeJson.data.draftOrderComplete.userErrors;
-        return jsonResponse({ error: errors.map(e => e.message).join(", ") }, { status: 400 });
+        return jsonResponse({ error: errors.map(e => e.message || e.field).join(", ") }, { status: 400 });
       }
 
       const orderId = completeJson.data.draftOrderComplete.draftOrder.order.id;
