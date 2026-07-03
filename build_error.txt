@@ -1,0 +1,153 @@
+npm warn Unknown project config "shamefully-hoist". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[36mvite v6.4.2 [32mbuilding for production...[36m[39m
+transforming...
+[33m[plugin vite:resolve] Module "fs" has been externalized for browser compatibility, imported by "C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.[39m
+[33m[plugin vite:resolve] Module "path" has been externalized for browser compatibility, imported by "C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.[39m
+[33m[plugin vite:resolve] Module "stream" has been externalized for browser compatibility, imported by "C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.[39m
+[33m[plugin vite:resolve] Module "fs" has been externalized for browser compatibility, imported by "C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.[39m
+[33m[plugin vite:resolve] Module "path" has been externalized for browser compatibility, imported by "C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.[39m
+[33m[plugin vite:resolve] Module "stream" has been externalized for browser compatibility, imported by "C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.[39m
+[32m✓[39m 1411 modules transformed.
+[31m✗[39m Build failed in 3.91s
+[31mnode_modules/@react-router/node/dist/index.mjs (24:9): "promises" is not exported by "__vite-browser-external", imported by "node_modules/@react-router/node/dist/index.mjs".[39m
+file: [36mC:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs:24:9[39m
+[33m
+22: 
+23: // sessions/fileStorage.ts
+24: import { promises as fsp } from "fs";
+             ^
+25: import * as path from "path";
+26: import { createSessionStorage } from "react-router";
+[39m
+    at getRollupError (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/parseAst.js:406:41)
+    at error (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/parseAst.js:402:42)
+    at Module.error (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:17390:16)
+    at Module.traceVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:17823:29)
+    at ModuleScope.findVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:15413:39)
+    at FunctionScope.findVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:5682:38)
+    at FunctionBodyScope.findVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:5682:38)
+    at ChildScope.findVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:5682:38)
+    at FunctionScope.findVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:5682:38)
+    at FunctionBodyScope.findVariable (file:///C:/Users/po043/process-list/node_modules/rollup/dist/es/shared/node-entry.js:5682:38) {
+  binding: 'promises',
+  code: 'MISSING_EXPORT',
+  exporter: '__vite-browser-external',
+  id: 'C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs',
+  url: 'https://rollupjs.org/troubleshooting/#error-name-is-not-exported-by-module',
+  pos: 731,
+  loc: {
+    column: 9,
+    file: 'C:/Users/po043/process-list/node_modules/@react-router/node/dist/index.mjs',
+    line: 24
+  },
+  frame: '22: \n' +
+    '23: // sessions/fileStorage.ts\n' +
+    '24: import { promises as fsp } from "fs";\n' +
+    '             ^\n' +
+    '25: import * as path from "path";\n' +
+    '26: import { createSessionStorage } from "react-router";',
+  watchFiles: [
+    'C:/Users/po043/process-list/app/root.jsx',
+    'C:/Users/po043/process-list/app/routes/webhooks.app.scopes_update.jsx',
+    'C:/Users/po043/process-list/app/routes/auth.$.jsx',
+    'C:/Users/po043/process-list/app/routes/webhooks.app.uninstalled.jsx',
+    'C:/Users/po043/process-list/app/routes/_index/route.jsx',
+    'C:/Users/po043/process-list/app/routes/app.jsx',
+    'C:/Users/po043/process-list/app/routes/app.lieferschein._index.jsx',
+    'C:/Users/po043/process-list/app/routes/app.container-catalog.jsx',
+    'C:/Users/po043/process-list/app/routes/app.create-invoice.jsx',
+    'C:/Users/po043/process-list/app/routes/auth.login/route.jsx',
+    'C:/Users/po043/process-list/app/routes/app.store-label.jsx',
+    'C:/Users/po043/process-list/app/routes/app.lieferschein.$id.jsx',
+    'C:/Users/po043/process-list/app/routes/app.inspect.jsx',
+    'C:/Users/po043/process-list/app/routes/app.returns.jsx',
+    'C:/Users/po043/process-list/app/routes/app.pick-list.jsx',
+    'C:/Users/po043/process-list/app/routes/app._index.jsx',
+    'C:/Users/po043/process-list/app/routes/app.inspection-history.jsx',
+    'C:/Users/po043/process-list/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx',
+    'C:\\Users\\po043\\process-list\\package.json',
+    'C:/Users/po043/process-list/node_modules/react/index.js',
+    'C:/Users/po043/process-list/node_modules/react/jsx-runtime.js',
+    'C:/Users/po043/process-list/node_modules/react-dom/client.js',
+    'C:/Users/po043/process-list/node_modules/react-router/dist/development/dom-export.mjs',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/locales/en.json',
+    'C:/Users/po043/process-list/node_modules/react-dom/index.js',
+    'C:/Users/po043/process-list/node_modules/react/cjs/react-jsx-runtime.production.min.js',
+    'C:/Users/po043/process-list/node_modules/react-router/dist/development/index.mjs',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/index.js',
+    'C:/Users/po043/process-list/node_modules/react/cjs/react.production.min.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/styles.css',
+    'C:/Users/po043/process-list/node_modules/@shopify/shopify-app-react-router/dist/esm/react/index.mjs',
+    'C:/Users/po043/process-list/node_modules/@shopify/shopify-app-react-router/dist/esm/server/index.mjs',
+    'C:/Users/po043/process-list/node_modules/react-router/dist/development/chunk-RJYABSBD.mjs',
+    'C:/Users/po043/process-list/app/routes/_index/styles.module.css',
+    'C:/Users/po043/process-list/node_modules/react-router/dist/development/chunk-4N6VE7H7.mjs',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/shared.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ThemeProvider/ThemeProvider.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/within-content-context.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/types.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-event-listener.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-focus.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/color-transformers.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-hover.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-theme.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-copy-to-clipboard.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-media-query.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/breakpoints.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/AppProvider/AppProvider.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/utilities/use-index-resource-state.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ActionList/ActionList.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/AccountConnection/AccountConnection.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ActionMenu/ActionMenu.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/configure.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Autocomplete/Autocomplete.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Backdrop/Backdrop.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Avatar/Avatar.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Badge/Badge.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Badge/types.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Bleed/Bleed.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Breadcrumbs/Breadcrumbs.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Banner/Banner.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Box/Box.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/BulkActions/BulkActions.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Button/Button.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Button/utils.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ButtonGroup/ButtonGroup.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/CalloutCard/CalloutCard.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Checkbox/Checkbox.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Card/Card.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ChoiceList/ChoiceList.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Collapsible/Collapsible.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ColorPicker/ColorPicker.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/InlineGrid/InlineGrid.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Combobox/Combobox.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Connected/Connected.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ContextualSaveBar/ContextualSaveBar.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/DataTable/DataTable.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/DatePicker/DatePicker.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Divider/Divider.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/DropZone/DropZone.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/EmptyState/EmptyState.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/EmptySearchResult/EmptySearchResult.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/EventListener/EventListener.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/DescriptionList/DescriptionList.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/ExceptionList/ExceptionList.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Focus/Focus.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/FooterHelp/FooterHelp.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Form/Form.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Filters/Filters.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Frame/Frame.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/FormLayout/FormLayout.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Frame/components/Toast/Toast.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/FullscreenBar/FullscreenBar.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Grid/Grid.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Image/Image.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Icon/Icon.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/IndexFilters/IndexFilters.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/IndexFilters/hooks/useSetIndexFiltersMode/useSetIndexFiltersMode.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/IndexFilters/types.js',
+    'C:/Users/po043/process-list/node_modules/@shopify/polaris/build/esm/components/Indicator/Indicator.js',
+    ... 1266 more items
+  ],
+  Symbol(augmented): true
+}

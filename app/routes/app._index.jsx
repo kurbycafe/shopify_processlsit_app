@@ -17,6 +17,7 @@ import {
   AlertTriangleIcon,
   CheckCircleIcon,
   ClockIcon,
+  PrintIcon,
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -277,6 +278,17 @@ export const loader = async ({ request }) => {
 
   const upcomingContainers = await getUpcomingContainers();
 
+  const todayStart = dayjs().startOf('day').toDate();
+  const todayPrintedCount = await prisma.inspectionRecord.count({
+    where: {
+      shop,
+      isLieferscheinPrinted: true,
+      lieferscheinPrintedAt: {
+        gte: todayStart
+      }
+    }
+  });
+
   // 📈 최근 7일간의 검수 통계 데이터 조회 (생산성 차트용)
   const sevenDaysAgo = dayjs().subtract(7, 'day').startOf('day').toDate();
   const pastRecordsForChart = await prisma.inspectionRecord.findMany({
@@ -322,6 +334,7 @@ export const loader = async ({ request }) => {
     readyToFulfillCount,
     todayTotalCount,
     todayFulfilledCount,
+    todayPrintedCount,
     recentLogs,
     upcomingContainers,
     chartData,
@@ -343,7 +356,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Index() {
-  const { unfulfilledCount, partiallyFulfilledCount, delayedCount, readyToFulfillCount, todayTotalCount, todayFulfilledCount, recentLogs, upcomingContainers, chartData } = useLoaderData();
+  const { unfulfilledCount, partiallyFulfilledCount, delayedCount, readyToFulfillCount, todayTotalCount, todayFulfilledCount, todayPrintedCount, recentLogs, upcomingContainers, chartData } = useLoaderData();
   const [selectedLog, setSelectedLog] = useState(null);
   const navigate = useNavigate();
   const calendarMonths = getCalendarMonths();
@@ -650,14 +663,18 @@ export default function Index() {
               </BlockStack>
             </div>
 
-            <div className="dashboard-metric-card metric-critical">
+            <div 
+              className="dashboard-metric-card" 
+              style={{ borderLeft: "5px solid #8b5cf6", cursor: "pointer" }} 
+              onClick={() => navigate('/app/lieferschein')}
+            >
               <BlockStack gap="200">
-                <Text variant="headingMd" as="h2" tone="subdued">출고 지연 (3일 이상)</Text>
+                <Text variant="headingMd" as="h2" tone="subdued">오늘 Lieferschein 인쇄</Text>
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text variant="heading2xl" as="p" tone="critical">
-                    {delayedCount}
+                  <Text variant="heading2xl" as="p" style={{ color: "#8b5cf6" }}>
+                    {todayPrintedCount}
                   </Text>
-                  <Icon source={AlertTriangleIcon} tone="critical" />
+                  <Icon source={PrintIcon} tone="interactive" />
                 </InlineStack>
               </BlockStack>
             </div>

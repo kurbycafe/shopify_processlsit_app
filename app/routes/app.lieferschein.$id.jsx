@@ -243,6 +243,12 @@ export const loader = async ({ request, params }) => {
                   discountedUnitPriceSet { shopMoney { amount currencyCode } }
                   originalTotalSet { shopMoney { amount currencyCode } }
                   discountedTotalSet { shopMoney { amount currencyCode } }
+                  taxable
+                  taxLines {
+                    title
+                    rate
+                    priceSet { shopMoney { amount currencyCode } }
+                  }
                   variant {
                     id
                     title
@@ -325,6 +331,14 @@ export const loader = async ({ request, params }) => {
         const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
         const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
 
+        const lineTaxLines = item.taxLines || [];
+        let originalTaxRate = 0;
+        if (item.taxable && lineTaxLines.length > 0) {
+          originalTaxRate = Math.round(lineTaxLines[0].rate * 100);
+        } else if (item.taxable) {
+          originalTaxRate = 7;
+        }
+
         return {
           id: item.id,
           title: (item.title || "").replace(" - Default Title", ""),
@@ -345,6 +359,8 @@ export const loader = async ({ request, params }) => {
           priceDiscounted,
           totalOriginal,
           totalDiscounted,
+          originalTaxRate,
+          taxRate: originalTaxRate,
         };
       });
 
@@ -411,6 +427,7 @@ export const loader = async ({ request, params }) => {
         customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
         customerId: node.customer?.id || null,
         taxLines,
+        shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
       });
     }
 
@@ -435,6 +452,8 @@ export default function OrderPrintDetailPage() {
   const [showImages, setShowImages] = useState(true);
   const [showBarcodes, setShowBarcodes] = useState(true);
   const [showSkus, setShowSkus] = useState(true);
+  const [taxDisplayMode, setTaxDisplayMode] = useState("GROSS");
+  const [taxExemptionNote, setTaxExemptionNote] = useState("");
 
   // For editing address of the first order (only used when orders.length === 1)
   const order = orders[0] || null;
@@ -490,8 +509,38 @@ export default function OrderPrintDetailPage() {
       });
 
       setCustomVat(o.customVat || "");
+
+      const hasB2B = loaderData.orders.some(ord => ord.isB2B);
+      setTaxDisplayMode(hasB2B ? "NET" : "GROSS");
+      
+      const hasZeroTax = loaderData.orders.some(ord => ord.items.some(i => i.originalTaxRate === 0));
+      if (hasZeroTax) {
+        setTaxExemptionNote("Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge)");
+      } else {
+        setTaxExemptionNote("");
+      }
     }
   }, [loaderData]);
+
+  const handleTaxRateChange = (orderId, itemId, newRate) => {
+    setOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o;
+      return {
+        ...o,
+        items: o.items.map(item => {
+          if (item.id !== itemId) return item;
+          return { ...item, taxRate: newRate };
+        })
+      };
+    }));
+  };
+
+  const handleShippingTaxRateChange = (orderId, newRate) => {
+    setOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o;
+      return { ...o, shippingTaxRate: newRate };
+    }));
+  };
 
   if (loaderData?.error || orders.length === 0) {
     return (
@@ -819,8 +868,63 @@ export default function OrderPrintDetailPage() {
     );
   }
 
-    // 2. RECHNUNG LAYOUT
     if (docMode === "RECHNUNG" || docMode === "BOTH") {
+      const processedItems = order.items.map(item => {
+        const qty = item.quantity || 0;
+        const origRate = item.originalTaxRate ?? 7;
+        const currentRate = item.taxRate ?? origRate;
+        
+        const unitGross = parseFloat(item.priceDiscounted || 0);
+        const unitNet = unitGross / (1 + origRate / 100);
+        
+        const currentUnitGross = unitNet * (1 + currentRate / 100);
+        const currentUnitNet = unitNet;
+        
+        const totalGross = currentUnitGross * qty;
+        const totalNet = currentUnitNet * qty;
+        const totalVat = totalGross - totalNet;
+        
+        return {
+          ...item,
+          unitNet: currentUnitNet,
+          unitGross: currentUnitGross,
+          totalNet,
+          totalGross,
+          totalVat,
+          currentRate
+        };
+      });
+
+      const totalNetItems = processedItems.reduce((acc, i) => acc + i.totalNet, 0);
+      const totalGrossItems = processedItems.reduce((acc, i) => acc + i.totalGross, 0);
+
+      const origShippingRate = order.shippingTaxRate ?? 19;
+      const currentShippingRate = order.shippingTaxRate ?? origShippingRate;
+      const shippingGross = parseFloat(order.totalShipping || 0);
+      const shippingNet = shippingGross / (1 + origShippingRate / 100);
+      const currentShippingGross = shippingNet * (1 + currentShippingRate / 100);
+      const currentShippingNet = shippingNet;
+      const shippingVat = currentShippingGross - currentShippingNet;
+
+      const vatBreakdown = {};
+      processedItems.forEach(item => {
+        const rate = item.currentRate;
+        if (rate === 0) return;
+        if (!vatBreakdown[rate]) vatBreakdown[rate] = 0;
+        vatBreakdown[rate] += item.totalVat;
+      });
+      if (shippingVat > 0 && currentShippingRate !== 0) {
+        if (!vatBreakdown[currentShippingRate]) vatBreakdown[currentShippingRate] = 0;
+        vatBreakdown[currentShippingRate] += shippingVat;
+      }
+
+      const grandTotalGross = totalGrossItems + currentShippingGross;
+      const grandTotalNet = totalNetItems + currentShippingNet;
+
+      const finalSubtotal = taxDisplayMode === "NET" ? totalNetItems : totalGrossItems;
+      const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
+      const finalTotal = grandTotalGross;
+
       slips.push(
         <div key={`rechnung-slip-${order.id}`} className="packing-slip rechnung-slip">
         <div className="header">
@@ -906,12 +1010,15 @@ export default function OrderPrintDetailPage() {
               {showImages && <th className="order-th-image">Bild</th>}
               <th>Produkt</th>
               <th className="order-th-qty" style={{ textAlign: 'center' }}>Menge</th>
-              <th style={{ width: '90px', textAlign: 'right' }}>Einzelpreis</th>
-              <th style={{ width: '90px', textAlign: 'right' }}>Gesamtpreis</th>
+              <th style={{ width: '90px', textAlign: 'right' }}>Einzelpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
+              <th style={{ width: '60px', textAlign: 'center' }}>MwSt.</th>
+              <th style={{ width: '90px', textAlign: 'right' }}>Gesamtpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
             </tr>
           </thead>
           <tbody>
-            {order.items.map((item) => {
+            {processedItems.map((item) => {
+              const unitPrice = taxDisplayMode === "NET" ? item.unitNet : item.unitGross;
+              const totalPrice = taxDisplayMode === "NET" ? item.totalNet : item.totalGross;
               return (
                 <tr key={item.id}>
                   {showImages && (
@@ -936,10 +1043,13 @@ export default function OrderPrintDetailPage() {
                     {item.quantity}
                   </td>
                   <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
-                    {parseFloat(item.priceDiscounted).toFixed(2)} {order.currencyCode}
+                    {unitPrice.toFixed(2)} {order.currencyCode}
+                  </td>
+                  <td style={{ textAlign: 'center', fontSize: '11px', fontFamily: 'monospace' }}>
+                    {item.currentRate}%
                   </td>
                   <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                    {parseFloat(item.totalDiscounted).toFixed(2)} {order.currencyCode}
+                    {totalPrice.toFixed(2)} {order.currencyCode}
                   </td>
                 </tr>
               );
@@ -951,12 +1061,14 @@ export default function OrderPrintDetailPage() {
           <table className="invoice-summary-table" style={{ width: '280px', borderCollapse: 'collapse' }}>
             <tbody>
               <tr style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Zwischensumme:</td>
+                <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
+                  {taxDisplayMode === "NET" ? "Zwischensumme (Netto):" : "Zwischensumme (Brutto):"}
+                </td>
                 <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
-                  {parseFloat(order.subtotalPrice).toFixed(2)} {order.currencyCode}
+                  {finalSubtotal.toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
-              {parseFloat(order.totalDiscounts) > 0 && (
+              {taxDisplayMode === "GROSS" && parseFloat(order.totalDiscounts) > 0 && (
                 <tr style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
                   <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
@@ -965,34 +1077,29 @@ export default function OrderPrintDetailPage() {
                 </tr>
               )}
               <tr style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Versandkosten:</td>
+                <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
+                  {taxDisplayMode === "NET" ? "Versandkosten (Netto):" : "Versandkosten:"}
+                </td>
                 <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
-                  {parseFloat(order.totalShipping).toFixed(2)} {order.currencyCode}
+                  {finalShipping.toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
-              {order.taxLines && order.taxLines.length > 0 ? (
-                order.taxLines.map((tl, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
-                      inkl. {tl.ratePercent}% MwSt. ({tl.title}):
-                    </td>
-                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
-                      {parseFloat(tl.amount).toFixed(2)} {order.currencyCode}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>inkl. MwSt.:</td>
+              {Object.entries(vatBreakdown).map(([rate, amount]) => (
+                <tr key={rate} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
+                    {taxDisplayMode === "NET" ? "zzgl." : "inkl."} {rate}% MwSt.:
+                  </td>
                   <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
-                    {parseFloat(order.totalTax).toFixed(2)} {order.currencyCode}
+                    {amount.toFixed(2)} {order.currencyCode}
                   </td>
                 </tr>
-              )}
+              ))}
               <tr style={{ borderTop: '2px solid #111' }}>
-                <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gesamtsumme:</td>
+                <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>
+                  {taxDisplayMode === "NET" ? "Gesamtsumme (Brutto):" : "Gesamtsumme:"}
+                </td>
                 <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
-                  {parseFloat(order.totalPrice).toFixed(2)} {order.currencyCode}
+                  {finalTotal.toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
               {parseFloat(order.totalRefunded) > 0 && (
@@ -1006,7 +1113,7 @@ export default function OrderPrintDetailPage() {
                   <tr style={{ borderTop: '1px solid #111', borderBottom: '2px double #111' }}>
                     <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gezahlter Betrag (Net Paid):</td>
                     <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
-                      {(parseFloat(order.totalPrice) - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
+                      {(finalTotal - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
                     </td>
                   </tr>
                 </>
@@ -1014,6 +1121,23 @@ export default function OrderPrintDetailPage() {
             </tbody>
           </table>
         </div>
+
+          {taxExemptionNote && (
+            <div style={{ 
+              marginTop: "12px", 
+              fontSize: "11px", 
+              fontWeight: "bold", 
+              textAlign: "left", 
+              color: "#111", 
+              border: "1px solid #e2e8f0", 
+              padding: "8px 10px", 
+              borderRadius: "4px", 
+              backgroundColor: "#f8fafc",
+              lineHeight: "1.4"
+            }}>
+              Hinweis: {taxExemptionNote}
+            </div>
+          )}
 
           <div style={{ marginTop: "12px", fontSize: "10px", color: "#555", fontStyle: "italic", textAlign: "left" }}>
             Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
@@ -1100,6 +1224,62 @@ export default function OrderPrintDetailPage() {
                       </InlineStack>
                       <TextField label="국가" value={billingEdit.country} onChange={(val) => setBillingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
                       <TextField label="고객 VAT 번호 (USt-IdNr.)" value={customVat} onChange={setCustomVat} autoComplete="off" placeholder="예: DE320890998" />
+                    </BlockStack>
+                  </Card>
+
+                  <Card>
+                    <BlockStack gap="400">
+                      <Text variant="headingMd" as="h3">Rechnung 세금 및 가격 설정</Text>
+                      <Select
+                        label="세금 표시 방식"
+                        options={[
+                          { label: 'Brutto (세금 포함 가격 표시)', value: 'GROSS' },
+                          { label: 'Netto (세금 제외 가격 표시)', value: 'NET' },
+                        ]}
+                        value={taxDisplayMode}
+                        onChange={setTaxDisplayMode}
+                      />
+                      <Select
+                        label="배송비 세율 (MwSt.)"
+                        options={[
+                          { label: '0%', value: '0' },
+                          { label: '7%', value: '7' },
+                          { label: '19%', value: '19' },
+                        ]}
+                        value={String(order.shippingTaxRate ?? 19)}
+                        onChange={(val) => handleShippingTaxRateChange(order.id, parseInt(val))}
+                      />
+                      <TextField
+                        label="세금 면제 안내 문구 (0% 적용시 출력)"
+                        value={taxExemptionNote}
+                        onChange={setTaxExemptionNote}
+                        autoComplete="off"
+                        placeholder="예: Innergemeinschaftliche Lieferung"
+                      />
+                      <Divider />
+                      <Text variant="bodyMd" fontWeight="bold">상품별 MwSt. 세율 설정</Text>
+                      <BlockStack gap="200">
+                        {order.items.map((item) => (
+                          <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ flex: 2, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.title}>
+                              {item.title}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <Select
+                                label=""
+                                labelHidden
+                                options={[
+                                  { label: '0%', value: '0' },
+                                  { label: '7%', value: '7' },
+                                  { label: '19%', value: '19' },
+                                ]}
+                                value={String(item.taxRate ?? 7)}
+                                onChange={(val) => handleTaxRateChange(order.id, item.id, parseInt(val))}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </BlockStack>
                     </BlockStack>
                   </Card>
 
