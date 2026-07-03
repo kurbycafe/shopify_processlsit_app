@@ -157,7 +157,7 @@ export const action = async ({ request }) => {
       // 2. Complete Draft Order to register sales and deduct stock
       const completeRes = await admin.graphql(`
         mutation completeDraft($id: ID!) {
-          draftOrderComplete(id: $id, paymentPending: false) {
+          draftOrderComplete(id: $id, paymentPending: false, bypassCartValidations: true) {
             draftOrder {
               order {
                 id
