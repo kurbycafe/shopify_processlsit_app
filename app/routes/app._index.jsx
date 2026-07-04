@@ -650,7 +650,7 @@ export default function Index() {
 
         {/* 주문 현황 요약 */}
         <Layout.Section>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "8px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", marginBottom: "8px" }}>
             <div className="dashboard-metric-card metric-success">
               <BlockStack gap="200">
                 <Text variant="headingMd" as="h2" tone="subdued">당장 출고 가능</Text>
@@ -676,42 +676,6 @@ export default function Index() {
                   </Text>
                   <Icon source={PrintIcon} tone="interactive" />
                 </InlineStack>
-              </BlockStack>
-            </div>
-            
-            <div className="dashboard-metric-card metric-warning">
-              <BlockStack gap="200">
-                <Text variant="headingMd" as="h2" tone="subdued">부분 배송</Text>
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text variant="heading2xl" as="p" tone="warning">
-                    {partiallyFulfilledCount}
-                  </Text>
-                  <Icon source={ClockIcon} tone="warning" />
-                </InlineStack>
-              </BlockStack>
-            </div>
-            
-            <div className="dashboard-metric-card" style={{ borderLeft: "5px solid #3b82f6" }}>
-              <BlockStack gap="200">
-                <Text variant="headingMd" as="h2" tone="subdued">오늘의 진행률</Text>
-                <BlockStack gap="100">
-                  <InlineStack align="space-between" blockAlign="end">
-                    <Text variant="heading2xl" as="p" style={{ color: "#3b82f6" }}>
-                      {todayTotalCount > 0 ? Math.round((todayFulfilledCount / todayTotalCount) * 100) : 0}%
-                    </Text>
-                    <Text variant="bodyMd" color="subdued">
-                      {todayFulfilledCount} / {todayTotalCount} 건
-                    </Text>
-                  </InlineStack>
-                  <div style={{ width: "100%", height: "8px", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" }}>
-                    <div style={{ 
-                      width: `${todayTotalCount > 0 ? Math.round((todayFulfilledCount / todayTotalCount) * 100) : 0}%`, 
-                      height: "100%", 
-                      background: "#3b82f6",
-                      transition: "width 0.5s ease"
-                    }} />
-                  </div>
-                </BlockStack>
               </BlockStack>
             </div>
           </div>
