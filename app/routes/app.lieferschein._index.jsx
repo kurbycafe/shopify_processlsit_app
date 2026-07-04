@@ -463,6 +463,12 @@ export default function AdditionalPage() {
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || ""); // ✨ 검색 텍스트 필터 추가
   const [tempFilter, setTempFilter] = useState("ALL"); // ✨ 온도대 필터 추가
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+
+  // Reset selection when filters change
+  useEffect(() => {
+    setSelectedOrderIds([]);
+  }, [paymentFilter, regionFilter, complexityFilter, printFilter, searchQuery, tempFilter]);
 
   const handleSearchChange = (value) => {
     setSearchQuery(value);
@@ -542,6 +548,14 @@ export default function AdditionalPage() {
     return result;
   }, [orders, paymentFilter, regionFilter, complexityFilter, printFilter, sortOrder, searchQuery, tempFilter]);
 
+  const selectableOrders = useMemo(() => {
+    return filteredOrders.filter(o => !o.isPrinted);
+  }, [filteredOrders]);
+
+  const isAllSelected = useMemo(() => {
+    return selectableOrders.length > 0 && selectableOrders.every(o => selectedOrderIds.includes(o.id));
+  }, [selectableOrders, selectedOrderIds]);
+
   if (loaderData?.error) {
     return (
       <div className="error-container">
@@ -568,6 +582,52 @@ export default function AdditionalPage() {
         order.id === orderId ? { ...order, isPrinted: false } : order
       )
     );
+  };
+
+  const handleBulkPrint = () => {
+    if (selectedOrderIds.length === 0) return;
+
+    // Open printing detailed page in a new window/tab
+    const numericIds = selectedOrderIds.map(id => id.split("/").pop());
+    window.open(`/app/lieferschein/${numericIds.join(",")}`, "_blank");
+
+    // Prepare payload to mark as printed
+    const selectedPayload = filteredOrders
+      .filter(o => selectedOrderIds.includes(o.id))
+      .map(o => ({ id: o.id, name: o.name }));
+
+    // Send action to mark as printed
+    fetcher.submit(
+      {
+        intent: "mark_multiple_as_printed",
+        ordersPayload: JSON.stringify(selectedPayload),
+      },
+      { method: "POST" }
+    );
+
+    // Update local state immediately for visual feedback
+    setOrders(prevOrders =>
+      prevOrders.map(order => {
+        if (selectedOrderIds.includes(order.id)) {
+          return {
+            ...order,
+            isPrinted: true,
+            printedAt: new Date().toLocaleString("de-DE", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit"
+            })
+          };
+        }
+        return order;
+      })
+    );
+
+    // Clear selection
+    setSelectedOrderIds([]);
   };
 
   return (
@@ -682,11 +742,43 @@ export default function AdditionalPage() {
           <div style={{ fontSize: "15px", color: "#1e293b", fontWeight: "bold" }}>
             주문 목록 (필터 결과: <span style={{ color: "#008060" }}>{filteredOrders.length}</span>건 / 전체: {orders.length}건)
           </div>
+          {selectedOrderIds.length > 0 && (
+            <button
+              onClick={handleBulkPrint}
+              style={{
+                padding: "6px 12px",
+                fontSize: "13px",
+                borderRadius: "6px",
+                border: "none",
+                background: "#008060",
+                color: "#ffffff",
+                fontWeight: "bold",
+                cursor: "pointer",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+              }}
+            >
+              선택한 주문 인쇄 ({selectedOrderIds.length}건)
+            </button>
+          )}
         </div>
 
         <table className="list-table">
           <thead>
             <tr>
+              <th style={{ width: "40px", textAlign: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedOrderIds(selectableOrders.map(o => o.id));
+                    } else {
+                      setSelectedOrderIds([]);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                />
+              </th>
               <th>주문 번호</th>
               <th>결제 상태</th>
               <th>날짜</th>
@@ -698,7 +790,7 @@ export default function AdditionalPage() {
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="6" className="empty-orders-message">
+                <td colSpan="7" className="empty-orders-message">
                   조건에 맞는 주문이 없습니다.
                 </td>
               </tr>
@@ -709,6 +801,21 @@ export default function AdditionalPage() {
 
                 return (
                   <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
+                    <td style={{ textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedOrderIds.includes(order.id)}
+                        disabled={order.isPrinted}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedOrderIds(prev => [...prev, order.id]);
+                          } else {
+                            setSelectedOrderIds(prev => prev.filter(id => id !== order.id));
+                          }
+                        }}
+                        style={{ cursor: order.isPrinted ? "not-allowed" : "pointer" }}
+                      />
+                    </td>
                     <td className="order-name">
                       <Link
                         to={`/app/lieferschein/${order.id.split('/').pop()}`}

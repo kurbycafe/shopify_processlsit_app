@@ -103,8 +103,8 @@ export const action = async ({ request }) => {
     const shippingAddress = JSON.parse(formData.get("shippingAddress") || "null");
     const billingAddress = JSON.parse(formData.get("billingAddress") || "null");
     const lineItems = JSON.parse(formData.get("lineItems") || "[]");
-    const shippingTitle = formData.get("shippingTitle") || "Standard Shipping";
-    const shippingPrice = formData.get("shippingPrice") || "0.00";
+    const shippingTitle = formData.get("shippingTitle") || "";
+    const shippingPrice = formData.get("shippingPrice") || "";
 
     // Build the draft order input
     const draftOrderInput = {
@@ -113,12 +113,15 @@ export const action = async ({ request }) => {
         quantity: parseInt(item.quantity),
         originalUnitPrice: parseFloat(item.price).toFixed(2),
         taxable: item.taxable === "true" || item.taxable === true
-      })),
-      shippingLine: {
-        title: shippingTitle,
-        price: parseFloat(shippingPrice).toFixed(2)
-      }
+      }))
     };
+
+    if (shippingTitle && shippingTitle.trim()) {
+      draftOrderInput.shippingLine = {
+        title: shippingTitle.trim(),
+        price: parseFloat(shippingPrice || "0.00").toFixed(2)
+      };
+    }
 
     if (customerId) {
       draftOrderInput.customerId = customerId;
@@ -164,7 +167,7 @@ export const action = async ({ request }) => {
         body: JSON.stringify({
           query: `
             mutation completeDraft($id: ID!) {
-              draftOrderComplete(id: $id, paymentPending: false, bypassCartValidations: true) {
+              draftOrderComplete(id: $id, paymentPending: true, bypassCartValidations: true) {
                 draftOrder {
                   order {
                     id
@@ -216,8 +219,8 @@ export default function CreateWholesaleInvoicePage() {
   const [orderItems, setOrderItems] = useState([]);
 
   // Shipping states
-  const [shippingTitle, setShippingTitle] = useState("Standard Shipping");
-  const [shippingPrice, setShippingPrice] = useState("0.00");
+  const [shippingTitle, setShippingTitle] = useState("");
+  const [shippingPrice, setShippingPrice] = useState("");
 
   // Address states
   const [shippingAddress, setShippingAddress] = useState({
