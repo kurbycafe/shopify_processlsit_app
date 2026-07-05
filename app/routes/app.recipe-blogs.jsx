@@ -376,7 +376,7 @@ function buildArticleHtml(recipe) {
   let productsCardsHtml = "";
   recipe.products.forEach((p) => {
     const priceText = p.price && !isNaN(parseFloat(p.price))
-      ? `${parseFloat(p.price).toLocaleString()}원`
+      ? `${parseFloat(p.price).toLocaleString()} EURO`
       : `${p.price || ""}`;
     const imgHtml = p.imageUrl
       ? `<img src="${p.imageUrl}" alt="${p.title}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid #edf2f7; flex-shrink: 0;" />`
