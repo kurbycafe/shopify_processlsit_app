@@ -77,7 +77,8 @@ model ReturnRecord {
   returnedAt      DateTime     @default(now()) // 반송 받은 날짜
   isDamaged       Boolean      @default(false) // 파손 여부
   damageReason    String?      // 파손 사유
-  isProcessed     Boolean      @default(false) // 처리 완료 여부
+  isProcessed     Boolean      @default(false) // (레거시/하위 호환) 처리 완료 여부
+  processStatus   String       @default("RECEIVED") // 반품 처리 단계 (RECEIVED, PENDING, COMPLETED)
   processingType  String?      // 반품 처리 유형 (예: RESTOCK, DISCARD, REFUND, EXCHANGE, OTHER)
   processingNotes String?      // 반품 처리 메모
   processedAt     DateTime?    // 반품 처리 일시

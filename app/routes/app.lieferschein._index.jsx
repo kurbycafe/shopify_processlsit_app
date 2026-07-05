@@ -82,7 +82,7 @@ export const loader = async ({ request }) => {
     let hasNextPage = true;
     let endCursor = null;
     let pageCount = 0;
-    
+
     // 검색 중일 때는 매칭 주문을 최대 100건(2페이지) 조회하고, 기본 목록일 때는 최근 주문 50건(1페이지)만 신속하게 조회합니다.
     const maxPages = queryParam ? 2 : 1;
 
@@ -636,7 +636,7 @@ export default function AdditionalPage() {
 
   return (
     <div>
-      <div className="page-header">DAWAYO 패킹 시스템(개발중)</div>
+      <div className="page-header">DAWAYO 패킹 시스템</div>
 
       <div className="admin-panel">
         <p className="admin-help-text">
@@ -853,7 +853,7 @@ export default function AdditionalPage() {
                         )}
                         {order.isB2B && <span style={{ fontSize: "11px", background: "#dbeafe", color: "#1e40af", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>B2B</span>}
                         {order.hasCombinedShipping && (
-                          <span 
+                          <span
                             title={`합포장 주문 목록: ${order.combinedOrderNames.join(", ")}`}
                             style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold", cursor: "help" }}
                           >

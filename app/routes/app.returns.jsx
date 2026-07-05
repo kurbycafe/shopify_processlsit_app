@@ -137,25 +137,59 @@ export const action = async ({ request }) => {
 
     if (!order) return { error: "주문을 찾을 수 없습니다." };
 
-    const items = order.lineItems.edges.map(edge => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      variantTitle: edge.node.variantTitle || "",
-      sku: edge.node.sku || "",
-      barcode: edge.node.variant?.barcode || "",
-      imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
-      orderedQuantity: edge.node.quantity,
-      returnedQuantity: edge.node.quantity, // 기본 반품 등록 수량을 최대 주문 수량으로 설정
-    }));
+    // ✨ 추가된 로직: 검수 내역(InspectionRecord) 조회
+    const inspection = await prisma.inspectionRecord.findFirst({
+      where: { shop, orderName: order.name },
+      include: { items: true },
+      orderBy: { createdAt: "desc" }
+    });
 
-    return { order: { id: order.id, name: order.name, items } };
+    const hasInspection = !!inspection && inspection.items.length > 0;
+
+    const items = order.lineItems.edges.map(edge => {
+      const node = edge.node;
+      const sku = node.sku || "";
+      const barcode = node.variant?.barcode || "";
+
+      let maxQty = node.quantity; // 기본은 Shopify 주문 수량
+      
+      if (hasInspection) {
+        // 검수 내역에서 해당 상품 찾기
+        const inspectedItem = inspection.items.find(i => 
+           (sku && i.sku === sku) || (barcode && i.barcode === barcode) || (i.productTitle === node.title)
+        );
+        if (inspectedItem) {
+          maxQty = inspectedItem.inspectedQuantity;
+        } else {
+          maxQty = 0; // 검수 내역에 아예 없다면 안 보낸 것 (0개)
+        }
+      }
+
+      return {
+        id: node.id,
+        title: node.title,
+        variantTitle: node.variantTitle || "",
+        sku: sku,
+        barcode: barcode,
+        imageUrl: node.variant?.image?.url || node.variant?.product?.featuredImage?.url || "",
+        orderedQuantity: maxQty, // 검수 수량으로 덮어씌움
+        returnedQuantity: maxQty, // 기본 반품 등록 수량을 최대 검수 수량으로 설정
+        hasInspection: hasInspection
+      };
+    });
+
+    return { order: { id: order.id, name: order.name, hasInspection, items } };
   }
 
   if (intent === "save_return") {
     const orderName = formData.get("orderName");
     const isDamaged = formData.get("isDamaged") === "true";
     const damageReason = formData.get("damageReason") || "";
-    const isProcessed = formData.get("isProcessed") === "true";
+    
+    // 신규 추가된 처리 상태 필드
+    const processStatus = formData.get("processStatus") || "RECEIVED";
+    const isProcessed = processStatus === "COMPLETED"; // 기존 레거시 필드 호환용
+    
     const processingType = formData.get("processingType") || null;
     const processingNotes = formData.get("processingNotes") || null;
     const inspectorName = formData.get("inspectorName") || "";
@@ -178,8 +212,9 @@ export const action = async ({ request }) => {
         isDamaged,
         damageReason,
         isProcessed,
-        processingType: isProcessed ? processingType : null,
-        processingNotes: isProcessed ? processingNotes : null,
+        processStatus,
+        processingType: (processStatus === "COMPLETED" || processStatus === "PENDING") ? processingType : null,
+        processingNotes: (processStatus === "COMPLETED" || processStatus === "PENDING") ? processingNotes : null,
         processedAt,
         inspectorName,
         shop,
@@ -214,8 +249,14 @@ const processingTypeOptions = [
 ];
 
 const getProcessingBadge = (record) => {
-  if (!record.isProcessed) {
-    return <Badge tone="attention">대기중</Badge>;
+  const status = record.processStatus || "RECEIVED";
+  
+  if (status === "RECEIVED") {
+    return <Badge tone="new">반품 입고</Badge>;
+  }
+  
+  if (status === "PENDING") {
+    return <Badge tone="attention">처리 대기중</Badge>;
   }
 
   const type = record.processingType;
@@ -259,7 +300,7 @@ export default function ReturnsPage() {
   const [returnedAt, setReturnedAt] = useState(dayjs().format("YYYY-MM-DD"));
   const [isDamaged, setIsDamaged] = useState(false);
   const [damageReason, setDamageReason] = useState("");
-  const [isProcessed, setIsProcessed] = useState(false);
+  const [processStatus, setProcessStatus] = useState("RECEIVED");
   const [processingType, setProcessingType] = useState("RESTOCK");
   const [processingNotes, setProcessingNotes] = useState("");
   const [message, setMessage] = useState(null);
@@ -332,7 +373,7 @@ export default function ReturnsPage() {
       setOrderName("");
       setIsDamaged(false);
       setDamageReason("");
-      setIsProcessed(false);
+      setProcessStatus("RECEIVED");
       setProcessingType("RESTOCK");
       setProcessingNotes("");
       setCarrier("NONE");
@@ -403,9 +444,9 @@ export default function ReturnsPage() {
         orderName: currentOrder.name,
         isDamaged: String(isDamaged),
         damageReason: isDamaged ? damageReason : "",
-        isProcessed: String(isProcessed),
-        processingType: isProcessed ? processingType : "",
-        processingNotes: isProcessed ? processingNotes : "",
+        processStatus: processStatus,
+        processingType: (processStatus === "PENDING" || processStatus === "COMPLETED") ? processingType : "",
+        processingNotes: (processStatus === "PENDING" || processStatus === "COMPLETED") ? processingNotes : "",
         inspectorName: inspector || "",
         returnedAt: returnedAt,
         items: JSON.stringify(returnedItems),
@@ -423,6 +464,7 @@ export default function ReturnsPage() {
     <BlockStack key={`info-${item.id}`} gap="100">
       <Text variant="bodyMd" fontWeight="bold">{item.title}</Text>
       <Text variant="bodySm" color="subdued">{item.variantTitle} | SKU: {item.sku || "N/A"}</Text>
+      {!item.hasInspection && <Badge tone="critical">검수 내역 없음</Badge>}
     </BlockStack>,
     item.barcode || "N/A",
     `${item.orderedQuantity}개`,
@@ -573,10 +615,15 @@ export default function ReturnsPage() {
                     checked={isDamaged}
                     onChange={setIsDamaged}
                   />
-                  <Checkbox
-                    label="반품 처리 완료 (Processed)"
-                    checked={isProcessed}
-                    onChange={setIsProcessed}
+                  <Select
+                    label="반품 처리 단계"
+                    options={[
+                      { label: "반품 입고 (RECEIVED)", value: "RECEIVED" },
+                      { label: "처리 대기중 (PENDING)", value: "PENDING" },
+                      { label: "처리 완료 (COMPLETED)", value: "COMPLETED" },
+                    ]}
+                    value={processStatus}
+                    onChange={setProcessStatus}
                   />
                 </InlineStack>
 
@@ -590,7 +637,7 @@ export default function ReturnsPage() {
                   />
                 )}
 
-                {isProcessed && (
+                {(processStatus === "PENDING" || processStatus === "COMPLETED") && (
                   <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", marginTop: "10px" }}>
                     <div style={{ flex: 1, minWidth: "200px" }}>
                       <Select
