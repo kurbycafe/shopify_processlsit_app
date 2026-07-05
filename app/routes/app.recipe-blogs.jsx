@@ -267,8 +267,8 @@ export async function action({ request }) {
         // Update existing shopify article
         const response = await admin.graphql(
           `#graphql
-          mutation articleUpdate($article: ArticleUpdateInput!) {
-            articleUpdate(article: $article) {
+          mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+            articleUpdate(id: $id, article: $article) {
               article {
                 id
                 title
@@ -281,10 +281,10 @@ export async function action({ request }) {
           }`,
           {
             variables: {
+              id: shopifyArticleId,
               article: {
-                id: shopifyArticleId,
                 title: recipe.title,
-                bodyHtml: bodyHtml,
+                body: bodyHtml,
                 ...(recipe.imageUrl ? { image: { src: recipe.imageUrl } } : {}),
               },
             },
@@ -323,8 +323,9 @@ export async function action({ request }) {
               article: {
                 blogId: shopifyBlogId,
                 title: recipe.title,
-                bodyHtml: bodyHtml,
-                published: true,
+                body: bodyHtml,
+                isPublished: true,
+                author: { name: "DAWAYO" },
                 ...(recipe.imageUrl ? { image: { src: recipe.imageUrl } } : {}),
               },
             },
