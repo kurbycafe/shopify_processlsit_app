@@ -106,6 +106,8 @@ export const action = async ({ request }) => {
     const shippingTitle = formData.get("shippingTitle") || "";
     const shippingPrice = formData.get("shippingPrice") || "";
 
+    const taxExempt = formData.get("taxExempt") === "true";
+
     // Build the draft order input
     const draftOrderInput = {
       lineItems: lineItems.map(item => ({
@@ -113,7 +115,8 @@ export const action = async ({ request }) => {
         quantity: parseInt(item.quantity),
         originalUnitPrice: parseFloat(item.price).toFixed(2),
         taxable: item.taxable === "true" || item.taxable === true
-      }))
+      })),
+      taxExempt: taxExempt
     };
 
     if (shippingTitle && shippingTitle.trim()) {
@@ -221,6 +224,9 @@ export default function CreateWholesaleInvoicePage() {
   // Shipping states
   const [shippingTitle, setShippingTitle] = useState("");
   const [shippingPrice, setShippingPrice] = useState("");
+
+  // Tax state
+  const [taxExempt, setTaxExempt] = useState(true);
 
   // Address states
   const [shippingAddress, setShippingAddress] = useState({
@@ -367,6 +373,7 @@ export default function CreateWholesaleInvoicePage() {
         lineItems: JSON.stringify(orderItems),
         shippingTitle,
         shippingPrice,
+        taxExempt: String(taxExempt),
       },
       { method: "POST" }
     );
@@ -530,6 +537,23 @@ export default function CreateWholesaleInvoicePage() {
                 <Text variant="headingMd" as="h3">3. 배송 방법 설정</Text>
                 <TextField label="배송 방법 명칭" value={shippingTitle} onChange={setShippingTitle} autoComplete="off" />
                 <TextField label="배송 비용 (EUR)" type="number" value={shippingPrice} onChange={setShippingPrice} autoComplete="off" prefix="€" />
+              </BlockStack>
+            </Card>
+
+            {/* 4. Tax Settings */}
+            <Card>
+              <BlockStack gap="300">
+                <Text variant="headingMd" as="h3">4. 세금 (MwSt) 일괄 설정</Text>
+                <Select
+                  label="주문 전체 세금 적용 여부"
+                  options={[
+                    { label: "비과세 (세금 0% 일괄 면제)", value: "true" },
+                    { label: "과세 (일반 부가세 적용)", value: "false" }
+                  ]}
+                  value={String(taxExempt)}
+                  onChange={(val) => setTaxExempt(val === "true")}
+                  helpText="비과세 선택 시 다음 단계(쇼피파이) 및 결제창에서 모든 부가세가 0%로 강제 면제됩니다. 도매 거래의 경우 기본적으로 비과세가 추천됩니다."
+                />
               </BlockStack>
             </Card>
           </BlockStack>

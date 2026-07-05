@@ -152,16 +152,28 @@ export const action = async ({ request }) => {
       const barcode = node.variant?.barcode || "";
 
       let maxQty = node.quantity; // 기본은 Shopify 주문 수량
+      let itemHasInspection = false;
       
       if (hasInspection) {
         // 검수 내역에서 해당 상품 찾기
+        const variantId = node.variant?.id || "";
+        const cleanNodeTitle = node.title.replace(" - Default Title", "").trim();
+
         const inspectedItem = inspection.items.find(i => 
-           (sku && i.sku === sku) || (barcode && i.barcode === barcode) || (i.productTitle === node.title)
+           (variantId && i.variantId === variantId) ||
+           (sku && i.sku === sku) || 
+           (barcode && i.barcode === barcode) || 
+           (i.productTitle === node.title) ||
+           (i.productTitle && i.productTitle.includes(cleanNodeTitle))
         );
+
         if (inspectedItem) {
           maxQty = inspectedItem.inspectedQuantity;
+          itemHasInspection = true;
         } else {
-          maxQty = 0; // 검수 내역에 아예 없다면 안 보낸 것 (0개)
+          // 검수 문서가 존재하더라도, 이 품목이 매칭되지 않으면 기존 수량을 유지하고 "검수 내역 없음"을 표시합니다.
+          maxQty = node.quantity; 
+          itemHasInspection = false;
         }
       }
 
@@ -172,9 +184,9 @@ export const action = async ({ request }) => {
         sku: sku,
         barcode: barcode,
         imageUrl: node.variant?.image?.url || node.variant?.product?.featuredImage?.url || "",
-        orderedQuantity: maxQty, // 검수 수량으로 덮어씌움
-        returnedQuantity: maxQty, // 기본 반품 등록 수량을 최대 검수 수량으로 설정
-        hasInspection: hasInspection
+        orderedQuantity: maxQty, // 검수 수량으로 덮어씌우거나 기본 수량 유지
+        returnedQuantity: maxQty, // 기본 반품 등록 수량 설정
+        hasInspection: hasInspection ? itemHasInspection : false
       };
     });
 
