@@ -149,12 +149,12 @@ export async function action({ request }) {
   // Action: DELETE Recipe
   if (intent === "delete") {
     const id = formData.get("id");
-    
+
     // Find recipe to delete from shopify blog as well
     const recipe = await prisma.recipe.findUnique({
       where: { id },
     });
-    
+
     if (recipe && recipe.shopifyArticleId && recipe.shopifyBlogId) {
       try {
         await admin.graphql(
@@ -204,7 +204,7 @@ export async function action({ request }) {
       await prisma.recipeProduct.deleteMany({
         where: { recipeId: id },
       });
-      
+
       recipe = await prisma.recipe.update({
         where: { id },
         data: {
@@ -302,7 +302,7 @@ export async function action({ request }) {
         // Create new article in Shopify Blog
         const response = await admin.graphql(
           `#graphql
-          mutation articleCreate($article: ArticleInput!) {
+          mutation articleCreate($article: ArticleCreateInput!) {
             articleCreate(article: $article) {
               article {
                 id
@@ -516,7 +516,7 @@ export default function RecipeBlogs() {
 
   // Selected recipe state for edit or detail views
   const [selectedRecipe, setSelectedRecipe] = useState(null);
-  
+
   // Form input states
   const [title, setTitle] = useState("");
   const [introduction, setIntroduction] = useState("");
@@ -552,7 +552,7 @@ export default function RecipeBlogs() {
     setSteps(recipe.steps);
     setImageUrl(recipe.imageUrl || "");
     setShopifyBlogId(recipe.shopifyBlogId || (blogs[0]?.id || ""));
-    
+
     // Format local products to editor state
     setSelectedProducts(recipe.products.map(p => ({
       productId: p.productId,
@@ -650,7 +650,7 @@ export default function RecipeBlogs() {
     formData.append("productsJson", JSON.stringify(selectedProducts));
 
     submit(formData, { method: "post" });
-    
+
     setToastMessage({
       type: "info",
       title: intent === "publish" ? "쇼피파이 전송 중" : "저장 중",
@@ -672,18 +672,18 @@ export default function RecipeBlogs() {
   return (
     <Page title="🍳 한국 음식 레시피 블로거 & 간편 장바구니 빌더">
       <BlockStack gap="400">
-        
+
         {/* Intro banner */}
         <Banner tone="info">
           <Text as="p" variant="bodyMd">
-            한국 음식(K-Food)을 소개하는 블로그 글을 손쉽게 작성하고, 요리에 필요한 우리 매장의 재료 제품들을 선택하여 묶음으로 매칭해 보세요. 
+            한국 음식(K-Food)을 소개하는 블로그 글을 손쉽게 작성하고, 요리에 필요한 우리 매장의 재료 제품들을 선택하여 묶음으로 매칭해 보세요.
             쇼피파이에 글을 올리면 고객이 클릭 한 번으로 모든 재료를 장바구니에 담을 수 있는 <strong>"장바구니 묶음 위젯"</strong>이 블로그 본문 내에 자동으로 빌드됩니다!
           </Text>
         </Banner>
 
         {toastMessage && (
-          <Banner 
-            title={toastMessage.title} 
+          <Banner
+            title={toastMessage.title}
             tone={toastMessage.type === "success" ? "success" : "info"}
             onDismiss={() => setToastMessage(null)}
           >
@@ -692,7 +692,7 @@ export default function RecipeBlogs() {
         )}
 
         <Layout>
-          
+
           {/* Left panel: Recipe database list */}
           <Layout.Section variant="oneThird">
             <Card>
@@ -701,9 +701,9 @@ export default function RecipeBlogs() {
                   <Text as="h2" variant="headingMd">📋 나의 레시피 목록</Text>
                   <Button size="slim" variant="primary" onClick={handleNewRecipe}>✨ 새 레시피</Button>
                 </InlineStack>
-                
+
                 <Divider />
-                
+
                 {recipes.length === 0 ? (
                   <Box padding="400" textAlign="center">
                     <Text as="p" tone="subdued">작성된 레시피가 없습니다.<br />새 글을 추가하거나 프리셋을 적용해 보세요!</Text>
@@ -711,9 +711,9 @@ export default function RecipeBlogs() {
                 ) : (
                   <BlockStack gap="200">
                     {recipes.map((recipe) => (
-                      <Box 
-                        key={recipe.id} 
-                        padding="300" 
+                      <Box
+                        key={recipe.id}
+                        padding="300"
                         background={selectedRecipe?.id === recipe.id ? "bg-surface-secondary-active" : "bg-surface-secondary"}
                         borderRadius="200"
                         style={{ cursor: "pointer", border: selectedRecipe?.id === recipe.id ? "1px solid #008060" : "1px solid #e1e3e5" }}
@@ -728,16 +728,16 @@ export default function RecipeBlogs() {
                               <Badge tone="warning">임시 저장</Badge>
                             )}
                           </InlineStack>
-                          
+
                           <Text as="p" variant="bodyXs" tone="subdued">
                             재료 {recipe.products?.length || 0}개 매칭됨
                           </Text>
-                          
+
                           <InlineStack align="end" gap="200">
                             {recipe.published && recipe.shopifyArticleId && (
-                              <Button 
-                                size="micro" 
-                                variant="tertiary" 
+                              <Button
+                                size="micro"
+                                variant="tertiary"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   // Open published blog article in new tab
@@ -747,9 +747,9 @@ export default function RecipeBlogs() {
                                 🔗 상점 보기
                               </Button>
                             )}
-                            <Button 
-                              size="micro" 
-                              tone="critical" 
+                            <Button
+                              size="micro"
+                              tone="critical"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteRecipe(recipe.id);
@@ -900,7 +900,7 @@ export default function RecipeBlogs() {
                               <Box key={product.id} padding="200" style={{ borderBottom: "1px solid #e1e3e5" }}>
                                 <BlockStack gap="100">
                                   <Text as="h5" variant="bodyMd" fontWeight="bold">{product.title}</Text>
-                                  
+
                                   {/* List variants */}
                                   <BlockStack gap="100">
                                     {product.variants.nodes.map((v) => (
@@ -908,8 +908,8 @@ export default function RecipeBlogs() {
                                         <Text as="span" variant="bodySm" tone="subdued">
                                           - {v.title !== "Default Title" ? v.title : "기본 옵션"} ({parseFloat(v.price).toLocaleString()}원)
                                         </Text>
-                                        <Button 
-                                          size="slim" 
+                                        <Button
+                                          size="slim"
                                           onClick={() => handleAddProduct(product, v)}
                                           disabled={selectedProducts.some(sp => sp.variantId === v.id)}
                                         >
@@ -933,7 +933,7 @@ export default function RecipeBlogs() {
                 {/* Shopify Blog Target and Publishing buttons */}
                 <BlockStack gap="300">
                   <Text as="h3" variant="headingMd">🚀 쇼피파이 상점 출시 설정</Text>
-                  
+
                   {blogs.length === 0 ? (
                     <Banner tone="critical">
                       상점에 블로그 채널(예: 뉴스)이 정의되지 않았습니다. 쇼피파이 어드민에서 먼저 블로그 채널을 생성해 주세요.
@@ -953,15 +953,15 @@ export default function RecipeBlogs() {
                     </InlineStack>
 
                     <InlineStack gap="200">
-                      <Button 
-                        onClick={() => handleSubmitForm("save")} 
+                      <Button
+                        onClick={() => handleSubmitForm("save")}
                         loading={isSaving}
                       >
                         💾 초안 임시저장 (App DB)
                       </Button>
-                      <Button 
-                        variant="primary" 
-                        onClick={() => handleSubmitForm("publish")} 
+                      <Button
+                        variant="primary"
+                        onClick={() => handleSubmitForm("publish")}
                         loading={isPublishing}
                         disabled={blogs.length === 0}
                       >
