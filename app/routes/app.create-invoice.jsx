@@ -114,7 +114,7 @@ export const action = async ({ request }) => {
         variantId: item.variantId,
         quantity: parseInt(item.quantity),
         originalUnitPrice: parseFloat(item.price).toFixed(2),
-        taxable: item.taxable === "true" || item.taxable === true
+        taxable: taxExempt ? false : (item.taxable === "true" || item.taxable === true)
       })),
       taxExempt: taxExempt
     };
