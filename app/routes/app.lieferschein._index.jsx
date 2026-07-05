@@ -71,9 +71,10 @@ export const loader = async ({ request }) => {
     const url = new URL(request.url);
     const queryParam = url.searchParams.get("query") || "";
 
-    let shopifyQuery = "fulfillment_status:unfulfilled";
+    let shopifyQuery = "fulfillment_status:unfulfilled status:open";
     if (queryParam) {
-      shopifyQuery = queryParam.trim();
+      // 검색어가 있을 때는 완료/보관된 과거 주문도 모두 나오도록 status:any 추가
+      shopifyQuery = `${queryParam.trim()} status:any`;
     }
 
     // ✨ 무한 페이지네이션을 위한 변수 설정
@@ -197,9 +198,12 @@ export const loader = async ({ request }) => {
 
     const validEdges = allEdges.filter((edge) => {
       const node = edge.node;
-      if (node.cancelledAt) return false;
-      const fStatus = node.displayFinancialStatus;
-      if (fStatus === "REFUNDED" || fStatus === "VOIDED") return false;
+      // 검색어가 있을 때는 취소/환불건도 포함하여 보여줌 (과거 주문 조회용)
+      if (!queryParam) {
+        if (node.cancelledAt) return false;
+        const fStatus = node.displayFinancialStatus;
+        if (fStatus === "REFUNDED" || fStatus === "VOIDED") return false;
+      }
       return true;
     });
 
