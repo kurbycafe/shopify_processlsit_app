@@ -105,3 +105,32 @@ model ReturnItem {
   barcode        String?
   quantity       Int          @default(1)
 }
+
+model Recipe {
+  id               String          @id @default(cuid())
+  shop             String
+  title            String
+  introduction     String          @db.Text
+  steps            String          @db.Text
+  imageUrl         String?
+  shopifyArticleId String?
+  shopifyBlogId    String?
+  published        Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  products         RecipeProduct[]
+
+  @@index([shop])
+}
+
+model RecipeProduct {
+  id           String  @id @default(cuid())
+  recipeId     String
+  recipe       Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  productId    String  // Shopify Product GID (e.g. gid://shopify/Product/12345)
+  variantId    String  // Shopify ProductVariant GID (e.g. gid://shopify/ProductVariant/67890)
+  title        String  // Product title
+  variantTitle String? // Variant title (e.g. "Default Title" or "500g")
+  price        String? // Product price
+  imageUrl     String? // Product image URL
+}

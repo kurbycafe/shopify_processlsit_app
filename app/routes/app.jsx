@@ -25,6 +25,7 @@ export default function App() {
         <s-link href="/app/inspection-history">검수 내역</s-link>
         <s-link href="/app/returns">반품 검수</s-link>
         <s-link href="/app/container-catalog">컨테이너 카탈로그</s-link>
+        <s-link href="/app/recipe-blogs">레시피 블로그</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>
