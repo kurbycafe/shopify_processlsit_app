@@ -376,7 +376,7 @@ function buildArticleHtml(recipe) {
   let productsCardsHtml = "";
   recipe.products.forEach((p) => {
     const priceText = p.price && !isNaN(parseFloat(p.price))
-      ? `${parseFloat(p.price).toLocaleString()} EURO`
+      ? `€${parseFloat(p.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : `${p.price || ""}`;
     const imgHtml = p.imageUrl
       ? `<img src="${p.imageUrl}" alt="${p.title}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid #edf2f7; flex-shrink: 0;" />`
@@ -861,7 +861,7 @@ export default function RecipeBlogs() {
                                 <Text as="span" variant="bodyMd" fontWeight="semibold">{p.title}</Text>
                                 {p.variantTitle && <Text as="p" variant="bodyXs" tone="subdued">옵션: {p.variantTitle}</Text>}
                                 <Text as="p" variant="bodySm" tone="critical" fontWeight="bold">
-                                  {p.price ? `${parseFloat(p.price).toLocaleString()}원` : "가격 미정"}
+                                  {p.price ? `€${parseFloat(p.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "가격 미정"}
                                 </Text>
                               </div>
                             </InlineStack>
@@ -907,7 +907,7 @@ export default function RecipeBlogs() {
                                     {product.variants.nodes.map((v) => (
                                       <InlineStack key={v.id} align="space-between" blockAlign="center">
                                         <Text as="span" variant="bodySm" tone="subdued">
-                                          - {v.title !== "Default Title" ? v.title : "기본 옵션"} ({parseFloat(v.price).toLocaleString()}원)
+                                          - {v.title !== "Default Title" ? v.title : "기본 옵션"} (€{parseFloat(v.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                                         </Text>
                                         <Button
                                           size="slim"
