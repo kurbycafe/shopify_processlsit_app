@@ -671,16 +671,10 @@ export default function RecipeBlogs() {
   };
 
   return (
-    <Page title="🍳 한국 음식 레시피 블로거 & 간편 장바구니 빌더">
+    <Page title="🍳 한국 음식 레시피 블로그 빌더">
       <BlockStack gap="400">
 
-        {/* Intro banner */}
-        <Banner tone="info">
-          <Text as="p" variant="bodyMd">
-            한국 음식(K-Food)을 소개하는 블로그 글을 손쉽게 작성하고, 요리에 필요한 우리 매장의 재료 제품들을 선택하여 묶음으로 매칭해 보세요.
-            쇼피파이에 글을 올리면 고객이 클릭 한 번으로 모든 재료를 장바구니에 담을 수 있는 <strong>"장바구니 묶음 위젯"</strong>이 블로그 본문 내에 자동으로 빌드됩니다!
-          </Text>
-        </Banner>
+
 
         {toastMessage && (
           <Banner
