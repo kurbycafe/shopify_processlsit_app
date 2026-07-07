@@ -150,7 +150,7 @@ async function loadPickListData(admin, tempFilter = "ALL") {
   const filteredOrders = [];
 
   while (hasNextPage) {
-    const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 50, after } });
+    const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 100, after } });
     const payload = await response.json();
     const orders = payload?.data?.orders?.nodes ?? [];
 
@@ -217,6 +217,7 @@ async function loadPickListData(admin, tempFilter = "ALL") {
 
   return {
     items,
+    ordersList: finalOrders.map(o => ({ id: o.id, name: o.name })),
     totalOrdersCount: finalOrders.length,
     totalUnfulfilledProducts: items.length,
     totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
@@ -333,46 +334,30 @@ export const action = async ({ request }) => {
   const techTime = formData.get("techTime"); 
 
   if (intent === "send-email") {
-    const orderNames = JSON.parse(formData.get("orderNames") || "[]");
-    const urlObj = new URL(request.url);
-    const tempFilter = urlObj.searchParams.get("tempFilter") || "ALL";
-    const data = await loadPickListData(admin, tempFilter);
+    const items = JSON.parse(formData.get("items") || "[]");
+    const ordersPayload = JSON.parse(formData.get("ordersPayload") || "[]");
 
     // 1. DB 업데이트 (피킹 리스트 출력 여부 기록 - 병렬 처리로 성능 최적화)
-    const updatePromises = orderNames.map(async (orderName) => {
+    const updatePromises = ordersPayload.map(async (order) => {
       try {
-        const orderQueryResponse = await admin.graphql(
-          `#graphql
-          query findOrderId($query: String!) {
-            orders(first: 1, query: $query) {
-              edges { node { id name } }
-            }
-          }`,
-          { variables: { query: `name:${orderName}` } }
-        );
-        const orderQueryJson = await orderQueryResponse.json();
-        const orderNode = orderQueryJson.data?.orders?.edges[0]?.node;
-
-        if (orderNode) {
-          await prisma.inspectionRecord.upsert({
-            where: { orderId: orderNode.id },
-            update: { isPickListPrinted: true },
-            create: {
-              orderId: orderNode.id,
-              orderName: orderNode.name,
-              shop: session.shop,
-              status: "PENDING",
-              isPickListPrinted: true,
-            },
-          });
-        }
+        await prisma.inspectionRecord.upsert({
+          where: { orderId: order.id },
+          update: { isPickListPrinted: true },
+          create: {
+            orderId: order.id,
+            orderName: order.name,
+            shop: session.shop,
+            status: "PENDING",
+            isPickListPrinted: true,
+          },
+        });
       } catch (err) {
-        console.error(`DB update failed for order ${orderName}:`, err);
+        console.error(`DB update failed for order ${order.name}:`, err);
       }
     });
     await Promise.all(updatePromises);
 
-    const pdfBuffer = await generatePdfBuffer(data.items, techTime);
+    const pdfBuffer = await generatePdfBuffer(items, techTime);
     const mailTitle = `${clientTime} 기준 처리중`;
 
     try {
@@ -431,7 +416,7 @@ export const action = async ({ request }) => {
 // 5. UI 대시보드 마크업 및 너비 완벽 대응 인쇄 스타일 스크립트
 // ========================================================
 export default function PickListPage() {
-  const { items, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty, tempFilter } = useLoaderData();
+  const { items, ordersList, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty, tempFilter } = useLoaderData();
   const actionData = useActionData(); 
   const submit = useSubmit();
 
@@ -448,16 +433,13 @@ export default function PickListPage() {
     const formattedTime = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}시 ${now.getMinutes()}분`;
     const techTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    // DB에 출력 상태 저장 요청 (모든 주문번호에 대해)
-    const allOrderNames = new Set();
-    items.forEach(item => item.orderNumbers.forEach(num => allOrderNames.add(num)));
-    
     submit(
       { 
         intent: "send-email", 
         clientTime: formattedTime, 
         techTime: techTime,
-        orderNames: JSON.stringify(Array.from(allOrderNames))
+        items: JSON.stringify(items),
+        ordersPayload: JSON.stringify(ordersList || [])
       },
       { method: "post" }
     );

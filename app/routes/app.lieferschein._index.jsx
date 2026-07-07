@@ -14,6 +14,33 @@ const jsonResponse = (data) =>
     headers: { "Content-Type": "application/json" },
   });
 
+function checkIsB2B(shippingAddress) {
+  if (!shippingAddress) return false;
+  
+  const company = (shippingAddress.company || "").trim();
+  const name = (shippingAddress.name || "").trim();
+  
+  if (company) return true; // 회사명 필드가 입력된 경우 B2B로 판별
+  
+  const nameUpper = name.toUpperCase();
+  const b2bPatterns = [
+    /\bGMBH\b/,
+    /\bUG\b/,
+    /\bAG\b/,
+    /\bGBR\b/,
+    /\bOHG\b/,
+    /\bKG\b/,
+    /\bE\.K\b/,
+    /\bLTD\b/,
+    /\bINC\b/,
+    /\bB\.V\.(?!\w)/,
+    /\bS\.A\.(?!\w)/,
+    /\bS\.A\.R\.L\.(?!\w)/
+  ];
+  
+  return b2bPatterns.some(pattern => pattern.test(nameUpper));
+}
+
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const formData = await request.formData();
@@ -280,13 +307,7 @@ export const loader = async ({ request }) => {
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
-      const companyUpper = (node.shippingAddress?.company || "").toUpperCase();
-      const nameUpper = (node.shippingAddress?.name || "").toUpperCase();
-      const isB2B = !!(
-        node.shippingAddress?.company ||
-        companyUpper.includes("GMBH") ||
-        nameUpper.includes("GMBH")
-      );
+      const isB2B = checkIsB2B(node.shippingAddress);
 
       return {
         id: node.id,
