@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import styles from "../styles/app.lieferschein.css?url";
-import { Select, BlockStack, InlineStack, Card, Text, Box, TextField } from "@shopify/polaris";
+import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination } from "@shopify/polaris";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
@@ -104,92 +104,101 @@ export const loader = async ({ request }) => {
       shopifyQuery = `${queryParam.trim()} status:any`;
     }
 
-    // ✨ 무한 페이지네이션을 위한 변수 설정
-    let allEdges = [];
-    let hasNextPage = true;
-    let endCursor = null;
-    let pageCount = 0;
+    const after = url.searchParams.get("after") || null;
+    const before = url.searchParams.get("before") || null;
+    const limit = 100;
 
-    // 검색 중일 때는 매칭 주문을 최대 100건(2페이지) 조회하고, 기본 목록일 때는 최근 주문 50건(1페이지)만 신속하게 조회합니다.
-    const maxPages = queryParam ? 2 : 1;
+    const variables = {
+      query: shopifyQuery || null,
+    };
 
-    while (hasNextPage && pageCount < maxPages) {
-      const response = await admin.graphql(`
-        #graphql
-        query getDawayoDetailedOrders($first: Int!, $after: String, $query: String) {
-          orders(
-            first: $first,
-            after: $after,
-            query: $query,
-            sortKey: CREATED_AT,
-            reverse: true
-          ) {
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            edges {
-              node {
-                id
-                name
-                createdAt
-                email
-                note
-                displayFinancialStatus
-                cancelledAt
-                displayFulfillmentStatus
-                customer {
-                  numberOfOrders
-                }
-                totalPriceSet { shopMoney { amount currencyCode } }
-                subtotalPriceSet { shopMoney { amount currencyCode } }
-                totalTaxSet { shopMoney { amount currencyCode } }
-                totalShippingPriceSet { shopMoney { amount currencyCode } }
-                totalDiscountsSet { shopMoney { amount currencyCode } }
-                shippingLines(first: 1) {
-                  edges {
-                    node {
-                      title
-                    }
+    if (before) {
+      variables.last = limit;
+      variables.before = before;
+    } else {
+      variables.first = limit;
+      variables.after = after;
+    }
+
+    const response = await admin.graphql(`
+      #graphql
+      query getDawayoDetailedOrders($first: Int, $last: Int, $after: String, $before: String, $query: String) {
+        orders(
+          first: $first,
+          last: $last,
+          after: $after,
+          before: $before,
+          query: $query,
+          sortKey: CREATED_AT,
+          reverse: true
+        ) {
+          pageInfo {
+            hasNextPage
+            hasPreviousPage
+            endCursor
+            startCursor
+          }
+          edges {
+            node {
+              id
+              name
+              createdAt
+              email
+              note
+              displayFinancialStatus
+              cancelledAt
+              displayFulfillmentStatus
+              customer {
+                numberOfOrders
+              }
+              totalPriceSet { shopMoney { amount currencyCode } }
+              subtotalPriceSet { shopMoney { amount currencyCode } }
+              totalTaxSet { shopMoney { amount currencyCode } }
+              totalShippingPriceSet { shopMoney { amount currencyCode } }
+              totalDiscountsSet { shopMoney { amount currencyCode } }
+              shippingLines(first: 1) {
+                edges {
+                  node {
+                    title
                   }
                 }
-                billingAddress {
-                  name company address1 address2 zip city country phone countryCode
-                }
-                shippingAddress {
-                  name company address1 address2 zip city country phone countryCode
-                }
-                lineItems(first: 50) {
-                  edges {
-                    node {
+              }
+              billingAddress {
+                name company address1 address2 zip city country phone countryCode
+              }
+              shippingAddress {
+                name company address1 address2 zip city country phone countryCode
+              }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    id
+                    title
+                    quantity
+                    originalUnitPriceSet { shopMoney { amount currencyCode } }
+                    discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                    originalTotalSet { shopMoney { amount currencyCode } }
+                    discountedTotalSet { shopMoney { amount currencyCode } }
+                    variant {
                       id
                       title
-                      quantity
-                      originalUnitPriceSet { shopMoney { amount currencyCode } }
-                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
-                      originalTotalSet { shopMoney { amount currencyCode } }
-                      discountedTotalSet { shopMoney { amount currencyCode } }
-                      variant {
-                        id
-                        title
-                        sku
-                        barcode
-                        inventoryItem {
-                          measurement {
-                            weight {
-                              value
-                              unit
-                            }
+                      sku
+                      barcode
+                      inventoryItem {
+                        measurement {
+                          weight {
+                            value
+                            unit
                           }
                         }
-                        image { url src } 
-                        product {
-                          featuredImage { url src } 
-                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                          position: metafield(namespace: "custom", key: "position") { value }
-                          producttype: metafield(namespace: "custom", key: "producttype") { value }
-                        }
+                      }
+                      image { url src } 
+                      product {
+                        featuredImage { url src } 
+                        germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                        expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                        position: metafield(namespace: "custom", key: "position") { value }
+                        producttype: metafield(namespace: "custom", key: "producttype") { value }
                       }
                     }
                   }
@@ -198,30 +207,31 @@ export const loader = async ({ request }) => {
             }
           }
         }
-      `, {
-        variables: {
-          first: 50,
-          after: endCursor,
-          query: shopifyQuery || null
-        }
-      });
-
-      const responseJson = await response.json();
-
-      if (responseJson?.errors?.length > 0) {
-        const errMsg = responseJson.errors.map((e) => e.message).join(", ");
-        console.error("GraphQL errors:", errMsg);
-        return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}` });
       }
+    `, {
+      variables
+    });
 
-      const connection = responseJson?.data?.orders;
-      if (!connection) break;
+    const responseJson = await response.json();
 
-      allEdges = allEdges.concat(connection.edges || []);
-      hasNextPage = connection.pageInfo.hasNextPage;
-      endCursor = connection.pageInfo.endCursor;
-      pageCount++;
+    if (responseJson?.errors?.length > 0) {
+      const errMsg = responseJson.errors.map((e) => e.message).join(", ");
+      console.error("GraphQL errors:", errMsg);
+      return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}` });
     }
+
+    const connection = responseJson?.data?.orders;
+    if (!connection) {
+      return jsonResponse({ orders: [], pageInfo: { hasNextPage: false, hasPreviousPage: false }, error: null });
+    }
+
+    const allEdges = connection.edges || [];
+    const pageInfo = {
+      hasNextPage: connection.pageInfo.hasNextPage,
+      hasPreviousPage: connection.pageInfo.hasPreviousPage,
+      startCursor: connection.pageInfo.startCursor,
+      endCursor: connection.pageInfo.endCursor
+    };
 
     const validEdges = allEdges.filter((edge) => {
       const node = edge.node;
@@ -387,7 +397,7 @@ export const loader = async ({ request }) => {
       };
     });
 
-    return jsonResponse({ orders: ordersWithPrintStatus, error: null });
+    return jsonResponse({ orders: ordersWithPrintStatus, pageInfo, error: null });
   } catch (err) {
     console.error("Loader error:", err);
     return jsonResponse({ orders: [], error: err.message });
@@ -503,6 +513,8 @@ export default function AdditionalPage() {
     } else {
       params.delete("query");
     }
+    params.delete("after");
+    params.delete("before");
     setSearchParams(params);
   };
 
@@ -935,6 +947,31 @@ export default function AdditionalPage() {
             )}
           </tbody>
         </table>
+
+        {loaderData?.pageInfo && (loaderData.pageInfo.hasNextPage || loaderData.pageInfo.hasPreviousPage) && (
+          <div style={{ display: "flex", justifyContent: "center", marginBlockStart: "20px", marginBlockEnd: "10px" }}>
+            <Pagination
+              hasPrevious={loaderData.pageInfo.hasPreviousPage}
+              onPrevious={() => {
+                const params = new URLSearchParams(searchParams);
+                if (loaderData.pageInfo.startCursor) {
+                  params.set("before", loaderData.pageInfo.startCursor);
+                  params.delete("after");
+                  setSearchParams(params);
+                }
+              }}
+              hasNext={loaderData.pageInfo.hasNextPage}
+              onNext={() => {
+                const params = new URLSearchParams(searchParams);
+                if (loaderData.pageInfo.endCursor) {
+                  params.set("after", loaderData.pageInfo.endCursor);
+                  params.delete("before");
+                  setSearchParams(params);
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
