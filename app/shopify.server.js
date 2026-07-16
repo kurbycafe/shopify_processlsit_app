@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import "@shopify/shopify-app-react-router/adapters/node";
 import {
   AppDistribution,
@@ -37,20 +36,3 @@ export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
-
-export function generatePrintToken(shop) {
-  return crypto
-    .createHmac("sha256", process.env.SHOPIFY_API_SECRET || "fallback_secret")
-    .update(shop)
-    .digest("hex");
-}
-
-export function verifyPrintToken(shop, token) {
-  if (!token) return false;
-  const expected = generatePrintToken(shop);
-  try {
-    return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
-  } catch (e) {
-    return false;
-  }
-}

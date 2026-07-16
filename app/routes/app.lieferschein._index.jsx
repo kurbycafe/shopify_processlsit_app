@@ -1,6 +1,6 @@
 import { useLoaderData, useFetcher, useNavigate, Link, useSearchParams } from "react-router";
 import { useState, useEffect, useMemo } from "react";
-import { authenticate, generatePrintToken } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import styles from "../styles/app.lieferschein.css?url";
 import { Select, BlockStack, InlineStack, Card, Text, Box, TextField } from "@shopify/polaris";
@@ -94,7 +94,7 @@ export const action = async ({ request }) => {
 
 export const loader = async ({ request }) => {
   try {
-    const { admin, session } = await authenticate.admin(request);
+    const { admin } = await authenticate.admin(request);
     const url = new URL(request.url);
     const queryParam = url.searchParams.get("query") || "";
 
@@ -387,12 +387,7 @@ export const loader = async ({ request }) => {
       };
     });
 
-    return jsonResponse({
-      orders: ordersWithPrintStatus,
-      shop: session.shop,
-      printToken: generatePrintToken(session.shop),
-      error: null
-    });
+    return jsonResponse({ orders: ordersWithPrintStatus, error: null });
   } catch (err) {
     console.error("Loader error:", err);
     return jsonResponse({ orders: [], error: err.message });
@@ -619,7 +614,7 @@ export default function AdditionalPage() {
 
     // Open printing detailed page in a new window/tab
     const numericIds = selectedOrderIds.map(id => id.split("/").pop());
-    window.open(`/print/lieferschein/${numericIds.join(",")}?shop=${loaderData?.shop || ""}&token=${loaderData?.printToken || ""}`, "_blank");
+    window.open(`/app/lieferschein/${numericIds.join(",")}`, "_blank");
 
     // Prepare payload to mark as printed
     const selectedPayload = filteredOrders
