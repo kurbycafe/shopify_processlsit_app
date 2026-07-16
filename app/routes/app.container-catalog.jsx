@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useFetcher, useSearchParams } from "react-router";
 import {
   Page, Layout, Card, TextField, BlockStack, InlineStack, Text,
-  DataTable, Badge, Thumbnail, Button, Banner, Box, Icon, Divider, Grid
+  DataTable, Badge, Thumbnail, Button, Banner, Box, Icon, Divider, Grid,
+  Checkbox
 } from "@shopify/polaris";
 import { SearchIcon, PrintIcon, AlertTriangleIcon, CheckCircleIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
@@ -212,6 +213,11 @@ export default function ContainerCatalog() {
   const [packQuantities, setPackQuantities] = useState({});
   const [bulkDiscountRate, setBulkDiscountRate] = useState("");
 
+  // 인쇄 옵션 설정을 위한 State
+  const [includeUnmatched, setIncludeUnmatched] = useState(true);
+  const [showRetailPrice, setShowRetailPrice] = useState(true);
+  const [showExpiry, setShowExpiry] = useState(true);
+
   const handleApplyBulkDiscount = () => {
     const rate = parseFloat(bulkDiscountRate) || 0;
     const newPrices = { ...customWholesalePrices };
@@ -289,6 +295,13 @@ export default function ContainerCatalog() {
   const handlePrintCatalog = () => {
     if (items.length === 0) return;
 
+    // 미등록 상품 필터링 여부에 따른 리스트 구성
+    const printItems = includeUnmatched ? items : items.filter(item => item.isMatched);
+    if (printItems.length === 0) {
+      alert("인쇄할 상품이 없습니다.");
+      return;
+    }
+
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       alert("팝업 차단이 설정되어 있습니다. 팝업 허용 후 다시 시도해 주세요.");
@@ -296,6 +309,8 @@ export default function ContainerCatalog() {
     }
 
     const fmtEur = (val) => `€${val.toFixed(2)}`;
+    const showRetail = showRetailPrice;
+    const showExp = showExpiry;
     
     // HTML 템플릿 작성
     let htmlContent = `
@@ -474,25 +489,25 @@ export default function ContainerCatalog() {
       </div>
       <div class="header-right">
         <div class="ref-tag">CONTAINER: ${poName}</div>
-        <div class="ref-tag" style="background: #f8fafc; color: #475569; border-color: #cbd5e1; margin-top: 4px;">SUPPLIER: ${partnerId || 'N/A'}</div>
-        <div class="date">출력일: ${new Date().toLocaleDateString('ko-KR')}</div>
+        <div class="date" style="margin-top: 5px;">출력일: ${new Date().toLocaleDateString('ko-KR')}</div>
       </div>
     </div>
     
     <table class="catalog-table">
       <thead>
         <tr>
-          <th style="width: 12%">사진</th>
-          <th style="width: 48%">상품명</th>
-          <th style="width: 16%; text-align: center;">Box당 입수 (Unit Per Box)</th>
-          <th style="width: 12%">도매가</th>
-          <th style="width: 12%">소매가</th>
+          <th style="width: 10%">사진</th>
+          <th style="width: ${showRetail && showExp ? '40%' : showRetail || showExp ? '50%' : '60%'}">상품명</th>
+          ${showExp ? `<th style="width: 15%; text-align: center;">유통기한</th>` : ""}
+          <th style="width: 15%; text-align: center;">Box당 입수</th>
+          <th style="width: 15%">도매가</th>
+          ${showRetail ? `<th style="width: 15%">소매가</th>` : ""}
         </tr>
       </thead>
       <tbody>
   `;
 
-    items.forEach(item => {
+    printItems.forEach(item => {
       // 입력된 사용자 도매단가 반영
       const priceVal = customWholesalePrices[item.sku];
       const wholesalePrice = priceVal !== undefined && priceVal !== ""
@@ -508,23 +523,36 @@ export default function ContainerCatalog() {
 
       const titleHtml = item.isMatched 
         ? `<h3 class="prod-title">${item.shopifyName}</h3>
+           <p class="prod-subtitle" style="font-family: monospace; color: #64748b; margin: 2px 0 0 0;">SKU: ${item.sku || "N/A"} | Barcode: ${item.barcode || "N/A"}</p>
            <p class="prod-subtitle">${item.variantTitle || "기본 단품"}</p>`
         : `<h3 class="prod-title">${item.odooName}</h3>
+           <p class="prod-subtitle" style="font-family: monospace; color: #64748b; margin: 2px 0 0 0;">SKU: ${item.sku || "N/A"} | Barcode: ${item.barcode || "N/A"}</p>
            <div class="unmatched-label">Shopify 미등록 상품</div>`;
+
+      const expiryHtml = showExp
+        ? `<td style="text-align:center; font-weight:600; color: #d97706;">
+             ${item.expiryDate && item.expiryDate !== 'N/A' ? item.expiryDate : "-"}
+           </td>`
+        : "";
+
+      const retailHtml = showRetail
+        ? `<td>
+             ${item.isMatched 
+               ? `<div class="price-text">${fmtEur(item.retailPrice)}</div>`
+               : `<span style="font-size:11px;color:#94a3b8;">N/A</span>`}
+           </td>`
+        : "";
 
       htmlContent += `
         <tr>
           <td style="text-align:center;">${imgHtml}</td>
           <td>${titleHtml}</td>
+          ${expiryHtml}
           <td style="font-weight:600; text-align:center;">
             ${boxQty > 0 ? boxQty : "-"}
           </td>
           <td class="price-text">${fmtEur(wholesalePrice)}</td>
-          <td>
-            ${item.isMatched 
-              ? `<div class="price-text">${fmtEur(item.retailPrice)}</div>`
-              : `<span style="font-size:11px;color:#94a3b8;">N/A</span>`}
-          </td>
+          ${retailHtml}
         </tr>
       `;
     });
@@ -536,23 +564,6 @@ export default function ContainerCatalog() {
   
   <script>
     window.onload = function() {
-        const value = svg.getAttribute('data-value');
-        if (value) {
-          try {
-            JsBarcode(svg, value, {
-              format: "CODE128",
-              width: 1.2,
-              height: 30,
-              displayValue: true,
-              fontSize: 9,
-              margin: 2
-            });
-          } catch (err) {
-            console.error("Barcode render error for: " + value, err);
-          }
-        }
-      });
-      
       // 렌더링 완료 후 잠시 대기했다가 인쇄 대화상자 표시
       setTimeout(() => {
         window.print();
@@ -784,6 +795,32 @@ export default function ContainerCatalog() {
               </Card>
             </Layout.Section>
 
+            {/* 카탈로그 인쇄 설정 카드 */}
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="300">
+                  <Text variant="headingSm" as="h3">카탈로그 인쇄 옵션</Text>
+                  <InlineStack gap="600" align="start">
+                    <Checkbox
+                      label="Shopify 미등록 상품 포함"
+                      checked={includeUnmatched}
+                      onChange={(val) => setIncludeUnmatched(val)}
+                    />
+                    <Checkbox
+                      label="소매 가격(Retail Price) 표시"
+                      checked={showRetailPrice}
+                      onChange={(val) => setShowRetailPrice(val)}
+                    />
+                    <Checkbox
+                      label="유통기한(MHD) 표시"
+                      checked={showExpiry}
+                      onChange={(val) => setShowExpiry(val)}
+                    />
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+
             {unmatchedCount > 0 && (
               <Layout.Section>
                 <Banner tone="warning" title="Shopify 상품 정보 미매칭 안내">
@@ -801,9 +838,6 @@ export default function ContainerCatalog() {
                   <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="100">
                       <Text variant="headingMd" as="h2">컨테이너 상품 매칭 상세 ({poName})</Text>
-                      {partnerId && (
-                        <Text variant="bodyMd" tone="subdued">공급사: {partnerId}</Text>
-                      )}
                     </BlockStack>
                     <Button primary icon={PrintIcon} onClick={handlePrintCatalog}>도매 카탈로그 인쇄 / PDF 저장</Button>
                   </InlineStack>
