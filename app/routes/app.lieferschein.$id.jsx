@@ -228,6 +228,7 @@ export const loader = async ({ request, params }) => {
             displayFinancialStatus
             cancelledAt
             displayFulfillmentStatus
+            paymentGatewayNames
             customer {
               id
               numberOfOrders
@@ -424,6 +425,7 @@ export const loader = async ({ request, params }) => {
         email: node.email || "-",
         note: node.note || "",
         financialStatus: node.displayFinancialStatus || "UNKNOWN",
+        paymentGatewayNames: node.paymentGatewayNames || [],
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
         shippingAddress: node.shippingAddress || null,
@@ -463,6 +465,48 @@ export const loader = async ({ request, params }) => {
   }
 };
 
+const translateFinancialStatus = (status) => {
+  switch (status?.toUpperCase()) {
+    case "PAID":
+      return "Bezahlt (결제완료)";
+    case "PARTIALLY_PAID":
+      return "Teilweise bezahlt (부분결제)";
+    case "PENDING":
+      return "Ausstehend (결제대기)";
+    case "AUTHORIZED":
+      return "Autorisiert (승인됨)";
+    case "REFUNDED":
+      return "Rückerstattet (환불됨)";
+    case "PARTIALLY_REFUNDED":
+      return "Teilweise rückerstattet (부분환불됨)";
+    case "VOIDED":
+      return "Storniert (취소됨)";
+    default:
+      return status || "Unbekannt (알수없음)";
+  }
+};
+
+const translatePaymentGateway = (gateways) => {
+  if (!gateways || gateways.length === 0) return "-";
+  return gateways.map(g => {
+    switch (g.toLowerCase()) {
+      case "shopify_payments":
+        return "Kreditkarte/Shopify Payments (신용카드)";
+      case "paypal":
+        return "PayPal (페이팔)";
+      case "klarna":
+        return "Klarna (클라르나)";
+      case "bank_transfer":
+      case "manual":
+        return "Vorkasse/Überweisung (무통장입금)";
+      case "cod":
+        return "Nachnahme (COD)";
+      default:
+        return g;
+    }
+  }).join(", ");
+};
+
 export default function OrderPrintDetailPage() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
@@ -488,6 +532,7 @@ export default function OrderPrintDetailPage() {
     zip: "",
     city: "",
     country: "",
+    phone: "",
   });
 
   const [billingEdit, setBillingEdit] = useState({
@@ -498,6 +543,7 @@ export default function OrderPrintDetailPage() {
     zip: "",
     city: "",
     country: "",
+    phone: "",
   });
 
   const [customVat, setCustomVat] = useState("");
@@ -517,6 +563,7 @@ export default function OrderPrintDetailPage() {
         zip: initialShipping.zip || "",
         city: initialShipping.city || "",
         country: initialShipping.country || "",
+        phone: initialShipping.phone || "",
       });
 
       setBillingEdit({
@@ -527,6 +574,7 @@ export default function OrderPrintDetailPage() {
         zip: initialBilling.zip || "",
         city: initialBilling.city || "",
         country: initialBilling.country || "",
+        phone: initialBilling.phone || "",
       });
 
       setCustomVat(o.customVat || "");
@@ -700,6 +748,8 @@ export default function OrderPrintDetailPage() {
                 <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                 <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
                 <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
+                <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
               </tbody>
             </table>
             <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
@@ -758,6 +808,7 @@ export default function OrderPrintDetailPage() {
               {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
               {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
               {currentBillingAddress?.country}
+              {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
               {order.customVat && (
                 <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
                   USt-IdNr.: {order.customVat}
@@ -774,6 +825,7 @@ export default function OrderPrintDetailPage() {
               {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
               {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
               {currentShippingAddress?.country}
+              {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
             </div>
           </div>
         </div>
@@ -977,6 +1029,8 @@ export default function OrderPrintDetailPage() {
                 <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                 <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
                 <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
+                <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
               </tbody>
             </table>
           </div>
@@ -1005,6 +1059,7 @@ export default function OrderPrintDetailPage() {
               {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
               {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
               {currentBillingAddress?.country}
+              {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
               {order.customVat && (
                 <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
                   USt-IdNr.: {order.customVat}
@@ -1021,6 +1076,7 @@ export default function OrderPrintDetailPage() {
               {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
               {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
               {currentShippingAddress?.country}
+              {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
             </div>
           </div>
         </div>
@@ -1229,6 +1285,7 @@ export default function OrderPrintDetailPage() {
                         <div style={{ flex: 2 }}><TextField label="도시" value={shippingEdit.city} onChange={(val) => setShippingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
                       </InlineStack>
                       <TextField label="국가" value={shippingEdit.country} onChange={(val) => setShippingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
+                      <TextField label="전화번호" value={shippingEdit.phone} onChange={(val) => setShippingEdit(prev => ({ ...prev, phone: val }))} autoComplete="off" />
                     </BlockStack>
                   </Card>
 
@@ -1244,6 +1301,7 @@ export default function OrderPrintDetailPage() {
                         <div style={{ flex: 2 }}><TextField label="도시" value={billingEdit.city} onChange={(val) => setBillingEdit(prev => ({ ...prev, city: val }))} autoComplete="off" /></div>
                       </InlineStack>
                       <TextField label="국가" value={billingEdit.country} onChange={(val) => setBillingEdit(prev => ({ ...prev, country: val }))} autoComplete="off" />
+                      <TextField label="전화번호" value={billingEdit.phone} onChange={(val) => setBillingEdit(prev => ({ ...prev, phone: val }))} autoComplete="off" />
                       <TextField label="고객 VAT 번호 (USt-IdNr.)" value={customVat} onChange={setCustomVat} autoComplete="off" placeholder="예: DE320890998" />
                     </BlockStack>
                   </Card>

@@ -1,6 +1,6 @@
 import { useLoaderData, useFetcher, useNavigate, Link, useSearchParams } from "react-router";
 import { useState, useEffect, useMemo } from "react";
-import { authenticate } from "../shopify.server";
+import { authenticate, generatePrintToken } from "../shopify.server";
 import prisma from "../db.server";
 import styles from "../styles/app.lieferschein.css?url";
 import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination } from "@shopify/polaris";
@@ -148,6 +148,7 @@ export const loader = async ({ request }) => {
               displayFinancialStatus
               cancelledAt
               displayFulfillmentStatus
+              paymentGatewayNames
               customer {
                 numberOfOrders
               }
@@ -329,6 +330,7 @@ export const loader = async ({ request }) => {
         email: node.email || "-",
         note: node.note || "",
         financialStatus: node.displayFinancialStatus || "UNKNOWN", // ✨ 필터링을 위해 결제 상태 저장
+        paymentGatewayNames: node.paymentGatewayNames || [],
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
         shippingAddress: node.shippingAddress || null,
@@ -393,11 +395,12 @@ export const loader = async ({ request }) => {
         ...order,
         isPrinted: dbRecord ? dbRecord.isLieferscheinPrinted : false,
         printedAt: printedAtStr,
-        isPickListPrinted: dbRecord ? dbRecord.isPickListPrinted : false
+        isPickListPrinted: dbRecord ? dbRecord.isPickListPrinted : false,
+        printToken: generatePrintToken(order.id, session.shop),
       };
     });
 
-    return jsonResponse({ orders: ordersWithPrintStatus, pageInfo, error: null });
+    return jsonResponse({ orders: ordersWithPrintStatus, pageInfo, error: null, shop: session.shop });
   } catch (err) {
     console.error("Loader error:", err);
     return jsonResponse({ orders: [], error: err.message });
@@ -484,6 +487,7 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
+  const shop = loaderData?.shop || "";
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -626,7 +630,11 @@ export default function AdditionalPage() {
 
     // Open printing detailed page in a new window/tab
     const numericIds = selectedOrderIds.map(id => id.split("/").pop());
-    window.open(`/app/lieferschein/${numericIds.join(",")}`, "_blank");
+    const tokens = selectedOrderIds.map(id => {
+      const o = orders.find(ord => ord.id === id);
+      return o?.printToken || "";
+    });
+    window.open(`/print/lieferschein/${numericIds.join(",")}?shop=${shop}&tokens=${tokens.join(",")}`, "_blank");
 
     // Prepare payload to mark as printed
     const selectedPayload = filteredOrders
@@ -817,6 +825,7 @@ export default function AdditionalPage() {
                 />
               </th>
               <th>주문 번호</th>
+              <th>고객명</th>
               <th>결제 상태</th>
               <th>날짜</th>
               <th>상품 종류 / 수량</th>
@@ -827,7 +836,7 @@ export default function AdditionalPage() {
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="7" className="empty-orders-message">
+                <td colSpan="8" className="empty-orders-message">
                   조건에 맞는 주문이 없습니다.
                 </td>
               </tr>
@@ -864,6 +873,10 @@ export default function AdditionalPage() {
                       >
                         {order.name}
                       </Link>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: "500" }}>{order.shippingAddress?.name || order.billingAddress?.name || "-"}</div>
+                      {order.shippingAddress?.company && <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>{order.shippingAddress.company}</div>}
                     </td>
 
                     <td>

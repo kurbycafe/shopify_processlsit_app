@@ -3,6 +3,7 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
+import crypto from "crypto";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
@@ -36,3 +37,17 @@ export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
+
+export function generatePrintToken(orderId, shop) {
+  const cleanOrderId = orderId.toString().split("/").pop();
+  return crypto
+    .createHmac("sha256", process.env.SHOPIFY_API_SECRET || "fallback_secret")
+    .update(`${cleanOrderId}:${shop}`)
+    .digest("hex");
+}
+
+export function verifyPrintToken(orderId, shop, token) {
+  if (!token) return false;
+  const expected = generatePrintToken(orderId, shop);
+  return expected === token;
+}
