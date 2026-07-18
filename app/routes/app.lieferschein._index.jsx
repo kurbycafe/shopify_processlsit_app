@@ -94,7 +94,7 @@ export const action = async ({ request }) => {
 
 export const loader = async ({ request }) => {
   try {
-    const { admin } = await authenticate.admin(request);
+    const { admin, session } = await authenticate.admin(request);
     const url = new URL(request.url);
     const queryParam = url.searchParams.get("query") || "";
 
