@@ -16,12 +16,12 @@ const jsonResponse = (data) =>
 
 function checkIsB2B(shippingAddress) {
   if (!shippingAddress) return false;
-  
+
   const company = (shippingAddress.company || "").trim();
   const name = (shippingAddress.name || "").trim();
-  
+
   if (company) return true; // 회사명 필드가 입력된 경우 B2B로 판별
-  
+
   const nameUpper = name.toUpperCase();
   const b2bPatterns = [
     /\bGMBH\b/,
@@ -37,7 +37,7 @@ function checkIsB2B(shippingAddress) {
     /\bS\.A\.(?!\w)/,
     /\bS\.A\.R\.L\.(?!\w)/
   ];
-  
+
   return b2bPatterns.some(pattern => pattern.test(nameUpper));
 }
 
@@ -498,10 +498,10 @@ export default function AdditionalPage() {
   const [paymentFilter, setPaymentFilter] = useState("ALL");
   const [regionFilter, setRegionFilter] = useState("ALL");
   const [complexityFilter, setComplexityFilter] = useState("ALL");
-  const [printFilter, setPrintFilter] = useState("ALL"); // ✨ 인쇄 상태 필터 추가
+  const [printFilter, setPrintFilter] = useState("UNPRINTED"); //2026-07-22 요청, default 값 인쇄 안됨으로 변경
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
-  const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || ""); // ✨ 검색 텍스트 필터 추가
-  const [tempFilter, setTempFilter] = useState("ALL"); // ✨ 온도대 필터 추가
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || "");
+  const [tempFilter, setTempFilter] = useState("ALL");
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
 
   // Reset selection when filters change
