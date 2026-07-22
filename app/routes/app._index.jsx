@@ -623,7 +623,7 @@ export default function Index() {
           <Card padding="400">
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
-                <Text variant="headingMd" as="h2">📢 시스템 업데이트 내역 (최근 7일)</Text>
+                <Text variant="headingMd" as="h2"> 시스템 업데이트 내역 (최근 7일)</Text>
                 <Badge tone="info">v1.2.4 (2026-07-22)</Badge>
               </InlineStack>
               <Divider />

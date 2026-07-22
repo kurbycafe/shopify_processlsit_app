@@ -318,6 +318,8 @@ export const loader = async ({ request, params }) => {
                     title
                     sku
                     barcode
+                    price
+                    compareAtPrice
                     inventoryItem {
                       measurement {
                         weight {
@@ -390,9 +392,13 @@ export const loader = async ({ request, params }) => {
         const isIcePackage = variantGid.endsWith("/54301230268745");
         const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
 
-        const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
+        const unitOriginalRaw = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0.00");
+        const compareAtPriceRaw = parseFloat(variant?.compareAtPrice || "0.00");
+        const effectiveOriginalUnitPrice = compareAtPriceRaw > unitOriginalRaw ? compareAtPriceRaw : unitOriginalRaw;
+
+        const priceOriginal = effectiveOriginalUnitPrice.toFixed(2);
         const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
-        const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
+        const totalOriginal = (effectiveOriginalUnitPrice * (item.quantity || 1)).toFixed(2);
         const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
 
         const lineTaxLines = item.taxLines || [];
