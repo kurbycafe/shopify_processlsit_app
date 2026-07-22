@@ -617,621 +617,615 @@ export default function Index() {
       `}</style>
 
 
-      {/* 최근 업데이트 내역 카드 (최근 7일) */}
-      <Layout.Section>
-        <Card padding="400">
-          <BlockStack gap="300">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text variant="headingMd" as="h2">📢 시스템 업데이트 내역 (최근 7일)</Text>
-              <Badge tone="info">v1.2.4 (2026-07-22)</Badge>
-            </InlineStack>
-            <Divider />
-            <BlockStack gap="200">
-              <div>
-                <Text variant="bodyMd" fontWeight="bold">📅 2026-07-22 (v1.2.4)</Text>
-                <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
-                  <div> <strong>[신규 추가]</strong> 영수증(Rechnung) 품목별 할인 전 정가(취소선 표기) 및 할인 후 가격/세율 명시</div>
-                  <div><strong>[기능 변경]</strong> Lieferschein 목록 기본 필터 조건을 '전체'에서 '인쇄 안됨(UNPRINTED)'으로 변경</div>
-                </div>
-              </div>
-              <div>
-                <Text variant="bodyMd" fontWeight="bold">📅 2026-07-20 (v1.2.3)</Text>
-                <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
-                  <div> <strong>[신규 추가]</strong> 영수증(Rechnung) Netto / Gross 세금 표시 방식 선택 기능 추가</div>
-                  <div> <strong>[신규 추가]</strong> 품목별/배송비별 MwSt. 세율(0%, 7%, 19%) 개별 변경 기능</div>
-                </div>
-              </div>
-              <div>
-                <Text variant="bodyMd" fontWeight="bold">📅 2026-07-16 (v1.2.1)</Text>
-                <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
-                  <div> <strong>[신규 추가]</strong> Odoo 연동 컨테이너 입고 일정 달력 뷰 대시보드 추가</div>
-                  <div> <strong>[삭제/개선]</strong> 구버전 피킹리스트 단일 출력 레이아웃 제거 및 일괄 배치 출력으로 통합</div>
-                </div>
-              </div>
-            </BlockStack>
-          </BlockStack>
-        </Card>
-      </Layout.Section>
-
-      {/* 주문 현황 요약 */}
-      <Layout.Section>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", marginBottom: "8px" }}>
-
-
-          <div
-            className="dashboard-metric-card"
-            style={{ borderLeft: "5px solid #8b5cf6", cursor: "pointer" }}
-            onClick={() => navigate('/app/lieferschein')}
-          >
-            <BlockStack gap="200">
-              <Text variant="headingMd" as="h2" tone="subdued">오늘 Lieferschein 인쇄</Text>
+      <Layout>
+        {/* 최근 업데이트 내역 카드 (최근 7일) */}
+        <Layout.Section>
+          <Card padding="400">
+            <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
-                <Text variant="heading2xl" as="p" style={{ color: "#8b5cf6" }}>
-                  {todayPrintedCount}
-                </Text>
-                <Icon source={PrintIcon} tone="interactive" />
+                <Text variant="headingMd" as="h2">📢 시스템 업데이트 내역 (최근 7일)</Text>
+                <Badge tone="info">v1.2.4 (2026-07-22)</Badge>
               </InlineStack>
-            </BlockStack>
-          </div>
-        </div>
-      </Layout.Section>
-
-      {/* 최근 검수 활동 및 컨테이너 입고 일정 (2열 대시보드 구조) */}
-      <Layout.Section variant="oneHalf">
-        <Card>
-          <BlockStack gap="400">
-            <Text variant="headingMd" as="h2">최근 검수 활동</Text>
-            {recentLogs.length > 0 ? (
-              <BlockStack gap="150">
-                {recentLogs.map((log) => {
-                  let statusBadgeTone = "warning";
-                  let statusText = log.status;
-                  if (log.status === "SUCCESS") {
-                    statusBadgeTone = "success";
-                    statusText = "검수 성공";
-                  } else if (log.status === "PARTIAL") {
-                    statusBadgeTone = "warning";
-                    statusText = "일부 완료";
-                  } else if (log.status === "ISSUE_REPORTED") {
-                    statusBadgeTone = "critical";
-                    statusText = "문제 보고됨";
-                  } else if (log.status === "FAILED") {
-                    statusBadgeTone = "critical";
-                    statusText = "검수 실패";
-                  }
-
-                  return (
-                    <div
-                      key={log.id}
-                      className="recent-log-item"
-                      onClick={() => setSelectedLog(log)}
-                    >
-                      <InlineStack align="space-between" blockAlign="center">
-                        <BlockStack gap="100">
-                          <Text variant="bodyMd" fontWeight="bold">{log.orderName}</Text>
-                          <InlineStack gap="200" blockAlign="center">
-                            <Text variant="bodySm" color="subdued">
-                              {dayjs(log.createdAt).format("YYYY-MM-DD HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
-                            </Text>
-                            {log.isLieferscheinPrinted && (
-                              <Badge tone="info" size="small">납품서</Badge>
-                            )}
-                            {log.isPickListPrinted && (
-                              <Badge tone="info" size="small">피킹리스트</Badge>
-                            )}
-                          </InlineStack>
-                        </BlockStack>
-                        <InlineStack gap="300" blockAlign="center">
-                          {log.status !== "SUCCESS" && (
-                            <button
-                              className="continue-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/app/inspect?orderName=${encodeURIComponent(log.orderName)}`);
-                              }}
-                            >
-                              이어서 하기
-                            </button>
-                          )}
-                          <Badge tone={statusBadgeTone}>
-                            {statusText}
-                          </Badge>
-                        </InlineStack>
-                      </InlineStack>
-                    </div>
-                  );
-                })}
-              </BlockStack>
-            ) : (
-              <Text variant="bodyMd" color="subdued">최근 활동이 없습니다.</Text>
-            )}
-            <Divider />
-            <Link to="/app/inspect" style={{ textDecoration: 'none' }}>
-              <Text variant="bodyMd" color="accent">새로운 검수 시작하기 &rarr;</Text>
-            </Link>
-          </BlockStack>
-        </Card>
-      </Layout.Section>
-
-      <Layout.Section variant="oneHalf">
-        <Card>
-          <BlockStack gap="400">
-            <Text variant="headingMd" as="h2">컨테이너 입고 일정</Text>
-            {upcomingContainers && upcomingContainers.length > 0 ? (
-              <div className="container-dashboard-layout">
-                {/* 왼쪽: 입고 일정 테이블 */}
-                <div className="container-table-section" style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "2px solid #e2e8f0", textAlign: "left" }}>
-                        <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600" }}>입고 번호</th>
-                        <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600" }}>컨테이너 / PO</th>
-                        <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600" }}>입고 예정일</th>
-                        <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600", textAlign: "right" }}>상태</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {upcomingContainers.map((container) => {
-                        let stateBadge = <Badge>대기</Badge>;
-                        if (container.state === "done") {
-                          stateBadge = <Badge tone="success">입고 완료</Badge>;
-                        } else if (container.state === "assigned") {
-                          stateBadge = <Badge tone="attention">입고 준비</Badge>;
-                        } else if (container.state === "confirmed" || container.state === "waiting") {
-                          stateBadge = <Badge tone="warning">입고 대기</Badge>;
-                        }
-
-                        const relativeTimeStr = dayjs(container.eta).fromNow();
-
-                        return (
-                          <tr key={container.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "12px 8px", fontWeight: "600", fontFamily: "monospace" }}>{container.name}</td>
-                            <td style={{ padding: "12px 8px" }}>
-                              {container.containerRef !== "N/A" ? (
-                                <span
-                                  onClick={() => navigate(`/app/container-catalog?containerRef=${encodeURIComponent(container.containerRef)}`)}
-                                  style={{
-                                    color: "#006fbb",
-                                    textDecoration: "underline",
-                                    cursor: "pointer",
-                                    fontWeight: "600"
-                                  }}
-                                >
-                                  {container.containerRef}
-                                </span>
-                              ) : (
-                                <span style={{ color: "#64748b" }}>N/A</span>
-                              )}
-                            </td>
-                            <td style={{ padding: "12px 8px" }}>
-                              <BlockStack gap="050">
-                                <Text variant="bodyMd" as="span">{container.eta}</Text>
-                                <Text variant="bodySm" as="span" color="subdued">({relativeTimeStr})</Text>
-                              </BlockStack>
-                            </td>
-                            <td style={{ padding: "12px 8px", textAlign: "right" }}>{stateBadge}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              <Divider />
+              <BlockStack gap="200">
+                <div>
+                  <Text variant="bodyMd" fontWeight="bold">📅 2026-07-22 (v1.2.4)</Text>
+                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
+                    <div> <strong>[신규 추가]</strong> 영수증(Rechnung) 품목별 할인 전 정가(취소선 표기) 및 할인 후 가격/세율 명시</div>
+                    <div><strong>[기능 변경]</strong> Lieferschein 목록 기본 필터 조건을 '전체'에서 '인쇄 안됨(UNPRINTED)'으로 변경</div>
+                    <div>오류 수정</div>
+                  </div>
                 </div>
 
-                {/* 오른쪽: 이번달 & 다음달 달력 */}
-                <div className="container-calendar-section">
-                  <div className="double-calendar-container">
-                    {calendarMonths.map((monthData, idx) => (
-                      <div key={idx} className="calendar-month-box">
-                        <div className="calendar-month-title">
-                          {monthData.yearLabel} {monthData.monthLabel}
-                        </div>
-                        <div className="calendar-weekdays">
-                          {["일", "월", "화", "수", "목", "금", "토"].map((dayName) => (
-                            <div key={dayName}>{dayName}</div>
-                          ))}
-                        </div>
-                        <div className="calendar-days-grid">
-                          {monthData.days.map((day, dIdx) => {
-                            if (!day) {
-                              return <div key={`empty-${dIdx}`} className="calendar-day-empty" />;
-                            }
+                <div>
+                  <Text variant="bodyMd" fontWeight="bold">📅 2026-07-16 (v1.2.1)</Text>
+                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
+                    <div> <strong>[신규 추가]</strong> Odoo 연동 컨테이너 입고 일정 달력 뷰 대시보드 추가</div>
+                    <div> <strong>[삭제/개선]</strong> 구버전 피킹리스트 단일 출력 레이아웃 제거 및 일괄 배치 출력으로 통합</div>
+                  </div>
+                </div>
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
-                            const formattedDate = day.format("YYYY-MM-DD");
-                            const matchedContainers = upcomingContainers.filter(
-                              (c) => c.eta === formattedDate
-                            );
-                            const hasEvents = matchedContainers.length > 0;
+        {/* 주문 현황 요약 */}
+        <Layout.Section>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", marginBottom: "8px" }}>
 
-                            let highlightClass = "";
-                            if (hasEvents) {
-                              const states = matchedContainers.map((c) => c.state);
-                              if (states.includes("assigned")) {
-                                highlightClass = " state-assigned";
-                              } else if (
-                                states.includes("confirmed") ||
-                                states.includes("waiting")
-                              ) {
-                                highlightClass = " state-waiting";
-                              } else if (states.includes("done")) {
-                                highlightClass = " state-done";
-                              } else {
-                                highlightClass = " state-other";
-                              }
-                            }
 
-                            return (
-                              <div
-                                key={formattedDate}
-                                className={`calendar-day${hasEvents ? " has-events" : ""}${highlightClass}`}
-                                onClick={() => {
-                                  if (hasEvents) {
-                                    const firstContainer = matchedContainers[0];
-                                    if (firstContainer && firstContainer.containerRef !== "N/A") {
-                                      setModalContainerRef(firstContainer.containerRef);
-                                      setActiveContainerModal(true);
-                                      containerItemsFetcher.submit(
-                                        { intent: "fetch_container_items", containerRef: firstContainer.containerRef },
-                                        { method: "POST" }
-                                      );
-                                    }
-                                  }
+            <div
+              className="dashboard-metric-card"
+              style={{ borderLeft: "5px solid #8b5cf6", cursor: "pointer" }}
+              onClick={() => navigate('/app/lieferschein')}
+            >
+              <BlockStack gap="200">
+                <Text variant="headingMd" as="h2" tone="subdued">오늘 Lieferschein 인쇄</Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="heading2xl" as="p" style={{ color: "#8b5cf6" }}>
+                    {todayPrintedCount}
+                  </Text>
+                  <Icon source={PrintIcon} tone="interactive" />
+                </InlineStack>
+              </BlockStack>
+            </div>
+          </div>
+        </Layout.Section>
+
+        {/* 최근 검수 활동 및 컨테이너 입고 일정 (2열 대시보드 구조) */}
+        <Layout.Section variant="oneHalf">
+          <Card>
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">최근 검수 활동</Text>
+              {recentLogs.length > 0 ? (
+                <BlockStack gap="150">
+                  {recentLogs.map((log) => {
+                    let statusBadgeTone = "warning";
+                    let statusText = log.status;
+                    if (log.status === "SUCCESS") {
+                      statusBadgeTone = "success";
+                      statusText = "검수 성공";
+                    } else if (log.status === "PARTIAL") {
+                      statusBadgeTone = "warning";
+                      statusText = "일부 완료";
+                    } else if (log.status === "ISSUE_REPORTED") {
+                      statusBadgeTone = "critical";
+                      statusText = "문제 보고됨";
+                    } else if (log.status === "FAILED") {
+                      statusBadgeTone = "critical";
+                      statusText = "검수 실패";
+                    }
+
+                    return (
+                      <div
+                        key={log.id}
+                        className="recent-log-item"
+                        onClick={() => setSelectedLog(log)}
+                      >
+                        <InlineStack align="space-between" blockAlign="center">
+                          <BlockStack gap="100">
+                            <Text variant="bodyMd" fontWeight="bold">{log.orderName}</Text>
+                            <InlineStack gap="200" blockAlign="center">
+                              <Text variant="bodySm" color="subdued">
+                                {dayjs(log.createdAt).format("YYYY-MM-DD HH:mm:ss")} - {log.inspectorName || "알 수 없음"}
+                              </Text>
+                              {log.isLieferscheinPrinted && (
+                                <Badge tone="info" size="small">납품서</Badge>
+                              )}
+                              {log.isPickListPrinted && (
+                                <Badge tone="info" size="small">피킹리스트</Badge>
+                              )}
+                            </InlineStack>
+                          </BlockStack>
+                          <InlineStack gap="300" blockAlign="center">
+                            {log.status !== "SUCCESS" && (
+                              <button
+                                className="continue-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/app/inspect?orderName=${encodeURIComponent(log.orderName)}`);
                                 }}
                               >
-                                {day.date()}
-                                {hasEvents && (
-                                  <div className="tooltip">
-                                    <div style={{ fontWeight: "bold", borderBottom: "1px solid #475569", paddingBottom: "4px", marginBottom: "4px" }}>
-                                      {formattedDate} 입고 일정 (클릭 시 세부 품목)
-                                    </div>
-                                    {matchedContainers.map((container, cIdx) => (
-                                      <div key={cIdx} style={{ marginTop: cIdx > 0 ? "6px" : "0" }}>
-                                        • <strong>{container.name}</strong> ({container.containerRef})<br />
-                                        &nbsp;&nbsp;상태: {
-                                          container.state === "done" ? "입고 완료" :
-                                            container.state === "assigned" ? "입고 준비" :
-                                              container.state === "confirmed" || container.state === "waiting" ? "입고 대기" : container.state
-                                        }<br />
-                                        &nbsp;&nbsp;거래처: {container.supplier}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                                이어서 하기
+                              </button>
+                            )}
+                            <Badge tone={statusBadgeTone}>
+                              {statusText}
+                            </Badge>
+                          </InlineStack>
+                        </InlineStack>
                       </div>
-                    ))}
+                    );
+                  })}
+                </BlockStack>
+              ) : (
+                <Text variant="bodyMd" color="subdued">최근 활동이 없습니다.</Text>
+              )}
+              <Divider />
+              <Link to="/app/inspect" style={{ textDecoration: 'none' }}>
+                <Text variant="bodyMd" color="accent">새로운 검수 시작하기 &rarr;</Text>
+              </Link>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section variant="oneHalf">
+          <Card>
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">컨테이너 입고 일정</Text>
+              {upcomingContainers && upcomingContainers.length > 0 ? (
+                <div className="container-dashboard-layout">
+                  {/* 왼쪽: 입고 일정 테이블 */}
+                  <div className="container-table-section" style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "2px solid #e2e8f0", textAlign: "left" }}>
+                          <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600" }}>입고 번호</th>
+                          <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600" }}>컨테이너 / PO</th>
+                          <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600" }}>입고 예정일</th>
+                          <th style={{ padding: "10px 8px", color: "#64748b", fontWeight: "600", textAlign: "right" }}>상태</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {upcomingContainers.map((container) => {
+                          let stateBadge = <Badge>대기</Badge>;
+                          if (container.state === "done") {
+                            stateBadge = <Badge tone="success">입고 완료</Badge>;
+                          } else if (container.state === "assigned") {
+                            stateBadge = <Badge tone="attention">입고 준비</Badge>;
+                          } else if (container.state === "confirmed" || container.state === "waiting") {
+                            stateBadge = <Badge tone="warning">입고 대기</Badge>;
+                          }
+
+                          const relativeTimeStr = dayjs(container.eta).fromNow();
+
+                          return (
+                            <tr key={container.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                              <td style={{ padding: "12px 8px", fontWeight: "600", fontFamily: "monospace" }}>{container.name}</td>
+                              <td style={{ padding: "12px 8px" }}>
+                                {container.containerRef !== "N/A" ? (
+                                  <span
+                                    onClick={() => navigate(`/app/container-catalog?containerRef=${encodeURIComponent(container.containerRef)}`)}
+                                    style={{
+                                      color: "#006fbb",
+                                      textDecoration: "underline",
+                                      cursor: "pointer",
+                                      fontWeight: "600"
+                                    }}
+                                  >
+                                    {container.containerRef}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "#64748b" }}>N/A</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "12px 8px" }}>
+                                <BlockStack gap="050">
+                                  <Text variant="bodyMd" as="span">{container.eta}</Text>
+                                  <Text variant="bodySm" as="span" color="subdued">({relativeTimeStr})</Text>
+                                </BlockStack>
+                              </td>
+                              <td style={{ padding: "12px 8px", textAlign: "right" }}>{stateBadge}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 오른쪽: 이번달 & 다음달 달력 */}
+                  <div className="container-calendar-section">
+                    <div className="double-calendar-container">
+                      {calendarMonths.map((monthData, idx) => (
+                        <div key={idx} className="calendar-month-box">
+                          <div className="calendar-month-title">
+                            {monthData.yearLabel} {monthData.monthLabel}
+                          </div>
+                          <div className="calendar-weekdays">
+                            {["일", "월", "화", "수", "목", "금", "토"].map((dayName) => (
+                              <div key={dayName}>{dayName}</div>
+                            ))}
+                          </div>
+                          <div className="calendar-days-grid">
+                            {monthData.days.map((day, dIdx) => {
+                              if (!day) {
+                                return <div key={`empty-${dIdx}`} className="calendar-day-empty" />;
+                              }
+
+                              const formattedDate = day.format("YYYY-MM-DD");
+                              const matchedContainers = upcomingContainers.filter(
+                                (c) => c.eta === formattedDate
+                              );
+                              const hasEvents = matchedContainers.length > 0;
+
+                              let highlightClass = "";
+                              if (hasEvents) {
+                                const states = matchedContainers.map((c) => c.state);
+                                if (states.includes("assigned")) {
+                                  highlightClass = " state-assigned";
+                                } else if (
+                                  states.includes("confirmed") ||
+                                  states.includes("waiting")
+                                ) {
+                                  highlightClass = " state-waiting";
+                                } else if (states.includes("done")) {
+                                  highlightClass = " state-done";
+                                } else {
+                                  highlightClass = " state-other";
+                                }
+                              }
+
+                              return (
+                                <div
+                                  key={formattedDate}
+                                  className={`calendar-day${hasEvents ? " has-events" : ""}${highlightClass}`}
+                                  onClick={() => {
+                                    if (hasEvents) {
+                                      const firstContainer = matchedContainers[0];
+                                      if (firstContainer && firstContainer.containerRef !== "N/A") {
+                                        setModalContainerRef(firstContainer.containerRef);
+                                        setActiveContainerModal(true);
+                                        containerItemsFetcher.submit(
+                                          { intent: "fetch_container_items", containerRef: firstContainer.containerRef },
+                                          { method: "POST" }
+                                        );
+                                      }
+                                    }
+                                  }}
+                                >
+                                  {day.date()}
+                                  {hasEvents && (
+                                    <div className="tooltip">
+                                      <div style={{ fontWeight: "bold", borderBottom: "1px solid #475569", paddingBottom: "4px", marginBottom: "4px" }}>
+                                        {formattedDate} 입고 일정 (클릭 시 세부 품목)
+                                      </div>
+                                      {matchedContainers.map((container, cIdx) => (
+                                        <div key={cIdx} style={{ marginTop: cIdx > 0 ? "6px" : "0" }}>
+                                          • <strong>{container.name}</strong> ({container.containerRef})<br />
+                                          &nbsp;&nbsp;상태: {
+                                            container.state === "done" ? "입고 완료" :
+                                              container.state === "assigned" ? "입고 준비" :
+                                                container.state === "confirmed" || container.state === "waiting" ? "입고 대기" : container.state
+                                          }<br />
+                                          &nbsp;&nbsp;거래처: {container.supplier}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <Text variant="bodyMd" color="subdued">입고 일정이 없습니다.</Text>
+              )}
+              <Divider />
+              <Link to="/app/container-catalog" style={{ textDecoration: 'none' }}>
+                <Text variant="bodyMd" color="accent">컨테이너 카탈로그 조회하기 &rarr;</Text>
+              </Link>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        {/* 📈 생산성 차트 영역 */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">📈 최근 7일간 검수 생산성 및 일별 처리 현황</Text>
+
+              <div className="productivity-chart-container">
+                <div style={{ width: "100%", overflowX: "auto" }}>
+                  <svg
+                    viewBox="0 0 800 240"
+                    style={{ width: "100%", minWidth: "600px", height: "auto" }}
+                  >
+                    {/* Y축 가이드선 */}
+                    {[0, 25, 50, 75, 100].map((percent, idx) => {
+                      const y = 20 + (170 * (100 - percent)) / 100;
+                      return (
+                        <g key={idx}>
+                          <line x1="50" y1={y} x2="770" y2={y} stroke="#f1f5f9" strokeWidth="1" />
+                          <text x="35" y={y + 4} fontSize="10" fill="#94a3b8" textAnchor="end">{percent}%</text>
+                        </g>
+                      );
+                    })}
+
+                    {/* X축 기준선 */}
+                    <line x1="50" y1="190" x2="770" y2="190" stroke="#cbd5e1" strokeWidth="1.5" />
+
+                    {/* 일별 스택 바 그래프 */}
+                    {chartData.map((day, dIdx) => {
+                      const x = 85 + dIdx * 96;
+                      const total = day.totalCount;
+
+                      let successHeight = 0;
+                      let partialHeight = 0;
+                      let issueHeight = 0;
+
+                      if (total > 0) {
+                        successHeight = (day.successCount / total) * 170;
+                        partialHeight = (day.partialCount / total) * 170;
+                        issueHeight = (day.issueCount / total) * 170;
+                      }
+
+                      const issueY = 190 - issueHeight;
+                      const partialY = issueY - partialHeight;
+                      const successY = partialY - successHeight;
+
+                      return (
+                        <g key={dIdx} className="chart-bar-group">
+                          {total > 0 ? (
+                            <>
+                              {day.successCount > 0 && (
+                                <rect
+                                  x={x}
+                                  y={successY}
+                                  width="36"
+                                  height={successHeight}
+                                  fill="#10b981"
+                                  rx="2"
+                                  className="chart-rect"
+                                />
+                              )}
+                              {day.partialCount > 0 && (
+                                <rect
+                                  x={x}
+                                  y={partialY}
+                                  width="36"
+                                  height={partialHeight}
+                                  fill="#f59e0b"
+                                  rx="2"
+                                  className="chart-rect"
+                                />
+                              )}
+                              {day.issueCount > 0 && (
+                                <rect
+                                  x={x}
+                                  y={issueY}
+                                  width="36"
+                                  height={issueHeight}
+                                  fill="#ef4444"
+                                  rx="2"
+                                  className="chart-rect"
+                                />
+                              )}
+                            </>
+                          ) : (
+                            <rect
+                              x={x}
+                              y="186"
+                              width="36"
+                              height="4"
+                              fill="#e2e8f0"
+                              rx="2"
+                            />
+                          )}
+
+                          {/* 호버 이벤트용 보이지 않는 기둥 */}
+                          <rect
+                            x={x - 15}
+                            y="15"
+                            width="66"
+                            height="180"
+                            fill="transparent"
+                            style={{ cursor: "pointer" }}
+                          />
+
+                          {/* 툴팁 말풍선 */}
+                          <g className="chart-tooltip">
+                            <rect
+                              x={x - 42}
+                              y="15"
+                              width="120"
+                              height="64"
+                              fill="#0f172a"
+                              rx="6"
+                              style={{ opacity: 0.95 }}
+                            />
+                            <text x={x + 18} y="28" fill="#ffffff" fontSize="10" fontWeight="bold" textAnchor="middle">{day.dateStr}</text>
+                            <text x={x - 32} y="42" fill="#10b981" fontSize="9" textAnchor="start">성공: {day.successCount}건</text>
+                            <text x={x - 32} y="54" fill="#f59e0b" fontSize="9" textAnchor="start">일부: {day.partialCount}건</text>
+                            <text x={x - 32} y="66" fill="#ef4444" fontSize="9" textAnchor="start">오류: {day.issueCount}건</text>
+                          </g>
+
+                          {/* X축 날짜 텍스트 */}
+                          <text x={x + 18} y="208" fontSize="10.5" fontWeight="600" fill="#64748b" textAnchor="middle">{day.dateLabel}</text>
+                          <text x={x + 18} y="221" fontSize="9" fill="#94a3b8" textAnchor="middle">({total}건)</text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+
+                {/* 범례 */}
+                <div style={{ display: "flex", justifyContent: "center", gap: "24px", marginTop: "12px", fontSize: "11.5px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", backgroundColor: "#10b981", borderRadius: "3px" }}></span>
+                    <span style={{ color: "#475569", fontWeight: "600" }}>검수 성공 (SUCCESS)</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", backgroundColor: "#f59e0b", borderRadius: "3px" }}></span>
+                    <span style={{ color: "#475569", fontWeight: "600" }}>일부 완료 (PARTIAL)</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", backgroundColor: "#ef4444", borderRadius: "3px" }}></span>
+                    <span style={{ color: "#475569", fontWeight: "600" }}>문제 접수 (ISSUE / FAILED)</span>
                   </div>
                 </div>
               </div>
-            ) : (
-              <Text variant="bodyMd" color="subdued">입고 일정이 없습니다.</Text>
-            )}
-            <Divider />
-            <Link to="/app/container-catalog" style={{ textDecoration: 'none' }}>
-              <Text variant="bodyMd" color="accent">컨테이너 카탈로그 조회하기 &rarr;</Text>
-            </Link>
-          </BlockStack>
-        </Card>
-      </Layout.Section>
-    </Layout>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+      </Layout>
 
-      {/* 📈 생산성 차트 영역 */ }
-  <Layout>
-    <Layout.Section>
-      <Card>
-        <BlockStack gap="400">
-          <Text variant="headingMd" as="h2">📈 최근 7일간 검수 생산성 및 일별 처리 현황</Text>
+      {/* 🚢 컨테이너 입고 품목 상세 모달 */}
+      <Modal
+        open={activeContainerModal}
+        onClose={() => {
+          setActiveContainerModal(false);
+          setModalContainerRef("");
+        }}
+        title={`🚢 컨테이너 입고 상세 품목 (${modalContainerRef})`}
+        primaryAction={{
+          content: "닫기",
+          onAction: () => {
+            setActiveContainerModal(false);
+            setModalContainerRef("");
+          },
+        }}
+        secondaryActions={[
+          {
+            content: "전체 카탈로그 조회",
+            onAction: () => {
+              navigate(`/app/container-catalog?containerRef=${encodeURIComponent(modalContainerRef)}`);
+            }
+          }
+        ]}
+      >
+        <Modal.Section>
+          {containerItemsFetcher.state === "submitting" || containerItemsFetcher.state === "loading" ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
+              <div className="spinner-loader" />
+            </div>
+          ) : containerItemsFetcher.data?.items ? (
+            <BlockStack gap="400">
+              <Text as="p" tone="subdued">
+                이 컨테이너에 적재되어 수입되는 Odoo ERP 상의 원본 품목 리스트와 수량입니다.
+              </Text>
+              <div style={{ maxHeight: "350px", overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
+                      <th style={{ padding: "8px", color: "#475569" }}>품목명 (Odoo Description)</th>
+                      <th style={{ padding: "8px", color: "#475569", textAlign: "right" }}>총 입고 예정 수량</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {containerItemsFetcher.data.items.map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "10px 8px", fontWeight: "600" }}>{item.productName}</td>
+                        <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: "bold" }}>
+                          {item.qty.toLocaleString()} 개
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </BlockStack>
+          ) : (
+            <Text as="p" tone="critical">품목 정보를 불러오지 못했습니다.</Text>
+          )}
+        </Modal.Section>
+      </Modal>
 
-          <div className="productivity-chart-container">
-            <div style={{ width: "100%", overflowX: "auto" }}>
-              <svg
-                viewBox="0 0 800 240"
-                style={{ width: "100%", minWidth: "600px", height: "auto" }}
-              >
-                {/* Y축 가이드선 */}
-                {[0, 25, 50, 75, 100].map((percent, idx) => {
-                  const y = 20 + (170 * (100 - percent)) / 100;
-                  return (
-                    <g key={idx}>
-                      <line x1="50" y1={y} x2="770" y2={y} stroke="#f1f5f9" strokeWidth="1" />
-                      <text x="35" y={y + 4} fontSize="10" fill="#94a3b8" textAnchor="end">{percent}%</text>
-                    </g>
-                  );
-                })}
+      {/* 검수 상세 정보 모달 */}
+      <Modal
+        open={selectedLog !== null}
+        onClose={() => setSelectedLog(null)}
+        title={`${selectedLog?.orderName || ""} 검수 상세 내역`}
+        primaryAction={{
+          content: "닫기",
+          onAction: () => setSelectedLog(null),
+        }}
+        secondaryActions={
+          selectedLog && selectedLog.status !== "SUCCESS"
+            ? [
+              {
+                content: "검수 이어서 하기",
+                onAction: () => {
+                  navigate(`/app/inspect?orderName=${encodeURIComponent(selectedLog.orderName)}`);
+                },
+              },
+            ]
+            : []
+        }
+      >
+        <Modal.Section>
+          {selectedLog && (
+            <BlockStack gap="400">
+              <InlineStack align="space-between">
+                <Text as="p" tone="subdued">
+                  <strong>검수 일시:</strong> {dayjs(selectedLog.createdAt).format("YYYY-MM-DD HH:mm:ss")}
+                </Text>
+                <Text as="p" tone="subdued">
+                  <strong>검수자:</strong> {selectedLog.inspectorName || "알 수 없음"}
+                </Text>
+              </InlineStack>
 
-                {/* X축 기준선 */}
-                <line x1="50" y1="190" x2="770" y2="190" stroke="#cbd5e1" strokeWidth="1.5" />
+              <Divider />
 
-                {/* 일별 스택 바 그래프 */}
-                {chartData.map((day, dIdx) => {
-                  const x = 85 + dIdx * 96;
-                  const total = day.totalCount;
+              <Text variant="headingMd" as="h3">검수 상품 목록</Text>
 
-                  let successHeight = 0;
-                  let partialHeight = 0;
-                  let issueHeight = 0;
-
-                  if (total > 0) {
-                    successHeight = (day.successCount / total) * 170;
-                    partialHeight = (day.partialCount / total) * 170;
-                    issueHeight = (day.issueCount / total) * 170;
+              <DataTable
+                columnContentTypes={['text', 'text', 'text']}
+                headings={['상품 정보', '검수 수량 / 주문 수량', '상태']}
+                rows={selectedLog.items.map(item => {
+                  let statusBadge = <Badge tone="attention">대기</Badge>;
+                  if (item.issueType) {
+                    statusBadge = (
+                      <Badge tone="critical">
+                        🚨 {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
+                      </Badge>
+                    );
+                  } else if (item.inspectedQuantity === item.orderedQuantity) {
+                    statusBadge = <Badge tone="success">✅ 완료</Badge>;
+                  } else if (item.inspectedQuantity > 0) {
+                    statusBadge = <Badge tone="warning">⚠️ 일부 완료</Badge>;
                   }
 
-                  const issueY = 190 - issueHeight;
-                  const partialY = issueY - partialHeight;
-                  const successY = partialY - successHeight;
-
-                  return (
-                    <g key={dIdx} className="chart-bar-group">
-                      {total > 0 ? (
-                        <>
-                          {day.successCount > 0 && (
-                            <rect
-                              x={x}
-                              y={successY}
-                              width="36"
-                              height={successHeight}
-                              fill="#10b981"
-                              rx="2"
-                              className="chart-rect"
-                            />
+                  const titleContent = (
+                    <BlockStack gap="100">
+                      <Text variant="bodyMd" fontWeight="bold">{item.productTitle}</Text>
+                      <Text variant="bodySm" color="subdued">
+                        {item.variantTitle && `${item.variantTitle} | `}SKU: {item.sku || "N/A"}
+                      </Text>
+                      {item.issueType && (
+                        <div style={{
+                          marginTop: "6px",
+                          background: "#fff5f5",
+                          padding: "8px",
+                          borderRadius: "6px",
+                          border: "1px solid #fee2e2",
+                          fontSize: "12px",
+                          whiteSpace: "normal"
+                        }}>
+                          <span style={{ fontWeight: "bold", color: "#e11d48" }}>
+                            {item.issueType === "REFUND" && "💸 환불 처리 요청"}
+                            {item.issueType === "CREDIT" && "🪙 스토어 크레딧 지급 요청"}
+                            {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 발송"}
+                          </span>
+                          {item.substitutedProductTitle && (
+                            <div style={{ marginTop: "2px", color: "#1e293b" }}>
+                              → <strong>대체 상품:</strong> {item.substitutedProductTitle}
+                            </div>
                           )}
-                          {day.partialCount > 0 && (
-                            <rect
-                              x={x}
-                              y={partialY}
-                              width="36"
-                              height={partialHeight}
-                              fill="#f59e0b"
-                              rx="2"
-                              className="chart-rect"
-                            />
+                          {item.issueNote && (
+                            <div style={{ color: "#475569", marginTop: "2px", fontStyle: "italic" }}>
+                              메모: {item.issueNote}
+                            </div>
                           )}
-                          {day.issueCount > 0 && (
-                            <rect
-                              x={x}
-                              y={issueY}
-                              width="36"
-                              height={issueHeight}
-                              fill="#ef4444"
-                              rx="2"
-                              className="chart-rect"
-                            />
-                          )}
-                        </>
-                      ) : (
-                        <rect
-                          x={x}
-                          y="186"
-                          width="36"
-                          height="4"
-                          fill="#e2e8f0"
-                          rx="2"
-                        />
+                        </div>
                       )}
-
-                      {/* 호버 이벤트용 보이지 않는 기둥 */}
-                      <rect
-                        x={x - 15}
-                        y="15"
-                        width="66"
-                        height="180"
-                        fill="transparent"
-                        style={{ cursor: "pointer" }}
-                      />
-
-                      {/* 툴팁 말풍선 */}
-                      <g className="chart-tooltip">
-                        <rect
-                          x={x - 42}
-                          y="15"
-                          width="120"
-                          height="64"
-                          fill="#0f172a"
-                          rx="6"
-                          style={{ opacity: 0.95 }}
-                        />
-                        <text x={x + 18} y="28" fill="#ffffff" fontSize="10" fontWeight="bold" textAnchor="middle">{day.dateStr}</text>
-                        <text x={x - 32} y="42" fill="#10b981" fontSize="9" textAnchor="start">성공: {day.successCount}건</text>
-                        <text x={x - 32} y="54" fill="#f59e0b" fontSize="9" textAnchor="start">일부: {day.partialCount}건</text>
-                        <text x={x - 32} y="66" fill="#ef4444" fontSize="9" textAnchor="start">오류: {day.issueCount}건</text>
-                      </g>
-
-                      {/* X축 날짜 텍스트 */}
-                      <text x={x + 18} y="208" fontSize="10.5" fontWeight="600" fill="#64748b" textAnchor="middle">{day.dateLabel}</text>
-                      <text x={x + 18} y="221" fontSize="9" fill="#94a3b8" textAnchor="middle">({total}건)</text>
-                    </g>
+                    </BlockStack>
                   );
+
+                  return [
+                    titleContent,
+                    `${item.inspectedQuantity} / ${item.orderedQuantity}`,
+                    statusBadge
+                  ];
                 })}
-              </svg>
-            </div>
-
-            {/* 범례 */}
-            <div style={{ display: "flex", justifyContent: "center", gap: "24px", marginTop: "12px", fontSize: "11.5px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ display: "inline-block", width: "12px", height: "12px", backgroundColor: "#10b981", borderRadius: "3px" }}></span>
-                <span style={{ color: "#475569", fontWeight: "600" }}>검수 성공 (SUCCESS)</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ display: "inline-block", width: "12px", height: "12px", backgroundColor: "#f59e0b", borderRadius: "3px" }}></span>
-                <span style={{ color: "#475569", fontWeight: "600" }}>일부 완료 (PARTIAL)</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ display: "inline-block", width: "12px", height: "12px", backgroundColor: "#ef4444", borderRadius: "3px" }}></span>
-                <span style={{ color: "#475569", fontWeight: "600" }}>문제 접수 (ISSUE / FAILED)</span>
-              </div>
-            </div>
-          </div>
-        </BlockStack>
-      </Card>
-    </Layout.Section>
-  </Layout>
-
-  {/* 🚢 컨테이너 입고 품목 상세 모달 */ }
-  <Modal
-    open={activeContainerModal}
-    onClose={() => {
-      setActiveContainerModal(false);
-      setModalContainerRef("");
-    }}
-    title={`🚢 컨테이너 입고 상세 품목 (${modalContainerRef})`}
-    primaryAction={{
-      content: "닫기",
-      onAction: () => {
-        setActiveContainerModal(false);
-        setModalContainerRef("");
-      },
-    }}
-    secondaryActions={[
-      {
-        content: "전체 카탈로그 조회",
-        onAction: () => {
-          navigate(`/app/container-catalog?containerRef=${encodeURIComponent(modalContainerRef)}`);
-        }
-      }
-    ]}
-  >
-    <Modal.Section>
-      {containerItemsFetcher.state === "submitting" || containerItemsFetcher.state === "loading" ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
-          <div className="spinner-loader" />
-        </div>
-      ) : containerItemsFetcher.data?.items ? (
-        <BlockStack gap="400">
-          <Text as="p" tone="subdued">
-            이 컨테이너에 적재되어 수입되는 Odoo ERP 상의 원본 품목 리스트와 수량입니다.
-          </Text>
-          <div style={{ maxHeight: "350px", overflowY: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
-                  <th style={{ padding: "8px", color: "#475569" }}>품목명 (Odoo Description)</th>
-                  <th style={{ padding: "8px", color: "#475569", textAlign: "right" }}>총 입고 예정 수량</th>
-                </tr>
-              </thead>
-              <tbody>
-                {containerItemsFetcher.data.items.map((item, idx) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "10px 8px", fontWeight: "600" }}>{item.productName}</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: "bold" }}>
-                      {item.qty.toLocaleString()} 개
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </BlockStack>
-      ) : (
-        <Text as="p" tone="critical">품목 정보를 불러오지 못했습니다.</Text>
-      )}
-    </Modal.Section>
-  </Modal>
-
-  {/* 검수 상세 정보 모달 */ }
-  <Modal
-    open={selectedLog !== null}
-    onClose={() => setSelectedLog(null)}
-    title={`${selectedLog?.orderName || ""} 검수 상세 내역`}
-    primaryAction={{
-      content: "닫기",
-      onAction: () => setSelectedLog(null),
-    }}
-    secondaryActions={
-      selectedLog && selectedLog.status !== "SUCCESS"
-        ? [
-          {
-            content: "검수 이어서 하기",
-            onAction: () => {
-              navigate(`/app/inspect?orderName=${encodeURIComponent(selectedLog.orderName)}`);
-            },
-          },
-        ]
-        : []
-    }
-  >
-    <Modal.Section>
-      {selectedLog && (
-        <BlockStack gap="400">
-          <InlineStack align="space-between">
-            <Text as="p" tone="subdued">
-              <strong>검수 일시:</strong> {dayjs(selectedLog.createdAt).format("YYYY-MM-DD HH:mm:ss")}
-            </Text>
-            <Text as="p" tone="subdued">
-              <strong>검수자:</strong> {selectedLog.inspectorName || "알 수 없음"}
-            </Text>
-          </InlineStack>
-
-          <Divider />
-
-          <Text variant="headingMd" as="h3">검수 상품 목록</Text>
-
-          <DataTable
-            columnContentTypes={['text', 'text', 'text']}
-            headings={['상품 정보', '검수 수량 / 주문 수량', '상태']}
-            rows={selectedLog.items.map(item => {
-              let statusBadge = <Badge tone="attention">대기</Badge>;
-              if (item.issueType) {
-                statusBadge = (
-                  <Badge tone="critical">
-                    🚨 {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
-                  </Badge>
-                );
-              } else if (item.inspectedQuantity === item.orderedQuantity) {
-                statusBadge = <Badge tone="success">✅ 완료</Badge>;
-              } else if (item.inspectedQuantity > 0) {
-                statusBadge = <Badge tone="warning">⚠️ 일부 완료</Badge>;
-              }
-
-              const titleContent = (
-                <BlockStack gap="100">
-                  <Text variant="bodyMd" fontWeight="bold">{item.productTitle}</Text>
-                  <Text variant="bodySm" color="subdued">
-                    {item.variantTitle && `${item.variantTitle} | `}SKU: {item.sku || "N/A"}
-                  </Text>
-                  {item.issueType && (
-                    <div style={{
-                      marginTop: "6px",
-                      background: "#fff5f5",
-                      padding: "8px",
-                      borderRadius: "6px",
-                      border: "1px solid #fee2e2",
-                      fontSize: "12px",
-                      whiteSpace: "normal"
-                    }}>
-                      <span style={{ fontWeight: "bold", color: "#e11d48" }}>
-                        {item.issueType === "REFUND" && "💸 환불 처리 요청"}
-                        {item.issueType === "CREDIT" && "🪙 스토어 크레딧 지급 요청"}
-                        {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 발송"}
-                      </span>
-                      {item.substitutedProductTitle && (
-                        <div style={{ marginTop: "2px", color: "#1e293b" }}>
-                          → <strong>대체 상품:</strong> {item.substitutedProductTitle}
-                        </div>
-                      )}
-                      {item.issueNote && (
-                        <div style={{ color: "#475569", marginTop: "2px", fontStyle: "italic" }}>
-                          메모: {item.issueNote}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </BlockStack>
-              );
-
-              return [
-                titleContent,
-                `${item.inspectedQuantity} / ${item.orderedQuantity}`,
-                statusBadge
-              ];
-            })}
-          />
-        </BlockStack>
-      )}
-    </Modal.Section>
-  </Modal>
+              />
+            </BlockStack>
+          )}
+        </Modal.Section>
+      </Modal>
     </Page >
   );
 }
