@@ -131,7 +131,7 @@ function Code128({ value, height = 36, moduleWidth = 1.1 }) {
 }
 
 export const action = async ({ request, params }) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
@@ -154,7 +154,7 @@ export const action = async ({ request, params }) => {
       create: {
         orderId,
         orderName,
-        shop: session.shop,
+        shop: "dawayo.myshopify.com",
         status: "PENDING",
         customShippingAddress,
         customBillingAddress,
@@ -209,8 +209,6 @@ export const action = async ({ request, params }) => {
 
 export const loader = async ({ request, params }) => {
   const { admin } = await authenticate.admin(request);
-  
-  // Split params.id by comma to support bulk printing
   const rawIds = params.id.split(",");
   const orderGids = rawIds.map(id => `gid://shopify/Order/${id.trim()}`);
 
@@ -247,6 +245,24 @@ export const loader = async ({ request, params }) => {
             totalTaxSet { shopMoney { amount currencyCode } }
             totalShippingPriceSet { shopMoney { amount currencyCode } }
             totalDiscountsSet { shopMoney { amount currencyCode } }
+            discountApplications(first: 10) {
+              edges {
+                node {
+                  allocationMethod
+                  targetSelection
+                  targetType
+                  value {
+                    ... on PricingPercentageValue {
+                      percentage
+                    }
+                    ... on MoneyV2 {
+                      amount
+                      currencyCode
+                    }
+                  }
+                }
+              }
+            }
             totalRefundedSet { shopMoney { amount currencyCode } }
             shippingLines(first: 1) {
               edges {
@@ -271,6 +287,14 @@ export const loader = async ({ request, params }) => {
                   discountedUnitPriceSet { shopMoney { amount currencyCode } }
                   originalTotalSet { shopMoney { amount currencyCode } }
                   discountedTotalSet { shopMoney { amount currencyCode } }
+                  discountAllocations {
+                    allocatedAmountSet {
+                      shopMoney {
+                        amount
+                        currencyCode
+                      }
+                    }
+                  }
                   taxable
                   taxLines {
                     title
@@ -282,6 +306,8 @@ export const loader = async ({ request, params }) => {
                     title
                     sku
                     barcode
+                    price
+                    compareAtPrice
                     inventoryItem {
                       measurement {
                         weight {
@@ -354,10 +380,29 @@ export const loader = async ({ request, params }) => {
         const isIcePackage = variantGid.endsWith("/54301230268745");
         const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
 
-        const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
-        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
-        const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
-        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
+        const unitOriginalRaw = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0.00");
+        const compareAtPriceRaw = parseFloat(variant?.compareAtPrice || "0.00");
+
+        let unitDiscountedRaw = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || "0.00");
+
+        const totalAllocatedDiscount = (item.discountAllocations || []).reduce((sum, alloc) => {
+          return sum + parseFloat(alloc.allocatedAmountSet?.shopMoney?.amount || "0.00");
+        }, 0);
+
+        if (totalAllocatedDiscount > 0 && item.quantity > 0) {
+          const allocPerUnit = totalAllocatedDiscount / item.quantity;
+          unitDiscountedRaw = Math.max(0, unitOriginalRaw - allocPerUnit);
+        }
+
+        let effectiveOriginalUnitPrice = unitOriginalRaw;
+        if (compareAtPriceRaw > unitOriginalRaw && (totalAllocatedDiscount > 0 || unitDiscountedRaw < unitOriginalRaw)) {
+          effectiveOriginalUnitPrice = compareAtPriceRaw;
+        }
+
+        const priceOriginal = effectiveOriginalUnitPrice.toFixed(2);
+        const priceDiscounted = unitDiscountedRaw.toFixed(2);
+        const totalOriginal = (effectiveOriginalUnitPrice * (item.quantity || 1)).toFixed(2);
+        const totalDiscounted = (unitDiscountedRaw * (item.quantity || 1)).toFixed(2);
 
         const lineTaxLines = item.taxLines || [];
         let originalTaxRate = 0;
@@ -520,10 +565,8 @@ export default function OrderPrintDetailPage() {
   const [taxDisplayMode, setTaxDisplayMode] = useState("GROSS");
   const [taxExemptionNote, setTaxExemptionNote] = useState("");
 
-  // For editing address of the first order (only used when orders.length === 1)
   const order = orders[0] || null;
 
-  // Address edit state (local for the form)
   const [shippingEdit, setShippingEdit] = useState({
     name: "",
     company: "",
@@ -581,7 +624,7 @@ export default function OrderPrintDetailPage() {
 
       const hasB2B = loaderData.orders.some(ord => ord.isB2B);
       setTaxDisplayMode(hasB2B ? "NET" : "GROSS");
-      
+
       const hasZeroTax = loaderData.orders.some(ord => ord.items.some(i => i.originalTaxRate === 0));
       if (hasZeroTax) {
         setTaxExemptionNote("Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge)");
@@ -613,7 +656,7 @@ export default function OrderPrintDetailPage() {
 
   if (loaderData?.error || orders.length === 0) {
     return (
-      <Page title="오류" backAction={{ content: "목록으로", onAction: () => navigate("/app/lieferschein") }}>
+      <Page title="오류" backAction={{ content: "창 닫기", onAction: () => window.close() }}>
         <Layout>
           <Layout.Section>
             <Card>
@@ -629,6 +672,7 @@ export default function OrderPrintDetailPage() {
 
   const handleSaveAddress = () => {
     if (!order) return;
+
     fetcher.submit(
       {
         intent: "save_address",
@@ -638,10 +682,12 @@ export default function OrderPrintDetailPage() {
         customVat: customVat,
         customerId: order.customerId || "",
       },
-      { method: "POST" }
+      {
+        method: "POST",
+        action: `/app/lieferschein/${order.id.split("/").pop()}`
+      }
     );
 
-    // Update local preview state for the first order
     setOrders(prev => prev.map((o, idx) => idx === 0 ? {
       ...o,
       customShippingAddress: shippingEdit,
@@ -703,243 +749,243 @@ export default function OrderPrintDetailPage() {
     if (docMode === "LIEFERSCHEIN" || docMode === "BOTH") {
       slips.push(
         <div key={`lieferschein-slip-${order.id}`} className="packing-slip lieferschein-slip">
-        <div className="header">
-          <div className="header-left">
-            <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
-              <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
-              {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
-                <div style={{
-                  border: "4px double #dc2626",
-                  color: "#dc2626",
-                  padding: "3px 8px",
-                  fontSize: "13px",
-                  fontWeight: "900",
-                  textTransform: "uppercase",
-                  transform: "rotate(-2.5deg)",
-                  display: "inline-block",
-                  fontFamily: "sans-serif",
-                  letterSpacing: "0.5px"
-                }}>
-                  {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
-                </div>
-              )}
-              {order.isB2B && (
-                <div style={{
-                  border: "4px double #1e293b",
-                  color: "#1e293b",
-                  padding: "3px 8px",
-                  fontSize: "13px",
-                  fontWeight: "900",
-                  textTransform: "uppercase",
-                  transform: "rotate(1.5deg)",
-                  display: "inline-block",
-                  fontFamily: "sans-serif",
-                  letterSpacing: "0.5px"
-                }}>
-                  B2B / WHOLESALE
-                </div>
-              )}
-            </div>
-            <table className="info-grid">
-              <tbody>
-                <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
-                <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
-                <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
-                <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
-                <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
-                <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
-                <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
-              </tbody>
-            </table>
-            <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
-              {order.isB2B && <div className="badge">B2B</div>}
-              {order.hasIcePackage && <div className="stamp-kuehl">KÜHLVERSAND</div>}
-            </div>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
-              <div style={{
-                padding: "6px 12px",
-                border: "3px solid #111111",
-                fontSize: "14px",
-                fontWeight: "800",
-                textTransform: "uppercase",
-                display: "inline-block",
-                color: "#111111"
-              }}>
-                {order.shippingMethod}
+          <div className="header">
+            <div className="header-left">
+              <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+                <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
+                {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
+                  <div style={{
+                    border: "4px double #dc2626",
+                    color: "#dc2626",
+                    padding: "3px 8px",
+                    fontSize: "13px",
+                    fontWeight: "900",
+                    textTransform: "uppercase",
+                    transform: "rotate(-2.5deg)",
+                    display: "inline-block",
+                    fontFamily: "sans-serif",
+                    letterSpacing: "0.5px"
+                  }}>
+                    {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
+                  </div>
+                )}
+                {order.isB2B && (
+                  <div style={{
+                    border: "4px double #1e293b",
+                    color: "#1e293b",
+                    padding: "3px 8px",
+                    fontSize: "13px",
+                    fontWeight: "900",
+                    textTransform: "uppercase",
+                    transform: "rotate(1.5deg)",
+                    display: "inline-block",
+                    fontFamily: "sans-serif",
+                    letterSpacing: "0.5px"
+                  }}>
+                    B2B / WHOLESALE
+                  </div>
+                )}
               </div>
-              {isInternational && (
+              <table className="info-grid">
+                <tbody>
+                  <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
+                  <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
+                  <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
+                  <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
+                  <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
+                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
+                  <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
+                </tbody>
+              </table>
+              <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
+                {order.isB2B && <div className="badge">B2B</div>}
+                {order.hasIcePackage && <div className="stamp-kuehl">KÜHLVERSAND</div>}
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
                 <div style={{
                   padding: "6px 12px",
-                  border: "4px solid #b91c1c",
-                  fontSize: "16px",
-                  fontWeight: "900",
+                  border: "3px solid #111111",
+                  fontSize: "14px",
+                  fontWeight: "800",
                   textTransform: "uppercase",
                   display: "inline-block",
-                  color: "#b91c1c"
+                  color: "#111111"
                 }}>
-                  {order.shippingAddress?.country?.toUpperCase() || ""}
+                  {order.shippingMethod}
                 </div>
-              )}
-            </div>
-          </div>
-          <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
-            <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
-            <div><strong>Popeye GmbH</strong></div>
-            <div>Erkrather Straße 343</div>
-            <div>40231 Düsseldorf</div>
-            <div>Deutschland</div>
-            {showBarcodes && (
-              <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
-                <div className="barcode-title">Order Barcode</div>
-                <Code128 value={order.name} height={38} moduleWidth={1.2} />
+                {isInternational && (
+                  <div style={{
+                    padding: "6px 12px",
+                    border: "4px solid #b91c1c",
+                    fontSize: "16px",
+                    fontWeight: "900",
+                    textTransform: "uppercase",
+                    display: "inline-block",
+                    color: "#b91c1c"
+                  }}>
+                    {order.shippingAddress?.country?.toUpperCase() || ""}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
-
-        <div className="address-row">
-          <div className="address-box">
-            <div className="section-title">Rechnungsadresse</div>
-            <div className="address-content">
-              <strong>{currentBillingAddress?.name || "-"}</strong><br />
-              {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
-              {currentBillingAddress?.address1}<br />
-              {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
-              {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
-              {currentBillingAddress?.country}
-              {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
-              {order.customVat && (
-                <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
-                  USt-IdNr.: {order.customVat}
+            </div>
+            <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
+              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
+              <div><strong>Popeye GmbH</strong></div>
+              <div>Erkrather Straße 343</div>
+              <div>40231 Düsseldorf</div>
+              <div>Deutschland</div>
+              {showBarcodes && (
+                <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
+                  <div className="barcode-title">Order Barcode</div>
+                  <Code128 value={order.name} height={38} moduleWidth={1.2} />
                 </div>
               )}
             </div>
           </div>
-          <div className="address-box">
-            <div className="section-title">Lieferadresse</div>
-            <div className="address-content">
-              <strong>{currentShippingAddress?.name || "-"}</strong><br />
-              {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
-              {currentShippingAddress?.address1}<br />
-              {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
-              {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
-              {currentShippingAddress?.country}
-              {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
+
+          <div className="address-row">
+            <div className="address-box">
+              <div className="section-title">Rechnungsadresse</div>
+              <div className="address-content">
+                <strong>{currentBillingAddress?.name || "-"}</strong><br />
+                {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
+                {currentBillingAddress?.address1}<br />
+                {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
+                {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
+                {currentBillingAddress?.country}
+                {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
+                {order.customVat && (
+                  <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
+                    USt-IdNr.: {order.customVat}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="address-box">
+              <div className="section-title">Lieferadresse</div>
+              <div className="address-content">
+                <strong>{currentShippingAddress?.name || "-"}</strong><br />
+                {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
+                {currentShippingAddress?.address1}<br />
+                {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
+                {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
+                {currentShippingAddress?.country}
+                {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
+              </div>
             </div>
           </div>
-        </div>
 
-        <table className="order-table">
-          <thead>
-            <tr>
-              {showImages && <th className="order-th-image">Bild</th>}
-              <th>Produkt</th>
-              <th className="order-th-qty">Menge</th>
-              {showSkus && <th className="order-th-location">Lagerplatz</th>}
-              {showBarcodes && <th className="order-th-barcode">Barcode</th>}
-              <th className="order-th-check">✓</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.items.map((item) => {
-              const isOriginalMultiQty = item.quantity > 1;
-              return (
-                <tr key={item.id}>
-                  {showImages && (
-                    <td>
-                      {item.imageUrl ? (
-                        <img className="product-image" src={item.imageUrl} alt="" />
-                      ) : (
-                        <div className="product-image-placeholder" />
-                      )}
-                    </td>
-                  )}
-                  <td>
-                    <div className="product-title">
-                      {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
-                      {item.title}
-                    </div>
-                    {item.germanTranslation && (
-                      <div className="german-title">{item.germanTranslation}</div>
-                    )}
-                    {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
-                    {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
-                    {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
-                  </td>
-                  <td className={`qty-cell ${isOriginalMultiQty ? "qty-cell-warning" : ""}`}>
-                    × {item.quantity}
-                    {isOriginalMultiQty && <span className="qty-warning-lbl">수량주의</span>}
-                  </td>
-                  {showSkus && (
-                    <td>
-                      {item.position ? (
-                        <div className="location-tag">{item.position}</div>
-                      ) : (
-                        <span className="missing-value">—</span>
-                      )}
-                    </td>
-                  )}
-                  {showBarcodes && (
-                    <td className="barcode-cell">
-                      {item.barcode ? (
-                        <Code128 value={item.barcode} height={36} moduleWidth={1.1} />
-                      ) : (
-                        <span className="missing-value">—</span>
-                      )}
-                    </td>
-                  )}
-                  <td className="check-cell">□</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {order.note && (
-          <div className="note-box">
-            <div className="note-title">Lieferhinweis</div>
-            <div className="note-content">{order.note}</div>
-          </div>
-        )}
-
-        <div className="picker-box">
-          <span>Gepackt von: _____________________</span>
-          <span>Kontrolliert von: _____________________</span>
-        </div>
-
-        <div className="footer">
-          <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
-          {order.isFirstPurchase && (
-            <div style={{
-              textAlign: "center",
-              margin: "8px 0",
-              padding: "8px",
-              border: "2px dashed #b91c1c",
-              borderRadius: "6px",
-              background: "#fff5f5",
-              color: "#b91c1c",
-              fontWeight: "bold",
-              fontSize: "12px"
-            }}>
-              Vielen Dank für Ihre erste Bestellung!
-            </div>
-          )}
-          <table className="footer-grid">
-            <tbody>
+          <table className="order-table">
+            <thead>
               <tr>
-                <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
-                <td><span className="footer-label">Email</span>service@dawayo.de</td>
-                <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
-                <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                {showImages && <th className="order-th-image">Bild</th>}
+                <th>Produkt</th>
+                <th className="order-th-qty">Menge</th>
+                {showSkus && <th className="order-th-location">Lagerplatz</th>}
+                {showBarcodes && <th className="order-th-barcode">Barcode</th>}
+                <th className="order-th-check">✓</th>
               </tr>
+            </thead>
+            <tbody>
+              {order.items.map((item) => {
+                const isOriginalMultiQty = item.quantity > 1;
+                return (
+                  <tr key={item.id}>
+                    {showImages && (
+                      <td>
+                        {item.imageUrl ? (
+                          <img className="product-image" src={item.imageUrl} alt="" />
+                        ) : (
+                          <div className="product-image-placeholder" />
+                        )}
+                      </td>
+                    )}
+                    <td>
+                      <div className="product-title">
+                        {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
+                        {item.title}
+                      </div>
+                      {item.germanTranslation && (
+                        <div className="german-title">{item.germanTranslation}</div>
+                      )}
+                      {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
+                      {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
+                      {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
+                    </td>
+                    <td className={`qty-cell ${isOriginalMultiQty ? "qty-cell-warning" : ""}`}>
+                      × {item.quantity}
+                      {isOriginalMultiQty && <span className="qty-warning-lbl">수량주의</span>}
+                    </td>
+                    {showSkus && (
+                      <td>
+                        {item.position ? (
+                          <div className="location-tag">{item.position}</div>
+                        ) : (
+                          <span className="missing-value">—</span>
+                        )}
+                      </td>
+                    )}
+                    {showBarcodes && (
+                      <td className="barcode-cell">
+                        {item.barcode ? (
+                          <Code128 value={item.barcode} height={36} moduleWidth={1.1} />
+                        ) : (
+                          <span className="missing-value">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="check-cell">□</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          <div className="shop-name">dawayo.de</div>
+
+          {order.note && (
+            <div className="note-box">
+              <div className="note-title">Lieferhinweis</div>
+              <div className="note-content">{order.note}</div>
+            </div>
+          )}
+
+          <div className="picker-box">
+            <span>Gepackt von: _____________________</span>
+            <span>Kontrolliert von: _____________________</span>
+          </div>
+
+          <div className="footer">
+            <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
+            {order.isFirstPurchase && (
+              <div style={{
+                textAlign: "center",
+                margin: "8px 0",
+                padding: "8px",
+                border: "2px dashed #b91c1c",
+                borderRadius: "6px",
+                background: "#fff5f5",
+                color: "#b91c1c",
+                fontWeight: "bold",
+                fontSize: "12px"
+              }}>
+                Vielen Dank für Ihre erste Bestellung!
+              </div>
+            )}
+            <table className="footer-grid">
+              <tbody>
+                <tr>
+                  <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
+                  <td><span className="footer-label">Email</span>service@dawayo.de</td>
+                  <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
+                  <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="shop-name">dawayo.de</div>
+          </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
     if (docMode === "RECHNUNG" || docMode === "BOTH") {
       const processedItems = order.items.map(item => {
@@ -947,7 +993,7 @@ export default function OrderPrintDetailPage() {
         const origRate = item.originalTaxRate ?? 7;
         const currentRate = item.taxRate ?? origRate;
         
-        const unitGross = parseFloat(item.priceDiscounted || 0);
+        const unitGross = parseFloat(item.priceDiscounted || item.priceOriginal || 0);
         const unitNet = unitGross / (1 + origRate / 100);
         
         const currentUnitGross = unitNet * (1 + currentRate / 100);
@@ -970,6 +1016,10 @@ export default function OrderPrintDetailPage() {
 
       const totalNetItems = processedItems.reduce((acc, i) => acc + i.totalNet, 0);
       const totalGrossItems = processedItems.reduce((acc, i) => acc + i.totalGross, 0);
+      const totalOriginalGrossItems = processedItems.reduce((acc, i) => {
+        const origUnitGross = parseFloat(i.priceOriginal || 0);
+        return acc + (origUnitGross * (i.quantity || 1));
+      }, 0);
 
       const origShippingRate = order.shippingTaxRate ?? 19;
       const currentShippingRate = order.shippingTaxRate ?? origShippingRate;
@@ -991,213 +1041,250 @@ export default function OrderPrintDetailPage() {
         vatBreakdown[currentShippingRate] += shippingVat;
       }
 
-      const grandTotalGross = totalGrossItems + currentShippingGross;
+      const grandTotalGross = parseFloat(order.totalPrice || 0);
       const grandTotalNet = totalNetItems + currentShippingNet;
 
-      const finalSubtotal = taxDisplayMode === "NET" ? totalNetItems : totalGrossItems;
+      const rawSubtotal = parseFloat(order.subtotalPrice || 0);
+      const rawDiscounts = parseFloat(order.totalDiscounts || 0);
+
+      const finalSubtotal = taxDisplayMode === "NET" 
+        ? totalNetItems 
+        : (totalOriginalGrossItems > rawSubtotal + 0.01 ? totalOriginalGrossItems : rawSubtotal);
       const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
       const finalTotal = grandTotalGross;
 
       slips.push(
         <div key={`rechnung-slip-${order.id}`} className="packing-slip rechnung-slip">
-        <div className="header">
-          <div className="header-left">
-            <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
-              <div className="document-title" style={{ margin: 0 }}>Rechnung</div>
-              {order.isB2B && (
-                <div style={{
-                  border: "4px double #1e293b",
-                  color: "#1e293b",
-                  padding: "3px 8px",
-                  fontSize: "13px",
-                  fontWeight: "900",
-                  textTransform: "uppercase",
-                  transform: "rotate(1.5deg)",
-                  display: "inline-block",
-                  fontFamily: "sans-serif",
-                  letterSpacing: "0.5px"
-                }}>
-                  B2B / WHOLESALE
+          <div className="header">
+            <div className="header-left">
+              <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+                <div className="document-title" style={{ margin: 0 }}>Rechnung</div>
+                {order.isB2B && (
+                  <div style={{
+                    border: "4px double #1e293b",
+                    color: "#1e293b",
+                    padding: "3px 8px",
+                    fontSize: "13px",
+                    fontWeight: "900",
+                    textTransform: "uppercase",
+                    transform: "rotate(1.5deg)",
+                    display: "inline-block",
+                    fontFamily: "sans-serif",
+                    letterSpacing: "0.5px"
+                  }}>
+                    B2B / WHOLESALE
+                  </div>
+                )}
+              </div>
+              <table className="info-grid">
+                <tbody>
+                  <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
+                  <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
+                  <tr><td className="info-label">Rechnungsdatum</td><td className="info-value">{order.createdAt}</td></tr>
+                  <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
+                  <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
+                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
+                  <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
+              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
+              <div><strong>Popeye GmbH</strong></div>
+              <div>Erkrather Straße 343</div>
+              <div>40231 Düsseldorf</div>
+              <div>Deutschland</div>
+              {showBarcodes && (
+                <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
+                  <div className="barcode-title">Order Barcode</div>
+                  <Code128 value={order.name} height={38} moduleWidth={1.2} />
                 </div>
               )}
             </div>
-            <table className="info-grid">
+          </div>
+
+          <div className="address-row">
+            <div className="address-box">
+              <div className="section-title">Rechnungsadresse</div>
+              <div className="address-content">
+                <strong>{currentBillingAddress?.name || "-"}</strong><br />
+                {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
+                {currentBillingAddress?.address1}<br />
+                {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
+                {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
+                {currentBillingAddress?.country}
+                {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
+                {order.customVat && (
+                  <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
+                    USt-IdNr.: {order.customVat}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="address-box">
+              <div className="section-title">Lieferadresse</div>
+              <div className="address-content">
+                <strong>{currentShippingAddress?.name || "-"}</strong><br />
+                {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
+                {currentShippingAddress?.address1}<br />
+                {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
+                {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
+                {currentShippingAddress?.country}
+                {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
+              </div>
+            </div>
+          </div>
+
+          <table className="order-table">
+            <thead>
+              <tr>
+                {showImages && <th className="order-th-image">Bild</th>}
+                <th>Produkt</th>
+                <th className="order-th-qty" style={{ textAlign: 'center' }}>Menge</th>
+                <th style={{ width: '90px', textAlign: 'right' }}>Einzelpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
+                <th style={{ width: '60px', textAlign: 'center' }}>MwSt.</th>
+                <th style={{ width: '90px', textAlign: 'right' }}>Gesamtpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {processedItems.map((item) => {
+                const unitPrice = taxDisplayMode === "NET" ? item.unitNet : item.unitGross;
+                const totalPrice = taxDisplayMode === "NET" ? item.totalNet : item.totalGross;
+                
+                const origUnitGross = parseFloat(item.priceOriginal || 0);
+                const origRate = item.originalTaxRate ?? 7;
+                const origUnitNet = origUnitGross / (1 + origRate / 100);
+                const origUnitPrice = taxDisplayMode === "NET" ? origUnitNet : origUnitGross;
+                const origTotalPrice = origUnitPrice * item.quantity;
+                
+                const hasDiscount = origUnitPrice > unitPrice + 0.001;
+
+                return (
+                  <tr key={item.id}>
+                    {showImages && (
+                      <td>
+                        {item.imageUrl ? (
+                          <img className="product-image" src={item.imageUrl} alt="" />
+                        ) : (
+                          <div className="product-image-placeholder" />
+                        )}
+                      </td>
+                    )}
+                    <td>
+                      <div className="product-title">{item.title}</div>
+                      {item.germanTranslation && (
+                        <div className="german-title">{item.germanTranslation}</div>
+                      )}
+                      {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
+                      {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
+                      {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
+                    </td>
+                    <td className="qty-cell-rechnung" style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold' }}>
+                      {item.quantity}
+                    </td>
+                    <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
+                      {hasDiscount && (
+                        <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px' }}>
+                          {origUnitPrice.toFixed(2)} {order.currencyCode}
+                        </div>
+                      )}
+                      <span style={{ fontWeight: hasDiscount ? 'bold' : 'normal', color: hasDiscount ? '#b91c1c' : 'inherit' }}>
+                        {unitPrice.toFixed(2)} {order.currencyCode}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'center', fontSize: '11px', fontFamily: 'monospace' }}>
+                      {item.currentRate}%
+                    </td>
+                    <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                      {hasDiscount && (
+                        <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px', fontWeight: 'normal' }}>
+                          {origTotalPrice.toFixed(2)} {order.currencyCode}
+                        </div>
+                      )}
+                      <span style={{ color: hasDiscount ? '#b91c1c' : 'inherit' }}>
+                        {totalPrice.toFixed(2)} {order.currencyCode}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className="invoice-summary-wrapper" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+            <table className="invoice-summary-table" style={{ width: '280px', borderCollapse: 'collapse' }}>
               <tbody>
-                <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
-                <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
-                <tr><td className="info-label">Rechnungsdatum</td><td className="info-value">{order.createdAt}</td></tr>
-                <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
-                <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
-                <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
-                <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
+                <tr style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
+                    {taxDisplayMode === "NET" ? "Zwischensumme (Netto):" : "Zwischensumme (Brutto):"}
+                  </td>
+                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
+                    {finalSubtotal.toFixed(2)} {order.currencyCode}
+                  </td>
+                </tr>
+                {(() => {
+                  const discountVal = rawDiscounts > 0 
+                    ? rawDiscounts 
+                    : (totalOriginalGrossItems - rawSubtotal > 0.01 ? totalOriginalGrossItems - rawSubtotal : 0);
+                  
+                  if (taxDisplayMode === "GROSS" && discountVal > 0) {
+                    return (
+                      <tr style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
+                        <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
+                          -{discountVal.toFixed(2)} {order.currencyCode}
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return null;
+                })()}
+                <tr style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
+                    {taxDisplayMode === "NET" ? "Versandkosten (Netto):" : "Versandkosten:"}
+                  </td>
+                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
+                    {finalShipping.toFixed(2)} {order.currencyCode}
+                  </td>
+                </tr>
+                {Object.entries(vatBreakdown).map(([rate, amount]) => (
+                  <tr key={rate} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
+                      {taxDisplayMode === "NET" ? "zzgl." : "inkl."} {rate}% MwSt.:
+                    </td>
+                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
+                      {amount.toFixed(2)} {order.currencyCode}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '2px solid #111' }}>
+                  <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>
+                    {taxDisplayMode === "NET" ? "Gesamtsumme (Brutto):" : "Gesamtsumme:"}
+                  </td>
+                  <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
+                    {finalTotal.toFixed(2)} {order.currencyCode}
+                  </td>
+                </tr>
+                {parseFloat(order.totalRefunded) > 0 && (
+                  <>
+                    <tr style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '4px 0', fontSize: '11px', color: '#b91c1c', fontWeight: 'bold' }}>Erstattet (Refunded):</td>
+                      <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c', fontWeight: 'bold' }}>
+                        -{parseFloat(order.totalRefunded).toFixed(2)} {order.currencyCode}
+                      </td>
+                    </tr>
+                    <tr style={{ borderTop: '1px solid #111', borderBottom: '2px double #111' }}>
+                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gezahlter Betrag (Net Paid):</td>
+                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
+                        {(finalTotal - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
+                      </td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
           </div>
-          <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
-            <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
-            <div><strong>Popeye GmbH</strong></div>
-            <div>Erkrather Straße 343</div>
-            <div>40231 Düsseldorf</div>
-            <div>Deutschland</div>
-            {showBarcodes && (
-              <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
-                <div className="barcode-title">Order Barcode</div>
-                <Code128 value={order.name} height={38} moduleWidth={1.2} />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="address-row">
-          <div className="address-box">
-            <div className="section-title">Rechnungsadresse</div>
-            <div className="address-content">
-              <strong>{currentBillingAddress?.name || "-"}</strong><br />
-              {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
-              {currentBillingAddress?.address1}<br />
-              {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
-              {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
-              {currentBillingAddress?.country}
-              {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
-              {order.customVat && (
-                <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
-                  USt-IdNr.: {order.customVat}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="address-box">
-            <div className="section-title">Lieferadresse</div>
-            <div className="address-content">
-              <strong>{currentShippingAddress?.name || "-"}</strong><br />
-              {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
-              {currentShippingAddress?.address1}<br />
-              {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
-              {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
-              {currentShippingAddress?.country}
-              {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
-            </div>
-          </div>
-        </div>
-
-        <table className="order-table">
-          <thead>
-            <tr>
-              {showImages && <th className="order-th-image">Bild</th>}
-              <th>Produkt</th>
-              <th className="order-th-qty" style={{ textAlign: 'center' }}>Menge</th>
-              <th style={{ width: '90px', textAlign: 'right' }}>Einzelpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
-              <th style={{ width: '60px', textAlign: 'center' }}>MwSt.</th>
-              <th style={{ width: '90px', textAlign: 'right' }}>Gesamtpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
-            </tr>
-          </thead>
-          <tbody>
-            {processedItems.map((item) => {
-              const unitPrice = taxDisplayMode === "NET" ? item.unitNet : item.unitGross;
-              const totalPrice = taxDisplayMode === "NET" ? item.totalNet : item.totalGross;
-              return (
-                <tr key={item.id}>
-                  {showImages && (
-                    <td>
-                      {item.imageUrl ? (
-                        <img className="product-image" src={item.imageUrl} alt="" />
-                      ) : (
-                        <div className="product-image-placeholder" />
-                      )}
-                    </td>
-                  )}
-                  <td>
-                    <div className="product-title">{item.title}</div>
-                    {item.germanTranslation && (
-                      <div className="german-title">{item.germanTranslation}</div>
-                    )}
-                    {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
-                    {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
-                    {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
-                  </td>
-                  <td className="qty-cell-rechnung" style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold' }}>
-                    {item.quantity}
-                  </td>
-                  <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
-                    {unitPrice.toFixed(2)} {order.currencyCode}
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '11px', fontFamily: 'monospace' }}>
-                    {item.currentRate}%
-                  </td>
-                  <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                    {totalPrice.toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        <div className="invoice-summary-wrapper" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-          <table className="invoice-summary-table" style={{ width: '280px', borderCollapse: 'collapse' }}>
-            <tbody>
-              <tr style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
-                  {taxDisplayMode === "NET" ? "Zwischensumme (Netto):" : "Zwischensumme (Brutto):"}
-                </td>
-                <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
-                  {finalSubtotal.toFixed(2)} {order.currencyCode}
-                </td>
-              </tr>
-              {taxDisplayMode === "GROSS" && parseFloat(order.totalDiscounts) > 0 && (
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
-                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
-                    -{parseFloat(order.totalDiscounts).toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-              )}
-              <tr style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
-                  {taxDisplayMode === "NET" ? "Versandkosten (Netto):" : "Versandkosten:"}
-                </td>
-                <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
-                  {finalShipping.toFixed(2)} {order.currencyCode}
-                </td>
-              </tr>
-              {Object.entries(vatBreakdown).map(([rate, amount]) => (
-                <tr key={rate} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
-                    {taxDisplayMode === "NET" ? "zzgl." : "inkl."} {rate}% MwSt.:
-                  </td>
-                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
-                    {amount.toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-              ))}
-              <tr style={{ borderTop: '2px solid #111' }}>
-                <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>
-                  {taxDisplayMode === "NET" ? "Gesamtsumme (Brutto):" : "Gesamtsumme:"}
-                </td>
-                <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
-                  {finalTotal.toFixed(2)} {order.currencyCode}
-                </td>
-              </tr>
-              {parseFloat(order.totalRefunded) > 0 && (
-                <>
-                  <tr style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#b91c1c', fontWeight: 'bold' }}>Erstattet (Refunded):</td>
-                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c', fontWeight: 'bold' }}>
-                      -{parseFloat(order.totalRefunded).toFixed(2)} {order.currencyCode}
-                    </td>
-                  </tr>
-                  <tr style={{ borderTop: '1px solid #111', borderBottom: '2px double #111' }}>
-                    <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gezahlter Betrag (Net Paid):</td>
-                    <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
-                      {(finalTotal - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
-                    </td>
-                  </tr>
-                </>
-              )}
-            </tbody>
-          </table>
-        </div>
 
           {taxExemptionNote && (
             <div style={{ 
@@ -1220,38 +1307,38 @@ export default function OrderPrintDetailPage() {
             Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
           </div>
 
-        <div className="footer">
-          <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
-          {order.isFirstPurchase && (
-            <div style={{
-              textAlign: "center",
-              margin: "8px 0",
-              padding: "8px",
-              border: "2px dashed #b91c1c",
-              borderRadius: "6px",
-              background: "#fff5f5",
-              color: "#b91c1c",
-              fontWeight: "bold",
-              fontSize: "12px"
-            }}>
-              Vielen Dank für Ihre erste Bestellung!
-            </div>
-          )}
-          <table className="footer-grid">
-            <tbody>
-              <tr>
-                <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
-                <td><span className="footer-label">Email</span>service@dawayo.de</td>
-                <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
-                <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
-              </tr>
-            </tbody>
-          </table>
-          <div className="shop-name">dawayo.de</div>
+          <div className="footer">
+            <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
+            {order.isFirstPurchase && (
+              <div style={{
+                textAlign: "center",
+                margin: "8px 0",
+                padding: "8px",
+                border: "2px dashed #b91c1c",
+                borderRadius: "6px",
+                background: "#fff5f5",
+                color: "#b91c1c",
+                fontWeight: "bold",
+                fontSize: "12px"
+              }}>
+                Vielen Dank für Ihre erste Bestellung!
+              </div>
+            )}
+            <table className="footer-grid">
+              <tbody>
+                <tr>
+                  <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
+                  <td><span className="footer-label">Email</span>service@dawayo.de</td>
+                  <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
+                  <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="shop-name">dawayo.de</div>
+          </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
   });
 
   return (
@@ -1260,8 +1347,8 @@ export default function OrderPrintDetailPage() {
         <Page
           title={orders.length === 1 ? `주문 내역서 출력: ${order?.name || ""}` : `복수 주문 내역서 출력 (${orders.length}건)`}
           backAction={{
-            content: "목록으로",
-            onAction: () => navigate("/app/lieferschein"),
+            content: "창 닫기",
+            onAction: () => window.close(),
           }}
           primaryAction={{
             content: "내역서 인쇄하기",
@@ -1359,41 +1446,29 @@ export default function OrderPrintDetailPage() {
                           </div>
                         ))}
                       </BlockStack>
+                      <Button onClick={handleSaveAddress} loading={fetcher.state === "submitting"}>
+                        주소 및 설정 저장
+                      </Button>
                     </BlockStack>
-                  </Card>
-
-                  <Card>
-                    <Button variant="primary" fullWidth onClick={handleSaveAddress} loading={fetcher.state === "submitting"}>
-                      주소 수정본 저장하기
-                    </Button>
                   </Card>
                 </BlockStack>
               </Layout.Section>
-            ) : (
-              <Layout.Section variant="oneThird">
-                <Card>
-                  <BlockStack gap="200">
-                    <Text variant="headingMd" as="h3">복수 주문 출력 모드</Text>
-                    <Text as="p" color="subdued">복수 주문 인쇄 시에는 개별 주소 수정 기능이 비활성화됩니다. 각 주문의 기본 배송지/청구지 주소로 출력됩니다.</Text>
-                  </BlockStack>
-                </Card>
-              </Layout.Section>
-            )}
+            ) : null}
 
-            {/* 오른쪽: 인쇄 설정 */}
+            {/* 오른쪽: 문서 설정 및 인쇄 미리보기 */}
             <Layout.Section>
               <BlockStack gap="400">
                 <Card>
                   <BlockStack gap="400">
-                    <Text variant="headingMd" as="h3">인쇄 옵션</Text>
-                    <InlineStack gap="400" wrap={true}>
-                      <Box minWidth="200px">
+                    <Text variant="headingMd" as="h3">문서 선택 및 기본 옵션</Text>
+                    <InlineStack gap="400" wrap>
+                      <Box style={{ minWidth: "220px" }}>
                         <Select
                           label="출력 문서 종류"
                           options={[
-                            { label: 'Lieferschein (납품서만)', value: 'LIEFERSCHEIN' },
-                            { label: 'Rechnung (영수증만)', value: 'RECHNUNG' },
-                            { label: 'Beide (납품서 + 영수증)', value: 'BOTH' },
+                            { label: "Lieferschein (납품서만)", value: "LIEFERSCHEIN" },
+                            { label: "Rechnung (영수증만)", value: "RECHNUNG" },
+                            { label: "Lieferschein + Rechnung (둘 다 출력)", value: "BOTH" },
                           ]}
                           value={docMode}
                           onChange={setDocMode}
