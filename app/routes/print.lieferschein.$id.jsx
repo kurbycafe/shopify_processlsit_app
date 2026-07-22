@@ -307,6 +307,14 @@ export const loader = async ({ request, params }) => {
                   discountedUnitPriceSet { shopMoney { amount currencyCode } }
                   originalTotalSet { shopMoney { amount currencyCode } }
                   discountedTotalSet { shopMoney { amount currencyCode } }
+                  discountAllocations {
+                    allocatedAmountSet {
+                      shopMoney {
+                        amount
+                        currencyCode
+                      }
+                    }
+                  }
                   taxable
                   taxLines {
                     title
@@ -394,12 +402,31 @@ export const loader = async ({ request, params }) => {
 
         const unitOriginalRaw = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0.00");
         const compareAtPriceRaw = parseFloat(variant?.compareAtPrice || "0.00");
-        const effectiveOriginalUnitPrice = compareAtPriceRaw > unitOriginalRaw ? compareAtPriceRaw : unitOriginalRaw;
+        
+        let unitDiscountedRaw = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || "0.00");
+        
+        // Calculate discount allocations if present (e.g. Draft order / Order level percentage discounts)
+        const totalAllocatedDiscount = (item.discountAllocations || []).reduce((sum, alloc) => {
+          return sum + parseFloat(alloc.allocatedAmountSet?.shopMoney?.amount || "0.00");
+        }, 0);
+
+        if (totalAllocatedDiscount > 0 && item.quantity > 0) {
+          const allocPerUnit = totalAllocatedDiscount / item.quantity;
+          unitDiscountedRaw = Math.max(0, unitOriginalRaw - allocPerUnit);
+        }
+
+        let effectiveOriginalUnitPrice = unitOriginalRaw;
+        if (compareAtPriceRaw > unitOriginalRaw) {
+          effectiveOriginalUnitPrice = compareAtPriceRaw;
+          if (unitDiscountedRaw >= unitOriginalRaw) {
+            unitDiscountedRaw = unitOriginalRaw;
+          }
+        }
 
         const priceOriginal = effectiveOriginalUnitPrice.toFixed(2);
-        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
+        const priceDiscounted = unitDiscountedRaw.toFixed(2);
         const totalOriginal = (effectiveOriginalUnitPrice * (item.quantity || 1)).toFixed(2);
-        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
+        const totalDiscounted = (unitDiscountedRaw * (item.quantity || 1)).toFixed(2);
 
         const lineTaxLines = item.taxLines || [];
         let originalTaxRate = 0;
@@ -1038,10 +1065,12 @@ export default function OrderPrintDetailPage() {
         vatBreakdown[currentShippingRate] += shippingVat;
       }
 
-      const grandTotalGross = totalGrossItems + currentShippingGross;
+      const grandTotalGross = (order.items.every(i => i.taxRate === i.originalTaxRate) && (order.shippingTaxRate ?? 19) === 19) 
+        ? parseFloat(order.totalPrice || 0) 
+        : totalGrossItems + currentShippingGross;
       const grandTotalNet = totalNetItems + currentShippingNet;
 
-      const finalSubtotal = taxDisplayMode === "NET" ? totalNetItems : totalGrossItems;
+      const finalSubtotal = taxDisplayMode === "NET" ? totalNetItems : (parseFloat(order.subtotalPrice || 0) > 0 && order.items.every(i => i.taxRate === i.originalTaxRate) ? parseFloat(order.subtotalPrice || 0) : totalGrossItems);
       const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
       const finalTotal = grandTotalGross;
 
