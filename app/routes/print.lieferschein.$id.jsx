@@ -1077,7 +1077,7 @@ export default function OrderPrintDetailPage() {
 
       const finalSubtotal = taxDisplayMode === "NET" 
         ? totalNetItems 
-        : (rawSubtotal > 0 ? rawSubtotal : totalOriginalGrossItems);
+        : (totalOriginalGrossItems > rawSubtotal + 0.01 ? totalOriginalGrossItems : rawSubtotal);
       const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
       const finalTotal = grandTotalGross;
 
@@ -1251,14 +1251,23 @@ export default function OrderPrintDetailPage() {
                   {finalSubtotal.toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
-              {taxDisplayMode === "GROSS" && rawDiscounts > 0 && (
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
-                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
-                    -{rawDiscounts.toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-              )}
+              {(() => {
+                const discountVal = rawDiscounts > 0 
+                  ? rawDiscounts 
+                  : (totalOriginalGrossItems - rawSubtotal > 0.01 ? totalOriginalGrossItems - rawSubtotal : 0);
+                
+                if (taxDisplayMode === "GROSS" && discountVal > 0) {
+                  return (
+                    <tr style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
+                      <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
+                        -{discountVal.toFixed(2)} {order.currencyCode}
+                      </td>
+                    </tr>
+                  );
+                }
+                return null;
+              })()}
               <tr style={{ borderBottom: '1px solid #eee' }}>
                 <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
                   {taxDisplayMode === "NET" ? "Versandkosten (Netto):" : "Versandkosten:"}
