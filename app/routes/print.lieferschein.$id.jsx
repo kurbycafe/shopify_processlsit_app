@@ -1137,6 +1137,15 @@ export default function OrderPrintDetailPage() {
             {processedItems.map((item) => {
               const unitPrice = taxDisplayMode === "NET" ? item.unitNet : item.unitGross;
               const totalPrice = taxDisplayMode === "NET" ? item.totalNet : item.totalGross;
+              
+              const origUnitGross = parseFloat(item.priceOriginal || 0);
+              const origRate = item.originalTaxRate ?? 7;
+              const origUnitNet = origUnitGross / (1 + origRate / 100);
+              const origUnitPrice = taxDisplayMode === "NET" ? origUnitNet : origUnitGross;
+              const origTotalPrice = origUnitPrice * item.quantity;
+              
+              const hasDiscount = origUnitPrice > unitPrice + 0.001;
+
               return (
                 <tr key={item.id}>
                   {showImages && (
@@ -1161,13 +1170,27 @@ export default function OrderPrintDetailPage() {
                     {item.quantity}
                   </td>
                   <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
-                    {unitPrice.toFixed(2)} {order.currencyCode}
+                    {hasDiscount && (
+                      <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px' }}>
+                        {origUnitPrice.toFixed(2)} {order.currencyCode}
+                      </div>
+                    )}
+                    <span style={{ fontWeight: hasDiscount ? 'bold' : 'normal', color: hasDiscount ? '#b91c1c' : 'inherit' }}>
+                      {unitPrice.toFixed(2)} {order.currencyCode}
+                    </span>
                   </td>
                   <td style={{ textAlign: 'center', fontSize: '11px', fontFamily: 'monospace' }}>
                     {item.currentRate}%
                   </td>
                   <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                    {totalPrice.toFixed(2)} {order.currencyCode}
+                    {hasDiscount && (
+                      <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px', fontWeight: 'normal' }}>
+                        {origTotalPrice.toFixed(2)} {order.currencyCode}
+                      </div>
+                    )}
+                    <span style={{ color: hasDiscount ? '#b91c1c' : 'inherit' }}>
+                      {totalPrice.toFixed(2)} {order.currencyCode}
+                    </span>
                   </td>
                 </tr>
               );
