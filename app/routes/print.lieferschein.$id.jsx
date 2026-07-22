@@ -1044,6 +1044,10 @@ export default function OrderPrintDetailPage() {
 
       const totalNetItems = processedItems.reduce((acc, i) => acc + i.totalNet, 0);
       const totalGrossItems = processedItems.reduce((acc, i) => acc + i.totalGross, 0);
+      const totalOriginalGrossItems = processedItems.reduce((acc, i) => {
+        const origUnitGross = parseFloat(i.priceOriginal || 0);
+        return acc + (origUnitGross * (i.quantity || 1));
+      }, 0);
 
       const origShippingRate = order.shippingTaxRate ?? 19;
       const currentShippingRate = order.shippingTaxRate ?? origShippingRate;
@@ -1065,12 +1069,15 @@ export default function OrderPrintDetailPage() {
         vatBreakdown[currentShippingRate] += shippingVat;
       }
 
-      const grandTotalGross = (order.items.every(i => i.taxRate === i.originalTaxRate) && (order.shippingTaxRate ?? 19) === 19) 
-        ? parseFloat(order.totalPrice || 0) 
-        : totalGrossItems + currentShippingGross;
+      const grandTotalGross = parseFloat(order.totalPrice || 0);
       const grandTotalNet = totalNetItems + currentShippingNet;
 
-      const finalSubtotal = taxDisplayMode === "NET" ? totalNetItems : (parseFloat(order.subtotalPrice || 0) > 0 && order.items.every(i => i.taxRate === i.originalTaxRate) ? parseFloat(order.subtotalPrice || 0) : totalGrossItems);
+      const rawSubtotal = parseFloat(order.subtotalPrice || 0);
+      const rawDiscounts = parseFloat(order.totalDiscounts || 0);
+
+      const finalSubtotal = taxDisplayMode === "NET" 
+        ? totalNetItems 
+        : (rawSubtotal > 0 ? rawSubtotal : totalOriginalGrossItems);
       const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
       const finalTotal = grandTotalGross;
 
@@ -1244,11 +1251,11 @@ export default function OrderPrintDetailPage() {
                   {finalSubtotal.toFixed(2)} {order.currencyCode}
                 </td>
               </tr>
-              {taxDisplayMode === "GROSS" && parseFloat(order.totalDiscounts) > 0 && (
+              {taxDisplayMode === "GROSS" && rawDiscounts > 0 && (
                 <tr style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
                   <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
-                    -{parseFloat(order.totalDiscounts).toFixed(2)} {order.currencyCode}
+                    -{rawDiscounts.toFixed(2)} {order.currencyCode}
                   </td>
                 </tr>
               )}
