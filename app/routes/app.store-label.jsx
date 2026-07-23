@@ -439,15 +439,19 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
 
   // ==========================================
   // 3. Brother QL-700 (Image 1 커스텀 레이아웃 & 실시간 설정 연동)
-    const cfg = {
-      titleFontSize: settings?.titleFontSize ?? 10,
-      priceFontSize: settings?.priceFontSize ?? 18,
-      barcodeHeight: settings?.barcodeHeight ?? 20,
-      showKoreanTitle: settings?.showKoreanTitle ?? true,
-      showMhd: settings?.showMhd ?? true,
-      showUnitPrices: settings?.showUnitPrices ?? true,
-      showSku: settings?.showSku ?? true,
-    };
+  // ==========================================
+  const isSale = finalBadgeType === "SALE";
+  const isNew = finalBadgeType === "NEW";
+
+  const cfg = {
+    titleFontSize: settings?.titleFontSize ?? 10,
+    priceFontSize: settings?.priceFontSize ?? 18,
+    barcodeHeight: settings?.barcodeHeight ?? 20,
+    showKoreanTitle: settings?.showKoreanTitle ?? true,
+    showMhd: settings?.showMhd ?? true,
+    showUnitPrices: settings?.showUnitPrices ?? true,
+    showSku: settings?.showSku ?? true,
+  };
 
     const qlHeight = "29mm";
     const qlPreviewHeight = "110px";
