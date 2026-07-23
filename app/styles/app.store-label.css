@@ -136,8 +136,7 @@
 }
 
 .label-queue-copy {
-  transform: scale(0.92);
-  transform-origin: left center;
+  transform: none;
 }
 
 .label-queue-meta {
@@ -371,9 +370,12 @@
 
   .store-label.store-label-print {
     width: 62mm !important;
-    padding: 0.8mm 1.5mm !important;
+    height: 29mm !important;
+    max-height: 29mm !important;
+    padding: 3mm 3.5mm !important;
     border: none !important;
     box-sizing: border-box !important;
+    overflow: hidden !important;
   }
 
   /* 마지막 장 백지 출력 방지 */

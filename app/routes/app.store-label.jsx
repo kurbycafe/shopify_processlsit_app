@@ -462,6 +462,26 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     ? item.productTitle 
     : "";
 
+  // 💡 스마트 폰트 스케일링 (긴 상품명도 말줄임 ... 없이 100% 전체 표기)
+  const calculateGermanFontSize = (titleStr, basePt) => {
+    const len = titleStr.length;
+    if (len > 45) return Math.max(7.2, basePt - 2.5);
+    if (len > 30) return Math.max(7.8, basePt - 1.5);
+    if (len > 20) return Math.max(8.5, basePt - 0.8);
+    return basePt;
+  };
+
+  const calculateKoreanFontSize = (titleStr, basePt) => {
+    const len = titleStr.length;
+    const subPt = Math.max(6.8, basePt - 2.5);
+    if (len > 40) return Math.max(6.0, subPt - 1.5);
+    if (len > 25) return Math.max(6.5, subPt - 0.8);
+    return subPt;
+  };
+
+  const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
+  const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
+
   // 날짜 포맷 (German DD.MM.YYYY)
   const formatMhd = (dateStr) => {
     if (!dateStr) return "";
@@ -480,11 +500,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
       className={`store-label ${printMode ? "store-label-print" : ""}`} 
       style={{ 
         position: "relative",
-        width: printMode ? "62mm" : "234px",
-        height: printMode ? qlHeight : qlPreviewHeight,
-        maxHeight: printMode ? qlHeight : qlPreviewHeight,
+        width: "62mm",
+        height: "29mm",
+        maxHeight: "29mm",
         boxSizing: "border-box",
-        padding: printMode ? "1.2mm 2mm" : "6px 8px",
+        padding: "3mm 3.5mm",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -518,27 +538,26 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         )}
       </div>
 
-      {/* 2. 상품명 영역 (독일어 타이틀 + 한국어 서브 타이틀) */}
+      {/* 2. 상품명 영역 (스마트 폰트 스케일링 & 말줄임 ... 완전 제거) */}
       <div style={{ 
         flex: 1, 
         display: "flex", 
         flexDirection: "column", 
         justifyContent: "flex-start", 
-        margin: "1px 0", 
+        margin: "0.5px 0", 
         width: "100%",
         overflow: "hidden"
       }}>
         {/* 독일어 상품명 */}
         <div style={{ 
-          fontSize: `${cfg.titleFontSize}pt`, 
+          fontSize: `${germanFontSizePt}pt`, 
           fontWeight: "800", 
-          lineHeight: "1.05", 
+          lineHeight: "1.02", 
           color: "#000000", 
           display: "-webkit-box",
-          WebkitLineClamp: koreanTitle ? 1 : 2,
+          WebkitLineClamp: koreanTitle ? 2 : 3,
           WebkitBoxOrient: "vertical",
           overflow: "hidden",
-          textOverflow: "ellipsis",
           wordBreak: "break-word",
           overflowWrap: "break-word",
           margin: 0,
@@ -550,10 +569,10 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         {/* 한국어 상품명 */}
         {koreanTitle && (
           <div style={{ 
-            fontSize: `${Math.max(7, cfg.titleFontSize - 2.5)}pt`, 
+            fontSize: `${koreanFontSizePt}pt`, 
             color: "#333333", 
             fontWeight: "600", 
-            marginTop: "1px", 
+            marginTop: "0.5px", 
             display: "-webkit-box",
             WebkitLineClamp: 1,
             WebkitBoxOrient: "vertical",
