@@ -510,13 +510,27 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         color: "#000000"
       }}
     >
-      {/* 1. 상단 구분선 (Image 1 스타일) */}
-      <div style={{ 
-        borderTop: "2px solid #000000", 
-        width: "100%", 
-        marginTop: "1px",
-        marginBottom: "3px" 
-      }} />
+      {/* 1. 상단 구분선 & 강조 뱃지 */}
+      <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
+        <div style={{ borderTop: "2px solid #000000", flex: 1, marginTop: "1px" }} />
+        {finalBadgeType !== "NONE" && (
+          <div style={{
+            background: "#000000",
+            color: "#ffffff",
+            fontSize: "6.5pt",
+            fontWeight: "900",
+            padding: "1px 5px",
+            borderRadius: "2px",
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            lineHeight: "1",
+            marginLeft: "6px",
+            flexShrink: 0
+          }}>
+            {isSale ? (discountPercent > 0 ? `RABATT -${discountPercent}%` : "AKTION") : "NEU"}
+          </div>
+        )}
+      </div>
 
       {/* 2. 상품명 영역 (독일어 타이틀 + 한국어 서브 타이틀) */}
       <div style={{ 
@@ -526,7 +540,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         justify: "flex-start", 
         margin: "1px 0", 
         width: "100%",
-        overflow: "hidden"
+        overflow: size === "62xAUTO" ? "visible" : "hidden"
       }}>
         {/* 독일어 상품명 */}
         <div style={{ 
@@ -534,11 +548,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
           fontWeight: "800", 
           lineHeight: "1.1", 
           color: "#000000", 
-          display: "-webkit-box",
-          WebkitLineClamp: koreanTitle ? 1 : 2,
+          display: size === "62xAUTO" ? "block" : "-webkit-box",
+          WebkitLineClamp: size === "62xAUTO" ? "none" : (koreanTitle ? 2 : 3),
           WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-          wordBreak: "keep-all",
+          overflow: size === "62xAUTO" ? "visible" : "hidden",
+          wordBreak: "break-word",
           overflowWrap: "break-word",
           margin: 0,
           padding: 0
@@ -549,15 +563,16 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         {/* 한국어 상품명 */}
         {koreanTitle && (
           <div style={{ 
-            fontSize: `${Math.max(7, cfg.titleFontSize - 2)}pt`, 
+            fontSize: `${Math.max(7, cfg.titleFontSize - 2.5)}pt`, 
             color: "#333333", 
             fontWeight: "600", 
             marginTop: "1px", 
-            display: "-webkit-box",
-            WebkitLineClamp: 1,
+            display: size === "62xAUTO" ? "block" : "-webkit-box",
+            WebkitLineClamp: size === "62xAUTO" ? "none" : 2,
             WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-            wordBreak: "keep-all",
+            overflow: size === "62xAUTO" ? "visible" : "hidden",
+            wordBreak: "break-word",
+            overflowWrap: "break-word",
             lineHeight: "1.05"
           }}>
             {koreanTitle}
