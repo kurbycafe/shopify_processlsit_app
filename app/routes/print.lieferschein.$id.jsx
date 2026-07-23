@@ -1149,7 +1149,7 @@ export default function OrderPrintDetailPage() {
 
           <div className="address-row">
             <div className="address-box">
-              <div className="section-title">Rechnungsadresseㄴㄴ</div>
+              <div className="section-title">Rechnungsadresse</div>
               <div className="address-content">
                 <strong>{currentBillingAddress?.name || "-"}</strong><br />
                 {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}

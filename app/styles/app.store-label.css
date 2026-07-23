@@ -372,12 +372,12 @@
 
   .store-label.store-label-print {
     width: 62mm !important;
-    height: 29mm !important; /* Fixed height to prevent page spill */
     min-height: 29mm !important;
-    padding: 0.8mm 1.8mm !important; /* Slightly reduced to fit larger fonts */
-    border: none !important; /* 62x29mm 용 기본 테두리만 인쇄 시 제거 */
+    height: auto !important; /* 세로 길이는 연속 롤 / 프린터 설정에 맞춰 가변 적용 */
+    padding: 1.5mm 2mm !important;
+    border: none !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   /* 마지막 장 백지 출력 방지 */
