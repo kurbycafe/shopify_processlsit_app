@@ -121,7 +121,7 @@ export const action = async ({ request }) => {
   if (variants.length > 0) {
     const formattedVariants = variants.map(variant => ({
       id: variant.id,
-      barcode: variant.barcode || rawCode,
+      barcode: variant.barcode || (/^[A-Za-z0-9-]+$/.test(rawCode) ? rawCode : ""),
       sku: variant.sku || "",
       price: variant.price || "0",
       compareAtPrice: variant.compareAtPrice || "",
@@ -438,23 +438,30 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   }
 
   // ==========================================
-  // 3. Brother QL-700 (62mm 가로 고정, 세로 가변 독일 프리미엄 라벨 모드)
+  // 3. Brother QL-700 (62mm 선반 가격표 규격 모드 - 독/한 혼용 & 고성능 바코드)
   // ==========================================
   const isSale = finalBadgeType === "SALE";
   const isNew = finalBadgeType === "NEW";
 
-  let qlMinHeight = "32mm";
-  let qlPreviewMinHeight = "125px";
+  let qlHeight = "32mm";
+  let qlPreviewHeight = "125px";
 
   if (size === "62x38") {
-    qlMinHeight = "38mm";
-    qlPreviewMinHeight = "144px";
+    qlHeight = "38mm";
+    qlPreviewHeight = "144px";
   } else if (size === "62x50") {
-    qlMinHeight = "50mm";
-    qlPreviewMinHeight = "188px";
+    qlHeight = "50mm";
+    qlPreviewHeight = "188px";
+  } else if (size === "62xAUTO") {
+    qlHeight = "auto";
+    qlPreviewHeight = "auto";
   }
 
-  const isAutoHeight = size === "62xAUTO";
+  // 독일어 타이틀 / 한국어 타이틀 구별
+  const germanTitle = item.germanTranslation || item.productTitle || "";
+  const koreanTitle = item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
+    ? item.productTitle 
+    : "";
 
   // 날짜 포맷 (German DD.MM.YYYY)
   const formatMhd = (dateStr) => {
@@ -467,6 +474,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   };
 
   const formattedMhd = formatMhd(item.expiryDate);
+  const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
 
   return (
     <div 
@@ -474,42 +482,42 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
       style={{ 
         position: "relative",
         width: printMode ? "62mm" : "234px",
-        minHeight: printMode ? qlMinHeight : qlPreviewMinHeight,
-        height: printMode ? (isAutoHeight ? "auto" : qlMinHeight) : "auto",
+        height: printMode ? qlHeight : qlPreviewHeight,
+        maxHeight: printMode ? (size === "62xAUTO" ? "none" : qlHeight) : "none",
         boxSizing: "border-box",
-        padding: printMode ? "1.8mm 2.5mm" : "10px 12px",
+        padding: printMode ? "1.2mm 2mm" : "6px 8px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
         background: "#ffffff",
         border: printMode ? "none" : "1.5px solid #111111",
-        borderRadius: printMode ? "0" : "6px",
+        borderRadius: printMode ? "0" : "5px",
         fontFamily: "'IBM Plex Sans', 'Noto Sans KR', -apple-system, sans-serif",
-        overflow: "visible",
+        overflow: "hidden",
         color: "#000000"
       }}
     >
-      {/* 1. 상단 독일 헤더 바: MHD & AKTION/RABATT 독일식 강조 뱃지 */}
+      {/* 1. 상단 컴팩트 헤더: MHD 유통기한 & 세일 뱃지 */}
       <div style={{ 
         display: "flex", 
         justify: "space-between", 
         alignItems: "center", 
-        borderBottom: "2px solid #000000", 
-        paddingBottom: "3px", 
-        marginBottom: "4px",
+        borderBottom: "1.5px solid #000000", 
+        paddingBottom: "1px", 
+        marginBottom: "2px",
         width: "100%" 
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           {formattedMhd ? (
-            <span style={{ fontSize: "8.5pt", fontWeight: "800", letterSpacing: "-0.2px", color: "#000000" }}>
+            <span style={{ fontSize: "7.5pt", fontWeight: "800", color: "#000000" }}>
               MHD: {formattedMhd}
             </span>
           ) : item.sku ? (
-            <span style={{ fontSize: "8pt", fontFamily: "monospace", fontWeight: "700", color: "#000000" }}>
+            <span style={{ fontSize: "7pt", fontFamily: "monospace", fontWeight: "700", color: "#000000" }}>
               Art.-Nr: {item.sku}
             </span>
           ) : (
-            <span style={{ fontSize: "8pt", fontWeight: "900", letterSpacing: "0.5px", color: "#000000" }}>
+            <span style={{ fontSize: "7pt", fontWeight: "800", letterSpacing: "0.5px", color: "#000000" }}>
               PREISETIKETT
             </span>
           )}
@@ -519,128 +527,131 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
           <span style={{
             background: "#000000",
             color: "#ffffff",
-            fontSize: "8.5pt",
+            fontSize: "7.5pt",
             fontWeight: "900",
-            padding: "2px 6px",
-            borderRadius: "3px",
+            padding: "1px 4px",
+            borderRadius: "2px",
             textTransform: "uppercase",
-            lineHeight: "1",
-            letterSpacing: "0.5px"
+            lineHeight: "1"
           }}>
             {isSale ? (discountPercent > 0 ? `RABATT -${discountPercent}%` : "AKTION") : "NEU"}
           </span>
         )}
       </div>
 
-      {/* 2. 상품명 영역 (최대한 시원하고 크게! 13.5pt 독일식 타이포그래피) */}
+      {/* 2. 상품명 영역 (독일어 + 한국어 병기 지원) */}
       <div style={{ 
         flex: 1, 
         display: "flex", 
         flexDirection: "column", 
         justify: "center", 
-        margin: "3px 0", 
-        width: "100%" 
+        margin: "1px 0", 
+        width: "100%",
+        overflow: "hidden"
       }}>
+        {/* 독일어 상품명 */}
         <div style={{ 
-          fontSize: "13.5pt", 
-          fontWeight: "900", 
-          lineHeight: "1.12", 
+          fontSize: "9.5pt", 
+          fontWeight: "800", 
+          lineHeight: "1.1", 
           color: "#000000", 
+          display: "-webkit-box",
+          WebkitLineClamp: koreanTitle ? 1 : 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
           wordBreak: "keep-all",
           overflowWrap: "break-word",
-          letterSpacing: "-0.3px",
           margin: 0,
           padding: 0
         }}>
-          {displayTitle}
+          {germanTitle}
         </div>
 
-        {item.productTitle && item.productTitle !== displayTitle && (
+        {/* 한국어 상품명 */}
+        {koreanTitle && (
           <div style={{ 
-            fontSize: "9.5pt", 
-            color: "#222222", 
-            fontWeight: "700", 
-            marginTop: "3px", 
+            fontSize: "8pt", 
+            color: "#333333", 
+            fontWeight: "600", 
+            marginTop: "1px", 
+            display: "-webkit-box",
+            WebkitLineClamp: 1,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
             wordBreak: "keep-all",
-            overflowWrap: "break-word",
-            lineHeight: "1.1"
+            lineHeight: "1.05"
           }}>
-            {item.productTitle}
+            {koreanTitle}
           </div>
         )}
       </div>
 
-      {/* 3. 단위당 가격 (Grundpreis: PAngV 규격 - Inhalt: 500g | 3,98 €/kg) */}
-      {(item.weight > 0 || pricePerKg) && (
-        <div style={{ 
-          fontSize: "8.5pt", 
-          color: "#111111", 
-          fontWeight: "800", 
-          marginTop: "2px",
-          marginBottom: "4px",
-          lineHeight: "1.1",
-          borderTop: "1px dashed #000000",
-          paddingTop: "3px",
-          display: "flex",
-          justify: "space-between",
-          alignItems: "center"
-        }}>
-          <span>{formatWeight(item.weight, item.weightUnit) ? `Inhalt: ${formatWeight(item.weight, item.weightUnit)}` : ""}</span>
-          {pricePerKg && <span>({formatEuro(pricePerKg)}/kg)</span>}
-        </div>
-      )}
-
-      {/* 4. 가격 영역 (초대형 23pt 독보적 시인성 + inkl. MwSt.) */}
+      {/* 3. 가격 & 1kg당 단가 영역 */}
       <div style={{ 
         display: "flex", 
         justify: "space-between", 
         alignItems: "flex-end", 
         width: "100%", 
-        marginTop: "3px",
-        marginBottom: "4px",
-        paddingTop: "3px",
-        borderTop: "2px solid #000000"
+        marginTop: "1px",
+        paddingTop: "2px",
+        borderTop: "1.5px solid #000000",
+        marginBottom: "2px"
       }}>
+        {/* 좌측: 1kg당 단가만 표시 (개별 무게 생략) */}
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-          {isSale && item.compareAtPrice ? (
-            <div style={{ fontSize: "9.5pt", color: "#333333", textDecoration: "line-through", fontWeight: "800", lineHeight: "1" }}>
-              {formatEuro(item.compareAtPrice)}
+          {pricePerKg ? (
+            <div style={{ fontSize: "7.5pt", color: "#111111", fontWeight: "800", lineHeight: "1", marginBottom: "1px" }}>
+              ({formatEuro(pricePerKg)}/kg)
             </div>
           ) : null}
-          <div style={{ fontSize: "7.5pt", color: "#222222", fontWeight: "800", lineHeight: "1.1", marginTop: "2px" }}>
+          <div style={{ fontSize: "6.5pt", color: "#333333", fontWeight: "bold" }}>
             inkl. MwSt.
           </div>
         </div>
 
+        {/* 우측: 초대형 가격 */}
         <div style={{ textAlign: "right" }}>
-          <span style={{ 
-            fontSize: "23pt", 
-            fontWeight: "900", 
-            color: "#000000", 
-            lineHeight: "0.9", 
-            letterSpacing: "-1px"
-          }}>
-            {formatEuro(item.price)}
-          </span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "2px" }}>
+            {isSale && item.compareAtPrice && (
+              <span style={{ fontSize: "8pt", color: "#444444", textDecoration: "line-through", fontWeight: "700" }}>
+                {formatEuro(item.compareAtPrice)}
+              </span>
+            )}
+            <span style={{ 
+              fontSize: "17pt", 
+              fontWeight: "900", 
+              color: "#000000", 
+              lineHeight: "0.95", 
+              letterSpacing: "-0.5px"
+            }}>
+              {formatEuro(item.price)}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* 5. 하단: 선명한 바코드 & 아트넘버 (Art.-Nr / Barcode) */}
+      {/* 4. 하단: 넓고 잘 찍히는 와이드 바코드 */}
       <div style={{ 
         width: "100%", 
         display: "flex", 
         flexDirection: "column", 
         alignItems: "center", 
-        paddingTop: "3px",
-        borderTop: "1px solid #cccccc"
+        paddingTop: "2px",
+        borderTop: "1px solid #dddddd"
       }}>
-        <Code128 
-          value={item.barcode || item.sku || "000000"} 
-          height={24} 
-          moduleWidth={0.85} 
-          fontSize={6.5} 
-          showText={true} 
-        />
+        {cleanBarcode ? (
+          <Code128 
+            value={cleanBarcode} 
+            height={20} 
+            moduleWidth={0.8} 
+            fontSize={6.5} 
+            showText={true} 
+          />
+        ) : (
+          <span style={{ fontSize: "7pt", fontFamily: "monospace", color: "#666", padding: "2px 0" }}>
+            {item.sku ? `Art.-Nr: ${item.sku}` : ""}
+          </span>
+        )}
       </div>
     </div>
   );

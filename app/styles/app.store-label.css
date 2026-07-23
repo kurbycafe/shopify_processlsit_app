@@ -372,12 +372,12 @@
 
   .store-label.store-label-print {
     width: 62mm !important;
-    min-height: 29mm !important;
-    height: auto !important; /* 세로 길이는 연속 롤 / 프린터 설정에 맞춰 가변 적용 */
-    padding: 1.5mm 2mm !important;
+    height: 29mm !important; /* 매장 선반 레일(Price Rail) 규격 29mm 고정 */
+    max-height: 38mm !important;
+    padding: 0.8mm 1.5mm !important;
     border: none !important;
     box-sizing: border-box !important;
-    overflow: visible !important;
+    overflow: hidden !important;
   }
 
   /* 마지막 장 백지 출력 방지 */
