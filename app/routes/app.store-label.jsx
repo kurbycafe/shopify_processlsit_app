@@ -856,17 +856,6 @@ export default function StoreLabelPage() {
                     </div>
                   </div>
 
-                  <Banner title="⚠️ 브라우저 인쇄 창 필수 설정 (라벨이 작게 나오거나 여백이 생길 때)" tone="warning">
-                    <p style={{ marginTop: "4px", fontSize: "13px", fontWeight: "600" }}>
-                      Brother QL-700 출력 시 크롬/엣지 인쇄 대화상자에서 아래 3가지를 맞춰주셔야 62mm 라벨 크기에 딱 맞게 출력됩니다:
-                    </p>
-                    <ul style={{ margin: "6px 0 0 18px", padding: 0, fontSize: "13px" }}>
-                      <li><b>1. 용지 크기 (Paper Size)</b>: <b>62mm</b> (또는 62x29mm / 연속롤 62mm) 선택</li>
-                      <li><b>2. 여백 (Margins)</b>: <b>없음 (None)</b> 선택 (⚠️ 기본값 선택 시 A4 용지 기준 여백이 생겨 라벨이 축소됩니다!)</li>
-                      <li><b>3. 배율 (Scale)</b>: <b>기본값 (100%)</b> 선택</li>
-                    </ul>
-                  </Banner>
-
                   {message && (
                     <div className={`label-message ${message.tone === "error" ? "label-message-error" : "label-message-success"}`}>
                       {message.text}
