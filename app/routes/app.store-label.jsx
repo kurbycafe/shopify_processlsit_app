@@ -444,11 +444,9 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   const isNew = finalBadgeType === "NEW";
 
   const cfg = {
-    titleFontSize: settings?.titleFontSize ?? 11,
-    priceFontSize: settings?.priceFontSize ?? 18,
-    barcodeHeight: settings?.barcodeHeight ?? 17,
+    titleFontSize: settings?.titleFontSize ?? 13,
+    priceFontSize: settings?.priceFontSize ?? 24,
     showKoreanTitle: settings?.showKoreanTitle ?? true,
-    showMhd: settings?.showMhd ?? false,
     showUnitPrices: settings?.showUnitPrices ?? true,
     showSku: settings?.showSku ?? true,
   };
@@ -462,38 +460,27 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     ? item.productTitle 
     : "";
 
-  // 💡 100% 풀 텍스트 표기 엔진 (독일어 2줄 + 한국어 1줄로 하단 가격 영역 충돌 100% 방지)
+  // 💡 바코드 제거 극대화 폰트 엔진 (상품명 및 가격 극대화 표기)
   const calculateGermanFontSize = (titleStr, basePt) => {
     const len = titleStr.length;
-    if (len > 60) return 6.8;
-    if (len > 45) return 7.2;
-    if (len > 30) return 8.2;
-    if (len > 18) return 9.2;
-    return Math.max(basePt, 10.5);
+    if (len > 60) return 8.0;
+    if (len > 45) return 9.0;
+    if (len > 30) return 10.5;
+    if (len > 18) return 12.0;
+    return Math.max(basePt, 13.0);
   };
 
   const calculateKoreanFontSize = (titleStr, basePt) => {
     const len = titleStr.length;
-    if (len > 45) return 6.0;
-    if (len > 30) return 6.5;
-    if (len > 20) return 7.0;
-    return 7.5;
+    if (len > 45) return 7.2;
+    if (len > 30) return 8.0;
+    if (len > 20) return 8.8;
+    return 9.5;
   };
 
   const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
   const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
 
-  // 날짜 포맷 (German DD.MM.YYYY)
-  const formatMhd = (dateStr) => {
-    if (!dateStr) return "";
-    if (/^\d{4}[.-]\d{2}[.-]\d{2}$/.test(dateStr)) {
-      const parts = dateStr.split(/[.-]/);
-      return `${parts[2]}.${parts[1]}.${parts[0]}`;
-    }
-    return dateStr;
-  };
-
-  const formattedMhd = formatMhd(item.expiryDate);
   const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
 
   return (
@@ -505,7 +492,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         height: "29mm",
         maxHeight: "29mm",
         boxSizing: "border-box",
-        padding: "1.8mm 3mm",
+        padding: "1.8mm 3.2mm",
         display: "flex",
         flexDirection: "column",
         justify: "space-between",
@@ -517,7 +504,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         color: "#000000"
       }}
     >
-      {/* 2. 상품명 영역 (독일어 2줄 + 한국어 1줄 - 가격 영역과 100% 분리) */}
+      {/* 1. 극대화된 상품명 영역 (바코드 제거로 최적 공간 확보) */}
       <div style={{ 
         flex: 1, 
         display: "flex", 
@@ -531,8 +518,8 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         <div style={{ 
           fontSize: `${germanFontSizePt}pt`, 
           fontWeight: "800", 
-          lineHeight: "1.02", 
-          letterSpacing: germanTitle.length > 40 ? "-0.25px" : (germanTitle.length > 25 ? "-0.15px" : "normal"),
+          lineHeight: "1.05", 
+          letterSpacing: germanTitle.length > 40 ? "-0.2px" : "normal",
           color: "#000000", 
           display: "block",
           wordBreak: "break-word",
@@ -547,11 +534,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         {koreanTitle && (
           <div style={{ 
             fontSize: `${koreanFontSizePt}pt`, 
-            color: "#222222", 
+            color: "#111111", 
             fontWeight: "700", 
-            marginTop: "1px", 
-            lineHeight: "1.02",
-            letterSpacing: "-0.15px",
+            marginTop: "1.5px", 
+            lineHeight: "1.05",
+            letterSpacing: "-0.1px",
             display: "block",
             wordBreak: "break-word",
             overflowWrap: "break-word",
@@ -562,39 +549,35 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         )}
       </div>
 
-      {/* 3. 하단 영역: 좌측(바코드) / 우측(대형 가격 & 1kg 당 단가) */}
+      {/* 2. 하단 영역: 좌측(단가/SKU) / 우측(대형 초극대화 가격) */}
       <div style={{ 
         display: "flex", 
         justify: "space-between", 
         alignItems: "flex-end", 
         width: "100%", 
         marginTop: "1px",
-        paddingTop: "0",
-        gap: "6px"
+        paddingTop: "0"
       }}>
-        {/* 좌측: 바코드 */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", flex: 1, overflow: "hidden" }}>
-          {cleanBarcode ? (
-            <Code128 
-              value={cleanBarcode} 
-              height={cfg.barcodeHeight} 
-              moduleWidth={0.65} 
-              fontSize={5.5} 
-              showText={true} 
-            />
-          ) : cfg.showSku && item.sku ? (
-            <span style={{ fontSize: "6.5pt", fontFamily: "monospace", color: "#444" }}>
+        {/* 좌측: 1kg당 단가 및 SKU */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", flex: 1, overflow: "hidden", paddingBottom: "1px" }}>
+          {cfg.showUnitPrices && pricePerKg && (
+            <div style={{ fontSize: "7.8pt", color: "#111111", fontWeight: "800", lineHeight: "1" }}>
+              ({formatEuro(pricePerKg)}/kg)
+            </div>
+          )}
+          {cfg.showSku && item.sku && (
+            <span style={{ fontSize: "5.8pt", fontFamily: "monospace", color: "#555555", marginTop: "1px" }}>
               Art.-Nr: {item.sku}
             </span>
-          ) : null}
+          )}
         </div>
 
-        {/* 우측: 가격 & 1kg당 단가 (Image 1 스타일) */}
+        {/* 우측: 초대형 가격 & inkl. MwSt. */}
         <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
-          {/* 할인가 및 메인 가격 */}
+          {/* 할인가 및 메인 대형 가격 */}
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: "3px" }}>
             {isSale && item.compareAtPrice && (
-              <span style={{ fontSize: "7.5pt", color: "#555555", textDecoration: "line-through", fontWeight: "700" }}>
+              <span style={{ fontSize: "8.5pt", color: "#555555", textDecoration: "line-through", fontWeight: "700" }}>
                 {formatEuro(item.compareAtPrice)}
               </span>
             )}
@@ -602,24 +585,17 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
               fontSize: `${cfg.priceFontSize}pt`, 
               fontWeight: "900", 
               color: "#000000", 
-              lineHeight: "0.95", 
-              letterSpacing: "-0.5px"
+              lineHeight: "0.92", 
+              letterSpacing: "-0.6px"
             }}>
               {formatEuro(item.price)}
             </span>
           </div>
 
-          {/* inkl. MwSt. (가격 밑으로 작게 배치하여 가로 공간 차지하지 않음) */}
-          <div style={{ fontSize: "4.8pt", color: "#444444", fontWeight: "600", marginTop: "0.5px", lineHeight: "1" }}>
+          {/* inkl. MwSt. */}
+          <div style={{ fontSize: "5.2pt", color: "#444444", fontWeight: "600", marginTop: "0.5px", lineHeight: "1" }}>
             inkl. MwSt.
           </div>
-
-          {/* 1kg당 단가 (95,45 €/kg) */}
-          {cfg.showUnitPrices && pricePerKg && (
-            <div style={{ fontSize: "6.2pt", color: "#222222", fontWeight: "700", marginTop: "1px", lineHeight: "1" }}>
-              ({formatEuro(pricePerKg)}/kg)
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -640,8 +616,8 @@ export default function StoreLabelPage() {
   const [labelSize, setLabelSize] = useState("62x29");
 
   // 실시간 라벨 맞춤 설정
-  const [titleFontSize, setTitleFontSize] = useState("11");
-  const [priceFontSize, setPriceFontSize] = useState("18");
+  const [titleFontSize, setTitleFontSize] = useState("13");
+  const [priceFontSize, setPriceFontSize] = useState("24");
   const [barcodeHeight, setBarcodeHeight] = useState("17");
   const [showKoreanTitle, setShowKoreanTitle] = useState(true);
   const [showMhd, setShowMhd] = useState(false);
@@ -649,8 +625,8 @@ export default function StoreLabelPage() {
   const [showSku, setShowSku] = useState(true);
 
   const customSettings = {
-    titleFontSize: Number(titleFontSize) || 11,
-    priceFontSize: Number(priceFontSize) || 18,
+    titleFontSize: Number(titleFontSize) || 13,
+    priceFontSize: Number(priceFontSize) || 24,
     barcodeHeight: Number(barcodeHeight) || 17,
     showKoreanTitle,
     showMhd,
