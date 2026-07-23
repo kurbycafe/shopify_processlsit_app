@@ -446,142 +446,121 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   const cfg = {
     titleFontSize: settings?.titleFontSize ?? 10,
     priceFontSize: settings?.priceFontSize ?? 18,
-    barcodeHeight: settings?.barcodeHeight ?? 20,
+    barcodeHeight: settings?.barcodeHeight ?? 17,
     showKoreanTitle: settings?.showKoreanTitle ?? true,
     showMhd: settings?.showMhd ?? true,
     showUnitPrices: settings?.showUnitPrices ?? true,
     showSku: settings?.showSku ?? true,
   };
 
-    const qlHeight = "29mm";
-    const qlPreviewHeight = "110px";
+  const qlHeight = "29mm";
+  const qlPreviewHeight = "110px";
 
-    // 독일어 타이틀 / 한국어 타이틀 구별
-    const germanTitle = item.germanTranslation || item.productTitle || "";
-    const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
-      ? item.productTitle 
-      : "";
+  // 독일어 타이틀 / 한국어 타이틀 구별
+  const germanTitle = item.germanTranslation || item.productTitle || "";
+  const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
+    ? item.productTitle 
+    : "";
 
-    // 💡 100% 풀 텍스트 표기 엔진 (말줄임 ... 속성 완전 제거 및 100% 무손실 출력)
-    const calculateGermanFontSize = (titleStr, basePt) => {
-      const len = titleStr.length;
-      if (len > 55) return Math.max(6.2, basePt - 3.8);
-      if (len > 40) return Math.max(6.8, basePt - 3.0);
-      if (len > 28) return Math.max(7.5, basePt - 2.0);
-      if (len > 18) return Math.max(8.2, basePt - 1.0);
-      return basePt;
-    };
+  // 💡 100% 풀 텍스트 표기 엔진 (상단 뱃지 제거로 수직 공간 극대화)
+  const calculateGermanFontSize = (titleStr, basePt) => {
+    const len = titleStr.length;
+    if (len > 55) return Math.max(6.0, basePt - 3.8);
+    if (len > 40) return Math.max(6.5, basePt - 3.0);
+    if (len > 28) return Math.max(7.2, basePt - 2.0);
+    if (len > 18) return Math.max(8.0, basePt - 1.0);
+    return basePt;
+  };
 
-    const calculateKoreanFontSize = (titleStr, basePt) => {
-      const len = titleStr.length;
-      const subPt = Math.max(6.5, basePt - 2.5);
-      if (len > 45) return Math.max(5.5, subPt - 2.0);
-      if (len > 30) return Math.max(6.0, subPt - 1.2);
-      if (len > 20) return Math.max(6.5, subPt - 0.6);
-      return subPt;
-    };
+  const calculateKoreanFontSize = (titleStr, basePt) => {
+    const len = titleStr.length;
+    const subPt = Math.max(6.0, basePt - 2.5);
+    if (len > 45) return Math.max(5.0, subPt - 2.0);
+    if (len > 30) return Math.max(5.5, subPt - 1.2);
+    if (len > 20) return Math.max(6.0, subPt - 0.6);
+    return subPt;
+  };
 
-    const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
-    const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
+  const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
+  const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
 
-    // 날짜 포맷 (German DD.MM.YYYY)
-    const formatMhd = (dateStr) => {
-      if (!dateStr) return "";
-      if (/^\d{4}[.-]\d{2}[.-]\d{2}$/.test(dateStr)) {
-        const parts = dateStr.split(/[.-]/);
-        return `${parts[2]}.${parts[1]}.${parts[0]}`;
-      }
-      return dateStr;
-    };
+  // 날짜 포맷 (German DD.MM.YYYY)
+  const formatMhd = (dateStr) => {
+    if (!dateStr) return "";
+    if (/^\d{4}[.-]\d{2}[.-]\d{2}$/.test(dateStr)) {
+      const parts = dateStr.split(/[.-]/);
+      return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    }
+    return dateStr;
+  };
 
-    const formattedMhd = formatMhd(item.expiryDate);
-    const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
+  const formattedMhd = formatMhd(item.expiryDate);
+  const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
 
-    return (
-      <div 
-        className={`store-label ${printMode ? "store-label-print" : ""}`} 
-        style={{ 
-          position: "relative",
-          width: "62mm",
-          height: "29mm",
-          maxHeight: "29mm",
-          boxSizing: "border-box",
-          padding: "3mm 3.5mm",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          background: "#ffffff",
-          border: printMode ? "none" : "1.5px solid #111111",
-          borderRadius: printMode ? "0" : "5px",
-          fontFamily: "'IBM Plex Sans', 'Noto Sans KR', -apple-system, sans-serif",
-          overflow: "hidden",
-          color: "#000000"
-        }}
-      >
-        {/* 1. 상단 구분선 & 강조 뱃지 */}
-        <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
-          <div style={{ borderTop: "2px solid #000000", flex: 1, marginTop: "1px" }} />
-          {finalBadgeType !== "NONE" && (
-            <div style={{
-              background: "#000000",
-              color: "#ffffff",
-              fontSize: "6.5pt",
-              fontWeight: "900",
-              padding: "1px 5px",
-              borderRadius: "2px",
-              textTransform: "uppercase",
-              letterSpacing: "0.5px",
-              lineHeight: "1",
-              marginLeft: "6px",
-              flexShrink: 0
-            }}>
-              {isSale ? (discountPercent > 0 ? `RABATT -${discountPercent}%` : "AKTION") : "NEU"}
-            </div>
-          )}
+  return (
+    <div 
+      className={`store-label ${printMode ? "store-label-print" : ""}`} 
+      style={{ 
+        position: "relative",
+        width: "62mm",
+        height: "29mm",
+        maxHeight: "29mm",
+        boxSizing: "border-box",
+        padding: "2mm 3.2mm",
+        display: "flex",
+        flexDirection: "column",
+        justify: "space-between",
+        background: "#ffffff",
+        border: printMode ? "none" : "1.5px solid #111111",
+        borderRadius: printMode ? "0" : "5px",
+        fontFamily: "'IBM Plex Sans', 'Noto Sans KR', -apple-system, sans-serif",
+        overflow: "hidden",
+        color: "#000000"
+      }}
+    >
+      {/* 2. 상품명 영역 (100% 풀 텍스트 표기 - 뱃지 제거로 수직 공간 극대화) */}
+      <div style={{ 
+        flex: 1, 
+        display: "flex", 
+        flexDirection: "column", 
+        justify: "flex-start", 
+        margin: "0", 
+        width: "100%",
+        overflow: "hidden"
+      }}>
+        {/* 독일어 상품명 */}
+        <div style={{ 
+          fontSize: `${germanFontSizePt}pt`, 
+          fontWeight: "800", 
+          lineHeight: "1.0", 
+          letterSpacing: germanTitle.length > 35 ? "-0.2px" : "normal",
+          color: "#000000", 
+          display: "block",
+          wordBreak: "break-word",
+          overflowWrap: "break-word",
+          margin: 0,
+          padding: 0
+        }}>
+          {germanTitle}
         </div>
 
-        {/* 2. 상품명 영역 (100% 무손실 풀 텍스트 표기 - 말줄임 ... 속성 완전 제거) */}
-        <div style={{ 
-          flex: 1, 
-          display: "flex", 
-          flexDirection: "column", 
-          justifyContent: "flex-start", 
-          margin: "0.5px 0", 
-          width: "100%",
-          overflow: "hidden"
-        }}>
-          {/* 독일어 상품명 */}
+        {/* 한국어 상품명 */}
+        {koreanTitle && (
           <div style={{ 
-            fontSize: `${germanFontSizePt}pt`, 
-            fontWeight: "800", 
-            lineHeight: "1.0", 
-            letterSpacing: germanTitle.length > 35 ? "-0.2px" : "normal",
-            color: "#000000", 
+            fontSize: `${koreanFontSizePt}pt`, 
+            color: "#333333", 
+            fontWeight: "600", 
+            marginTop: "1px", 
+            lineHeight: "1.0",
             display: "block",
             wordBreak: "break-word",
             overflowWrap: "break-word",
-            margin: 0,
             padding: 0
           }}>
-            {germanTitle}
+            {koreanTitle}
           </div>
-
-          {/* 한국어 상품명 */}
-          {koreanTitle && (
-            <div style={{ 
-              fontSize: `${koreanFontSizePt}pt`, 
-              color: "#333333", 
-              fontWeight: "600", 
-              marginTop: "0.5px", 
-              lineHeight: "1.0",
-              display: "block",
-              wordBreak: "break-word",
-              overflowWrap: "break-word"
-            }}>
-              {koreanTitle}
-            </div>
-          )}
-        </div>
+        )}
+      </div>
 
       {/* 3. 하단 영역: 좌측(바코드 & MHD 박스) / 우측(대형 가격 & 1kg 당 단가) Image 1 구조 */}
       <div style={{ 
