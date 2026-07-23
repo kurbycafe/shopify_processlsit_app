@@ -439,153 +439,145 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
 
   // ==========================================
   // 3. Brother QL-700 (Image 1 커스텀 레이아웃 & 실시간 설정 연동)
-  // ==========================================
-  const isSale = finalBadgeType === "SALE";
-  const isNew = finalBadgeType === "NEW";
+    const cfg = {
+      titleFontSize: settings?.titleFontSize ?? 10,
+      priceFontSize: settings?.priceFontSize ?? 18,
+      barcodeHeight: settings?.barcodeHeight ?? 20,
+      showKoreanTitle: settings?.showKoreanTitle ?? true,
+      showMhd: settings?.showMhd ?? true,
+      showUnitPrices: settings?.showUnitPrices ?? true,
+      showSku: settings?.showSku ?? true,
+    };
 
-  const cfg = {
-    titleFontSize: settings?.titleFontSize ?? 10,
-    priceFontSize: settings?.priceFontSize ?? 18,
-    barcodeHeight: settings?.barcodeHeight ?? 20,
-    showKoreanTitle: settings?.showKoreanTitle ?? true,
-    showMhd: settings?.showMhd ?? true,
-    showUnitPrices: settings?.showUnitPrices ?? true,
-    showSku: settings?.showSku ?? true,
-  };
+    const qlHeight = "29mm";
+    const qlPreviewHeight = "110px";
 
-  const qlHeight = "29mm";
-  const qlPreviewHeight = "110px";
+    // 독일어 타이틀 / 한국어 타이틀 구별
+    const germanTitle = item.germanTranslation || item.productTitle || "";
+    const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
+      ? item.productTitle 
+      : "";
 
-  // 독일어 타이틀 / 한국어 타이틀 구별
-  const germanTitle = item.germanTranslation || item.productTitle || "";
-  const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
-    ? item.productTitle 
-    : "";
+    // 💡 100% 풀 텍스트 표기 엔진 (말줄임 ... 속성 완전 제거 및 100% 무손실 출력)
+    const calculateGermanFontSize = (titleStr, basePt) => {
+      const len = titleStr.length;
+      if (len > 55) return Math.max(6.2, basePt - 3.8);
+      if (len > 40) return Math.max(6.8, basePt - 3.0);
+      if (len > 28) return Math.max(7.5, basePt - 2.0);
+      if (len > 18) return Math.max(8.2, basePt - 1.0);
+      return basePt;
+    };
 
-  // 💡 스마트 폰트 스케일링 (긴 상품명도 말줄임 ... 없이 100% 전체 표기)
-  const calculateGermanFontSize = (titleStr, basePt) => {
-    const len = titleStr.length;
-    if (len > 45) return Math.max(7.2, basePt - 2.5);
-    if (len > 30) return Math.max(7.8, basePt - 1.5);
-    if (len > 20) return Math.max(8.5, basePt - 0.8);
-    return basePt;
-  };
+    const calculateKoreanFontSize = (titleStr, basePt) => {
+      const len = titleStr.length;
+      const subPt = Math.max(6.5, basePt - 2.5);
+      if (len > 45) return Math.max(5.5, subPt - 2.0);
+      if (len > 30) return Math.max(6.0, subPt - 1.2);
+      if (len > 20) return Math.max(6.5, subPt - 0.6);
+      return subPt;
+    };
 
-  const calculateKoreanFontSize = (titleStr, basePt) => {
-    const len = titleStr.length;
-    const subPt = Math.max(6.8, basePt - 2.5);
-    if (len > 40) return Math.max(6.0, subPt - 1.5);
-    if (len > 25) return Math.max(6.5, subPt - 0.8);
-    return subPt;
-  };
+    const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
+    const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
 
-  const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
-  const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
+    // 날짜 포맷 (German DD.MM.YYYY)
+    const formatMhd = (dateStr) => {
+      if (!dateStr) return "";
+      if (/^\d{4}[.-]\d{2}[.-]\d{2}$/.test(dateStr)) {
+        const parts = dateStr.split(/[.-]/);
+        return `${parts[2]}.${parts[1]}.${parts[0]}`;
+      }
+      return dateStr;
+    };
 
-  // 날짜 포맷 (German DD.MM.YYYY)
-  const formatMhd = (dateStr) => {
-    if (!dateStr) return "";
-    if (/^\d{4}[.-]\d{2}[.-]\d{2}$/.test(dateStr)) {
-      const parts = dateStr.split(/[.-]/);
-      return `${parts[2]}.${parts[1]}.${parts[0]}`;
-    }
-    return dateStr;
-  };
+    const formattedMhd = formatMhd(item.expiryDate);
+    const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
 
-  const formattedMhd = formatMhd(item.expiryDate);
-  const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
-
-  return (
-    <div 
-      className={`store-label ${printMode ? "store-label-print" : ""}`} 
-      style={{ 
-        position: "relative",
-        width: "62mm",
-        height: "29mm",
-        maxHeight: "29mm",
-        boxSizing: "border-box",
-        padding: "3mm 3.5mm",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        background: "#ffffff",
-        border: printMode ? "none" : "1.5px solid #111111",
-        borderRadius: printMode ? "0" : "5px",
-        fontFamily: "'IBM Plex Sans', 'Noto Sans KR', -apple-system, sans-serif",
-        overflow: "hidden",
-        color: "#000000"
-      }}
-    >
-      {/* 1. 상단 구분선 & 강조 뱃지 */}
-      <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
-        <div style={{ borderTop: "2px solid #000000", flex: 1, marginTop: "1px" }} />
-        {finalBadgeType !== "NONE" && (
-          <div style={{
-            background: "#000000",
-            color: "#ffffff",
-            fontSize: "6.5pt",
-            fontWeight: "900",
-            padding: "1px 5px",
-            borderRadius: "2px",
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-            lineHeight: "1",
-            marginLeft: "6px",
-            flexShrink: 0
-          }}>
-            {isSale ? (discountPercent > 0 ? `RABATT -${discountPercent}%` : "AKTION") : "NEU"}
-          </div>
-        )}
-      </div>
-
-      {/* 2. 상품명 영역 (스마트 폰트 스케일링 & 말줄임 ... 완전 제거) */}
-      <div style={{ 
-        flex: 1, 
-        display: "flex", 
-        flexDirection: "column", 
-        justifyContent: "flex-start", 
-        margin: "0.5px 0", 
-        width: "100%",
-        overflow: "hidden"
-      }}>
-        {/* 독일어 상품명 */}
-        <div style={{ 
-          fontSize: `${germanFontSizePt}pt`, 
-          fontWeight: "800", 
-          lineHeight: "1.02", 
-          color: "#000000", 
-          display: "-webkit-box",
-          WebkitLineClamp: koreanTitle ? 2 : 3,
-          WebkitBoxOrient: "vertical",
+    return (
+      <div 
+        className={`store-label ${printMode ? "store-label-print" : ""}`} 
+        style={{ 
+          position: "relative",
+          width: "62mm",
+          height: "29mm",
+          maxHeight: "29mm",
+          boxSizing: "border-box",
+          padding: "3mm 3.5mm",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          background: "#ffffff",
+          border: printMode ? "none" : "1.5px solid #111111",
+          borderRadius: printMode ? "0" : "5px",
+          fontFamily: "'IBM Plex Sans', 'Noto Sans KR', -apple-system, sans-serif",
           overflow: "hidden",
-          wordBreak: "break-word",
-          overflowWrap: "break-word",
-          margin: 0,
-          padding: 0
-        }}>
-          {germanTitle}
+          color: "#000000"
+        }}
+      >
+        {/* 1. 상단 구분선 & 강조 뱃지 */}
+        <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
+          <div style={{ borderTop: "2px solid #000000", flex: 1, marginTop: "1px" }} />
+          {finalBadgeType !== "NONE" && (
+            <div style={{
+              background: "#000000",
+              color: "#ffffff",
+              fontSize: "6.5pt",
+              fontWeight: "900",
+              padding: "1px 5px",
+              borderRadius: "2px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+              lineHeight: "1",
+              marginLeft: "6px",
+              flexShrink: 0
+            }}>
+              {isSale ? (discountPercent > 0 ? `RABATT -${discountPercent}%` : "AKTION") : "NEU"}
+            </div>
+          )}
         </div>
 
-        {/* 한국어 상품명 */}
-        {koreanTitle && (
+        {/* 2. 상품명 영역 (100% 무손실 풀 텍스트 표기 - 말줄임 ... 속성 완전 제거) */}
+        <div style={{ 
+          flex: 1, 
+          display: "flex", 
+          flexDirection: "column", 
+          justifyContent: "flex-start", 
+          margin: "0.5px 0", 
+          width: "100%",
+          overflow: "hidden"
+        }}>
+          {/* 독일어 상품명 */}
           <div style={{ 
-            fontSize: `${koreanFontSizePt}pt`, 
-            color: "#333333", 
-            fontWeight: "600", 
-            marginTop: "0.5px", 
-            display: "-webkit-box",
-            WebkitLineClamp: 1,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            fontSize: `${germanFontSizePt}pt`, 
+            fontWeight: "800", 
+            lineHeight: "1.0", 
+            letterSpacing: germanTitle.length > 35 ? "-0.2px" : "normal",
+            color: "#000000", 
+            display: "block",
             wordBreak: "break-word",
             overflowWrap: "break-word",
-            lineHeight: "1.05"
+            margin: 0,
+            padding: 0
           }}>
-            {koreanTitle}
+            {germanTitle}
           </div>
-        )}
-      </div>
+
+          {/* 한국어 상품명 */}
+          {koreanTitle && (
+            <div style={{ 
+              fontSize: `${koreanFontSizePt}pt`, 
+              color: "#333333", 
+              fontWeight: "600", 
+              marginTop: "0.5px", 
+              lineHeight: "1.0",
+              display: "block",
+              wordBreak: "break-word",
+              overflowWrap: "break-word"
+            }}>
+              {koreanTitle}
+            </div>
+          )}
+        </div>
 
       {/* 3. 하단 영역: 좌측(바코드 & MHD 박스) / 우측(대형 가격 & 1kg 당 단가) Image 1 구조 */}
       <div style={{ 
@@ -632,8 +624,8 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
 
         {/* 우측: 가격 & 1kg당 단가 (Image 1 스타일) */}
         <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
-          {/* 가격 & inkl. MwSt. */}
-          <div style={{ display: "flex", alignItems: "baseline", gap: "2px" }}>
+          {/* 할인가 및 메인 가격 */}
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: "3px" }}>
             {isSale && item.compareAtPrice && (
               <span style={{ fontSize: "7.5pt", color: "#555555", textDecoration: "line-through", fontWeight: "700" }}>
                 {formatEuro(item.compareAtPrice)}
@@ -648,12 +640,16 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
             }}>
               {formatEuro(item.price)}
             </span>
-            <span style={{ fontSize: "5.5pt", color: "#333333", fontWeight: "bold" }}>inkl. MwSt.</span>
+          </div>
+
+          {/* inkl. MwSt. (가격 밑으로 작게 배치하여 가로 공간 차지하지 않음) */}
+          <div style={{ fontSize: "4.8pt", color: "#444444", fontWeight: "600", marginTop: "0.5px", lineHeight: "1" }}>
+            inkl. MwSt.
           </div>
 
           {/* 1kg당 단가 (95,45 €/kg) */}
           {cfg.showUnitPrices && pricePerKg && (
-            <div style={{ fontSize: "6.5pt", color: "#222222", fontWeight: "800", marginTop: "1.5px", lineHeight: "1" }}>
+            <div style={{ fontSize: "6.2pt", color: "#222222", fontWeight: "700", marginTop: "1px", lineHeight: "1" }}>
               ({formatEuro(pricePerKg)}/kg)
             </div>
           )}
