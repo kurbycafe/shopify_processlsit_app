@@ -358,12 +358,11 @@
     display: block !important;
   }
 
-  /* ✨ 50x50, 68x50, 62x29 공통: 여백 제거 및 페이지 나눔 방지 설정 */
+  /* ✨ 62mm 라벨 공통: 여백 제거 및 페이지 나눔 방지 설정 */
   .store-label-print {
     margin: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
-    overflow: hidden !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     page-break-after: always !important;
@@ -372,12 +371,9 @@
 
   .store-label.store-label-print {
     width: 62mm !important;
-    height: 29mm !important; /* 매장 선반 레일(Price Rail) 규격 29mm 고정 */
-    max-height: 38mm !important;
     padding: 0.8mm 1.5mm !important;
     border: none !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
   }
 
   /* 마지막 장 백지 출력 방지 */

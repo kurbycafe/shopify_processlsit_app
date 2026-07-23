@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import { 
   Page, Layout, Card, BlockStack, InlineStack, Text, Button, 
-  Modal, ResourceList, ResourceItem, Avatar, Badge, Select, Checkbox
+  Modal, ResourceList, ResourceItem, Avatar, Badge, Select, Checkbox, Banner
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import styles from "../styles/app.store-label.css?url";
@@ -444,7 +444,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   const isNew = finalBadgeType === "NEW";
 
   const cfg = {
-    titleFontSize: settings?.titleFontSize ?? 12,
+    titleFontSize: settings?.titleFontSize ?? 10,
     priceFontSize: settings?.priceFontSize ?? 18,
     barcodeHeight: settings?.barcodeHeight ?? 20,
     showKoreanTitle: settings?.showKoreanTitle ?? true,
@@ -453,22 +453,8 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     showSku: settings?.showSku ?? true,
   };
 
-  let qlHeight = "32mm";
-  let qlPreviewHeight = "125px";
-
-  if (size === "62x38") {
-    qlHeight = "38mm";
-    qlPreviewHeight = "144px";
-  } else if (size === "62x50") {
-    qlHeight = "50mm";
-    qlPreviewHeight = "188px";
-  } else if (size === "62xAUTO") {
-    qlHeight = "auto";
-    qlPreviewHeight = "auto";
-  } else if (size === "62x29") {
-    qlHeight = "29mm";
-    qlPreviewHeight = "110px";
-  }
+  const qlHeight = "29mm";
+  const qlPreviewHeight = "110px";
 
   // 독일어 타이틀 / 한국어 타이틀 구별
   const germanTitle = item.germanTranslation || item.productTitle || "";
@@ -496,7 +482,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         position: "relative",
         width: printMode ? "62mm" : "234px",
         height: printMode ? qlHeight : qlPreviewHeight,
-        maxHeight: printMode ? (size === "62xAUTO" ? "none" : qlHeight) : "none",
+        maxHeight: printMode ? qlHeight : qlPreviewHeight,
         boxSizing: "border-box",
         padding: printMode ? "1.2mm 2mm" : "6px 8px",
         display: "flex",
@@ -537,21 +523,22 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         flex: 1, 
         display: "flex", 
         flexDirection: "column", 
-        justify: "flex-start", 
+        justifyContent: "flex-start", 
         margin: "1px 0", 
         width: "100%",
-        overflow: size === "62xAUTO" ? "visible" : "hidden"
+        overflow: "hidden"
       }}>
         {/* 독일어 상품명 */}
         <div style={{ 
           fontSize: `${cfg.titleFontSize}pt`, 
           fontWeight: "800", 
-          lineHeight: "1.1", 
+          lineHeight: "1.05", 
           color: "#000000", 
-          display: size === "62xAUTO" ? "block" : "-webkit-box",
-          WebkitLineClamp: size === "62xAUTO" ? "none" : (koreanTitle ? 2 : 3),
+          display: "-webkit-box",
+          WebkitLineClamp: koreanTitle ? 1 : 2,
           WebkitBoxOrient: "vertical",
-          overflow: size === "62xAUTO" ? "visible" : "hidden",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
           wordBreak: "break-word",
           overflowWrap: "break-word",
           margin: 0,
@@ -567,10 +554,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
             color: "#333333", 
             fontWeight: "600", 
             marginTop: "1px", 
-            display: size === "62xAUTO" ? "block" : "-webkit-box",
-            WebkitLineClamp: size === "62xAUTO" ? "none" : 2,
+            display: "-webkit-box",
+            WebkitLineClamp: 1,
             WebkitBoxOrient: "vertical",
-            overflow: size === "62xAUTO" ? "visible" : "hidden",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
             wordBreak: "break-word",
             overflowWrap: "break-word",
             lineHeight: "1.05"
@@ -823,8 +811,6 @@ export default function StoreLabelPage() {
                         label="프린터 선택"
                         options={[
                           { label: 'Brother QL-700 (62x29 mm 선반 레일표준)', value: '62x29' },
-                          { label: 'Brother QL-700 (62mm 연속롤 Auto)', value: '62xAUTO' },
-                          { label: 'Brother VC-500W (50x50 mm)', value: '50x50' },
                         ]}
                         value={labelSize}
                         onChange={setLabelSize}
@@ -869,6 +855,17 @@ export default function StoreLabelPage() {
                       <Button onClick={handleQueueClear} disabled={queuedLabels.length === 0}>대기열 비우기</Button>
                     </div>
                   </div>
+
+                  <Banner title="⚠️ 브라우저 인쇄 창 필수 설정 (라벨이 작게 나오거나 여백이 생길 때)" tone="warning">
+                    <p style={{ marginTop: "4px", fontSize: "13px", fontWeight: "600" }}>
+                      Brother QL-700 출력 시 크롬/엣지 인쇄 대화상자에서 아래 3가지를 맞춰주셔야 62mm 라벨 크기에 딱 맞게 출력됩니다:
+                    </p>
+                    <ul style={{ margin: "6px 0 0 18px", padding: 0, fontSize: "13px" }}>
+                      <li><b>1. 용지 크기 (Paper Size)</b>: <b>62mm</b> (또는 62x29mm / 연속롤 62mm) 선택</li>
+                      <li><b>2. 여백 (Margins)</b>: <b>없음 (None)</b> 선택 (⚠️ 기본값 선택 시 A4 용지 기준 여백이 생겨 라벨이 축소됩니다!)</li>
+                      <li><b>3. 배율 (Scale)</b>: <b>기본값 (100%)</b> 선택</li>
+                    </ul>
+                  </Banner>
 
                   {message && (
                     <div className={`label-message ${message.tone === "error" ? "label-message-error" : "label-message-success"}`}>
