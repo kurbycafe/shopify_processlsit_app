@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import { 
   Page, Layout, Card, BlockStack, InlineStack, Text, Button, 
-  Modal, ResourceList, ResourceItem, Avatar, Badge, Select
+  Modal, ResourceList, ResourceItem, Avatar, Badge, Select, Checkbox
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import styles from "../styles/app.store-label.css?url";
@@ -229,7 +229,7 @@ function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showT
 }
 
 // ─── 동적 렌더링을 담당하는 핵심 라벨 컴포넌트 ───
-function StoreLabel({ item, printMode = false, size = "62x29" }) {
+function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   const displayTitle = item.germanTranslation || item.productTitle || "";
   const { hasDiscount: isAutoDiscount, percent: discountPercent } = getDiscountInfo(item.price, item.compareAtPrice);
   const pricePerKg = getPricePerKg(item.price, item.weight, item.weightUnit);
@@ -438,10 +438,20 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   }
 
   // ==========================================
-  // 3. Brother QL-700 (62mm 선반 가격표 규격 모드 - 독/한 혼용 & 고성능 바코드)
+  // 3. Brother QL-700 (Image 1 커스텀 레이아웃 & 실시간 설정 연동)
   // ==========================================
   const isSale = finalBadgeType === "SALE";
   const isNew = finalBadgeType === "NEW";
+
+  const cfg = {
+    titleFontSize: settings?.titleFontSize ?? 12,
+    priceFontSize: settings?.priceFontSize ?? 18,
+    barcodeHeight: settings?.barcodeHeight ?? 20,
+    showKoreanTitle: settings?.showKoreanTitle ?? true,
+    showMhd: settings?.showMhd ?? true,
+    showUnitPrices: settings?.showUnitPrices ?? true,
+    showSku: settings?.showSku ?? true,
+  };
 
   let qlHeight = "32mm";
   let qlPreviewHeight = "125px";
@@ -455,11 +465,14 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
   } else if (size === "62xAUTO") {
     qlHeight = "auto";
     qlPreviewHeight = "auto";
+  } else if (size === "62x29") {
+    qlHeight = "29mm";
+    qlPreviewHeight = "110px";
   }
 
   // 독일어 타이틀 / 한국어 타이틀 구별
   const germanTitle = item.germanTranslation || item.productTitle || "";
-  const koreanTitle = item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
+  const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
     ? item.productTitle 
     : "";
 
@@ -497,61 +510,27 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
         color: "#000000"
       }}
     >
-      {/* 1. 상단 컴팩트 헤더: MHD 유통기한 & 세일 뱃지 */}
+      {/* 1. 상단 구분선 (Image 1 스타일) */}
       <div style={{ 
-        display: "flex", 
-        justify: "space-between", 
-        alignItems: "center", 
-        borderBottom: "1.5px solid #000000", 
-        paddingBottom: "1px", 
-        marginBottom: "2px",
-        width: "100%" 
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          {formattedMhd ? (
-            <span style={{ fontSize: "7.5pt", fontWeight: "800", color: "#000000" }}>
-              MHD: {formattedMhd}
-            </span>
-          ) : item.sku ? (
-            <span style={{ fontSize: "7pt", fontFamily: "monospace", fontWeight: "700", color: "#000000" }}>
-              Art.-Nr: {item.sku}
-            </span>
-          ) : (
-            <span style={{ fontSize: "7pt", fontWeight: "800", letterSpacing: "0.5px", color: "#000000" }}>
-              PREISETIKETT
-            </span>
-          )}
-        </div>
+        borderTop: "2px solid #000000", 
+        width: "100%", 
+        marginTop: "1px",
+        marginBottom: "3px" 
+      }} />
 
-        {finalBadgeType !== "NONE" && (
-          <span style={{
-            background: "#000000",
-            color: "#ffffff",
-            fontSize: "7.5pt",
-            fontWeight: "900",
-            padding: "1px 4px",
-            borderRadius: "2px",
-            textTransform: "uppercase",
-            lineHeight: "1"
-          }}>
-            {isSale ? (discountPercent > 0 ? `RABATT -${discountPercent}%` : "AKTION") : "NEU"}
-          </span>
-        )}
-      </div>
-
-      {/* 2. 상품명 영역 (독일어 + 한국어 병기 지원) */}
+      {/* 2. 상품명 영역 (독일어 타이틀 + 한국어 서브 타이틀) */}
       <div style={{ 
         flex: 1, 
         display: "flex", 
         flexDirection: "column", 
-        justify: "center", 
+        justify: "flex-start", 
         margin: "1px 0", 
         width: "100%",
         overflow: "hidden"
       }}>
         {/* 독일어 상품명 */}
         <div style={{ 
-          fontSize: "9.5pt", 
+          fontSize: `${cfg.titleFontSize}pt`, 
           fontWeight: "800", 
           lineHeight: "1.1", 
           color: "#000000", 
@@ -570,7 +549,7 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
         {/* 한국어 상품명 */}
         {koreanTitle && (
           <div style={{ 
-            fontSize: "8pt", 
+            fontSize: `${Math.max(7, cfg.titleFontSize - 2)}pt`, 
             color: "#333333", 
             fontWeight: "600", 
             marginTop: "1px", 
@@ -586,39 +565,60 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
         )}
       </div>
 
-      {/* 3. 가격 & 1kg당 단가 영역 */}
+      {/* 3. 하단 영역: 좌측(바코드 & MHD 박스) / 우측(대형 가격 & 1kg 당 단가) Image 1 구조 */}
       <div style={{ 
         display: "flex", 
         justify: "space-between", 
         alignItems: "flex-end", 
         width: "100%", 
-        marginTop: "1px",
+        marginTop: "2px",
         paddingTop: "2px",
-        borderTop: "1.5px solid #000000",
-        marginBottom: "2px"
+        gap: "6px"
       }}>
-        {/* 좌측: 1kg당 단가만 표시 (개별 무게 생략) */}
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-          {pricePerKg ? (
-            <div style={{ fontSize: "7.5pt", color: "#111111", fontWeight: "800", lineHeight: "1", marginBottom: "1px" }}>
-              ({formatEuro(pricePerKg)}/kg)
-            </div>
+        {/* 좌측: 바코드 & MHD 박스 */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", flex: 1, overflow: "hidden" }}>
+          {cleanBarcode ? (
+            <Code128 
+              value={cleanBarcode} 
+              height={cfg.barcodeHeight} 
+              moduleWidth={0.65} 
+              fontSize={5.5} 
+              showText={true} 
+            />
+          ) : cfg.showSku && item.sku ? (
+            <span style={{ fontSize: "6.5pt", fontFamily: "monospace", color: "#444" }}>
+              Art.-Nr: {item.sku}
+            </span>
           ) : null}
-          <div style={{ fontSize: "6.5pt", color: "#333333", fontWeight: "bold" }}>
-            inkl. MwSt.
-          </div>
+
+          {/* MHD (유통기한) 박스 (Image 1 스타일) */}
+          {cfg.showMhd && formattedMhd && (
+            <div style={{ 
+              border: "1px solid #000000", 
+              borderRadius: "3px", 
+              padding: "0.5px 3px", 
+              fontSize: "6.5pt", 
+              fontWeight: "800", 
+              marginTop: "2px",
+              lineHeight: "1",
+              display: "inline-block"
+            }}>
+              MHD: {formattedMhd}
+            </div>
+          )}
         </div>
 
-        {/* 우측: 초대형 가격 */}
-        <div style={{ textAlign: "right" }}>
+        {/* 우측: 가격 & 1kg당 단가 (Image 1 스타일) */}
+        <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+          {/* 가격 & inkl. MwSt. */}
           <div style={{ display: "flex", alignItems: "baseline", gap: "2px" }}>
             {isSale && item.compareAtPrice && (
-              <span style={{ fontSize: "8pt", color: "#444444", textDecoration: "line-through", fontWeight: "700" }}>
+              <span style={{ fontSize: "7.5pt", color: "#555555", textDecoration: "line-through", fontWeight: "700" }}>
                 {formatEuro(item.compareAtPrice)}
               </span>
             )}
             <span style={{ 
-              fontSize: "17pt", 
+              fontSize: `${cfg.priceFontSize}pt`, 
               fontWeight: "900", 
               color: "#000000", 
               lineHeight: "0.95", 
@@ -626,32 +626,16 @@ function StoreLabel({ item, printMode = false, size = "62x29" }) {
             }}>
               {formatEuro(item.price)}
             </span>
+            <span style={{ fontSize: "5.5pt", color: "#333333", fontWeight: "bold" }}>inkl. MwSt.</span>
           </div>
-        </div>
-      </div>
 
-      {/* 4. 하단: 넓고 잘 찍히는 와이드 바코드 */}
-      <div style={{ 
-        width: "100%", 
-        display: "flex", 
-        flexDirection: "column", 
-        alignItems: "center", 
-        paddingTop: "2px",
-        borderTop: "1px solid #dddddd"
-      }}>
-        {cleanBarcode ? (
-          <Code128 
-            value={cleanBarcode} 
-            height={20} 
-            moduleWidth={0.8} 
-            fontSize={6.5} 
-            showText={true} 
-          />
-        ) : (
-          <span style={{ fontSize: "7pt", fontFamily: "monospace", color: "#666", padding: "2px 0" }}>
-            {item.sku ? `Art.-Nr: ${item.sku}` : ""}
-          </span>
-        )}
+          {/* 1kg당 단가 (95,45 €/kg) */}
+          {cfg.showUnitPrices && pricePerKg && (
+            <div style={{ fontSize: "6.5pt", color: "#222222", fontWeight: "800", marginTop: "1.5px", lineHeight: "1" }}>
+              ({formatEuro(pricePerKg)}/kg)
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -668,7 +652,26 @@ export default function StoreLabelPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   
-  const [labelSize, setLabelSize] = useState("62xAUTO");
+  const [labelSize, setLabelSize] = useState("62x29");
+
+  // 실시간 라벨 맞춤 설정
+  const [titleFontSize, setTitleFontSize] = useState("12");
+  const [priceFontSize, setPriceFontSize] = useState("18");
+  const [barcodeHeight, setBarcodeHeight] = useState("20");
+  const [showKoreanTitle, setShowKoreanTitle] = useState(true);
+  const [showMhd, setShowMhd] = useState(true);
+  const [showUnitPrices, setShowUnitPrices] = useState(true);
+  const [showSku, setShowSku] = useState(true);
+
+  const customSettings = {
+    titleFontSize: Number(titleFontSize) || 12,
+    priceFontSize: Number(priceFontSize) || 18,
+    barcodeHeight: Number(barcodeHeight) || 20,
+    showKoreanTitle,
+    showMhd,
+    showUnitPrices,
+    showSku,
+  };
 
   const addVariantToQueue = (variantObj, copies) => {
     const newItem = { ...variantObj, badgeType: "AUTO" };
@@ -799,17 +802,14 @@ export default function StoreLabelPage() {
                       </Text>
                     </BlockStack>
                     
-                    <div style={{ width: "300px" }}>
+                    <div style={{ width: "320px" }}>
                       <Select
                         labelHidden
                         label="프린터 선택"
                         options={[
-                          { label: 'Brother QL-700 (62mm 연속롤 - Auto Height)', value: '62xAUTO' },
-                          { label: 'Brother QL-700 (62x29 mm)', value: '62x29' },
-                          { label: 'Brother QL-700 (62x38 mm)', value: '62x38' },
-                          { label: 'Brother QL-700 (62x50 mm)', value: '62x50' },
+                          { label: 'Brother QL-700 (62x29 mm 선반 레일표준)', value: '62x29' },
+                          { label: 'Brother QL-700 (62mm 연속롤 Auto)', value: '62xAUTO' },
                           { label: 'Brother VC-500W (50x50 mm)', value: '50x50' },
-                          { label: 'Label Printer (68x50 mm)', value: '68x50' },
                         ]}
                         value={labelSize}
                         onChange={setLabelSize}
@@ -864,6 +864,104 @@ export default function StoreLabelPage() {
               </Card>
             </Layout.Section>
 
+            {/* ⚙️ 라벨 커스텀 설정 컨트롤 카드 */}
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="400">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="headingMd" as="h2">⚙️ 라벨 실시간 커스텀 설정 (글자 크기 & 항목)</Text>
+                    <Button 
+                      plain 
+                      onClick={() => {
+                        setTitleFontSize("12");
+                        setPriceFontSize("18");
+                        setBarcodeHeight("20");
+                        setShowKoreanTitle(true);
+                        setShowMhd(true);
+                        setShowUnitPrices(true);
+                        setShowSku(true);
+                      }}
+                    >
+                      기본값 복원
+                    </Button>
+                  </InlineStack>
+
+                  <InlineStack gap="400" align="space-between" wrap={true}>
+                    <div style={{ flex: "1 1 200px", minWidth: "160px" }}>
+                      <Select
+                        label="상품명 글자 크기"
+                        options={[
+                          { label: "9pt (작게)", value: "9" },
+                          { label: "10pt (보통)", value: "10" },
+                          { label: "11pt (약간 크게)", value: "11" },
+                          { label: "12pt (표준 - 추천)", value: "12" },
+                          { label: "13pt (크게)", value: "13" },
+                          { label: "14pt (매우 크게)", value: "14" },
+                          { label: "16pt (특대)", value: "16" },
+                        ]}
+                        value={titleFontSize}
+                        onChange={setTitleFontSize}
+                      />
+                    </div>
+
+                    <div style={{ flex: "1 1 200px", minWidth: "160px" }}>
+                      <Select
+                        label="가격 글자 크기"
+                        options={[
+                          { label: "14pt (작게)", value: "14" },
+                          { label: "16pt (약간 작게)", value: "16" },
+                          { label: "18pt (표준 - 추천)", value: "18" },
+                          { label: "20pt (크게)", value: "20" },
+                          { label: "22pt (매우 크게)", value: "22" },
+                          { label: "24pt (특대)", value: "24" },
+                        ]}
+                        value={priceFontSize}
+                        onChange={setPriceFontSize}
+                      />
+                    </div>
+
+                    <div style={{ flex: "1 1 200px", minWidth: "160px" }}>
+                      <Select
+                        label="바코드 세로 높이"
+                        options={[
+                          { label: "14px (컴팩트)", value: "14" },
+                          { label: "18px (보통)", value: "18" },
+                          { label: "20px (표준 - 추천)", value: "20" },
+                          { label: "24px (높게)", value: "24" },
+                          { label: "28px (최고 인식률)", value: "28" },
+                        ]}
+                        value={barcodeHeight}
+                        onChange={setBarcodeHeight}
+                      />
+                    </div>
+                  </InlineStack>
+
+                  <InlineStack gap="500" wrap={true}>
+                    <Checkbox
+                      label="한국어 상품명 함께 표시"
+                      checked={showKoreanTitle}
+                      onChange={setShowKoreanTitle}
+                    />
+                    <Checkbox
+                      label="MHD (유통기한) 박스 표시"
+                      checked={showMhd}
+                      onChange={setShowMhd}
+                    />
+                    <Checkbox
+                      label="1kg 당 단가 (Grundpreis) 표시"
+                      checked={showUnitPrices}
+                      onChange={setShowUnitPrices}
+                    />
+                    <Checkbox
+                      label="SKU (아트넘버) 표시"
+                      checked={showSku}
+                      onChange={setShowSku}
+                    />
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+
             <Layout.Section>
               <Card>
                 <BlockStack gap="400">
@@ -877,7 +975,7 @@ export default function StoreLabelPage() {
                       {queuedLabels.map((item) => (
                         <div key={item.id} className="label-queue-item">
                           <div className="label-queue-copy" style={{ alignSelf: "center" }}>
-                            <StoreLabel item={item} size={labelSize} />
+                            <StoreLabel item={item} size={labelSize} settings={customSettings} />
                           </div>
                           <div className="label-queue-meta">
                             <div className="label-queue-title">{item.germanTranslation || item.productTitle}</div>
@@ -942,7 +1040,7 @@ export default function StoreLabelPage() {
                   </Text>
                   {activeLabel ? (
                     <div className="label-preview-stage" style={{ display: "flex", justifyContent: "center", padding: "20px" }}>
-                      <StoreLabel item={activeLabel} size={labelSize} />
+                      <StoreLabel item={activeLabel} size={labelSize} settings={customSettings} />
                     </div>
                   ) : (
                     <div className="label-empty-state">
@@ -1001,7 +1099,7 @@ export default function StoreLabelPage() {
       {labelPrintItems.length > 0 && (
         <div className="label-print-sheet">
           {labelPrintItems.map((item) => (
-            <StoreLabel key={item.printKey} item={item} printMode={true} size={labelSize} />
+            <StoreLabel key={item.printKey} item={item} printMode={true} size={labelSize} settings={customSettings} />
           ))}
         </div>
       )}
