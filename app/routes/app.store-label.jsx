@@ -462,23 +462,22 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     ? item.productTitle 
     : "";
 
-  // 💡 100% 풀 텍스트 표기 엔진 (유통기한/뱃지 제거로 상품명 전용 공간 극대화)
+  // 💡 100% 풀 텍스트 표기 엔진 (독일어 2줄 + 한국어 1줄로 하단 가격 영역 충돌 100% 방지)
   const calculateGermanFontSize = (titleStr, basePt) => {
     const len = titleStr.length;
-    if (len > 55) return Math.max(6.8, basePt - 3.2);
-    if (len > 40) return Math.max(7.8, basePt - 2.2);
-    if (len > 28) return Math.max(8.8, basePt - 1.5);
-    if (len > 18) return Math.max(9.8, basePt - 0.8);
-    return Math.max(basePt, 11);
+    if (len > 60) return 6.8;
+    if (len > 45) return 7.2;
+    if (len > 30) return 8.2;
+    if (len > 18) return 9.2;
+    return Math.max(basePt, 10.5);
   };
 
   const calculateKoreanFontSize = (titleStr, basePt) => {
     const len = titleStr.length;
-    const subPt = Math.max(7.2, basePt - 2.2);
-    if (len > 45) return Math.max(6.2, subPt - 1.5);
-    if (len > 30) return Math.max(6.8, subPt - 1.0);
-    if (len > 20) return Math.max(7.5, subPt - 0.5);
-    return subPt;
+    if (len > 45) return 6.0;
+    if (len > 30) return 6.5;
+    if (len > 20) return 7.0;
+    return 7.5;
   };
 
   const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
@@ -506,7 +505,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         height: "29mm",
         maxHeight: "29mm",
         boxSizing: "border-box",
-        padding: "2mm 3.2mm",
+        padding: "1.8mm 3mm",
         display: "flex",
         flexDirection: "column",
         justify: "space-between",
@@ -518,12 +517,12 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         color: "#000000"
       }}
     >
-      {/* 2. 상품명 영역 (유통기한/뱃지 제거로 상품명 전용 공간 극대화) */}
+      {/* 2. 상품명 영역 (독일어 2줄 + 한국어 1줄 - 가격 영역과 100% 분리) */}
       <div style={{ 
         flex: 1, 
         display: "flex", 
         flexDirection: "column", 
-        justify: "center", 
+        justify: "flex-start", 
         margin: "0", 
         width: "100%",
         overflow: "hidden"
@@ -532,8 +531,8 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
         <div style={{ 
           fontSize: `${germanFontSizePt}pt`, 
           fontWeight: "800", 
-          lineHeight: "1.05", 
-          letterSpacing: germanTitle.length > 35 ? "-0.2px" : "normal",
+          lineHeight: "1.02", 
+          letterSpacing: germanTitle.length > 40 ? "-0.25px" : (germanTitle.length > 25 ? "-0.15px" : "normal"),
           color: "#000000", 
           display: "block",
           wordBreak: "break-word",
@@ -550,8 +549,9 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
             fontSize: `${koreanFontSizePt}pt`, 
             color: "#222222", 
             fontWeight: "700", 
-            marginTop: "1.5px", 
-            lineHeight: "1.05",
+            marginTop: "1px", 
+            lineHeight: "1.02",
+            letterSpacing: "-0.15px",
             display: "block",
             wordBreak: "break-word",
             overflowWrap: "break-word",
