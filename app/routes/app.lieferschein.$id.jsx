@@ -761,16 +761,7 @@ export default function OrderPrintDetailPage() {
     if (docMode === "LIEFERSCHEIN" || docMode === "BOTH") {
       slips.push(
         <div key={`lieferschein-slip-${order.id}`} className="packing-slip lieferschein-slip">
-          <div style={{ padding: "15px", marginBottom: "15px", border: "4px solid #000", background: "#ffeb3b", color: "#000" }}>
-            <h2 style={{ margin: "0 0 10px 0" }}>🛠️ DEBUG 정보 (주문번호: {order.name})</h2>
-            <p style={{ margin: "0 0 5px 0", fontSize: "16px", fontWeight: "bold" }}>
-              추출된 soldOutAction 값: {order.soldOutAction ? `"${order.soldOutAction}"` : "없음 (null)"}
-            </p>
-            <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터qqqqq:</p>
-            <pre style={{ margin: 0, padding: "10px", background: "#fff", border: "1px solid #ccc", fontSize: "12px", overflow: "auto", maxHeight: "150px" }}>
-              {JSON.stringify(order, null, 2)}
-            </pre>
-          </div>
+
           <div className="header">
             <div className="header-left">
               <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
@@ -973,21 +964,43 @@ export default function OrderPrintDetailPage() {
 
           {order.soldOutAction && (
             <div style={{
-              marginTop: "12px",
+              marginTop: "14px",
               padding: "10px 14px",
-              border: "2px solid #b91c1c",
               borderRadius: "6px",
-              background: "#fff5f5",
-              color: "#b91c1c",
-              fontWeight: "bold",
-              fontSize: "14px",
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderLeft: "5px solid #dc2626",
               display: "flex",
               alignItems: "center",
-              gap: "8px"
+              justifyContent: "space-between"
             }}>
-              <span style={{ fontSize: "16px" }}>⚠️</span>
-              <span>품절 시 처리 요청:</span>
-              <span style={{ fontSize: "15px", textDecoration: "underline", marginLeft: "4px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "22px",
+                  height: "22px",
+                  borderRadius: "50%",
+                  backgroundColor: "#fee2e2",
+                  color: "#dc2626",
+                  fontSize: "12px",
+                  fontWeight: "bold"
+                }}>!</span>
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "#991b1b" }}>
+                  품절 시 처리 요청 <span style={{ fontSize: "11px", fontWeight: "normal", color: "#b91c1c", marginLeft: "4px" }}>(Bei Ausverkauf)</span>
+                </span>
+              </div>
+              <span style={{
+                fontSize: "13px",
+                fontWeight: "700",
+                color: "#991b1b",
+                backgroundColor: "#ffffff",
+                padding: "4px 10px",
+                borderRadius: "4px",
+                border: "1px solid #fca5a5",
+                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)"
+              }}>
                 {order.soldOutAction}
               </span>
             </div>
