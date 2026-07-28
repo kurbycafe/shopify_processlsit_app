@@ -995,7 +995,9 @@ export default function OrderPrintDetailPage() {
               })}
             </tbody>
           </table>
-          <p style={{ fontSize: '30px' }}>{order}</p>
+          <pre style={{ fontSize: '12px', background: '#f4f4f4', padding: '10px', overflow: 'auto' }}>
+            {JSON.stringify(order, null, 2)}
+          </pre>
           {order.note && (
             <div className="note-box">
               <div className="note-title">Lieferhinweis</div>
