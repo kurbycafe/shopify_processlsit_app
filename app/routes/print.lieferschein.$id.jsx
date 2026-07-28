@@ -1004,47 +1004,36 @@ export default function OrderPrintDetailPage() {
             </div>
           )}
           {order.soldOutAction && (
-            <div style={{
-              marginTop: "14px",
-              padding: "10px 14px",
-              borderRadius: "6px",
-              backgroundColor: "#fef2f2",
-              border: "1px solid #fecaca",
-              borderLeft: "5px solid #dc2626",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between"
+            <table style={{
+              width: "100%",
+              marginTop: "10px",
+              borderCollapse: "collapse",
+              border: "1px solid #e3e6ea",
+              fontSize: "11px"
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "22px",
-                  height: "22px",
-                  borderRadius: "50%",
-                  backgroundColor: "#fee2e2",
-                  color: "#dc2626",
-                  fontSize: "12px",
-                  fontWeight: "bold"
-                }}>!</span>
-                <span style={{ fontSize: "13px", fontWeight: "700", color: "#991b1b" }}>
-                  품절 시 처리 요청 <span style={{ fontSize: "11px", fontWeight: "normal", color: "#b91c1c", marginLeft: "4px" }}>(Bei Ausverkauf)</span>
-                </span>
-              </div>
-              <span style={{
-                fontSize: "13px",
-                fontWeight: "700",
-                color: "#991b1b",
-                backgroundColor: "#ffffff",
-                padding: "4px 10px",
-                borderRadius: "4px",
-                border: "1px solid #fca5a5",
-                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)"
-              }}>
-                {order.soldOutAction}
-              </span>
-            </div>
+              <tbody>
+                <tr>
+                  <td style={{
+                    width: "210px",
+                    padding: "7px 10px",
+                    background: "#f8f9fa",
+                    borderRight: "1px solid #e3e6ea",
+                    fontWeight: "700",
+                    color: "#454b54",
+                    whiteSpace: "nowrap"
+                  }}>
+                    품절 시 처리 요청 <span style={{ fontSize: "10px", fontWeight: "normal", color: "#6b7280", marginLeft: "4px" }}>(Bei Ausverkauf)</span>
+                  </td>
+                  <td style={{
+                    padding: "7px 10px",
+                    fontWeight: "700",
+                    color: "#16181d"
+                  }}>
+                    {order.soldOutAction}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           )}
 
           <div className="picker-box">
