@@ -393,6 +393,8 @@ export const loader = async ({ request, params }) => {
       const soldOutActionAttr = (node.customAttributes || []).find(attr => attr.key === "sold_out_action");
       const soldOutAction = soldOutActionAttr ? soldOutActionAttr.value : null;
 
+      console.log("Order Name:", node.name, "Custom Attributes:", node.customAttributes, "Sold Out Action:", soldOutAction);
+
       const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
 
       const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
@@ -1000,8 +1002,8 @@ export default function OrderPrintDetailPage() {
               <div className="note-content">{order.note}</div>
             </div>
           )}
-          <p>1122</p>
-          <p>{order}</p>
+          <p>1122 Debug: {order.soldOutAction ? order.soldOutAction : "없음"}</p>
+          <pre style={{ fontSize: "10px" }}>{JSON.stringify(order, null, 2)}</pre>
           {order.soldOutAction && (
             <div style={{ marginTop: "10px", fontWeight: "bold" }}>
               품절 시 처리 요청: {order.soldOutAction}
