@@ -225,6 +225,10 @@ export const loader = async ({ request, params }) => {
             note
             displayFinancialStatus
             cancelledAt
+            customAttributes {
+              key
+              value
+            }
             displayFulfillmentStatus
             paymentGatewayNames
             customer {
@@ -347,6 +351,9 @@ export const loader = async ({ request, params }) => {
 
     for (const node of nodes) {
       if (!node) continue;
+
+      const soldOutActionAttr = (node.customAttributes || []).find(attr => attr.key === "sold_out_action");
+      const soldOutAction = soldOutActionAttr ? soldOutActionAttr.value : null;
 
       const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
 
@@ -496,6 +503,7 @@ export const loader = async ({ request, params }) => {
         customerId: node.customer?.id || null,
         taxLines,
         shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
+        soldOutAction,
       });
     }
 
@@ -946,6 +954,12 @@ export default function OrderPrintDetailPage() {
             <div className="note-box">
               <div className="note-title">Lieferhinweis</div>
               <div className="note-content">{order.note}</div>
+            </div>
+          )}
+
+          {order.soldOutAction && (
+            <div style={{ marginTop: "10px", fontWeight: "bold" }}>
+              품절 시 처리 요청: {order.soldOutAction}
             </div>
           )}
 
