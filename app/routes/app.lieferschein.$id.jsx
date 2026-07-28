@@ -960,12 +960,25 @@ export default function OrderPrintDetailPage() {
             </div>
           )}
 
-          <p>1122 Debug: {order.soldOutAction ? order.soldOutAction : "없음"}</p>
-          <pre style={{ fontSize: "10px" }}>{JSON.stringify(order, null, 2)}</pre>
-
           {order.soldOutAction && (
-            <div style={{ marginTop: "10px", fontWeight: "bold" }}>
-              품절 시 처리 요청: {order.soldOutAction}
+            <div style={{
+              marginTop: "12px",
+              padding: "10px 14px",
+              border: "2px solid #b91c1c",
+              borderRadius: "6px",
+              background: "#fff5f5",
+              color: "#b91c1c",
+              fontWeight: "bold",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}>
+              <span style={{ fontSize: "16px" }}>⚠️</span>
+              <span>품절 시 처리 요청:</span>
+              <span style={{ fontSize: "15px", textDecoration: "underline", marginLeft: "4px" }}>
+                {order.soldOutAction}
+              </span>
             </div>
           )}
 
