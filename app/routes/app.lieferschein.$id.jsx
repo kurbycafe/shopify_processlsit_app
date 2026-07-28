@@ -764,39 +764,15 @@ export default function OrderPrintDetailPage() {
 
           <div className="header">
             <div className="header-left">
-              <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "10px", flexWrap: "wrap" }}>
                 <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
                 {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
-                  <div style={{
-                    border: "4px double #dc2626",
-                    color: "#dc2626",
-                    padding: "3px 8px",
-                    fontSize: "13px",
-                    fontWeight: "900",
-                    textTransform: "uppercase",
-                    transform: "rotate(-2.5deg)",
-                    display: "inline-block",
-                    fontFamily: "sans-serif",
-                    letterSpacing: "0.5px"
-                  }}>
-                    {order.shippingMethod.toUpperCase().includes("SAVER") ? "EXPRESS SAVER" : "EXPRESS"}
+                  <div className="doc-tag doc-tag--express">
+                    {order.shippingMethod.toUpperCase().includes("SAVER") ? "Express Saver" : "Express"}
                   </div>
                 )}
                 {order.isB2B && (
-                  <div style={{
-                    border: "4px double #1e293b",
-                    color: "#1e293b",
-                    padding: "3px 8px",
-                    fontSize: "13px",
-                    fontWeight: "900",
-                    textTransform: "uppercase",
-                    transform: "rotate(1.5deg)",
-                    display: "inline-block",
-                    fontFamily: "sans-serif",
-                    letterSpacing: "0.5px"
-                  }}>
-                    B2B / WHOLESALE
-                  </div>
+                  <div className="doc-tag doc-tag--b2b">B2B / Wholesale</div>
                 )}
               </div>
               <table className="info-grid">
@@ -807,49 +783,33 @@ export default function OrderPrintDetailPage() {
                   <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                   <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
                   <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
-                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
+                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "600" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
                   <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
                 </tbody>
               </table>
-              <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
+              <div className="badges-row">
                 {order.isB2B && <div className="badge">B2B</div>}
-                {order.hasIcePackage && <div className="stamp-kuehl">KÜHLVERSAND</div>}
+                {order.hasIcePackage && <div className="doc-tag doc-tag--kuehl">❄ Kühlversand</div>}
               </div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
-                <div style={{
-                  padding: "6px 12px",
-                  border: "3px solid #111111",
-                  fontSize: "14px",
-                  fontWeight: "800",
-                  textTransform: "uppercase",
-                  display: "inline-block",
-                  color: "#111111"
-                }}>
-                  {order.shippingMethod}
-                </div>
+              <div className="tags-row">
+                <div className="shipping-method-tag">{order.shippingMethod}</div>
                 {isInternational && (
-                  <div style={{
-                    padding: "6px 12px",
-                    border: "4px solid #b91c1c",
-                    fontSize: "16px",
-                    fontWeight: "900",
-                    textTransform: "uppercase",
-                    display: "inline-block",
-                    color: "#b91c1c"
-                  }}>
+                  <div className="doc-tag doc-tag--intl">
                     {order.shippingAddress?.country?.toUpperCase() || ""}
                   </div>
                 )}
               </div>
             </div>
-            <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
-              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
-              <div><strong>Popeye GmbH</strong></div>
-              <div>Erkrather Straße 343</div>
-              <div>40231 Düsseldorf</div>
-              <div>Deutschland</div>
+            <div className="header-right">
+              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
+              <div className="company-block">
+                <div><strong>Popeye GmbH</strong></div>
+                <div>Erkrather Straße 343</div>
+                <div>40231 Düsseldorf</div>
+                <div>Deutschland</div>
+              </div>
               {showBarcodes && (
-                <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
+                <div className="barcode-wrapper">
                   <div className="barcode-title">Order Barcode</div>
                   <Code128 value={order.name} height={38} moduleWidth={1.2} />
                 </div>
@@ -869,9 +829,7 @@ export default function OrderPrintDetailPage() {
                 {currentBillingAddress?.country}
                 {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
                 {order.customVat && (
-                  <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
-                    USt-IdNr.: {order.customVat}
-                  </div>
+                  <div className="vat-line">USt-IdNr.: {order.customVat}</div>
                 )}
               </div>
             </div>
@@ -916,7 +874,7 @@ export default function OrderPrintDetailPage() {
                     )}
                     <td>
                       <div className="product-title">
-                        {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
+                        {item.isIcePackage && <span className="ice-tag-inline">[❄ 냉장] </span>}
                         {item.title}
                       </div>
                       {item.germanTranslation && (
@@ -963,46 +921,14 @@ export default function OrderPrintDetailPage() {
           )}
 
           {order.soldOutAction && (
-            <div style={{
-              marginTop: "14px",
-              padding: "10px 14px",
-              borderRadius: "6px",
-              backgroundColor: "#fef2f2",
-              border: "1px solid #fecaca",
-              borderLeft: "5px solid #dc2626",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between"
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "22px",
-                  height: "22px",
-                  borderRadius: "50%",
-                  backgroundColor: "#fee2e2",
-                  color: "#dc2626",
-                  fontSize: "12px",
-                  fontWeight: "bold"
-                }}>!</span>
-                <span style={{ fontSize: "13px", fontWeight: "700", color: "#991b1b" }}>
-                  품절 시 처리 요청 <span style={{ fontSize: "11px", fontWeight: "normal", color: "#b91c1c", marginLeft: "4px" }}>(Bei Ausverkauf)</span>
+            <div className="alert-soldout">
+              <div className="alert-soldout__left">
+                <span className="alert-soldout__icon">!</span>
+                <span className="alert-soldout__label">
+                  품절 시 처리 요청 <span className="alert-soldout__sub">(Bei Ausverkauf)</span>
                 </span>
               </div>
-              <span style={{
-                fontSize: "13px",
-                fontWeight: "700",
-                color: "#991b1b",
-                backgroundColor: "#ffffff",
-                padding: "4px 10px",
-                borderRadius: "4px",
-                border: "1px solid #fca5a5",
-                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)"
-              }}>
-                {order.soldOutAction}
-              </span>
+              <span className="alert-soldout__value">{order.soldOutAction}</span>
             </div>
           )}
 
@@ -1014,17 +940,7 @@ export default function OrderPrintDetailPage() {
           <div className="footer">
             <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
             {order.isFirstPurchase && (
-              <div style={{
-                textAlign: "center",
-                margin: "8px 0",
-                padding: "8px",
-                border: "2px dashed #b91c1c",
-                borderRadius: "6px",
-                background: "#fff5f5",
-                color: "#b91c1c",
-                fontWeight: "bold",
-                fontSize: "12px"
-              }}>
+              <div className="banner-first-purchase">
                 Vielen Dank für Ihre erste Bestellung!
               </div>
             )}
@@ -1114,23 +1030,10 @@ export default function OrderPrintDetailPage() {
         <div key={`rechnung-slip-${order.id}`} className="packing-slip rechnung-slip">
           <div className="header">
             <div className="header-left">
-              <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "10px", flexWrap: "wrap" }}>
                 <div className="document-title" style={{ margin: 0 }}>Rechnung</div>
                 {order.isB2B && (
-                  <div style={{
-                    border: "4px double #1e293b",
-                    color: "#1e293b",
-                    padding: "3px 8px",
-                    fontSize: "13px",
-                    fontWeight: "900",
-                    textTransform: "uppercase",
-                    transform: "rotate(1.5deg)",
-                    display: "inline-block",
-                    fontFamily: "sans-serif",
-                    letterSpacing: "0.5px"
-                  }}>
-                    B2B / WHOLESALE
-                  </div>
+                  <div className="doc-tag doc-tag--b2b">B2B / Wholesale</div>
                 )}
               </div>
               <table className="info-grid">
@@ -1141,19 +1044,21 @@ export default function OrderPrintDetailPage() {
                   <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                   <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
                   <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
-                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
+                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "600" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
                   <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
                 </tbody>
               </table>
             </div>
-            <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
-              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
-              <div><strong>Popeye GmbH</strong></div>
-              <div>Erkrather Straße 343</div>
-              <div>40231 Düsseldorf</div>
-              <div>Deutschland</div>
+            <div className="header-right">
+              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" />
+              <div className="company-block">
+                <div><strong>Popeye GmbH</strong></div>
+                <div>Erkrather Straße 343</div>
+                <div>40231 Düsseldorf</div>
+                <div>Deutschland</div>
+              </div>
               {showBarcodes && (
-                <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
+                <div className="barcode-wrapper">
                   <div className="barcode-title">Order Barcode</div>
                   <Code128 value={order.name} height={38} moduleWidth={1.2} />
                 </div>
@@ -1173,9 +1078,7 @@ export default function OrderPrintDetailPage() {
                 {currentBillingAddress?.country}
                 {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
                 {order.customVat && (
-                  <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
-                    USt-IdNr.: {order.customVat}
-                  </div>
+                  <div className="vat-line">USt-IdNr.: {order.customVat}</div>
                 )}
               </div>
             </div>
@@ -1237,29 +1140,29 @@ export default function OrderPrintDetailPage() {
                       {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
                       {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
                     </td>
-                    <td className="qty-cell-rechnung" style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold' }}>
+                    <td className="qty-cell-rechnung">
                       {item.quantity}
                     </td>
                     <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
                       {hasDiscount && (
-                        <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px' }}>
+                        <div style={{ textDecoration: 'line-through', color: '#9aa1ac', fontSize: '10px' }}>
                           {origUnitPrice.toFixed(2)} {order.currencyCode}
                         </div>
                       )}
-                      <span style={{ fontWeight: hasDiscount ? 'bold' : 'normal', color: hasDiscount ? '#b91c1c' : 'inherit' }}>
+                      <span style={{ fontWeight: hasDiscount ? '700' : '400', color: hasDiscount ? '#c2321f' : 'inherit' }}>
                         {unitPrice.toFixed(2)} {order.currencyCode}
                       </span>
                     </td>
                     <td style={{ textAlign: 'center', fontSize: '11px', fontFamily: 'monospace' }}>
                       {item.currentRate}%
                     </td>
-                    <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                    <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: '700' }}>
                       {hasDiscount && (
-                        <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px', fontWeight: 'normal' }}>
+                        <div style={{ textDecoration: 'line-through', color: '#9aa1ac', fontSize: '10px', fontWeight: '400' }}>
                           {origTotalPrice.toFixed(2)} {order.currencyCode}
                         </div>
                       )}
-                      <span style={{ color: hasDiscount ? '#b91c1c' : 'inherit' }}>
+                      <span style={{ color: hasDiscount ? '#c2321f' : 'inherit' }}>
                         {totalPrice.toFixed(2)} {order.currencyCode}
                       </span>
                     </td>
@@ -1269,11 +1172,11 @@ export default function OrderPrintDetailPage() {
             </tbody>
           </table>
 
-          <div className="invoice-summary-wrapper" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-            <table className="invoice-summary-table" style={{ width: '280px', borderCollapse: 'collapse' }}>
+          <div className="invoice-summary-wrapper">
+            <table className="invoice-summary-table">
               <tbody>
                 <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
+                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#6b7280' }}>
                     {taxDisplayMode === "NET" ? "Zwischensumme (Netto):" : "Zwischensumme (Brutto):"}
                   </td>
                   <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
@@ -1288,8 +1191,8 @@ export default function OrderPrintDetailPage() {
                   if (taxDisplayMode === "GROSS" && discountVal > 0) {
                     return (
                       <tr style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
-                        <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
+                        <td style={{ padding: '4px 0', fontSize: '11px', color: '#6b7280' }}>Rabatt:</td>
+                        <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#c2321f' }}>
                           -{discountVal.toFixed(2)} {order.currencyCode}
                         </td>
                       </tr>
@@ -1298,7 +1201,7 @@ export default function OrderPrintDetailPage() {
                   return null;
                 })()}
                 <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
+                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#6b7280' }}>
                     {taxDisplayMode === "NET" ? "Versandkosten (Netto):" : "Versandkosten:"}
                   </td>
                   <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
@@ -1307,33 +1210,33 @@ export default function OrderPrintDetailPage() {
                 </tr>
                 {Object.entries(vatBreakdown).map(([rate, amount]) => (
                   <tr key={rate} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
+                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#9aa1ac', fontStyle: 'italic' }}>
                       {taxDisplayMode === "NET" ? "zzgl." : "inkl."} {rate}% MwSt.:
                     </td>
-                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
+                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#9aa1ac', fontStyle: 'italic' }}>
                       {amount.toFixed(2)} {order.currencyCode}
                     </td>
                   </tr>
                 ))}
-                <tr style={{ borderTop: '2px solid #111' }}>
-                  <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>
+                <tr style={{ borderTop: '1px solid #16181d' }}>
+                  <td style={{ padding: '8px 0 2px', fontSize: '13px', fontWeight: '700', color: '#16181d' }}>
                     {taxDisplayMode === "NET" ? "Gesamtsumme (Brutto):" : "Gesamtsumme:"}
                   </td>
-                  <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
+                  <td style={{ padding: '8px 0 2px', fontSize: '13px', fontWeight: '700', textAlign: 'right', fontFamily: 'monospace', color: '#16181d' }}>
                     {finalTotal.toFixed(2)} {order.currencyCode}
                   </td>
                 </tr>
                 {parseFloat(order.totalRefunded) > 0 && (
                   <>
                     <tr style={{ borderBottom: '1px solid #eee' }}>
-                      <td style={{ padding: '4px 0', fontSize: '11px', color: '#b91c1c', fontWeight: 'bold' }}>Erstattet (Refunded):</td>
-                      <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c', fontWeight: 'bold' }}>
+                      <td style={{ padding: '4px 0', fontSize: '11px', color: '#c2321f', fontWeight: '700' }}>Erstattet (Refunded):</td>
+                      <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#c2321f', fontWeight: '700' }}>
                         -{parseFloat(order.totalRefunded).toFixed(2)} {order.currencyCode}
                       </td>
                     </tr>
-                    <tr style={{ borderTop: '1px solid #111', borderBottom: '2px double #111' }}>
-                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gezahlter Betrag (Net Paid):</td>
-                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
+                    <tr style={{ borderTop: '1px solid #16181d' }}>
+                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: '700', color: '#16181d' }}>Gezahlter Betrag (Net Paid):</td>
+                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: '700', textAlign: 'right', fontFamily: 'monospace', color: '#16181d' }}>
                         {(finalTotal - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
                       </td>
                     </tr>
@@ -1345,39 +1248,29 @@ export default function OrderPrintDetailPage() {
 
           {taxExemptionNote && (
             <div style={{
-              marginTop: "12px",
+              marginTop: "14px",
               fontSize: "11px",
-              fontWeight: "bold",
+              fontWeight: "600",
               textAlign: "left",
-              color: "#111",
-              border: "1px solid #e2e8f0",
-              padding: "8px 10px",
-              borderRadius: "4px",
-              backgroundColor: "#f8fafc",
+              color: "#1f2328",
+              border: "1px solid #e3e6ea",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              backgroundColor: "#f8f9fa",
               lineHeight: "1.4"
             }}>
               Hinweis: {taxExemptionNote}
             </div>
           )}
 
-          <div style={{ marginTop: "12px", fontSize: "10px", color: "#555", fontStyle: "italic", textAlign: "left" }}>
+          <div style={{ marginTop: "12px", fontSize: "10px", color: "#6b7280", fontStyle: "italic", textAlign: "left" }}>
             Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
           </div>
 
           <div className="footer">
             <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
             {order.isFirstPurchase && (
-              <div style={{
-                textAlign: "center",
-                margin: "8px 0",
-                padding: "8px",
-                border: "2px dashed #b91c1c",
-                borderRadius: "6px",
-                background: "#fff5f5",
-                color: "#b91c1c",
-                fontWeight: "bold",
-                fontSize: "12px"
-              }}>
+              <div className="banner-first-purchase">
                 Vielen Dank für Ihre erste Bestellung!
               </div>
             )}
