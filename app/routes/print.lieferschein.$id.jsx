@@ -1000,7 +1000,8 @@ export default function OrderPrintDetailPage() {
               <div className="note-content">{order.note}</div>
             </div>
           )}
-
+          <p>1122</p>
+          <p>{order}</p>
           {order.soldOutAction && (
             <div style={{ marginTop: "10px", fontWeight: "bold" }}>
               품절 시 처리 요청: {order.soldOutAction}
