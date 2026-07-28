@@ -28,12 +28,12 @@ const jsonResponse = (data) =>
 
 function checkIsB2B(shippingAddress) {
   if (!shippingAddress) return false;
-  
+
   const company = (shippingAddress.company || "").trim();
   const name = (shippingAddress.name || "").trim();
-  
+
   if (company) return true; // 회사명 필드가 입력된 경우 B2B로 판별
-  
+
   const nameUpper = name.toUpperCase();
   const b2bPatterns = [
     /\bGMBH\b/,
@@ -49,7 +49,7 @@ function checkIsB2B(shippingAddress) {
     /\bS\.A\.(?!\w)/,
     /\bS\.A\.R\.L\.(?!\w)/
   ];
-  
+
   return b2bPatterns.some(pattern => pattern.test(nameUpper));
 }
 
@@ -766,9 +766,9 @@ export default function OrderPrintDetailPage() {
             <p style={{ margin: "0 0 5px 0", fontSize: "16px", fontWeight: "bold" }}>
               추출된 soldOutAction 값: {order.soldOutAction ? `"${order.soldOutAction}"` : "없음 (null)"}
             </p>
-            <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터:</p>
+            <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터qqqqq:</p>
             <pre style={{ margin: 0, padding: "10px", background: "#fff", border: "1px solid #ccc", fontSize: "12px", overflow: "auto", maxHeight: "150px" }}>
-              {JSON.stringify(order.customAttributes, null, 2)}
+              {JSON.stringify(order, null, 2)}
             </pre>
           </div>
           <div className="header">
@@ -1036,17 +1036,17 @@ export default function OrderPrintDetailPage() {
         const qty = item.quantity || 0;
         const origRate = item.originalTaxRate ?? 7;
         const currentRate = item.taxRate ?? origRate;
-        
+
         const unitGross = parseFloat(item.priceDiscounted || item.priceOriginal || 0);
         const unitNet = unitGross / (1 + origRate / 100);
-        
+
         const currentUnitGross = unitNet * (1 + currentRate / 100);
         const currentUnitNet = unitNet;
-        
+
         const totalGross = currentUnitGross * qty;
         const totalNet = currentUnitNet * qty;
         const totalVat = totalGross - totalNet;
-        
+
         return {
           ...item,
           unitNet: currentUnitNet,
@@ -1091,8 +1091,8 @@ export default function OrderPrintDetailPage() {
       const rawSubtotal = parseFloat(order.subtotalPrice || 0);
       const rawDiscounts = parseFloat(order.totalDiscounts || 0);
 
-      const finalSubtotal = taxDisplayMode === "NET" 
-        ? totalNetItems 
+      const finalSubtotal = taxDisplayMode === "NET"
+        ? totalNetItems
         : (totalOriginalGrossItems > rawSubtotal + 0.01 ? totalOriginalGrossItems : rawSubtotal);
       const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
       const finalTotal = grandTotalGross;
@@ -1195,13 +1195,13 @@ export default function OrderPrintDetailPage() {
               {processedItems.map((item) => {
                 const unitPrice = taxDisplayMode === "NET" ? item.unitNet : item.unitGross;
                 const totalPrice = taxDisplayMode === "NET" ? item.totalNet : item.totalGross;
-                
+
                 const origUnitGross = parseFloat(item.priceOriginal || 0);
                 const origRate = item.originalTaxRate ?? 7;
                 const origUnitNet = origUnitGross / (1 + origRate / 100);
                 const origUnitPrice = taxDisplayMode === "NET" ? origUnitNet : origUnitGross;
                 const origTotalPrice = origUnitPrice * item.quantity;
-                
+
                 const hasDiscount = origUnitPrice > unitPrice + 0.001;
 
                 return (
@@ -1268,10 +1268,10 @@ export default function OrderPrintDetailPage() {
                   </td>
                 </tr>
                 {(() => {
-                  const discountVal = rawDiscounts > 0 
-                    ? rawDiscounts 
+                  const discountVal = rawDiscounts > 0
+                    ? rawDiscounts
                     : (totalOriginalGrossItems - rawSubtotal > 0.01 ? totalOriginalGrossItems - rawSubtotal : 0);
-                  
+
                   if (taxDisplayMode === "GROSS" && discountVal > 0) {
                     return (
                       <tr style={{ borderBottom: '1px solid #eee' }}>
@@ -1331,15 +1331,15 @@ export default function OrderPrintDetailPage() {
           </div>
 
           {taxExemptionNote && (
-            <div style={{ 
-              marginTop: "12px", 
-              fontSize: "11px", 
-              fontWeight: "bold", 
-              textAlign: "left", 
-              color: "#111", 
-              border: "1px solid #e2e8f0", 
-              padding: "8px 10px", 
-              borderRadius: "4px", 
+            <div style={{
+              marginTop: "12px",
+              fontSize: "11px",
+              fontWeight: "bold",
+              textAlign: "left",
+              color: "#111",
+              border: "1px solid #e2e8f0",
+              padding: "8px 10px",
+              borderRadius: "4px",
               backgroundColor: "#f8fafc",
               lineHeight: "1.4"
             }}>
@@ -1543,11 +1543,11 @@ export default function OrderPrintDetailPage() {
                     <Divider />
                     <div style={{ display: "flex", flexDirection: "column", gap: "20px", alignItems: "center", background: "#f1f5f9", padding: "20px", borderRadius: "8px", width: "100%", maxHeight: "800px", overflowY: "auto" }}>
                       {slips.map((slip, idx) => (
-                        <div key={idx} style={{ 
-                          width: "210mm", 
-                          zoom: 0.85, 
-                          background: "#fff", 
-                          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)", 
+                        <div key={idx} style={{
+                          width: "210mm",
+                          zoom: 0.85,
+                          background: "#fff",
+                          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
                           boxSizing: "border-box",
                           flexShrink: 0,
                           marginBottom: "10px"

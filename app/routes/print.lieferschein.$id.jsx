@@ -809,7 +809,7 @@ export default function OrderPrintDetailPage() {
             <p style={{ margin: "0 0 5px 0", fontSize: "16px", fontWeight: "bold" }}>
               추출된 soldOutAction 값: {order.soldOutAction ? `"${order.soldOutAction}"` : "없음 (null)"}
             </p>
-            <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터:</p>
+            <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터xxxxxx:</p>
             <pre style={{ margin: 0, padding: "10px", background: "#fff", border: "1px solid #ccc", fontSize: "12px", overflow: "auto", maxHeight: "150px" }}>
               {JSON.stringify(order, null, 2)}
             </pre>
