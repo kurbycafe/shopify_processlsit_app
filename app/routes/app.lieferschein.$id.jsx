@@ -960,6 +960,10 @@ export default function OrderPrintDetailPage() {
             </div>
           )}
 
+          <pre style={{ fontSize: '10px', background: '#f4f4f4', padding: '10px', overflow: 'auto', border: '1px solid #ccc', margin: '10px 0' }}>
+            {JSON.stringify(order, null, 2)}
+          </pre>
+
           {order.soldOutAction && (
             <div style={{
               marginTop: "12px",
