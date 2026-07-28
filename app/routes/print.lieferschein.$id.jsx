@@ -1027,7 +1027,7 @@ export default function OrderPrintDetailPage() {
                   <td style={{
                     padding: "7px 10px",
                     fontWeight: "700",
-                    color: "#16181d"
+                    color: "#dc2626"
                   }}>
                     {order.soldOutAction}
                   </td>
