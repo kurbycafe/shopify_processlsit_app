@@ -995,7 +995,7 @@ export default function OrderPrintDetailPage() {
               })}
             </tbody>
           </table>
-
+          <p style={{ fontSize: '30px' }}>{order}</p>
           {order.note && (
             <div className="note-box">
               <div className="note-title">Lieferhinweis</div>
