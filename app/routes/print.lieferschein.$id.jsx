@@ -545,6 +545,7 @@ export const loader = async ({ request, params }) => {
         taxLines,
         shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
         soldOutAction,
+        customAttributes: node.customAttributes || [],
       });
     }
 
@@ -803,6 +804,16 @@ export default function OrderPrintDetailPage() {
     if (docMode === "LIEFERSCHEIN" || docMode === "BOTH") {
       slips.push(
         <div key={`lieferschein-slip-${order.id}`} className="packing-slip lieferschein-slip">
+          <div style={{ padding: "15px", marginBottom: "15px", border: "4px solid #000", background: "#ffeb3b", color: "#000" }}>
+            <h2 style={{ margin: "0 0 10px 0" }}>🛠️ DEBUG 정보 (주문번호: {order.name})</h2>
+            <p style={{ margin: "0 0 5px 0", fontSize: "16px", fontWeight: "bold" }}>
+              추출된 soldOutAction 값: {order.soldOutAction ? `"${order.soldOutAction}"` : "없음 (null)"}
+            </p>
+            <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터:</p>
+            <pre style={{ margin: 0, padding: "10px", background: "#fff", border: "1px solid #ccc", fontSize: "12px", overflow: "auto", maxHeight: "150px" }}>
+              {JSON.stringify(order.customAttributes, null, 2)}
+            </pre>
+          </div>
           <div className="header">
             <div className="header-left">
               <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
@@ -995,9 +1006,6 @@ export default function OrderPrintDetailPage() {
               })}
             </tbody>
           </table>
-          <pre style={{ fontSize: '12px', background: '#f4f4f4', padding: '10px', overflow: 'auto' }}>
-            {JSON.stringify(order, null, 2)}
-          </pre>
           {order.note && (
             <div className="note-box">
               <div className="note-title">Lieferhinweis</div>
