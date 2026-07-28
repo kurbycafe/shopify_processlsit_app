@@ -811,7 +811,7 @@ export default function OrderPrintDetailPage() {
             </p>
             <p style={{ margin: "0 0 5px 0", fontSize: "14px" }}>Shopify 원본 customAttributes 데이터:</p>
             <pre style={{ margin: 0, padding: "10px", background: "#fff", border: "1px solid #ccc", fontSize: "12px", overflow: "auto", maxHeight: "150px" }}>
-              {JSON.stringify(order.customAttributes, null, 2)}
+              {JSON.stringify(order, null, 2)}
             </pre>
           </div>
           <div className="header">
