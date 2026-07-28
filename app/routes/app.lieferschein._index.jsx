@@ -402,6 +402,7 @@ export const loader = async ({ request }) => {
 
     return jsonResponse({ orders: ordersWithPrintStatus, pageInfo, error: null, shop: session.shop });
   } catch (err) {
+    if (err instanceof Response) throw err;
     console.error("Loader error:", err);
     return jsonResponse({ orders: [], error: err.message });
   }

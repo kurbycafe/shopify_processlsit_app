@@ -513,6 +513,7 @@ export const loader = async ({ request, params }) => {
 
     return jsonResponse({ orders: ordersData, error: null });
   } catch (err) {
+    if (err instanceof Response) throw err;
     console.error("Single Order Loader error:", err);
     return jsonResponse({ orders: null, error: err.message });
   }
