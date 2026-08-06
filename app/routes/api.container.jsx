@@ -1,5 +1,3 @@
-import { json } from "@remix-run/node";
-
 // CORS 허용을 위한 공통 헤더
 // 실제 운영 환경에서는 "*" 대신 외부 앱의 실제 도메인을 지정하는 것이 안전합니다.
 const corsHeaders = {
@@ -27,20 +25,20 @@ export const action = async ({ request }) => {
       // TODO: 여기서 DB(Prisma)에 저장하거나 필요한 비즈니스 로직을 수행하세요.
       // 예: await db.container.create({ data: { ... } })
       
-      return json(
+      return Response.json(
         { success: true, message: "컨테이너 정보를 성공적으로 수신했습니다." },
         { headers: corsHeaders }
       );
     } catch (error) {
       console.error("[API] 컨테이너 정보 수신 중 오류 발생:", error);
-      return json(
+      return Response.json(
         { success: false, error: "데이터 처리 중 오류가 발생했습니다." },
         { status: 500, headers: corsHeaders }
       );
     }
   }
 
-  return json(
+  return Response.json(
     { success: false, error: "허용되지 않은 메서드입니다." },
     { status: 405, headers: corsHeaders }
   );
@@ -57,7 +55,7 @@ export const loader = async ({ request }) => {
   }
 
   // 테스트용 응답 또는 컨테이너 목록 반환
-  return json(
+  return Response.json(
     { success: true, message: "API 서버가 정상적으로 동작 중입니다." },
     { headers: corsHeaders }
   );

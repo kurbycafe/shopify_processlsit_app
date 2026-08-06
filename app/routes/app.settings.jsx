@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { json } from "@react-router/node";
 import { useLoaderData } from "react-router";
 import {
   Page,
@@ -20,8 +19,8 @@ import {
 } from "@shopify/polaris";
 import {
   ClipboardIcon,
-  EyeIcon,
-  EyeOffIcon,
+  ViewIcon,
+  HideIcon,
   KeyIcon,
   LinkIcon,
   CodeIcon,
@@ -38,7 +37,7 @@ export const loader = async ({ request }) => {
   const scopes = process.env.SCOPES ? process.env.SCOPES.split(",") : [];
   const shop = session?.shop || "";
 
-  return json({
+  return {
     appUrl,
     apiKey,
     apiSecretKey,
@@ -51,7 +50,7 @@ export const loader = async ({ request }) => {
       webhookUninstalled: `${appUrl}/webhooks/app/uninstalled`,
       webhookScopesUpdate: `${appUrl}/webhooks/app/scopes_update`,
     },
-  });
+  };
 };
 
 export default function Settings() {
@@ -194,7 +193,7 @@ function generatePrintToken(orderId, shop, apiSecret) {
                       connectedRight={
                         <InlineStack gap="100">
                           <Button
-                            icon={showSecret ? EyeOffIcon : EyeIcon}
+                            icon={showSecret ? HideIcon : ViewIcon}
                             onClick={() => setShowSecret(!showSecret)}
                             accessibilityLabel={showSecret ? "숨기기" : "보기"}
                           >
