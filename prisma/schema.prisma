@@ -71,41 +71,6 @@ model InspectionItem {
   substitutedProductTitle String?   // 대체된 상품명
 }
 
-model ReturnRecord {
-  id              String       @id @default(cuid())
-  orderName       String       // 주문 번호 (예: #1001)
-  returnedAt      DateTime     @default(now()) // 반송 받은 날짜
-  isDamaged       Boolean      @default(false) // 파손 여부
-  damageReason    String?      // 파손 사유
-  isProcessed     Boolean      @default(false) // (레거시/하위 호환) 처리 완료 여부
-  processStatus   String       @default("RECEIVED") // 반품 처리 단계 (RECEIVED, PENDING, COMPLETED)
-  processingType  String?      // 반품 처리 유형 (예: RESTOCK, DISCARD, REFUND, EXCHANGE, OTHER)
-  processingNotes String?      // 반품 처리 메모
-  processedAt     DateTime?    // 반품 처리 일시
-  inspectorName   String?      // 검수 작업자명
-  shop            String       // 상점 도메인
-  carrier         String?      // 반송 택배사 (예: DHL, UPS, DPD, FEDEX, OTHER, NONE)
-  returnReasonType String?     // 반송 귀책 구분 (예: CUSTOMER_ERROR, CARRIER_ERROR, CHANGE_OF_MIND, OTHER)
-  returnReasonDetails String?   // 상세 반송 사유 (예: 주소 불명 등)
-  storageLocation String?      // 반송 보관 위치
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  items           ReturnItem[]
-
-  @@index([shop])
-}
-
-model ReturnItem {
-  id             String       @id @default(cuid())
-  returnRecordId String
-  returnRecord   ReturnRecord @relation(fields: [returnRecordId], references: [id], onDelete: Cascade)
-  productTitle   String
-  variantTitle   String?
-  sku            String?
-  barcode        String?
-  quantity       Int          @default(1)
-}
-
 model Recipe {
   id               String          @id @default(cuid())
   shop             String
