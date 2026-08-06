@@ -115,7 +115,7 @@ function getFallbackSchedule() {
 
 function getCalendarMonths() {
   const now = dayjs();
-  const months = [now, now.add(1, "month")];
+  const months = [now];
 
   return months.map((monthDoc) => {
     const year = monthDoc.year();
