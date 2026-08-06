@@ -369,28 +369,42 @@ export default function Index() {
   return (
     <Page title="대시보드">
       <style>{`
+        .dashboard-metric-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 16px;
+          margin-bottom: 8px;
+        }
         .dashboard-metric-card {
-          border-radius: 12px;
-          padding: 24px;
+          position: relative;
+          border-radius: 14px;
+          padding: 20px 22px;
           background: #ffffff;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-          border: 1px solid #f1f5f9;
+          box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+          border: 1px solid #e2e8f0;
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-          width: 100%;
+          overflow: hidden;
         }
         .dashboard-metric-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.08);
+          transform: translateY(-4px);
+          box-shadow: 0 14px 28px -8px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.04);
           border-color: #cbd5e1;
         }
-        .metric-critical {
-          border-left: 5px solid #ef4444;
+        .metric-glow-purple {
+          border-top: 4px solid #8b5cf6;
+          background: linear-gradient(180deg, rgba(245, 243, 255, 0.5) 0%, #ffffff 100%);
         }
-        .metric-warning {
-          border-left: 5px solid #f59e0b;
+        .metric-glow-emerald {
+          border-top: 4px solid #10b981;
+          background: linear-gradient(180deg, rgba(236, 253, 245, 0.5) 0%, #ffffff 100%);
         }
-        .metric-success {
-          border-left: 5px solid #10b981;
+        .metric-glow-amber {
+          border-top: 4px solid #f59e0b;
+          background: linear-gradient(180deg, rgba(254, 243, 199, 0.5) 0%, #ffffff 100%);
+        }
+        .metric-glow-cyan {
+          border-top: 4px solid #06b6d4;
+          background: linear-gradient(180deg, rgba(207, 250, 254, 0.5) 0%, #ffffff 100%);
         }
         .recent-log-item {
           padding: 14px 16px;
@@ -409,18 +423,21 @@ export default function Index() {
           transform: scale(0.995);
         }
         .continue-btn {
-          padding: 6px 12px;
-          border-radius: 6px;
+          padding: 6px 14px;
+          border-radius: 8px;
           border: none;
-          background: #008060;
+          background: linear-gradient(135deg, #10b981, #059669);
           color: #ffffff;
           font-size: 13px;
           font-weight: 600;
           cursor: pointer;
-          transition: background 0.15s ease, transform 0.1s ease;
+          box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+          transition: all 0.2s ease;
         }
         .continue-btn:hover {
-          background: #006e52;
+          background: linear-gradient(135deg, #059669, #047857);
+          box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+          transform: translateY(-1px);
         }
         .continue-btn:active {
           transform: scale(0.95);
@@ -614,6 +631,31 @@ export default function Index() {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
+
+        .pulse-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .pulse-dot {
+          width: 8px;
+          height: 8px;
+          background-color: #10b981;
+          border-radius: 50%;
+          box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+          animation: pulse-ring 1.8s infinite;
+        }
+        @keyframes pulse-ring {
+          0% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+          }
+          70% {
+            box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+          }
+        }
       `}</style>
 
 
@@ -623,25 +665,36 @@ export default function Index() {
           <Card padding="400">
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
-                <Text variant="headingMd" as="h2"> 시스템 업데이트 내역 (최근 7일)</Text>
-                <Badge tone="info">v1.2.4 (2026-07-22)</Badge>
+                <InlineStack gap="200" blockAlign="center">
+                  <Text variant="headingMd" as="h2">시스템 업데이트 내역 (최근 7일)</Text>
+                </InlineStack>
+                <Badge tone="info">v1.2.6 (2026-08-06)</Badge>
               </InlineStack>
               <Divider />
-              <BlockStack gap="200">
+              <BlockStack gap="300">
                 <div>
-                  <Text variant="bodyMd" fontWeight="bold">📅 2026-07-22 (v1.2.4)</Text>
-                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
-                    <div> <strong>[신규 추가]</strong> 영수증(Rechnung) 품목별 할인 전 정가(취소선 표기) 및 할인 후 가격/세율 명시</div>
-                    <div><strong>[기능 변경]</strong> Lieferschein 목록 기본 필터 조건을 '전체'에서 '인쇄 안됨(UNPRINTED)'으로 변경</div>
-                    <div>오류 수정</div>
+                  <Text variant="bodyMd" fontWeight="bold" style={{ color: "#2563eb" }}>
+                    2026-08-06 (v1.2.6)
+                  </Text>
+                  <div style={{ paddingLeft: "12px", marginTop: "6px", fontSize: "13px", lineHeight: "1.7" }}>
+                    <div><strong>[신규 API]</strong> 모바일 검수 앱 및 외부 WMS/ERP 연동용 검수 내역 API (<code>GET /api/inspection-history</code>, <code>POST /api/inspection-history</code>) 추가</div>
+                    <div><strong>[앱 설정]</strong> [앱 설정] 메뉴 내 외부 API 엔드포인트 URL 복사 및 cURL / JS Fetch 코드 가이드 추가</div>
+                    <div><strong>[디자인 개선]</strong> 홈 대시보드 비주얼 스타일 개편 및 입고/검수 통계 카드 디자인 업그레이드</div>
                   </div>
                 </div>
 
                 <div>
-                  <Text variant="bodyMd" fontWeight="bold">📅 2026-07-16 (v1.2.1)</Text>
-                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6" }}>
-                    <div> <strong>[신규 추가]</strong> Odoo 연동 컨테이너 입고 일정 달력 뷰 대시보드 추가</div>
-                    <div> <strong>[삭제/개선]</strong> 구버전 피킹리스트 단일 출력 레이아웃 제거 및 일괄 배치 출력으로 통합</div>
+                  <Text variant="bodyMd" fontWeight="bold" color="subdued">2026-07-22 (v1.2.4)</Text>
+                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6", color: "#64748b" }}>
+                    <div><strong>[신규 추가]</strong> 영수증(Rechnung) 품목별 할인 전 정가(취소선 표기) 및 할인 후 가격/세율 명시</div>
+                    <div><strong>[기능 변경]</strong> Lieferschein 목록 기본 필터 조건을 '전체'에서 '인쇄 안됨(UNPRINTED)'으로 변경</div>
+                  </div>
+                </div>
+
+                <div>
+                  <Text variant="bodyMd" fontWeight="bold" color="subdued">2026-07-16 (v1.2.1)</Text>
+                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6", color: "#64748b" }}>
+                    <div><strong>[신규 추가]</strong> Odoo 연동 컨테이너 입고 일정 달력 뷰 대시보드 추가</div>
                   </div>
                 </div>
               </BlockStack>
@@ -649,23 +702,87 @@ export default function Index() {
           </Card>
         </Layout.Section>
 
-        {/* 주문 현황 요약 */}
+        {/* 주문 현황 요약 4열 메트릭 카드 */}
         <Layout.Section>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", marginBottom: "8px" }}>
-
-
+          <div className="dashboard-metric-grid">
+            {/* 메트릭 1: Lieferschein 인쇄 */}
             <div
-              className="dashboard-metric-card"
-              style={{ borderLeft: "5px solid #8b5cf6", cursor: "pointer" }}
+              className="dashboard-metric-card metric-glow-purple"
+              style={{ cursor: "pointer" }}
               onClick={() => navigate('/app/lieferschein')}
             >
               <BlockStack gap="200">
-                <Text variant="headingMd" as="h2" tone="subdued">오늘 Lieferschein 인쇄</Text>
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text variant="heading2xl" as="p" style={{ color: "#8b5cf6" }}>
-                    {todayPrintedCount}
-                  </Text>
+                  <Text variant="bodyMd" fontWeight="semibold" tone="subdued">오늘 Lieferschein 인쇄</Text>
                   <Icon source={PrintIcon} tone="interactive" />
+                </InlineStack>
+                <InlineStack align="space-between" blockAlign="baseline">
+                  <Text variant="heading2xl" as="p" style={{ color: "#7c3aed", fontWeight: "800" }}>
+                    {todayPrintedCount} <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>건</span>
+                  </Text>
+                  <Badge tone="info">출력 내역 &rarr;</Badge>
+                </InlineStack>
+              </BlockStack>
+            </div>
+
+            {/* 메트릭 2: 오늘 검수 작업 */}
+            <div
+              className="dashboard-metric-card metric-glow-emerald"
+              style={{ cursor: "pointer" }}
+              onClick={() => navigate('/app/inspection-history')}
+            >
+              <BlockStack gap="200">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="bodyMd" fontWeight="semibold" tone="subdued">오늘 검수 진행/완료</Text>
+                  <Icon source={CheckCircleIcon} tone="success" />
+                </InlineStack>
+                <InlineStack align="space-between" blockAlign="baseline">
+                  <Text variant="heading2xl" as="p" style={{ color: "#059669", fontWeight: "800" }}>
+                    {todayFulfilledCount} <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>/ {todayTotalCount} 건</span>
+                  </Text>
+                  <Badge tone="success">히스토리 &rarr;</Badge>
+                </InlineStack>
+              </BlockStack>
+            </div>
+
+            {/* 메트릭 3: 미배송 주문 */}
+            <div
+              className="dashboard-metric-card metric-glow-amber"
+              style={{ cursor: "pointer" }}
+              onClick={() => navigate('/app/pick-list')}
+            >
+              <BlockStack gap="200">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="bodyMd" fontWeight="semibold" tone="subdued">처리 대기중 주문</Text>
+                  <Icon source={ClockIcon} tone="warning" />
+                </InlineStack>
+                <InlineStack align="space-between" blockAlign="baseline">
+                  <Text variant="heading2xl" as="p" style={{ color: "#d97706", fontWeight: "800" }}>
+                    {unfulfilledCount} <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>건</span>
+                  </Text>
+                  <Badge tone="warning">처리 목록 &rarr;</Badge>
+                </InlineStack>
+              </BlockStack>
+            </div>
+
+            {/* 메트릭 4: API 연동 상태 */}
+            <div
+              className="dashboard-metric-card metric-glow-cyan"
+              style={{ cursor: "pointer" }}
+              onClick={() => navigate('/app/settings')}
+            >
+              <BlockStack gap="200">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="bodyMd" fontWeight="semibold" tone="subdued">외부 모바일 API 연동</Text>
+                  <div className="pulse-badge">
+                    <span className="pulse-dot" />
+                  </div>
+                </InlineStack>
+                <InlineStack align="space-between" blockAlign="baseline">
+                  <Text variant="heading2xl" as="p" style={{ color: "#0891b2", fontWeight: "800", fontSize: "20px" }}>
+                    정상 가동 중
+                  </Text>
+                  <Badge tone="interactive">API 설정 &rarr;</Badge>
                 </InlineStack>
               </BlockStack>
             </div>
@@ -912,11 +1029,11 @@ export default function Index() {
           </Card>
         </Layout.Section>
 
-        {/* 📈 생산성 차트 영역 */}
+        {/* 생산성 차트 영역 */}
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <Text variant="headingMd" as="h2">📈 최근 7일간 검수 생산성 및 일별 처리 현황</Text>
+              <Text variant="headingMd" as="h2">최근 7일간 검수 생산성 및 일별 처리 현황</Text>
 
               <div className="productivity-chart-container">
                 <div style={{ width: "100%", overflowX: "auto" }}>
@@ -1063,14 +1180,14 @@ export default function Index() {
         </Layout.Section>
       </Layout>
 
-      {/* 🚢 컨테이너 입고 품목 상세 모달 */}
+      {/* 컨테이너 입고 품목 상세 모달 */}
       <Modal
         open={activeContainerModal}
         onClose={() => {
           setActiveContainerModal(false);
           setModalContainerRef("");
         }}
-        title={`🚢 컨테이너 입고 상세 품목 (${modalContainerRef})`}
+        title={`컨테이너 입고 상세 품목 (${modalContainerRef})`}
         primaryAction={{
           content: "닫기",
           onAction: () => {
@@ -1170,13 +1287,13 @@ export default function Index() {
                   if (item.issueType) {
                     statusBadge = (
                       <Badge tone="critical">
-                        🚨 {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
+                        {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
                       </Badge>
                     );
                   } else if (item.inspectedQuantity === item.orderedQuantity) {
-                    statusBadge = <Badge tone="success">✅ 완료</Badge>;
+                    statusBadge = <Badge tone="success">완료</Badge>;
                   } else if (item.inspectedQuantity > 0) {
-                    statusBadge = <Badge tone="warning">⚠️ 일부 완료</Badge>;
+                    statusBadge = <Badge tone="warning">일부 완료</Badge>;
                   }
 
                   const titleContent = (
@@ -1196,9 +1313,9 @@ export default function Index() {
                           whiteSpace: "normal"
                         }}>
                           <span style={{ fontWeight: "bold", color: "#e11d48" }}>
-                            {item.issueType === "REFUND" && "💸 환불 처리 요청"}
-                            {item.issueType === "CREDIT" && "🪙 스토어 크레딧 지급 요청"}
-                            {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 발송"}
+                            {item.issueType === "REFUND" && "환불 처리 요청"}
+                            {item.issueType === "CREDIT" && "스토어 크레딧 지급 요청"}
+                            {item.issueType === "SUBSTITUTE" && "상품 대체 발송"}
                           </span>
                           {item.substitutedProductTitle && (
                             <div style={{ marginTop: "2px", color: "#1e293b" }}>

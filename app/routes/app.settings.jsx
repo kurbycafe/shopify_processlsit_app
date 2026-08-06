@@ -46,6 +46,7 @@ export const loader = async ({ request }) => {
     apiVersion,
     endpoints: {
       containerApi: `${appUrl}/api/container`,
+      inspectionHistoryApi: `${appUrl}/api/inspection-history`,
       printLieferscheinApi: `${appUrl}/print/lieferschein/{order_id}?token={print_token}`,
       webhookUninstalled: `${appUrl}/webhooks/app/uninstalled`,
       webhookScopesUpdate: `${appUrl}/webhooks/app/scopes_update`,
@@ -77,9 +78,38 @@ export default function Settings() {
   };
 
   const codeTabs = [
+    { id: "inspection-api", content: "GET/POST /api/inspection-history (검수 내역)" },
     { id: "container-api", content: "POST /api/container (컨테이너 연동)" },
     { id: "print-api", content: "GET /print/lieferschein (납품서 출력)" },
   ];
+
+  const curlInspectionExample = `// 1. 검수 내역 목록 및 검색 조회 (GET)
+curl -X GET "${endpoints.inspectionHistoryApi}?query=%231001&status=SUCCESS&limit=20"
+
+// 2. 검수 내역 저장 및 업서트 (POST)
+curl -X POST "${endpoints.inspectionHistoryApi}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "orderId": "gid://shopify/Order/12345",
+    "orderName": "#1001",
+    "shop": "${shop || "your-shop.myshopify.com"}",
+    "inspectorName": "홍길동",
+    "status": "SUCCESS",
+    "items": [
+      {
+        "variantId": "gid://shopify/ProductVariant/67890",
+        "productTitle": "샘플 상품",
+        "sku": "SKU-1001",
+        "orderedQuantity": 5,
+        "inspectedQuantity": 5
+      }
+    ]
+  }'`;
+
+  const jsInspectionExample = `// 검수 내역 조회 (GET)
+fetch("${endpoints.inspectionHistoryApi}?status=ALL&limit=50")
+  .then(res => res.json())
+  .then(data => console.log("검수 기록 목록:", data.records));`;
 
   const curlContainerExample = `curl -X POST "${endpoints.containerApi}" \\
   -H "Content-Type: application/json" \\
@@ -275,6 +305,35 @@ function generatePrintToken(orderId, shop, apiSecret) {
                   <BlockStack gap="300">
                     <InlineStack align="space-between">
                       <Text variant="bodyMd" fontWeight="bold" as="span">
+                        검수 내역 조회/저장 API (Inspection History API)
+                      </Text>
+                      <Badge tone="success">GET / POST</Badge>
+                    </InlineStack>
+                    <TextField
+                      label=""
+                      labelHidden
+                      value={endpoints.inspectionHistoryApi}
+                      readOnly
+                      autoComplete="off"
+                      connectedRight={
+                        <Button
+                          icon={copiedField === "Inspection API URL" ? CheckIcon : ClipboardIcon}
+                          onClick={() => handleCopy(endpoints.inspectionHistoryApi, "Inspection API URL")}
+                        >
+                          복사
+                        </Button>
+                      }
+                    />
+                    <Text variant="bodySm" tone="subdued">
+                      모바일 검수 앱이나 외부 시스템에서 검수 완료 기록을 조회하고 결과를 등록할 수 있습니다.
+                    </Text>
+                  </BlockStack>
+
+                  <Divider />
+
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between">
+                      <Text variant="bodyMd" fontWeight="bold" as="span">
                         컨테이너 정보 수신/조회 API (Container API)
                       </Text>
                       <Badge tone="attention">POST / GET</Badge>
@@ -369,6 +428,56 @@ function generatePrintToken(orderId, shop, apiSecret) {
                       {selectedTab === 0 && (
                         <BlockStack gap="300">
                           <Text variant="bodyMd" fontWeight="semibold" as="h3">
+                            1. cURL 요청 예시 (검수 내역 조회 & 저장)
+                          </Text>
+                          <Box
+                            padding="300"
+                            background="bg-surface-secondary"
+                            borderRadius="200"
+                          >
+                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
+                              {curlInspectionExample}
+                            </pre>
+                          </Box>
+                          <InlineStack align="end">
+                            <Button
+                              size="micro"
+                              icon={copiedField === "cURL Inspection Example" ? CheckIcon : ClipboardIcon}
+                              onClick={() => handleCopy(curlInspectionExample, "cURL Inspection Example")}
+                            >
+                              cURL 예시 복사
+                            </Button>
+                          </InlineStack>
+
+                          <Divider />
+
+                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
+                            2. JavaScript Fetch 요청 예시
+                          </Text>
+                          <Box
+                            padding="300"
+                            background="bg-surface-secondary"
+                            borderRadius="200"
+                          >
+                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
+                              {jsInspectionExample}
+                            </pre>
+                          </Box>
+                          <InlineStack align="end">
+                            <Button
+                              size="micro"
+                              icon={copiedField === "JS Inspection Example" ? CheckIcon : ClipboardIcon}
+                              onClick={() => handleCopy(jsInspectionExample, "JS Inspection Example")}
+                            >
+                              JS 예시 복사
+                            </Button>
+                          </InlineStack>
+                        </BlockStack>
+                      )}
+
+                      {selectedTab === 1 && (
+                        <BlockStack gap="300">
+                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
                             1. cURL 요청 예시
                           </Text>
                           <Box
@@ -416,7 +525,7 @@ function generatePrintToken(orderId, shop, apiSecret) {
                         </BlockStack>
                       )}
 
-                      {selectedTab === 1 && (
+                      {selectedTab === 2 && (
                         <BlockStack gap="300">
                           <Text variant="bodyMd" fontWeight="semibold" as="h3">
                             납품서 출력 토큰(HMAC SHA-256) 생성 예시
