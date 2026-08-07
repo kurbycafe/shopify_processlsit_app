@@ -1,0 +1,273 @@
+/**
+ * Process-list Back-In-Stock Notification Storefront Script
+ * Embedded on Shopify Product Pages to allow customers to subscribe to out-of-stock items.
+ */
+(function () {
+  if (window.__PROCESS_LIST_BIS_LOADED__) return;
+  window.__PROCESS_LIST_BIS_LOADED__ = true;
+
+  const API_ENDPOINT = "/api/back-in-stock/subscribe";
+
+  // CSS 스타일 자동 주입 (매끄럽고 세련된 모달 & 버튼 디자인)
+  const style = document.createElement("style");
+  style.textContent = `
+    .pl-bis-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px 20px;
+      margin-top: 10px;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+      transition: all 0.2s ease-in-out;
+    }
+    .pl-bis-btn:hover {
+      background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+    }
+
+    .pl-bis-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .pl-bis-modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .pl-bis-modal {
+      background: #ffffff;
+      width: 90%;
+      max-width: 440px;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+      transform: scale(0.95);
+      transition: transform 0.25s ease;
+      position: relative;
+    }
+    .pl-bis-modal-overlay.active .pl-bis-modal {
+      transform: scale(1);
+    }
+
+    .pl-bis-modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: #f3f4f6;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      color: #6b7280;
+    }
+
+    .pl-bis-modal h3 {
+      margin: 0 0 8px 0;
+      font-size: 20px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .pl-bis-modal p {
+      margin: 0 0 16px 0;
+      font-size: 14px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .pl-bis-eta-badge {
+      display: inline-block;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .pl-bis-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 15px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
+    }
+    .pl-bis-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    .pl-bis-submit-btn {
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pl-bis-submit-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .pl-bis-msg {
+      margin-top: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+    }
+    .pl-bis-msg.success { color: #16a34a; }
+    .pl-bis-msg.error { color: #dc2626; }
+  `;
+  document.head.appendChild(style);
+
+  // 모달 HTML 생성
+  const modalContainer = document.createElement("div");
+  modalContainer.className = "pl-bis-modal-overlay";
+  modalContainer.innerHTML = `
+    <div class="pl-bis-modal">
+      <button class="pl-bis-modal-close" id="pl-bis-close">&times;</button>
+      <h3>🔔 재입고 알림 신청</h3>
+      <p id="pl-bis-desc">상품이 재입고되는 즉시 입력하신 이메일로 가장 먼저 안내해 드립니다!</p>
+      <div id="pl-bis-eta" class="pl-bis-eta-badge" style="display: none;"></div>
+      <form id="pl-bis-form">
+        <input type="email" id="pl-bis-email" class="pl-bis-input" placeholder="이메일 주소를 입력하세요 (예: user@example.com)" required />
+        <button type="submit" id="pl-bis-submit" class="pl-bis-submit-btn">알림 신청하기</button>
+      </form>
+      <div id="pl-bis-msg" class="pl-bis-msg"></div>
+    </div>
+  `;
+  document.body.appendChild(modalContainer);
+
+  const closeBtn = document.getElementById("pl-bis-close");
+  const form = document.getElementById("pl-bis-form");
+  const emailInput = document.getElementById("pl-bis-email");
+  const submitBtn = document.getElementById("pl-bis-submit");
+  const msgDiv = document.getElementById("pl-bis-msg");
+  const etaDiv = document.getElementById("pl-bis-eta");
+
+  let currentContext = {
+    productId: null,
+    variantId: null,
+    productTitle: null,
+    variantTitle: null,
+    shop: window.Shopify ? window.Shopify.shop : location.hostname,
+  };
+
+  closeBtn.addEventListener("click", () => {
+    modalContainer.classList.remove("active");
+  });
+
+  modalContainer.addEventListener("click", (e) => {
+    if (e.target === modalContainer) modalContainer.classList.remove("active");
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = emailInput.value.trim();
+    if (!email) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "신청 처리 중...";
+    msgDiv.textContent = "";
+
+    try {
+      const res = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop: currentContext.shop,
+          email: email,
+          variantId: currentContext.variantId,
+          productId: currentContext.productId,
+          productTitle: currentContext.productTitle,
+          variantTitle: currentContext.variantTitle,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        msgDiv.className = "pl-bis-msg success";
+        msgDiv.textContent = data.message || "신청이 성공적으로 완료되었습니다!";
+        setTimeout(() => {
+          modalContainer.classList.remove("active");
+          emailInput.value = "";
+          msgDiv.textContent = "";
+          submitBtn.disabled = false;
+          submitBtn.textContent = "알림 신청하기";
+        }, 2000);
+      } else {
+        msgDiv.className = "pl-bis-msg error";
+        msgDiv.textContent = data.error || "신청 중 오류가 발생했습니다.";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "알림 신청하기";
+      }
+    } catch (err) {
+      console.error("Back in stock error:", err);
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "네트워크 오류가 발생했습니다.";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "알림 신청하기";
+    }
+  });
+
+  // 쇼피파이 상품 페이지 자동 감지 및 버튼 삽입
+  window.initProcessListBackInStock = function (config) {
+    currentContext = { ...currentContext, ...config };
+
+    const targetContainer = document.querySelector(".product-form, .product-single__meta, form[action*='/cart/add']");
+    if (!targetContainer) return;
+
+    let existingBtn = document.getElementById("pl-bis-trigger");
+    if (!existingBtn) {
+      existingBtn = document.createElement("button");
+      existingBtn.id = "pl-bis-trigger";
+      existingBtn.type = "button";
+      existingBtn.className = "pl-bis-btn";
+      existingBtn.innerHTML = `🔔 재입고 알림 받아보기`;
+      targetContainer.appendChild(existingBtn);
+    }
+
+    existingBtn.onclick = () => {
+      if (config.etaDate) {
+        etaDiv.style.display = "inline-block";
+        etaDiv.textContent = `💡 8월 입고 예정 (${config.etaDate})`;
+      } else {
+        etaDiv.style.display = "none";
+      }
+      modalContainer.classList.add("active");
+    };
+  };
+})();

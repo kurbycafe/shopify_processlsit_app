@@ -99,3 +99,26 @@ model RecipeProduct {
   price        String? // Product price
   imageUrl     String? // Product image URL
 }
+
+model BackInStockSubscription {
+  id           String    @id @default(cuid())
+  shop         String
+  productId    String    // Shopify Product GID or ID
+  variantId    String    // Shopify Variant GID or ID
+  productTitle String
+  variantTitle String?
+  email        String
+  phone        String?
+  channel      String    @default("EMAIL") // EMAIL, PUSH, SMS
+  status       String    @default("PENDING") // PENDING, NOTIFIED, CANCELLED
+  etaDate      String?   // Expected arrival date (e.g. 2026-08-15)
+  subscribedAt DateTime  @default(now())
+  notifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([shop])
+  @@index([variantId])
+  @@index([status])
+  @@index([email])
+}
