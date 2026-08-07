@@ -289,14 +289,28 @@ export default function StorefrontNoticeSettings() {
                   fontFamily: "sans-serif"
                 }}>
                   <div style={{
-                    background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                    background: "linear-gradient(135deg, #e11d48 0%, #be123c 100%)",
                     padding: "16px",
                     color: "#ffffff"
                   }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <span style={{
+                        background: "#ffffff",
+                        color: "#e11d48",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        fontSize: "11px",
+                        fontWeight: "900"
+                      }}>
+                        DAWAYO <span style={{ background: "#e11d48", color: "#fff", padding: "1px 3px", borderRadius: "2px", fontSize: "8px" }}>.de</span>
+                      </span>
+                      <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.7)" }}>&times;</span>
+                    </div>
                     <span style={{
                       background: "rgba(255,255,255,0.2)",
-                      padding: "2px 8px",
-                      borderRadius: "12px",
+                      border: "1px solid rgba(255,255,255,0.35)",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
                       fontSize: "10px",
                       fontWeight: "bold"
                     }}>
@@ -307,13 +321,13 @@ export default function StorefrontNoticeSettings() {
                     </h4>
                   </div>
                   <div style={{ padding: "14px" }}>
-                    <p style={{ fontSize: "12px", color: "#475569", margin: "0 0 12px 0", lineHeight: "1.4" }}>
+                    <p style={{ fontSize: "12px", color: "#4b5563", margin: "0 0 12px 0", lineHeight: "1.4" }}>
                       {subtext || "설명글을 입력하세요."}
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                       {items.map((it, i) => (
-                        <div key={i} style={{ display: "flex", gap: "8px", fontSize: "12px", color: "#334155" }}>
-                          <span style={{ color: "#059669", fontWeight: "bold" }}>✓</span>
+                        <div key={i} style={{ display: "flex", gap: "8px", fontSize: "12px", color: "#1f2937" }}>
+                          <span style={{ color: "#e11d48", fontWeight: "bold" }}>✓</span>
                           <div>
                             <strong>{it.title || "항목 제목"}:</strong> {it.desc || "항목 설명"}
                           </div>
@@ -323,20 +337,22 @@ export default function StorefrontNoticeSettings() {
                   </div>
                   <div style={{
                     padding: "10px 14px",
-                    background: "#f8fafc",
-                    borderTop: "1px solid #f1f5f9",
+                    background: "#f9fafb",
+                    borderTop: "1px solid #f3f4f6",
                     display: "flex",
                     justifyContent: "flex-end"
                   }}>
                     <div style={{
-                      background: "#059669",
+                      background: "linear-gradient(135deg, #e11d48 0%, #be123c 100%)",
                       color: "#fff",
                       padding: "6px 14px",
                       borderRadius: "6px",
                       fontSize: "12px",
-                      fontWeight: "bold"
+                      fontWeight: "bold",
+                      width: "100%",
+                      textAlign: "center"
                     }}>
-                      확인 (1회만 노출)
+                      확인했습니다 (단 1회 노출)
                     </div>
                   </div>
                 </div>
