@@ -753,20 +753,20 @@ export default function Index() {
               </BlockStack>
             </div>
 
-            {/* 메트릭 2: 오늘 검수 작업 */}
+            {/* 메트릭 2: 이번주 검수 작업 */}
             <div
               className="dashboard-metric-card metric-glow-emerald"
               style={{ cursor: "pointer" }}
-              onClick={() => navigate('/app/inspection-history')}
+              onClick={() => navigate('/app/inspection-history?datePreset=THIS_WEEK')}
             >
               <BlockStack gap="200">
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text variant="bodyMd" fontWeight="semibold" tone="subdued">오늘 검수 진행/완료</Text>
+                  <Text variant="bodyMd" fontWeight="semibold" tone="subdued">이번주 검수 진행/완료</Text>
                   <Icon source={CheckCircleIcon} tone="success" />
                 </InlineStack>
                 <InlineStack align="space-between" blockAlign="baseline">
                   <Text variant="heading2xl" as="p" style={{ color: "#059669", fontWeight: "800" }}>
-                    {todayFulfilledCount} <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>/ {todayTotalCount} 건</span>
+                    {thisWeekFulfilledCount} <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>/ {thisWeekTotalCount} 건</span>
                   </Text>
                   <Badge tone="success">히스토리 &rarr;</Badge>
                 </InlineStack>
