@@ -122,3 +122,16 @@ model BackInStockSubscription {
   @@index([status])
   @@index([email])
 }
+
+model StorefrontNotice {
+  id            String   @id @default(cuid())
+  shop          String   @unique
+  isActive      Boolean  @default(true)
+  noticeVersion String   @default("v1.3.0")
+  badgeTag      String   @default("NEW ANNOUNCEMENT")
+  title         String   @default("다와요(Dawayo) 서비스 안내")
+  subtext       String   @default("고객님께 더 빠르고 정확한 서비스를 제공하기 위해 시스템이 업데이트되었습니다.")
+  itemsJson     Json     // Array of bullet items
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
