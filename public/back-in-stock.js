@@ -6,7 +6,16 @@
   if (window.__PROCESS_LIST_BIS_LOADED__) return;
   window.__PROCESS_LIST_BIS_LOADED__ = true;
 
-  const API_ENDPOINT = "/api/back-in-stock/subscribe";
+  const SCRIPT_HOST = (function () {
+    if (document.currentScript && document.currentScript.src) {
+      try {
+        return new URL(document.currentScript.src).origin;
+      } catch (e) {}
+    }
+    return "https://process-list-beryl.vercel.app";
+  })();
+
+  const API_ENDPOINT = SCRIPT_HOST + "/api/back-in-stock/subscribe";
 
   // CSS 스타일 자동 주입 (매끄럽고 세련된 모달 & 버튼 디자인)
   const style = document.createElement("style");
@@ -263,11 +272,54 @@
     existingBtn.onclick = () => {
       if (config.etaDate) {
         etaDiv.style.display = "inline-block";
-        etaDiv.textContent = `💡 8월 입고 예정 (${config.etaDate})`;
+        etaDiv.textContent = `💡 입고 예정 (${config.etaDate})`;
       } else {
         etaDiv.style.display = "none";
       }
       modalContainer.classList.add("active");
     };
   };
+
+  // 상품 페이지 자동 감지 및 품절 시 알림 버튼 자동 노출
+  async function autoInit() {
+    if (!location.pathname.includes("/products/")) return;
+
+    try {
+      const productUrl = location.pathname.split("?")[0] + ".js";
+      const res = await fetch(productUrl);
+      if (!res.ok) return;
+      const product = await res.json();
+
+      const urlParams = new URLSearchParams(location.search);
+      const variantParam = urlParams.get("variant");
+
+      let targetVariant = null;
+      if (variantParam) {
+        targetVariant = product.variants ? product.variants.find((v) => String(v.id) === String(variantParam)) : null;
+      }
+      if (!targetVariant && product.variants && product.variants.length > 0) {
+        targetVariant = product.variants[0];
+      }
+
+      const isSoldOut = targetVariant ? !targetVariant.available : !product.available;
+
+      if (isSoldOut) {
+        window.initProcessListBackInStock({
+          productId: String(product.id),
+          variantId: targetVariant ? String(targetVariant.id) : String(product.id),
+          productTitle: product.title,
+          variantTitle: targetVariant && targetVariant.title !== "Default Title" ? targetVariant.title : null,
+          shop: window.Shopify ? window.Shopify.shop : location.hostname,
+        });
+      }
+    } catch (err) {
+      console.warn("[BIS] Auto init check failed:", err);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", autoInit);
+  } else {
+    autoInit();
+  }
 })();

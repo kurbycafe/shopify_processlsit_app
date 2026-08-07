@@ -212,6 +212,20 @@ export default function BackInStockAdmin() {
           </Banner>
         )}
 
+        <Banner title="🛍️ 쇼핑몰 고객 화면(스토어프론트) 설치 방법" tone="info">
+          <BlockStack gap="200">
+            <Text variant="bodyMd" as="p">
+              고객 화면에 재입고 알림 버튼을 표시하려면 쇼피파이 테마에 아래 스크립트를 1줄 추가해 주세요.
+            </Text>
+            <Text variant="bodySm" as="p" tone="subdued">
+              경로: <strong>쇼피파이 어드민 &gt; Online Store &gt; Themes &gt; Edit code &gt; layout/theme.liquid</strong> (<code>&lt;/head&gt;</code> 직전에 추가)
+            </Text>
+            <pre style={{ background: "#f1f5f9", padding: "10px", borderRadius: "6px", overflowX: "auto", fontSize: "13px" }}>
+              {`<script src="https://process-list-beryl.vercel.app/back-in-stock.js" defer></script>`}
+            </pre>
+          </BlockStack>
+        </Banner>
+
         {/* 📊 상단 통계 카드 */}
         <Layout>
           <Layout.Section variant="oneThird">
