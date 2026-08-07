@@ -152,8 +152,10 @@ export const action = async ({ request }) => {
                 product {
                   id
                   title
+                  handle
                   featuredImage { url }
                   expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                  producttype: metafield(namespace: "custom", key: "producttype") { value }
                 }
               }
             }
@@ -178,6 +180,8 @@ export const action = async ({ request }) => {
           barcode: item.barcode || shopifyVar?.barcode || "N/A",
           odooName: item.odooName,
           shopifyName: shopifyVar?.product?.title || "",
+          handle: shopifyVar?.product?.handle || "",
+          productTypeVal: shopifyVar?.product?.producttype?.value || "",
           variantTitle: shopifyVar?.title && shopifyVar?.title !== "Default Title" ? shopifyVar.title : "",
           imageUrl: shopifyVar?.image?.url || shopifyVar?.product?.featuredImage?.url || "",
           qty: item.qty,
@@ -318,12 +322,12 @@ export default function ContainerCatalog() {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>WHOLESALE CATALOG - ${poName}</title>
+  <title>B2B WHOLESALE CATALOG - ${poName}</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&family=Inter:wght@400;600;700&display=swap');
     
     body {
-      font-family: 'Inter', Arial, sans-serif;
+      font-family: 'Noto Sans KR', 'Inter', Arial, sans-serif;
       color: #1e293b;
       margin: 0;
       padding: 0;
@@ -332,85 +336,132 @@ export default function ContainerCatalog() {
     }
     
     .container {
-      max-width: 1000px;
+      max-width: 1060px;
       margin: 0 auto;
-      padding: 20px;
+      padding: 24px;
     }
     
     /* 헤더 스타일 */
     .catalog-header {
-      border-bottom: 2px solid #0f172a;
-      padding-bottom: 15px;
-      margin-bottom: 25px;
+      border-bottom: 3px solid #dc2626;
+      padding-bottom: 18px;
+      margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
     }
-    
-    .header-left h1 {
-      font-size: 26px;
-      font-weight: 700;
-      color: #0f172a;
-      margin: 0 0 5px 0;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+
+    .company-logo {
+      height: 48px;
+      width: auto;
+      object-fit: contain;
+      margin-bottom: 6px;
     }
-    
-    .header-left p {
-      font-size: 14px;
+
+    .header-left .sub-title {
+      font-size: 13px;
       color: #64748b;
-      margin: 0;
+      margin: 4px 0 0 0;
+      font-weight: 500;
     }
-    
+
     .header-right {
       text-align: right;
     }
-    
-    .header-right .ref-tag {
-      background-color: #f1f5f9;
-      color: #0f172a;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 14px;
-      border: 1px solid #cbd5e1;
+
+    .header-right .confidential-badge {
       display: inline-block;
-      margin-bottom: 5px;
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+
+    .header-right .ref-tag {
+      background-color: #0f172a;
+      color: #ffffff;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 13px;
+      display: inline-block;
     }
     
     .header-right .date {
       font-size: 12px;
       color: #64748b;
+      margin-top: 4px;
+    }
+
+    /* B2B 거래 조건 수주 정책 안내 박스 */
+    .b2b-terms-bar {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 22px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .term-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .term-item .term-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .term-item .term-desc {
+      font-size: 12px;
+      font-weight: 600;
+      color: #0f172a;
     }
     
     /* 테이블 스타일 */
     table.catalog-table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 40px;
+      margin-bottom: 30px;
     }
     
     table.catalog-table th {
       background-color: #0f172a;
       color: #ffffff;
-      font-weight: 600;
+      font-weight: 700;
       font-size: 12px;
-      text-transform: uppercase;
-      padding: 12px 10px;
+      padding: 11px 10px;
       text-align: left;
       border: 1px solid #0f172a;
     }
     
     table.catalog-table td {
-      padding: 12px 10px;
+      padding: 11px 10px;
       font-size: 13px;
       border-bottom: 1px solid #e2e8f0;
       vertical-align: middle;
     }
+
+    table.catalog-table tr:nth-child(even) {
+      background-color: #fafafa;
+    }
     
     .prod-img {
-      width: 60px;
-      height: 60px;
+      width: 62px;
+      height: 62px;
       object-fit: cover;
       border-radius: 6px;
       border: 1px solid #cbd5e1;
@@ -418,17 +469,44 @@ export default function ContainerCatalog() {
     }
     
     .prod-img-placeholder {
-      width: 60px;
-      height: 60px;
+      width: 62px;
+      height: 62px;
       border-radius: 6px;
       border: 1px solid #cbd5e1;
       background-color: #f1f5f9;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 11px;
+      font-size: 10px;
       color: #94a3b8;
-      font-weight: 600;
+      font-weight: 700;
+    }
+
+    .storage-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .storage-badge.frozen {
+      background-color: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+
+    .storage-badge.chilled {
+      background-color: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+    }
+
+    .storage-badge.ambient {
+      background-color: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
     }
     
     .prod-title {
@@ -436,6 +514,22 @@ export default function ContainerCatalog() {
       color: #0f172a;
       font-size: 13px;
       margin: 0 0 4px 0;
+      line-height: 1.3;
+    }
+
+    a.prod-title-link {
+      color: #0f172a !important;
+      text-decoration: none !important;
+      cursor: pointer;
+      outline: none;
+    }
+    a.prod-title-link:hover,
+    a.prod-title-link:focus,
+    a.prod-title-link:active,
+    a.prod-title-link:visited {
+      color: #0f172a !important;
+      text-decoration: none !important;
+      background: transparent !important;
     }
     
     .prod-subtitle {
@@ -452,9 +546,35 @@ export default function ContainerCatalog() {
     }
     
     .price-text {
-      font-weight: 600;
-      font-family: monospace;
-      font-size: 13px;
+      font-weight: 700;
+      font-family: 'Inter', monospace;
+      font-size: 14px;
+      color: #0f172a;
+    }
+
+    /* 하단 기업 푸터 및 기밀 선언문 */
+    .catalog-footer {
+      border-top: 2px solid #e2e8f0;
+      padding-top: 16px;
+      margin-top: 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      font-size: 11px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    .footer-left {
+      max-width: 65%;
+    }
+
+    .footer-left strong {
+      color: #0f172a;
+    }
+
+    .footer-right {
+      text-align: right;
     }
     
     /* 인쇄 최적화 */
@@ -475,7 +595,7 @@ export default function ContainerCatalog() {
       }
       @page {
         size: A4 portrait;
-        margin: 15mm 10mm;
+        margin: 12mm 10mm;
       }
     }
   </style>
@@ -484,28 +604,74 @@ export default function ContainerCatalog() {
   <div class="container">
     <div class="catalog-header">
       <div class="header-left">
-        <h1>WHOLESALE CATALOG</h1>
-        <p>도매 수입 상품 리스트 및 단가 안내</p>
+        <img src="/dawayo-logo-red-full.png" alt="DAWAYO" class="company-logo" onerror="this.style.display='none'" />
+        <div style="font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; margin-top: 2px;">
+          B2B WHOLESALE CATALOG
+        </div>
+        <p class="sub-title">수입 아시안 식품 공식 도매 단가 안내서</p>
       </div>
       <div class="header-right">
-        <div class="ref-tag">CONTAINER: ${poName}</div>
-        <div class="date" style="margin-top: 5px;">출력일: ${new Date().toLocaleDateString('ko-KR')}</div>
+        <div><span class="confidential-badge">CONFIDENTIAL & PROPRIETARY</span></div>
+        <div class="ref-tag">CONTAINER / PO: ${poName}</div>
+        <div class="date">발행일자: ${new Date().toLocaleDateString('ko-KR')}</div>
+      </div>
+    </div>
+
+    <!-- B2B 수주 정책 안내 카드 -->
+    <div class="b2b-terms-bar">
+      <div class="term-item">
+        <span class="term-title">📦 발주 단위 (MOQ)</span>
+        <span class="term-desc">Box(입수) 단위 주문 출고</span>
+      </div>
+      <div class="term-item">
+        <span class="term-title">💶 공급가 기준</span>
+        <span class="term-desc">EUR (€) 도매가 (VAT 별도)</span>
+      </div>
+      <div class="term-item">
+        <span class="term-title">❄️ 콜드체인 통합배송</span>
+        <span class="term-desc">냉동 / 냉장 / 실온 분류</span>
+      </div>
+      <div class="term-item">
+        <span class="term-title">📞 B2B 영업 데스크</span>
+        <span class="term-desc">b2b@dawayo.de | dawayo.de</span>
       </div>
     </div>
     
     <table class="catalog-table">
       <thead>
         <tr>
-          <th style="width: 10%">사진</th>
-          <th style="width: ${showRetail && showExp ? '40%' : showRetail || showExp ? '50%' : '60%'}">상품명</th>
-          ${showExp ? `<th style="width: 15%; text-align: center;">유통기한</th>` : ""}
-          <th style="width: 15%; text-align: center;">Box당 입수</th>
-          <th style="width: 15%">도매가</th>
-          ${showRetail ? `<th style="width: 15%">소매가</th>` : ""}
+          <th style="width: 8%; text-align: center;">사진</th>
+          <th style="width: ${showRetail && showExp ? '36%' : showRetail || showExp ? '46%' : '56%'}">상품명 / SKU / 바코드</th>
+          <th style="width: 14%; text-align: center;">보관 방식</th>
+          <th style="width: 12%; text-align: center;">BOX 입수</th>
+          ${showExp ? `<th style="width: 14%; text-align: center;">유통기한</th>` : ""}
+          <th style="width: 14%; text-align: right;">도매가(Box/EA)</th>
+          ${showRetail ? `<th style="width: 14%; text-align: right;">소매가</th>` : ""}
         </tr>
       </thead>
       <tbody>
   `;
+
+    function getStorageBadge(productTypeVal, title) {
+      const pType = (productTypeVal || "").trim().toLowerCase();
+      if (pType === "tk" || pType === "frozen" || pType.includes("냉동")) {
+        return `<span class="storage-badge frozen">❄️ 냉동 (-18℃)</span>`;
+      }
+      if (pType === "k" || pType === "chilled" || pType.includes("냉장")) {
+        return `<span class="storage-badge chilled">🧊 냉장 (1~5℃)</span>`;
+      }
+      if (pType === "t" || pType === "dry" || pType === "ambient" || pType.includes("상온") || pType.includes("실온")) {
+        return `<span class="storage-badge ambient">🌡️ 실온</span>`;
+      }
+
+      const t = (title || "").toLowerCase();
+      if (t.includes("냉동") || t.includes("만두") || t.includes("치킨") || t.includes("핫도그") || t.includes("강정") || t.includes("바오") || t.includes("피자") || t.includes("떡볶이") || t.includes("아이스") || t.includes("대용량")) {
+        return `<span class="storage-badge frozen">❄️ 냉동 (-18℃)</span>`;
+      } else if (t.includes("냉장") || t.includes("김치") || t.includes("단무지") || t.includes("어묵") || t.includes("두부") || t.includes("핫바")) {
+        return `<span class="storage-badge chilled">🧊 냉장 (1~5℃)</span>`;
+      }
+      return `<span class="storage-badge ambient">🌡️ 실온</span>`;
+    }
 
     printItems.forEach(item => {
       // 입력된 사용자 도매단가 반영
@@ -515,18 +681,25 @@ export default function ContainerCatalog() {
         : item.wholesalePrice;
 
       // 박스당 입수 개수
-      const boxQty = packQuantities[item.sku] ? parseInt(packQuantities[item.sku], 10) : 0;
+      const boxQty = packQuantities[item.sku] ? parseInt(packQuantities[item.sku], 10) : (item.unitPerBox || 0);
+      const prodName = item.isMatched ? item.shopifyName : item.odooName;
+      const storageBadge = getStorageBadge(item.productTypeVal, prodName);
 
       const imgHtml = item.imageUrl 
         ? `<img class="prod-img" src="${item.imageUrl}" alt="product">` 
         : `<div class="prod-img-placeholder">NO IMAGE</div>`;
 
+      const prodUrl = item.handle ? `https://dawayo.de/products/${item.handle}` : null;
+      const titleHeading = prodUrl
+        ? `<a class="prod-title-link" href="${prodUrl}" target="_blank" rel="noopener noreferrer"><h3 class="prod-title">${prodName}</h3></a>`
+        : `<h3 class="prod-title">${prodName}</h3>`;
+
       const titleHtml = item.isMatched 
-        ? `<h3 class="prod-title">${item.shopifyName}</h3>
-           <p class="prod-subtitle" style="font-family: monospace; color: #64748b; margin: 2px 0 0 0;">SKU: ${item.sku || "N/A"} | Barcode: ${item.barcode || "N/A"}</p>
+        ? `${titleHeading}
+           <p class="prod-subtitle" style="font-family: monospace; color: #64748b; margin: 2px 0 0 0;">SKU: ${item.sku || "N/A"} | EAN: ${item.barcode || "N/A"}</p>
            <p class="prod-subtitle">${item.variantTitle || "기본 단품"}</p>`
-        : `<h3 class="prod-title">${item.odooName}</h3>
-           <p class="prod-subtitle" style="font-family: monospace; color: #64748b; margin: 2px 0 0 0;">SKU: ${item.sku || "N/A"} | Barcode: ${item.barcode || "N/A"}</p>
+        : `${titleHeading}
+           <p class="prod-subtitle" style="font-family: monospace; color: #64748b; margin: 2px 0 0 0;">SKU: ${item.sku || "N/A"} | EAN: ${item.barcode || "N/A"}</p>
            <div class="unmatched-label">Shopify 미등록 상품</div>`;
 
       const expiryHtml = showExp
@@ -536,7 +709,7 @@ export default function ContainerCatalog() {
         : "";
 
       const retailHtml = showRetail
-        ? `<td>
+        ? `<td style="text-align: right;">
              ${item.isMatched 
                ? `<div class="price-text">${fmtEur(item.retailPrice)}</div>`
                : `<span style="font-size:11px;color:#94a3b8;">N/A</span>`}
@@ -547,11 +720,12 @@ export default function ContainerCatalog() {
         <tr>
           <td style="text-align:center;">${imgHtml}</td>
           <td>${titleHtml}</td>
-          ${expiryHtml}
-          <td style="font-weight:600; text-align:center;">
-            ${boxQty > 0 ? boxQty : "-"}
+          <td style="text-align:center;">${storageBadge}</td>
+          <td style="font-weight:700; text-align:center;">
+            ${boxQty > 0 ? `${boxQty} EA` : "-"}
           </td>
-          <td class="price-text">${fmtEur(wholesalePrice)}</td>
+          ${expiryHtml}
+          <td class="price-text" style="text-align: right;">${fmtEur(wholesalePrice)}</td>
           ${retailHtml}
         </tr>
       `;
@@ -560,11 +734,23 @@ export default function ContainerCatalog() {
     htmlContent += `
       </tbody>
     </table>
+
+    <div class="catalog-footer">
+      <div class="footer-left">
+        <strong>CONFIDENTIALITY & TRADING TERMS NOTICE</strong><br>
+        본 도매 단가표는 DAWAYO 승인 B2B 회원 거래처 전용 대외비 문서이며, 무단 전재 및 제3자 제공을 엄금합니다.<br>
+        공급 단가는 원자재 가격 및 환율 변동에 따라 변동될 수 있으며, 최종 확정은 수주 확인서 기준입니다.
+      </div>
+      <div class="footer-right">
+        <strong>DAWAYO Asian Food Mall</strong><br>
+        Dawayo GmbH • B2B Sales Department<br>
+        Email: b2b@dawayo.de | Web: https://dawayo.de
+      </div>
+    </div>
   </div>
   
   <script>
     window.onload = function() {
-      // 렌더링 완료 후 잠시 대기했다가 인쇄 대화상자 표시
       setTimeout(() => {
         window.print();
       }, 500);
@@ -586,7 +772,18 @@ export default function ContainerCatalog() {
 
     const nameSection = item.isMatched ? (
       <BlockStack gap="100">
-        <Text variant="bodyMd" fontWeight="bold">{item.shopifyName}</Text>
+        {item.handle ? (
+          <a
+            href={`https://dawayo.de/products/${item.handle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#0f172a", textDecoration: "none", fontWeight: "bold" }}
+          >
+            {item.shopifyName}
+          </a>
+        ) : (
+          <Text variant="bodyMd" fontWeight="bold">{item.shopifyName}</Text>
+        )}
         <Text variant="bodySm" color="subdued">{item.variantTitle || "Default Title"}</Text>
       </BlockStack>
     ) : (

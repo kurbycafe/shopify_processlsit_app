@@ -19,11 +19,9 @@ export default function App() {
         <s-link href="/app">Home</s-link>
         <s-link href="/app/inspect">검수</s-link>
         <s-link href="/app/lieferschein">주문서 출력하기</s-link>
-        <s-link href="/app/create-invoice">도매 주문 생성</s-link>
         <s-link href="/app/store-label">매장 에티켓</s-link>
         <s-link href="/app/pick-list">처리중 리스트</s-link>
         <s-link href="/app/inspection-history">검수 내역</s-link>
-        <s-link href="/app/container-catalog">컨테이너 카탈로그</s-link>
         <s-link href="/app/recipe-blogs">레시피 블로그</s-link>
         <s-link href="/app/back-in-stock">재입고 알림 신청</s-link>
         <s-link href="/app/notice">고객 팝업 관리</s-link>

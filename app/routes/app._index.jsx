@@ -1206,6 +1206,40 @@ export default function Index() {
             </BlockStack>
           </Card>
         </Layout.Section>
+
+        {/* 시스템 업데이트 내역 카드 */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text variant="headingMd" as="h2">시스템 업데이트 내역</Text>
+                <Badge tone="info">v1.3.0 최신버전</Badge>
+              </InlineStack>
+
+              <Divider />
+
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="headingSm" as="h3">8월 7일 시스템 업데이트</Text>
+                  <Text variant="bodySm" color="subdued">2026-08-07</Text>
+                </InlineStack>
+
+                <ul style={{ paddingLeft: "20px", margin: 0, fontSize: "13.5px", lineHeight: "1.8", color: "#334155" }}>
+                  <li><strong>주간 단위 검수 모니터링:</strong> 메인 대시보드 검수 메트릭을 주간 단위 현황으로 개편하고 검수 이력 조회에 '이번주 (THIS_WEEK)' 필터 옵션을 추가했습니다.</li>
+                  <li><strong>자사몰 홍보 팝업 모달 연동:</strong> 고객 프론트 화면(dawayo.de) 접속 시 1회성 프로모션 팝업을 노출하고, 어드민(고객 팝업 관리)에서 활성화 여부, 버전, 문구 편집 기능 및 실시간 미리보기를 구축했습니다.</li>
+                  <li><strong>B2B 도매 카탈로그 PDF 템플릿 고도화:</strong>
+                    <ul style={{ paddingLeft: "18px", marginTop: "4px" }}>
+                      <li>DAWAYO 브랜드 로고 적용 및 대기업 B2B 수주 정책 박스(MOQ, 공급가, 콜드체인, B2B 접수창구) 탑재</li>
+                      <li>Shopify custom.producttype 메타필드 기반 냉동(-18℃) / 냉장(1~5℃) / 실온 보관 방식 자동 분류 뱃지 적용</li>
+                      <li>상품명 클릭 시 dawayo.de 해당 상품 상세 페이지 이동 (밑줄 및 파란색 폰트 제거 스타일 적용)</li>
+                      <li>대외비 보안 선언문(CONFIDENTIAL & PROPRIETARY) 및 법적 푸터 삽입으로 사내 기밀 정보 보호</li>
+                    </ul>
+                  </li>
+                </ul>
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
       </Layout>
 
       {/* 컨테이너 입고 품목 상세 모달 */}
@@ -1372,11 +1406,11 @@ export default function Index() {
         </Modal.Section>
       </Modal>
 
-      {/* ✨ 신규 기능 출시 알림 1회성 팝업 (What's New Modal) */}
+      {/* 신규 기능 출시 알림 1회성 팝업 (What's New Modal) */}
       <Modal
         open={showFeatureModal}
         onClose={handleCloseFeatureModal}
-        title="새로운 기능 출시 안내 (v1.3.0) 🎉"
+        title="새로운 기능 출시 안내 (v1.3.0)"
         primaryAction={{
           content: "확인했습니다",
           onAction: handleCloseFeatureModal,
@@ -1389,11 +1423,11 @@ export default function Index() {
             </Text>
             <Divider />
             <BlockStack gap="200">
-              <Text variant="headingSm" as="h3">주요 업데이트 사항</Text>
+              <Text variant="headingSm" as="h3">8월 7일 주요 업데이트 사항</Text>
               <ul style={{ paddingLeft: "20px", margin: 0, fontSize: "13.5px", lineHeight: "1.8", color: "#334155" }}>
-                <li><strong>이번주 검수 현황 요약:</strong> 메인 대시보드에서 이번주 총 주문 수량 대비 검수 완료 현황을 한눈에 파악할 수 있습니다.</li>
-                <li><strong>주간 단위 검수 이력 필터링:</strong> 검수 내역 조회 페이지에 '이번주 (This Week)' 필터 옵션이 추가되었습니다.</li>
-                <li><strong>품절 상품 재입고 알림 신청 위젯:</strong> 쇼핑몰 고객 화면 및 어드민 연동 기능이 추가되었습니다.</li>
+                <li><strong>이번주 검수 현황 요약:</strong> 메인 대시보드에서 이번주 총 주문 수량 대비 검수 완료 현황을 파악하고 주간 단위 이력 필터링을 지원합니다.</li>
+                <li><strong>쇼핑몰 프론트 홍보 팝업:</strong> dawayo.de 메인 접속 시 1회성 프로모션 팝업 노출 및 어드민 팝업 설정 관리 기능을 추가했습니다.</li>
+                <li><strong>B2B 도매 카탈로그 고도화:</strong> DAWAYO 로고 적용, custom.producttype 기준 냉동/냉장/실온 분류 뱃지, dawayo.de 상품 상세 페이지 연결(밑줄 제거), 대외비 보안 문구 삽입을 구현했습니다.</li>
               </ul>
             </BlockStack>
           </BlockStack>
