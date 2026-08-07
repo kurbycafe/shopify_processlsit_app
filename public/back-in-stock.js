@@ -270,9 +270,18 @@
     }
 
     existingBtn.onclick = () => {
+      let badgeText = "";
       if (config.etaDate) {
+        badgeText += `🚢 입고 예정일: ${config.etaDate}`;
+      }
+      if (config.subscriberCount && config.subscriberCount > 0) {
+        if (badgeText) badgeText += ` | `;
+        badgeText += `👥 ${config.subscriberCount}명이 신청함`;
+      }
+
+      if (badgeText) {
         etaDiv.style.display = "inline-block";
-        etaDiv.textContent = `💡 입고 예정 (${config.etaDate})`;
+        etaDiv.textContent = badgeText;
       } else {
         etaDiv.style.display = "none";
       }
@@ -304,12 +313,34 @@
       const isSoldOut = targetVariant ? !targetVariant.available : !product.available;
 
       if (isSoldOut) {
+        const variantId = targetVariant ? String(targetVariant.id) : String(product.id);
+        const sku = targetVariant ? targetVariant.sku : "";
+        const shop = window.Shopify ? window.Shopify.shop : location.hostname;
+
+        let etaDate = null;
+        let subscriberCount = 0;
+
+        try {
+          const infoRes = await fetch(`${API_ENDPOINT}?variantId=${encodeURIComponent(variantId)}&sku=${encodeURIComponent(sku || "")}&shop=${encodeURIComponent(shop)}`);
+          if (infoRes.ok) {
+            const infoData = await infoRes.json();
+            if (infoData.success) {
+              etaDate = infoData.etaDate;
+              subscriberCount = infoData.subscriberCount || 0;
+            }
+          }
+        } catch (e) {
+          console.warn("[BIS] Info fetch warning:", e);
+        }
+
         window.initProcessListBackInStock({
           productId: String(product.id),
-          variantId: targetVariant ? String(targetVariant.id) : String(product.id),
+          variantId: variantId,
           productTitle: product.title,
           variantTitle: targetVariant && targetVariant.title !== "Default Title" ? targetVariant.title : null,
-          shop: window.Shopify ? window.Shopify.shop : location.hostname,
+          shop: shop,
+          etaDate: etaDate,
+          subscriberCount: subscriberCount,
         });
       }
     } catch (err) {

@@ -668,15 +668,26 @@ export default function Index() {
                 <InlineStack gap="200" blockAlign="center">
                   <Text variant="headingMd" as="h2">시스템 업데이트 내역 (최근 7일)</Text>
                 </InlineStack>
-                <Badge tone="info">v1.2.6 (2026-08-06)</Badge>
+                <Badge tone="info">v1.3.0 (2026-08-07)</Badge>
               </InlineStack>
               <Divider />
               <BlockStack gap="300">
                 <div>
                   <Text variant="bodyMd" fontWeight="bold" style={{ color: "#2563eb" }}>
-                    2026-08-06 (v1.2.6)
+                    2026-08-07 (v1.3.0)
                   </Text>
                   <div style={{ paddingLeft: "12px", marginTop: "6px", fontSize: "13px", lineHeight: "1.7" }}>
+                    <div><strong>[신규 기능]</strong> 쇼핑몰 고객 화면 품절 상품 재입고 알림 신청 위젯 (<code>public/back-in-stock.js</code>) 추가 및 실시간 백엔드 API 연동</div>
+                    <div><strong>[재입고 관리]</strong> 어드민 메뉴 내 재입고 알림 신청 관리 (<code>/app/back-in-stock</code>) 페이지 및 품절 항목별 신청 수 통계 / 수동·일괄 알림 전송 기능 탑재</div>
+                    <div><strong>[ETA 연동]</strong> Odoo ERP 입고 예정 컨테이너 연동으로 품절 상품 모달 내 입고 예정일(ETA) 및 알림 신청자 현황 실시간 안내</div>
+                  </div>
+                </div>
+
+                <div>
+                  <Text variant="bodyMd" fontWeight="bold" color="subdued">
+                    2026-08-06 (v1.2.6)
+                  </Text>
+                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6", color: "#64748b" }}>
                     <div><strong>[신규 API]</strong> 모바일 검수 앱 및 외부 WMS/ERP 연동용 검수 내역 API (<code>GET /api/inspection-history</code>, <code>POST /api/inspection-history</code>) 추가</div>
                     <div><strong>[앱 설정]</strong> [앱 설정] 메뉴 내 외부 API 엔드포인트 URL 복사 및 cURL / JS Fetch 코드 가이드 추가</div>
                     <div><strong>[디자인 개선]</strong> 홈 대시보드 비주얼 스타일 개편 및 입고/검수 통계 카드 디자인 업그레이드</div>

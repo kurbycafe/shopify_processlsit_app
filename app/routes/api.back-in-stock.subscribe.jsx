@@ -10,6 +10,87 @@ function corsHeaders() {
   };
 }
 
+// Odoo ERP에서 특정 SKU의 최신 입고 예정 컨테이너 일자(ETA) 조회
+async function getEtaFromOdoo(sku) {
+  if (!sku) return null;
+  const ODOO_URL = "https://popeye.odoo.com/jsonrpc";
+  const ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
+  const ODOO_USER = "dawayo.odoo@gmail.com";
+  const ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34";
+
+  const payload = (service, method, args) => ({
+    jsonrpc: "2.0",
+    method: "call",
+    params: { service, method, args },
+    id: Math.floor(Math.random() * 1000000),
+  });
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+    const authRes = await fetch(ODOO_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload("common", "login", [ODOO_DB, ODOO_USER, ODOO_API_KEY])),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const authJson = await authRes.json();
+    const uid = authJson?.result;
+    if (!uid) return null;
+
+    const prodRes = await fetch(ODOO_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        payload("object", "execute_kw", [
+          ODOO_DB,
+          uid,
+          ODOO_API_KEY,
+          "product.product",
+          "search_read",
+          [[["default_code", "=", String(sku)]]],
+          { fields: ["id"], limit: 1 },
+        ])
+      ),
+    });
+    const prodJson = await prodRes.json();
+    const prodId = prodJson?.result?.[0]?.id;
+
+    if (!prodId) return null;
+
+    const moveRes = await fetch(ODOO_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        payload("object", "execute_kw", [
+          ODOO_DB,
+          uid,
+          ODOO_API_KEY,
+          "stock.move",
+          "search_read",
+          [[["product_id", "=", prodId], ["state", "in", ["assigned", "confirmed", "waiting"]], ["picking_code", "=", "incoming"]]],
+          { fields: ["date", "date_deadline"], order: "date asc", limit: 1 },
+        ])
+      ),
+    });
+    const moveJson = await moveRes.json();
+    const firstMove = moveJson?.result?.[0];
+    if (firstMove) {
+      const etaRaw = firstMove.date_deadline || firstMove.date;
+      if (etaRaw) {
+        const parts = String(etaRaw).split(" ")[0].split("-");
+        if (parts.length === 3) return `${parts[0]}-${parts[1]}-${parts[2]}`;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn("Odoo ETA fetch error:", err.message);
+    return null;
+  }
+}
+
 export const loader = async ({ request }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders() });
@@ -17,6 +98,7 @@ export const loader = async ({ request }) => {
 
   const url = new URL(request.url);
   const variantId = url.searchParams.get("variantId");
+  const sku = url.searchParams.get("sku");
   const shop = url.searchParams.get("shop") || "dawayo.myshopify.com";
 
   if (!variantId) {
@@ -24,7 +106,7 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    // 해당 상품 옵션에 대해 대기 중인 신청자 수 집계 (Social Proof용)
+    // 1. 해당 상품 옵션에 대해 대기 중인 신청자 수 집계
     const subscriberCount = await prisma.backInStockSubscription.count({
       where: {
         shop,
@@ -33,11 +115,27 @@ export const loader = async ({ request }) => {
       },
     });
 
+    // 2. 컨테이너 입고 예정일(ETA) Odoo API 실시간 조회
+    let etaDate = null;
+    if (sku) {
+      etaDate = await getEtaFromOdoo(sku);
+    }
+
+    if (!etaDate) {
+      const latestSub = await prisma.backInStockSubscription.findFirst({
+        where: { shop, variantId: String(variantId), etaDate: { not: null } },
+        orderBy: { createdAt: "desc" },
+        select: { etaDate: true },
+      });
+      if (latestSub) etaDate = latestSub.etaDate;
+    }
+
     return Response.json(
       {
         success: true,
         variantId,
         subscriberCount,
+        etaDate,
       },
       { headers: corsHeaders() }
     );
