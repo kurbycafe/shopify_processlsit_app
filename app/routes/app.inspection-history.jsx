@@ -61,6 +61,9 @@ export const loader = async ({ request }) => {
   if (datePreset === "TODAY") {
     start = dayjs().startOf("day").toDate();
     end = dayjs().endOf("day").toDate();
+  } else if (datePreset === "THIS_WEEK") {
+    start = dayjs().startOf("week").startOf("day").toDate();
+    end = dayjs().endOf("day").toDate();
   } else if (datePreset === "3DAYS") {
     start = dayjs().subtract(2, "day").startOf("day").toDate();
     end = dayjs().endOf("day").toDate();
@@ -241,6 +244,7 @@ export default function InspectionHistory() {
                   options={[
                     { label: "전체 기간", value: "ALL" },
                     { label: "오늘 (Today)", value: "TODAY" },
+                    { label: "이번주 (This Week)", value: "THIS_WEEK" },
                     { label: "최근 3일", value: "3DAYS" },
                     { label: "최근 7일", value: "7DAYS" },
                     { label: "최근 30일", value: "30DAYS" },

@@ -202,6 +202,28 @@
       padding: 0 10px;
     }
 
+    .pl-bis-social-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .pl-bis-social-badge.high-demand {
+      background: #fff7ed;
+      color: #c2410c;
+      border-color: #ffedd5;
+    }
+
     .pl-bis-msg {
       margin-top: 12px;
       font-size: 14px;
@@ -399,6 +421,25 @@
       targetContainer.appendChild(existingBtn);
     }
 
+    let socialBadge = document.getElementById("pl-bis-social-badge");
+    if (config.subscriberCount && config.subscriberCount > 0) {
+      if (!socialBadge) {
+        socialBadge = document.createElement("div");
+        socialBadge.id = "pl-bis-social-badge";
+        targetContainer.appendChild(socialBadge);
+      }
+
+      if (config.subscriberCount >= 10) {
+        socialBadge.className = "pl-bis-social-badge high-demand";
+        socialBadge.textContent = `현재 ${config.subscriberCount}명이 신청함 (재입고 인기가 높은 제품입니다)`;
+      } else {
+        socialBadge.className = "pl-bis-social-badge";
+        socialBadge.textContent = `현재 ${config.subscriberCount}명이 재입고 알림을 신청했습니다.`;
+      }
+    } else if (socialBadge) {
+      socialBadge.remove();
+    }
+
     existingBtn.onclick = () => {
       let badgeText = "";
       if (config.etaDate) {
@@ -406,7 +447,11 @@
       }
       if (config.subscriberCount && config.subscriberCount > 0) {
         if (badgeText) badgeText += ` | `;
-        badgeText += `${config.subscriberCount}명이 신청함`;
+        if (config.subscriberCount >= 10) {
+          badgeText += `현재 ${config.subscriberCount}명 대기 중 (인기 품목)`;
+        } else {
+          badgeText += `현재 ${config.subscriberCount}명이 신청함`;
+        }
       }
 
       if (badgeText) {

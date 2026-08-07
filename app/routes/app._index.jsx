@@ -235,24 +235,25 @@ export const loader = async ({ request }) => {
   const shop = session.shop;
 
   const today = dayjs().format('YYYY-MM-DD');
+  const thisWeekStart = dayjs().startOf('week').format('YYYY-MM-DD');
   const threeDaysAgo = dayjs().subtract(3, 'day').format('YYYY-MM-DD');
 
   const response = await admin.graphql(
     `#graphql
-    query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!, $delayedQuery: String!, $todayTotalQuery: String!, $todayFulfilledQuery: String!) {
+    query getOrderStats($unfulfilledQuery: String!, $partialQuery: String!, $delayedQuery: String!, $thisWeekTotalQuery: String!, $thisWeekFulfilledQuery: String!) {
       unfulfilled: ordersCount(query: $unfulfilledQuery) { count }
       partially_fulfilled: ordersCount(query: $partialQuery) { count }
       delayed: ordersCount(query: $delayedQuery) { count }
-      todayTotal: ordersCount(query: $todayTotalQuery) { count }
-      todayFulfilled: ordersCount(query: $todayFulfilledQuery) { count }
+      thisWeekTotal: ordersCount(query: $thisWeekTotalQuery) { count }
+      thisWeekFulfilled: ordersCount(query: $thisWeekFulfilledQuery) { count }
     }`,
     {
       variables: {
         unfulfilledQuery: "fulfillment_status:unfulfilled",
         partialQuery: "fulfillment_status:partially_fulfilled",
         delayedQuery: `fulfillment_status:unfulfilled created_at:<${threeDaysAgo}`,
-        todayTotalQuery: `created_at:>=${today}`,
-        todayFulfilledQuery: `created_at:>=${today} fulfillment_status:shipped`,
+        thisWeekTotalQuery: `created_at:>=${thisWeekStart}`,
+        thisWeekFulfilledQuery: `created_at:>=${thisWeekStart} fulfillment_status:shipped`,
       },
     }
   );
@@ -261,8 +262,8 @@ export const loader = async ({ request }) => {
   const unfulfilledCount = statsJson.data?.unfulfilled?.count || 0;
   const partiallyFulfilledCount = statsJson.data?.partially_fulfilled?.count || 0;
   const delayedCount = statsJson.data?.delayed?.count || 0;
-  const todayTotalCount = statsJson.data?.todayTotal?.count || 0;
-  const todayFulfilledCount = statsJson.data?.todayFulfilled?.count || 0;
+  const thisWeekTotalCount = statsJson.data?.thisWeekTotal?.count || 0;
+  const thisWeekFulfilledCount = statsJson.data?.thisWeekFulfilled?.count || 0;
   const readyToFulfillCount = Math.max(0, unfulfilledCount - delayedCount);
 
   // 최근 검수 기록 (DB)
@@ -332,8 +333,8 @@ export const loader = async ({ request }) => {
     partiallyFulfilledCount,
     delayedCount,
     readyToFulfillCount,
-    todayTotalCount,
-    todayFulfilledCount,
+    thisWeekTotalCount,
+    thisWeekFulfilledCount,
     todayPrintedCount,
     recentLogs,
     upcomingContainers,
@@ -356,10 +357,26 @@ export const action = async ({ request }) => {
 };
 
 export default function Index() {
-  const { unfulfilledCount, partiallyFulfilledCount, delayedCount, readyToFulfillCount, todayTotalCount, todayFulfilledCount, todayPrintedCount, recentLogs, upcomingContainers, chartData } = useLoaderData();
+  const { unfulfilledCount, partiallyFulfilledCount, delayedCount, readyToFulfillCount, thisWeekTotalCount, thisWeekFulfilledCount, todayPrintedCount, recentLogs, upcomingContainers, chartData } = useLoaderData();
   const [selectedLog, setSelectedLog] = useState(null);
   const navigate = useNavigate();
   const calendarMonths = getCalendarMonths();
+
+  // ✨ 신규 기능 출시 1회성 팝업 (What's New Modal) 상태 관리
+  const [showFeatureModal, setShowFeatureModal] = useState(false);
+
+  useEffect(() => {
+    const currentVersion = "v1.3.0";
+    const lastSeen = localStorage.getItem("last_seen_feature_version");
+    if (lastSeen !== currentVersion) {
+      setShowFeatureModal(true);
+    }
+  }, []);
+
+  const handleCloseFeatureModal = () => {
+    localStorage.setItem("last_seen_feature_version", "v1.3.0");
+    setShowFeatureModal(false);
+  };
 
   // ✨ 추가: 달력 입고 상세 팝업 모달 관리를 위한 훅 및 상태
   const containerItemsFetcher = useFetcher();
@@ -1354,6 +1371,34 @@ export default function Index() {
           )}
         </Modal.Section>
       </Modal>
-    </Page >
+
+      {/* ✨ 신규 기능 출시 알림 1회성 팝업 (What's New Modal) */}
+      <Modal
+        open={showFeatureModal}
+        onClose={handleCloseFeatureModal}
+        title="새로운 기능 출시 안내 (v1.3.0) 🎉"
+        primaryAction={{
+          content: "확인했습니다",
+          onAction: handleCloseFeatureModal,
+        }}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text variant="bodyMd">
+              새로운 시스템 기능이 추가되었습니다. 본 팝업은 업데이트 후 처음 접속 시 1회만 표시됩니다.
+            </Text>
+            <Divider />
+            <BlockStack gap="200">
+              <Text variant="headingSm" as="h3">주요 업데이트 사항</Text>
+              <ul style={{ paddingLeft: "20px", margin: 0, fontSize: "13.5px", lineHeight: "1.8", color: "#334155" }}>
+                <li><strong>이번주 검수 현황 요약:</strong> 메인 대시보드에서 이번주 총 주문 수량 대비 검수 완료 현황을 한눈에 파악할 수 있습니다.</li>
+                <li><strong>주간 단위 검수 이력 필터링:</strong> 검수 내역 조회 페이지에 '이번주 (This Week)' 필터 옵션이 추가되었습니다.</li>
+                <li><strong>품절 상품 재입고 알림 신청 위젯:</strong> 쇼핑몰 고객 화면 및 어드민 연동 기능이 추가되었습니다.</li>
+              </ul>
+            </BlockStack>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+    </Page>
   );
 }
