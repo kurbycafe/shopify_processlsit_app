@@ -175,6 +175,11 @@ export default function BackInStockAdmin() {
         </Text>
       )}
     </BlockStack>,
+    sub.channel === "PUSH" ? (
+      <Badge tone="interactive" key={`ch-${sub.id}`}>웹 푸시</Badge>
+    ) : (
+      <Badge tone="info" key={`ch-${sub.id}`}>이메일</Badge>
+    ),
     sub.email,
     sub.status === "PENDING" ? (
       <Badge tone="warning" key={`st-${sub.id}`}>
@@ -207,12 +212,12 @@ export default function BackInStockAdmin() {
     >
       <BlockStack gap="500">
         {fetcher.data?.message && (
-          <Banner tone="success" onDismiss={() => {}}>
+          <Banner tone="success" onDismiss={() => { }}>
             {fetcher.data.message}
           </Banner>
         )}
 
-        <Banner title="🛍️ 쇼핑몰 고객 화면(스토어프론트) 설치 방법" tone="info">
+        <Banner title="쇼핑몰 고객 화면(스토어프론트) 설치 방법" tone="info">
           <BlockStack gap="200">
             <Text variant="bodyMd" as="p">
               고객 화면에 재입고 알림 버튼을 표시하려면 쇼피파이 테마에 아래 스크립트를 1줄 추가해 주세요.
@@ -226,7 +231,7 @@ export default function BackInStockAdmin() {
           </BlockStack>
         </Banner>
 
-        {/* 📊 상단 통계 카드 */}
+        {/* 상단 통계 카드 */}
         <Layout>
           <Layout.Section variant="oneThird">
             <Card>
@@ -286,13 +291,13 @@ export default function BackInStockAdmin() {
           </Layout.Section>
         </Layout>
 
-        {/* 🏆 Top 10 알림 신청 품목 (발주 우선순위) */}
+        {/* Top 10 알림 신청 품목 (발주 우선순위) */}
         <Card>
           <BlockStack gap="400">
             <InlineStack align="space-between">
               <BlockStack gap="100">
                 <Text variant="headingMd" as="h2">
-                  🔥 가장 요청이 많은 품목 Top 10
+                  가장 요청이 많은 품목 Top 10
                 </Text>
                 <Text variant="bodySm" tone="subdued">
                   고객 수요가 높은 품목입니다. 컨테이너 입고 시 우선 검수 및 발주에 참고하세요.
@@ -314,12 +319,12 @@ export default function BackInStockAdmin() {
           </BlockStack>
         </Card>
 
-        {/* 📋 최근 알림 신청자 리스트 */}
+        {/* 최근 알림 신청자 리스트 */}
         <Card>
           <BlockStack gap="400">
             <InlineStack align="space-between">
               <Text variant="headingMd" as="h2">
-                📋 전체 재입고 알림 신청 내역
+                전체 재입고 알림 신청 내역
               </Text>
               <InlineStack gap="300">
                 <div style={{ width: "200px" }}>
@@ -347,8 +352,8 @@ export default function BackInStockAdmin() {
             </InlineStack>
 
             <DataTable
-              columnContentTypes={["text", "text", "text", "text", "text"]}
-              headings={["신청 일시", "상품명", "고객 이메일", "상태", "액션"]}
+              columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+              headings={["신청 일시", "상품명", "수신 채널", "고객 연락처", "상태", "액션"]}
               rows={subscriberRows}
             />
           </BlockStack>

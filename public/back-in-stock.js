@@ -157,23 +157,81 @@
       font-weight: 600;
       text-align: center;
     }
+    .pl-bis-push-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 20px;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+      transition: all 0.2s ease-in-out;
+    }
+    .pl-bis-push-btn:hover {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+    }
+    .pl-bis-push-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .pl-bis-divider {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      margin: 16px 0;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .pl-bis-divider::before, .pl-bis-divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .pl-bis-divider span {
+      padding: 0 10px;
+    }
+
+    .pl-bis-msg {
+      margin-top: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+    }
     .pl-bis-msg.success { color: #16a34a; }
     .pl-bis-msg.error { color: #dc2626; }
   `;
   document.head.appendChild(style);
 
-  // 모달 HTML 생성
+  // 모달 HTML 생성 (웹 푸시 1-Click 중심 UX)
   const modalContainer = document.createElement("div");
   modalContainer.className = "pl-bis-modal-overlay";
   modalContainer.innerHTML = `
     <div class="pl-bis-modal">
       <button class="pl-bis-modal-close" id="pl-bis-close">&times;</button>
-      <h3>🔔 재입고 알림 신청</h3>
-      <p id="pl-bis-desc">상품이 재입고되는 즉시 입력하신 이메일로 가장 먼저 안내해 드립니다!</p>
+      <h3>재입고 알림 신청</h3>
+      <p id="pl-bis-desc">상품이 재입고되는 즉시 실시간 푸시 팝업 또는 이메일로 안내해 드립니다.</p>
       <div id="pl-bis-eta" class="pl-bis-eta-badge" style="display: none;"></div>
+      
+      <button type="button" id="pl-bis-push-btn" class="pl-bis-push-btn">
+        원클릭 웹 푸시 알림 신청
+      </button>
+
+      <div class="pl-bis-divider"><span>또는 이메일 수신</span></div>
+
       <form id="pl-bis-form">
-        <input type="email" id="pl-bis-email" class="pl-bis-input" placeholder="이메일 주소를 입력하세요 (예: user@example.com)" required />
-        <button type="submit" id="pl-bis-submit" class="pl-bis-submit-btn">알림 신청하기</button>
+        <input type="email" id="pl-bis-email" class="pl-bis-input" placeholder="이메일 주소를 입력하세요 (선택)" />
+        <button type="submit" id="pl-bis-submit" class="pl-bis-submit-btn">이메일 알림 신청하기</button>
       </form>
       <div id="pl-bis-msg" class="pl-bis-msg"></div>
     </div>
@@ -181,6 +239,7 @@
   document.body.appendChild(modalContainer);
 
   const closeBtn = document.getElementById("pl-bis-close");
+  const pushBtn = document.getElementById("pl-bis-push-btn");
   const form = document.getElementById("pl-bis-form");
   const emailInput = document.getElementById("pl-bis-email");
   const submitBtn = document.getElementById("pl-bis-submit");
@@ -203,10 +262,80 @@
     if (e.target === modalContainer) modalContainer.classList.remove("active");
   });
 
+  // 1-Click 웹 푸시 알림 이벤트 처리
+  pushBtn.addEventListener("click", async () => {
+    if (!("Notification" in window)) {
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "이 브라우저는 웹 푸시 알림을 지원하지 않습니다. 이메일 입력을 이용해 주세요.";
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        msgDiv.className = "pl-bis-msg error";
+        msgDiv.textContent = "알림 권한이 차단되었습니다. 브라우저 설정에서 알림을 허용해 주시거나 이메일 입력을 이용해 주세요.";
+        return;
+      }
+
+      pushBtn.disabled = true;
+      pushBtn.textContent = "푸시 신청 처리 중...";
+      msgDiv.textContent = "";
+
+      const res = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop: currentContext.shop,
+          email: emailInput.value.trim() || `push_user@${location.hostname}`,
+          channel: "PUSH",
+          variantId: currentContext.variantId,
+          productId: currentContext.productId,
+          productTitle: currentContext.productTitle,
+          variantTitle: currentContext.variantTitle,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        // 브라우저 데스크톱 테스트 푸시 알림 트리거
+        try {
+          new Notification(`[다와요] ${currentContext.productTitle} 알림 신청 완료`, {
+            body: "상품이 재입고되면 이 브라우저로 실시간 알람이 수신됩니다.",
+          });
+        } catch (e) {}
+
+        msgDiv.className = "pl-bis-msg success";
+        msgDiv.textContent = "웹 푸시 알림이 성공적으로 등록되었습니다.";
+        setTimeout(() => {
+          modalContainer.classList.remove("active");
+          msgDiv.textContent = "";
+          pushBtn.disabled = false;
+          pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
+        }, 2200);
+      } else {
+        msgDiv.className = "pl-bis-msg error";
+        msgDiv.textContent = data.error || "신청 중 오류가 발생했습니다.";
+        pushBtn.disabled = false;
+        pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
+      }
+    } catch (err) {
+      console.error("Web Push error:", err);
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "웹 푸시 신청 중 오류가 발생했습니다.";
+      pushBtn.disabled = false;
+      pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
+    }
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = emailInput.value.trim();
-    if (!email) return;
+    if (!email) {
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "이메일 주소를 입력해 주세요.";
+      return;
+    }
 
     submitBtn.disabled = true;
     submitBtn.textContent = "신청 처리 중...";
@@ -219,6 +348,7 @@
         body: JSON.stringify({
           shop: currentContext.shop,
           email: email,
+          channel: "EMAIL",
           variantId: currentContext.variantId,
           productId: currentContext.productId,
           productTitle: currentContext.productTitle,
@@ -229,26 +359,26 @@
       const data = await res.json();
       if (data.success) {
         msgDiv.className = "pl-bis-msg success";
-        msgDiv.textContent = data.message || "신청이 성공적으로 완료되었습니다!";
+        msgDiv.textContent = data.message || "이메일 알림 신청이 완료되었습니다.";
         setTimeout(() => {
           modalContainer.classList.remove("active");
           emailInput.value = "";
           msgDiv.textContent = "";
           submitBtn.disabled = false;
-          submitBtn.textContent = "알림 신청하기";
+          submitBtn.textContent = "이메일 알림 신청하기";
         }, 2000);
       } else {
         msgDiv.className = "pl-bis-msg error";
         msgDiv.textContent = data.error || "신청 중 오류가 발생했습니다.";
         submitBtn.disabled = false;
-        submitBtn.textContent = "알림 신청하기";
+        submitBtn.textContent = "이메일 알림 신청하기";
       }
     } catch (err) {
       console.error("Back in stock error:", err);
       msgDiv.className = "pl-bis-msg error";
       msgDiv.textContent = "네트워크 오류가 발생했습니다.";
       submitBtn.disabled = false;
-      submitBtn.textContent = "알림 신청하기";
+      submitBtn.textContent = "이메일 알림 신청하기";
     }
   });
 
@@ -265,18 +395,18 @@
       existingBtn.id = "pl-bis-trigger";
       existingBtn.type = "button";
       existingBtn.className = "pl-bis-btn";
-      existingBtn.innerHTML = `🔔 재입고 알림 받아보기`;
+      existingBtn.innerHTML = `재입고 알림 받아보기`;
       targetContainer.appendChild(existingBtn);
     }
 
     existingBtn.onclick = () => {
       let badgeText = "";
       if (config.etaDate) {
-        badgeText += `🚢 입고 예정일: ${config.etaDate}`;
+        badgeText += `입고 예정일: ${config.etaDate}`;
       }
       if (config.subscriberCount && config.subscriberCount > 0) {
         if (badgeText) badgeText += ` | `;
-        badgeText += `👥 ${config.subscriberCount}명이 신청함`;
+        badgeText += `${config.subscriberCount}명이 신청함`;
       }
 
       if (badgeText) {
