@@ -224,6 +224,41 @@
       border-color: #ffedd5;
     }
 
+    .pl-bis-sub-cancel-link {
+      display: block;
+      width: 100%;
+      text-align: center;
+      background: transparent;
+      border: none;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 4px;
+      text-decoration: underline;
+    }
+    .pl-bis-sub-cancel-link:hover {
+      color: #dc2626;
+    }
+
+    .pl-bis-cancel-btn {
+      padding: 12px;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 14px;
+      font-weight: 600;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .pl-bis-cancel-btn:hover {
+      background: #fee2e2;
+      color: #dc2626;
+      border-color: #fecaca;
+    }
+
     .pl-bis-msg {
       margin-top: 12px;
       font-size: 14px;
@@ -235,7 +270,7 @@
   `;
   document.head.appendChild(style);
 
-  // 모달 HTML 생성 (웹 푸시 1-Click 중심 UX)
+  // 모달 HTML 생성 (웹 푸시 1-Click 중심 UX + 알림 취소 옵션)
   const modalContainer = document.createElement("div");
   modalContainer.className = "pl-bis-modal-overlay";
   modalContainer.innerHTML = `
@@ -245,15 +280,23 @@
       <p id="pl-bis-desc">상품이 재입고되는 즉시 실시간 푸시 팝업 또는 이메일로 안내해 드립니다.</p>
       <div id="pl-bis-eta" class="pl-bis-eta-badge" style="display: none;"></div>
       
-      <button type="button" id="pl-bis-push-btn" class="pl-bis-push-btn">
-        원클릭 웹 푸시 알림 신청
-      </button>
+      <div style="margin-bottom: 12px;">
+        <button type="button" id="pl-bis-push-btn" class="pl-bis-push-btn">
+          원클릭 웹 푸시 알림 신청
+        </button>
+        <button type="button" id="pl-bis-push-cancel-btn" class="pl-bis-sub-cancel-link">
+          웹 푸시 알림 신청 취소하기
+        </button>
+      </div>
 
       <div class="pl-bis-divider"><span>또는 이메일 수신</span></div>
 
       <form id="pl-bis-form">
-        <input type="email" id="pl-bis-email" class="pl-bis-input" placeholder="이메일 주소를 입력하세요 (선택)" />
-        <button type="submit" id="pl-bis-submit" class="pl-bis-submit-btn">이메일 알림 신청하기</button>
+        <input type="email" id="pl-bis-email" class="pl-bis-input" placeholder="이메일 주소를 입력하세요" />
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" id="pl-bis-submit" class="pl-bis-submit-btn" style="flex: 2;">이메일 알림 신청</button>
+          <button type="button" id="pl-bis-email-cancel-btn" class="pl-bis-cancel-btn" style="flex: 1;">알림 취소</button>
+        </div>
       </form>
       <div id="pl-bis-msg" class="pl-bis-msg"></div>
     </div>
@@ -262,9 +305,11 @@
 
   const closeBtn = document.getElementById("pl-bis-close");
   const pushBtn = document.getElementById("pl-bis-push-btn");
+  const pushCancelBtn = document.getElementById("pl-bis-push-cancel-btn");
   const form = document.getElementById("pl-bis-form");
   const emailInput = document.getElementById("pl-bis-email");
   const submitBtn = document.getElementById("pl-bis-submit");
+  const emailCancelBtn = document.getElementById("pl-bis-email-cancel-btn");
   const msgDiv = document.getElementById("pl-bis-msg");
   const etaDiv = document.getElementById("pl-bis-eta");
 
@@ -347,6 +392,99 @@
       msgDiv.textContent = "웹 푸시 신청 중 오류가 발생했습니다.";
       pushBtn.disabled = false;
       pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
+    }
+  });
+
+  // 푸시 알림 취소 이벤트 처리
+  pushCancelBtn.addEventListener("click", async () => {
+    msgDiv.textContent = "";
+    pushCancelBtn.disabled = true;
+    pushCancelBtn.textContent = "취소 처리 중...";
+
+    try {
+      const res = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intent: "unsubscribe",
+          shop: currentContext.shop,
+          variantId: currentContext.variantId,
+          channel: "PUSH",
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        msgDiv.className = "pl-bis-msg success";
+        msgDiv.textContent = data.message || "웹 푸시 알림 신청이 성공적으로 취소되었습니다.";
+        setTimeout(() => {
+          modalContainer.classList.remove("active");
+          msgDiv.textContent = "";
+          pushCancelBtn.disabled = false;
+          pushCancelBtn.textContent = "웹 푸시 알림 신청 취소하기";
+        }, 2000);
+      } else {
+        msgDiv.className = "pl-bis-msg error";
+        msgDiv.textContent = data.error || "취소 중 오류가 발생했습니다.";
+        pushCancelBtn.disabled = false;
+        pushCancelBtn.textContent = "웹 푸시 알림 신청 취소하기";
+      }
+    } catch (err) {
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "네트워크 오류가 발생했습니다.";
+      pushCancelBtn.disabled = false;
+      pushCancelBtn.textContent = "웹 푸시 알림 신청 취소하기";
+    }
+  });
+
+  // 이메일 알림 취소 버튼 처리
+  emailCancelBtn.addEventListener("click", async () => {
+    const email = emailInput.value.trim();
+    if (!email) {
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "취소할 이메일 주소를 입력해 주세요.";
+      return;
+    }
+
+    emailCancelBtn.disabled = true;
+    emailCancelBtn.textContent = "취소 중...";
+    msgDiv.textContent = "";
+
+    try {
+      const res = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intent: "unsubscribe",
+          shop: currentContext.shop,
+          variantId: currentContext.variantId,
+          email: email,
+          channel: "EMAIL",
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        msgDiv.className = "pl-bis-msg success";
+        msgDiv.textContent = data.message || "이메일 알림 신청이 성공적으로 취소되었습니다.";
+        setTimeout(() => {
+          modalContainer.classList.remove("active");
+          emailInput.value = "";
+          msgDiv.textContent = "";
+          emailCancelBtn.disabled = false;
+          emailCancelBtn.textContent = "알림 취소";
+        }, 2000);
+      } else {
+        msgDiv.className = "pl-bis-msg error";
+        msgDiv.textContent = data.error || "취소 처리 중 오류가 발생했습니다.";
+        emailCancelBtn.disabled = false;
+        emailCancelBtn.textContent = "알림 취소";
+      }
+    } catch (err) {
+      msgDiv.className = "pl-bis-msg error";
+      msgDiv.textContent = "네트워크 오류가 발생했습니다.";
+      emailCancelBtn.disabled = false;
+      emailCancelBtn.textContent = "알림 취소";
     }
   });
 

@@ -38,6 +38,10 @@ export const loader = async ({ request }) => {
     where: { shop, status: "NOTIFIED" },
   });
 
+  const cancelledCount = await prisma.backInStockSubscription.count({
+    where: { shop, status: "CANCELLED" },
+  });
+
   // 2. 가장 알림 신청이 많은 품목 Top 10 (주문/발주 참고용)
   const topProductsRaw = await prisma.backInStockSubscription.groupBy({
     by: ["productId", "variantId", "productTitle", "variantTitle", "etaDate"],
@@ -73,6 +77,7 @@ export const loader = async ({ request }) => {
     shop,
     pendingCount,
     notifiedCount,
+    cancelledCount,
     topProducts,
     subscriptions,
   };
@@ -98,6 +103,16 @@ export const action = async ({ request }) => {
     return { success: true, message: "알림 발송 처리되었습니다." };
   }
 
+  if (intent === "cancel_single" && subscriptionId) {
+    await prisma.backInStockSubscription.update({
+      where: { id: String(subscriptionId) },
+      data: {
+        status: "CANCELLED",
+      },
+    });
+    return { success: true, message: "알림 신청이 취소 처리되었습니다." };
+  }
+
   if (intent === "notify_variant" && variantId) {
     const updated = await prisma.backInStockSubscription.updateMany({
       where: {
@@ -117,7 +132,7 @@ export const action = async ({ request }) => {
 };
 
 export default function BackInStockAdmin() {
-  const { pendingCount, notifiedCount, topProducts, subscriptions } = useLoaderData();
+  const { pendingCount, notifiedCount, cancelledCount, topProducts, subscriptions } = useLoaderData();
   const fetcher = useFetcher();
 
   const [selectedStatus, setSelectedStatus] = useState("ALL");
@@ -185,19 +200,32 @@ export default function BackInStockAdmin() {
       <Badge tone="warning" key={`st-${sub.id}`}>
         대기 중
       </Badge>
-    ) : (
+    ) : sub.status === "NOTIFIED" ? (
       <Badge tone="success" key={`st-${sub.id}`}>
         발송 완료
       </Badge>
+    ) : (
+      <Badge tone="critical" key={`st-${sub.id}`}>
+        신청 취소됨
+      </Badge>
     ),
     sub.status === "PENDING" ? (
-      <fetcher.Form method="post" key={`act-${sub.id}`}>
-        <input type="hidden" name="intent" value="notify_single" />
-        <input type="hidden" name="subscriptionId" value={sub.id} />
-        <Button size="micro" loading={fetcher.state !== "idle"}>
-          수동 알림 전송
-        </Button>
-      </fetcher.Form>
+      <InlineStack gap="150" key={`act-${sub.id}`}>
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="notify_single" />
+          <input type="hidden" name="subscriptionId" value={sub.id} />
+          <Button size="micro" loading={fetcher.state !== "idle"}>
+            알림 전송
+          </Button>
+        </fetcher.Form>
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="cancel_single" />
+          <input type="hidden" name="subscriptionId" value={sub.id} />
+          <Button size="micro" tone="critical" loading={fetcher.state !== "idle"}>
+            신청 취소
+          </Button>
+        </fetcher.Form>
+      </InlineStack>
     ) : (
       <Text variant="bodySm" tone="subdued" key={`date-${sub.id}`}>
         {sub.notifiedAt ? dayjs(sub.notifiedAt).format("MM-DD HH:mm") : "-"}
@@ -343,6 +371,7 @@ export default function BackInStockAdmin() {
                       { label: "전체 상태", value: "ALL" },
                       { label: "대기 중", value: "PENDING" },
                       { label: "발송 완료", value: "NOTIFIED" },
+                      { label: "신청 취소됨", value: "CANCELLED" },
                     ]}
                     value={selectedStatus}
                     onChange={setSelectedStatus}

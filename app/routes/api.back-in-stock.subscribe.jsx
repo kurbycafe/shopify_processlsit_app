@@ -171,19 +171,59 @@ export const action = async ({ request }) => {
       variantTitle,
       etaDate,
       channel = "EMAIL",
+      intent,
+      action: actionType,
     } = payload;
+
+    const isUnsubscribe = intent === "unsubscribe" || actionType === "unsubscribe";
+
+    if (!variantId) {
+      return Response.json(
+        { success: false, error: "상품 변수(Variant ID) 정보가 누락되었습니다." },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
+    // 알림 신청 취소 처리 (Unsubscribe)
+    if (isUnsubscribe) {
+      const emailClean = email ? String(email).trim().toLowerCase() : null;
+
+      const whereCondition = {
+        shop: String(shop),
+        variantId: String(variantId),
+        status: "PENDING",
+      };
+
+      if (emailClean) {
+        whereCondition.email = emailClean;
+      } else if (channel) {
+        whereCondition.channel = String(channel);
+      }
+
+      const updated = await prisma.backInStockSubscription.updateMany({
+        where: whereCondition,
+        data: {
+          status: "CANCELLED",
+        },
+      });
+
+      return Response.json(
+        {
+          success: true,
+          cancelled: true,
+          count: updated.count,
+          message: updated.count > 0 
+            ? "재입고 알림 신청이 성공적으로 취소되었습니다." 
+            : "취소할 대기 중인 알림 신청 내역이 없습니다.",
+        },
+        { headers: corsHeaders() }
+      );
+    }
 
     // 1. 필수 값 검증
     if (!email || !email.includes("@")) {
       return Response.json(
         { success: false, error: "올바른 이메일 주소를 입력해 주세요." },
-        { status: 400, headers: corsHeaders() }
-      );
-    }
-
-    if (!variantId) {
-      return Response.json(
-        { success: false, error: "상품 변수(Variant ID) 정보가 누락되었습니다." },
         { status: 400, headers: corsHeaders() }
       );
     }
@@ -203,6 +243,7 @@ export const action = async ({ request }) => {
         {
           success: true,
           alreadySubscribed: true,
+          canCancel: true,
           message: "이미 이 상품의 재입고 알림을 신청하셨습니다.",
         },
         { headers: corsHeaders() }
