@@ -24,6 +24,7 @@ export default function App() {
         <s-link href="/app/inspection-history">검수 내역</s-link>
         <s-link href="/app/recipe-blogs">레시피 블로그</s-link>
         <s-link href="/app/back-in-stock">재입고 알림 신청</s-link>
+        <s-link href="/app/inventory">월별 인벤토리 PDF</s-link>
         <s-link href="/app/notice">고객 팝업 관리</s-link>
         <s-link href="/app/settings">앱 설정</s-link>
       </s-app-nav>
