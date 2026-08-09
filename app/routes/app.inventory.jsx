@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRouteError } from "react-router";
+import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import * as XLSX from "xlsx";
 import {
   Page,
-  Layout,
   Card,
   Text,
   BlockStack,
@@ -19,7 +19,7 @@ import {
   Banner,
   Icon,
 } from "@shopify/polaris";
-import { SearchIcon, ExportIcon, PrintIcon } from "@shopify/polaris-icons";
+import { SearchIcon, PrintIcon } from "@shopify/polaris-icons";
 
 // ========================================================
 // 1. Shopify Admin GraphQL Query for Products & Variants
@@ -49,7 +49,6 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
             barcode
             price
             taxable
-            taxCode
             inventoryQuantity
           }
         }
@@ -59,82 +58,98 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
 `;
 
 // ========================================================
-// 2. Loader: Fetch real-time products & inventory data
+// 2. Loader: Fetch real-time products & inventory data safely
 // ========================================================
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  try {
+    const { admin } = await authenticate.admin(request);
 
-  let hasNextPage = true;
-  let after = null;
-  const items = [];
-  let shopName = "Shopify Store";
-  let currencyCode = "EUR";
+    let hasNextPage = true;
+    let after = null;
+    const items = [];
+    let shopName = "Shopify Store";
+    let currencyCode = "EUR";
 
-  while (hasNextPage) {
-    const response = await admin.graphql(INVENTORY_PRODUCTS_QUERY, {
-      variables: { first: 50, after },
-    });
-    const payload = await response.json();
-    const shopData = payload?.data?.shop;
-    if (shopData) {
-      shopName = shopData.name || shopName;
-      currencyCode = shopData.currencyCode || currencyCode;
-    }
+    while (hasNextPage) {
+      const response = await admin.graphql(INVENTORY_PRODUCTS_QUERY, {
+        variables: { first: 50, after },
+      });
+      const payload = await response.json();
 
-    const products = payload?.data?.products?.nodes || [];
-    for (const product of products) {
-      const productTitle = product.title || "알 수 없는 상품";
-      const productTypeVal = (product.producttypeMetafield?.value || product.productType || "").trim().toLowerCase();
-
-      for (const variant of product.variants?.nodes || []) {
-        const variantTitle = variant.title && variant.title !== "Default Title" ? variant.title : "";
-        const fullName = variantTitle ? `${productTitle} (${variantTitle})` : productTitle;
-        const sku = variant.sku || "-";
-        const barcode = variant.barcode || "-";
-        const price = parseFloat(variant.price || "0");
-        const taxable = Boolean(variant.taxable);
-        const inventoryQuantity = typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
-
-        // Determine checkout tax rate percentage
-        let taxRate = 0;
-        if (taxable) {
-          // Germany/EU checkout tax rate logic:
-          // Reduced rate (7%) for food/beverage/grocery items, standard (19%) for general items
-          const isReduced =
-            productTypeVal === "t" ||
-            productTypeVal === "food" ||
-            productTypeVal === "grocery" ||
-            (variant.taxCode && variant.taxCode.includes("reduced"));
-          taxRate = isReduced ? 7 : 19;
-        }
-
-        items.push({
-          id: variant.id,
-          productId: product.id,
-          productTitle,
-          variantTitle,
-          fullName,
-          sku,
-          barcode,
-          price,
-          taxable,
-          taxRate,
-          inventoryQuantity,
-          valuation: price * inventoryQuantity,
-        });
+      if (payload?.errors && payload.errors.length > 0) {
+        console.error("GraphQL errors in Inventory loader:", payload.errors);
       }
+
+      const shopData = payload?.data?.shop;
+      if (shopData) {
+        shopName = shopData.name || shopName;
+        currencyCode = shopData.currencyCode || currencyCode;
+      }
+
+      const products = payload?.data?.products?.nodes || [];
+      for (const product of products) {
+        const productTitle = product.title || "알 수 없는 상품";
+        const productTypeVal = (product.producttypeMetafield?.value || product.productType || "").trim().toLowerCase();
+
+        for (const variant of product.variants?.nodes || []) {
+          const variantTitle = variant.title && variant.title !== "Default Title" ? variant.title : "";
+          const fullName = variantTitle ? `${productTitle} (${variantTitle})` : productTitle;
+          const sku = variant.sku || "-";
+          const barcode = variant.barcode || "-";
+          const price = parseFloat(variant.price || "0");
+          const taxable = Boolean(variant.taxable);
+          const inventoryQuantity = typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
+
+          // Determine checkout tax rate percentage
+          let taxRate = 0;
+          if (taxable) {
+            // Germany/EU checkout tax rate logic:
+            // Reduced rate (7%) for food/beverage/grocery items, standard (19%) for general items
+            const isReduced =
+              productTypeVal === "t" ||
+              productTypeVal === "food" ||
+              productTypeVal === "grocery";
+            taxRate = isReduced ? 7 : 19;
+          }
+
+          items.push({
+            id: variant.id,
+            productId: product.id,
+            productTitle,
+            variantTitle,
+            fullName,
+            sku,
+            barcode,
+            price,
+            taxable,
+            taxRate,
+            inventoryQuantity,
+            valuation: price * inventoryQuantity,
+          });
+        }
+      }
+
+      hasNextPage = Boolean(payload?.data?.products?.pageInfo?.hasNextPage);
+      after = payload?.data?.products?.pageInfo?.endCursor || null;
     }
 
-    hasNextPage = Boolean(payload?.data?.products?.pageInfo?.hasNextPage);
-    after = payload?.data?.products?.pageInfo?.endCursor || null;
+    return {
+      shopName,
+      currencyCode,
+      items,
+      fetchedAt: new Date().toISOString(),
+      error: null,
+    };
+  } catch (err) {
+    console.error("Failed to load inventory data:", err);
+    return {
+      shopName: "Shopify Store",
+      currencyCode: "EUR",
+      items: [],
+      fetchedAt: new Date().toISOString(),
+      error: err.message || "상품 재고 데이터를 불러오는 중 오류가 발생했습니다.",
+    };
   }
-
-  return {
-    shopName,
-    currencyCode,
-    items,
-    fetchedAt: new Date().toISOString(),
-  };
 };
 
 // Format currency
@@ -148,10 +163,10 @@ function formatCurrency(amount, currencyCode = "EUR") {
 // 3. Main Component
 // ========================================================
 export default function InventoryPage() {
-  const { shopName, currencyCode, items: initialItems } = useLoaderData();
+  const { shopName, currencyCode, items: initialItems, error: loaderError } = useLoaderData();
 
   // State
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState(initialItems || []);
   const [searchQuery, setSearchQuery] = useState("");
   const [taxFilter, setTaxFilter] = useState("ALL");
   const [stockFilter, setStockFilter] = useState("ALL");
@@ -535,12 +550,18 @@ export default function InventoryPage() {
       secondaryActions={[
         {
           content: "엑셀 다운로드",
-          icon: ExportIcon,
           onAction: handleExportXLSX,
         },
       ]}
     >
       <BlockStack gap="500">
+        {/* Error Banner if any */}
+        {loaderError && (
+          <Banner title="데이터 로드 오류" tone="critical">
+            <p>{loaderError}</p>
+          </Banner>
+        )}
+
         {/* Banner Notice */}
         <Banner title="실시간 인벤토리 데이터 안내" tone="info">
           <p>
@@ -657,7 +678,7 @@ export default function InventoryPage() {
                 <Button icon={PrintIcon} variant="primary" onClick={handleGeneratePDF}>
                   PDF 파일 받기
                 </Button>
-                <Button icon={ExportIcon} onClick={handleExportXLSX}>
+                <Button onClick={handleExportXLSX}>
                   엑셀 다운로드
                 </Button>
               </InlineStack>
@@ -689,3 +710,12 @@ export default function InventoryPage() {
     </Page>
   );
 }
+
+// ErrorBoundary & headers export for Shopify App React Router
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
+
+export const headers = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};
