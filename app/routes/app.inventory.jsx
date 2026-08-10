@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { useLoaderData, useFetcher } from "react-router";
+import { useState, useMemo, useCallback } from "react";
+import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import * as XLSX from "xlsx";
@@ -14,10 +14,9 @@ import {
   Select,
   Box,
   Banner,
-  ProgressBar,
   Divider,
 } from "@shopify/polaris";
-import { PrintIcon, RefreshIcon } from "@shopify/polaris-icons";
+import { PrintIcon } from "@shopify/polaris-icons";
 
 // ========================================================
 // 1. Shopify Admin GraphQL Query
@@ -39,7 +38,7 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
         productType
         status
         producttypeMetafield: metafield(namespace: "custom", key: "producttype") { value }
-        variants(first: 100) {
+        variants(first: 250) {
           nodes {
             id
             title
@@ -100,46 +99,43 @@ function processProducts(products) {
 }
 
 // ========================================================
-// 2. SSR Loader
+// 2. Server Loader: Fetches 100% of ALL products without pagination limits
 // ========================================================
 export const loader = async ({ request }) => {
   try {
     const { admin } = await authenticate.admin(request);
-    const url = new URL(request.url);
-    const after = url.searchParams.get("after") || null;
-    const isJson = url.searchParams.get("format") === "json";
 
-    const response = await admin.graphql(INVENTORY_PRODUCTS_QUERY, {
-      variables: { first: 250, after },
-    });
-    const payload = await response.json();
+    let allProducts = [];
+    let hasNextPage = true;
+    let after = null;
+    let shopName = "Shopify Store";
+    let currencyCode = "EUR";
 
-    const shopData = payload?.data?.shop || {};
-    const shopName = shopData.name || "Shopify Store";
-    const currencyCode = shopData.currencyCode || "EUR";
+    // Server-side loop to fetch all product pages from Shopify Admin GraphQL
+    while (hasNextPage) {
+      const response = await admin.graphql(INVENTORY_PRODUCTS_QUERY, {
+        variables: { first: 250, after },
+      });
+      const payload = await response.json();
 
-    const productsData = payload?.data?.products || {};
-    const rawProducts = productsData.nodes || [];
-    const pageInfo = productsData.pageInfo || { hasNextPage: false, endCursor: null };
-    const items = processProducts(rawProducts);
+      const shopData = payload?.data?.shop || {};
+      if (shopData.name) shopName = shopData.name;
+      if (shopData.currencyCode) currencyCode = shopData.currencyCode;
 
-    if (isJson) {
-      return new Response(
-        JSON.stringify({
-          shopName,
-          currencyCode,
-          items,
-          pageInfo,
-        }),
-        { headers: { "Content-Type": "application/json" } }
-      );
+      const productsData = payload?.data?.products || {};
+      const rawProducts = productsData.nodes || [];
+      allProducts = [...allProducts, ...rawProducts];
+
+      hasNextPage = Boolean(productsData.pageInfo?.hasNextPage);
+      after = productsData.pageInfo?.endCursor || null;
     }
+
+    const items = processProducts(allProducts);
 
     return {
       shopName,
       currencyCode,
       items,
-      pageInfo,
       fetchedAt: new Date().toISOString(),
       error: null,
     };
@@ -149,7 +145,6 @@ export const loader = async ({ request }) => {
       shopName: "Shopify Store",
       currencyCode: "EUR",
       items: [],
-      pageInfo: { hasNextPage: false, endCursor: null },
       fetchedAt: new Date().toISOString(),
       error: err.message || "상품 재고 데이터를 불러오는 중 오류가 발생했습니다.",
     };
@@ -171,12 +166,8 @@ export default function InventoryPage() {
 
   const [shopName] = useState(loaderData.shopName || "Shopify Store");
   const [currencyCode] = useState(loaderData.currencyCode || "EUR");
-  const [items, setItems] = useState(loaderData.items || []);
-  const [nextCursor, setNextCursor] = useState(loaderData.pageInfo?.endCursor || null);
-  const [hasNextPage, setHasNextPage] = useState(Boolean(loaderData.pageInfo?.hasNextPage));
-
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [loadingProgressText, setLoadingProgressText] = useState("");
+  const [items] = useState(loaderData.items || []);
+  const [errorMsg] = useState(loaderData.error || "");
 
   const [stockFilter, setStockFilter] = useState("ALL");
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -186,42 +177,7 @@ export default function InventoryPage() {
     return `${yyyy}-${mm}`;
   });
 
-  // Fetch all remaining pages iteratively
-  const fetchAllRemainingPages = useCallback(async () => {
-    if (!hasNextPage || !nextCursor) return items;
-
-    setIsLoadingMore(true);
-    let currentCursor = nextCursor;
-    let keepGoing = true;
-    let accumulatedItems = [...items];
-
-    while (keepGoing && currentCursor) {
-      setLoadingProgressText(`추가 상품 데이터를 불러오는 중... (현재 ${accumulatedItems.length}개 품목 수집 완료)`);
-      try {
-        const res = await fetch(`/app/inventory?format=json&after=${encodeURIComponent(currentCursor)}`);
-        if (!res.ok) break;
-        const json = await res.json();
-        const newItems = json.items || [];
-        accumulatedItems = [...accumulatedItems, ...newItems];
-
-        currentCursor = json.pageInfo?.endCursor || null;
-        keepGoing = Boolean(json.pageInfo?.hasNextPage);
-
-        setItems(accumulatedItems);
-        setNextCursor(currentCursor);
-        setHasNextPage(keepGoing);
-      } catch (err) {
-        console.error("Error fetching next inventory page:", err);
-        keepGoing = false;
-      }
-    }
-
-    setIsLoadingMore(false);
-    setLoadingProgressText("");
-    return accumulatedItems;
-  }, [hasNextPage, nextCursor, items]);
-
-  // Filtered Items
+  // Filtered Items based on selected stock filter
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const matchesStock =
@@ -242,13 +198,13 @@ export default function InventoryPage() {
   }, [filteredItems]);
 
   // XLSX Export Handler
-  const handleExportXLSX = useCallback(async () => {
-    let targetList = filteredItems;
-    if (hasNextPage) {
-      targetList = await fetchAllRemainingPages();
+  const handleExportXLSX = useCallback(() => {
+    if (filteredItems.length === 0) {
+      alert("선택한 조건에 해당하는 재고 데이터가 없습니다.");
+      return;
     }
 
-    const dataToExport = targetList.map((item, idx) => ({
+    const dataToExport = filteredItems.map((item, idx) => ({
       "번호": idx + 1,
       "SKU": item.sku,
       "상품명": item.fullName,
@@ -264,81 +220,18 @@ export default function InventoryPage() {
 
     const fileName = `Inventory_Report_${selectedMonth}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     XLSX.writeFile(workbook, fileName);
-  }, [filteredItems, hasNextPage, fetchAllRemainingPages, selectedMonth]);
+  }, [filteredItems, selectedMonth]);
 
   // Real-time PDF Generation and Print Handler
-  const handleGeneratePDF = useCallback(async () => {
-    // 1. Open print window synchronously on user click to avoid popup blocker / WebKit pattern errors
-    let printWindow = null;
-    try {
-      printWindow = window.open("about:blank", "_blank");
-      if (printWindow) {
-        printWindow.document.write(`
-          <!DOCTYPE html>
-          <html lang="ko">
-          <head>
-            <meta charset="UTF-8">
-            <title>월별 인벤토리 보고서 생성 중</title>
-            <style>
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 80vh;
-                margin: 0;
-                background: #f8f9fa;
-                color: #212529;
-              }
-              .box {
-                text-align: center;
-                padding: 40px;
-                background: #fff;
-                border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-              }
-              .spinner {
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #008060;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin: 0 auto 20px auto;
-              }
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="box">
-              <div class="spinner"></div>
-              <h2 style="margin:0 0 10px 0;">쇼피파이 전체 재고 데이터를 불러오는 중입니다</h2>
-              <p style="color:#666; margin:0;">잠시만 기다려주세요...</p>
-            </div>
-          </body>
-          </html>
-        `);
-      }
-    } catch (e) {
-      console.warn("Pop-up window error:", e);
-    }
-
-    if (!printWindow) {
-      alert("팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.");
+  const handleGeneratePDF = useCallback(() => {
+    if (filteredItems.length === 0) {
+      alert("선택한 조건에 해당하는 재고 데이터가 없습니다.");
       return;
     }
 
-    let targetList = filteredItems;
-    if (hasNextPage) {
-      targetList = await fetchAllRemainingPages();
-    }
-
-    if (!targetList || targetList.length === 0) {
-      if (printWindow && !printWindow.closed) printWindow.close();
-      alert("선택한 조건에 해당하는 재고 데이터가 없습니다.");
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");
       return;
     }
 
@@ -351,10 +244,10 @@ export default function InventoryPage() {
       second: "2-digit",
     });
 
-    const totalStock = targetList.reduce((acc, i) => acc + i.inventoryQuantity, 0);
-    const totalValuation = targetList.reduce((acc, i) => acc + i.valuation, 0);
+    const totalStock = filteredItems.reduce((acc, i) => acc + i.inventoryQuantity, 0);
+    const totalValuation = filteredItems.reduce((acc, i) => acc + i.valuation, 0);
 
-    const tableRows = targetList
+    const tableRows = filteredItems
       .map(
         (item, index) => `
       <tr>
@@ -528,7 +421,7 @@ export default function InventoryPage() {
         <div class="kpi-container">
           <div class="kpi-card">
             <div class="kpi-title">총 상품(옵션) 품목 수</div>
-            <div class="kpi-value">${targetList.length.toLocaleString()} 개</div>
+            <div class="kpi-value">${filteredItems.length.toLocaleString()} 개</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-title">총 재고 수량</div>
@@ -589,36 +482,17 @@ export default function InventoryPage() {
     printWindow.document.open();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-  }, [filteredItems, hasNextPage, fetchAllRemainingPages, selectedMonth, shopName, currencyCode]);
+  }, [filteredItems, selectedMonth, shopName, currencyCode]);
 
   return (
     <Page
       title="월별 인벤토리 (재고 평가 보고서)"
-      subtitle="쇼피파이 실시간 재고 및 가격, 적용 세율 데이터를 수집하여 PDF 보고서 및 엑셀을 출력합니다."
+      subtitle="쇼피파이 전체 상품 재고 및 가격, 적용 세율 데이터를 수집하여 PDF 보고서 및 엑셀을 출력합니다."
     >
       <BlockStack gap="500">
-        {isLoadingMore && (
-          <Banner title="상품 데이터 불러오는 중" tone="info">
-            <BlockStack gap="200">
-              <p>{loadingProgressText}</p>
-              <ProgressBar progress={75} size="small" />
-            </BlockStack>
-          </Banner>
-        )}
-
-        {hasNextPage && !isLoadingMore && (
-          <Banner
-            title={`현재 ${items.length.toLocaleString()}개 품목이 수집되었습니다.`}
-            tone="warning"
-            action={{
-              content: "나머지 상품 전체 미리 불러오기",
-              onAction: fetchAllRemainingPages,
-              icon: RefreshIcon,
-            }}
-          >
-            <p>
-              'PDF 보고서 출력하기'를 누르시면 자동으로 나머지 모든 상품 데이터를 동기화하여 출력합니다.
-            </p>
+        {errorMsg && (
+          <Banner title="오류 발생" tone="critical">
+            <p>{errorMsg}</p>
           </Banner>
         )}
 
@@ -640,7 +514,6 @@ export default function InventoryPage() {
                   type="month"
                   value={selectedMonth}
                   onChange={setSelectedMonth}
-                  disabled={isLoadingMore}
                 />
               </div>
 
@@ -654,20 +527,19 @@ export default function InventoryPage() {
                   ]}
                   value={stockFilter}
                   onChange={setStockFilter}
-                  disabled={isLoadingMore}
                 />
               </div>
             </InlineStack>
 
             <Divider />
 
-            {/* KPI Summary Cards */}
+            {/* Summary KPI Cards */}
             <InlineStack gap="400" wrap={false}>
               <Box flex="1">
                 <Card padding="400">
                   <BlockStack gap="200">
                     <Text variant="subheadingSm" tone="subdued">
-                      수집된 품목 수
+                      전체 수집된 품목 수
                     </Text>
                     <Text variant="headingXl" as="h3">
                       {stats.totalVariants.toLocaleString()} 개
@@ -709,14 +581,12 @@ export default function InventoryPage() {
                   icon={PrintIcon}
                   variant="primary"
                   size="large"
-                  loading={isLoadingMore}
                   onClick={handleGeneratePDF}
                 >
                   PDF 보고서 출력하기
                 </Button>
                 <Button
                   size="large"
-                  loading={isLoadingMore}
                   onClick={handleExportXLSX}
                 >
                   엑셀 다운로드
