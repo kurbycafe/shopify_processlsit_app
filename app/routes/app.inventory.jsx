@@ -176,8 +176,10 @@ async function fetchAllInventoryData(onProgress) {
   let keepGoing = true;
   let accumulatedItems = [];
 
+  const currentPath = typeof window !== "undefined" ? window.location.pathname : "/app/inventory";
+
   while (keepGoing) {
-    const url = `/app/inventory?format=json${currentCursor ? `&after=${encodeURIComponent(currentCursor)}` : ""}`;
+    const url = `${currentPath}?format=json${currentCursor ? `&after=${encodeURIComponent(currentCursor)}` : ""}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`HTTP 오류 ${res.status}`);
@@ -231,13 +233,86 @@ export default function InventoryPage() {
 
   // Real-time PDF Generation Handler
   const handleGeneratePDF = useCallback(async () => {
+    // Open print window synchronously on click event to avoid popup blocking & WebKit pattern errors
+    let printWindow = null;
+    try {
+      printWindow = window.open("about:blank", "_blank");
+      if (printWindow) {
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html lang="ko">
+          <head>
+            <meta charset="UTF-8">
+            <title>월별 인벤토리 보고서 생성 중</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 80vh;
+                margin: 0;
+                background: #f8f9fa;
+                color: #212529;
+              }
+              .box {
+                text-align: center;
+                padding: 40px;
+                background: #fff;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+              }
+              .spinner {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #008060;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px auto;
+              }
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="box">
+              <div class="spinner"></div>
+              <h2 style="margin:0 0 10px 0;">쇼피파이 전체 재고 데이터를 불러오는 중입니다</h2>
+              <p id="progress-text" style="color:#666; margin:0;">백엔드 수집 중...</p>
+            </div>
+          </body>
+          </html>
+        `);
+      }
+    } catch (e) {
+      console.warn("Pop-up window error:", e);
+    }
+
+    if (!printWindow) {
+      alert("팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.");
+      return;
+    }
+
     setIsLoading(true);
     setErrorMsg("");
     setLoadingProgressText("쇼피파이 백엔드 데이터 수집 준비 중...");
 
     try {
       const rawItems = await fetchAllInventoryData((count) => {
-        setLoadingProgressText(`백엔드에서 전체 재고 데이터를 불러오는 중... (${count.toLocaleString()}개 품목 수집 완료)`);
+        const progressMsg = `백엔드에서 전체 재고 데이터를 불러오는 중... (${count.toLocaleString()}개 품목 수집 완료)`;
+        setLoadingProgressText(progressMsg);
+
+        if (printWindow && !printWindow.closed) {
+          try {
+            const el = printWindow.document.getElementById("progress-text");
+            if (el) {
+              el.innerText = `${count.toLocaleString()}개 품목 수집 완료`;
+            }
+          } catch (ignore) {}
+        }
       });
 
       setLoadingProgressText("PDF 보고서 생성을 준비하는 중...");
@@ -245,6 +320,9 @@ export default function InventoryPage() {
       const targetList = filterItemsByStock(rawItems, stockFilter);
 
       if (targetList.length === 0) {
+        if (printWindow && !printWindow.closed) {
+          printWindow.close();
+        }
         alert("선택한 조건에 해당하는 재고 데이터가 없습니다.");
         setIsLoading(false);
         setLoadingProgressText("");
@@ -259,14 +337,6 @@ export default function InventoryPage() {
         minute: "2-digit",
         second: "2-digit",
       });
-
-      const printWindow = window.open("", "_blank");
-      if (!printWindow) {
-        alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");
-        setIsLoading(false);
-        setLoadingProgressText("");
-        return;
-      }
 
       const totalStock = targetList.reduce((acc, i) => acc + i.inventoryQuantity, 0);
       const totalValuation = targetList.reduce((acc, i) => acc + i.valuation, 0);
@@ -507,6 +577,9 @@ export default function InventoryPage() {
       printWindow.document.write(htmlContent);
       printWindow.document.close();
     } catch (err) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
       console.error("PDF 생성 중 오류:", err);
       setErrorMsg("데이터를 불러오는 중 오류가 발생했습니다: " + err.message);
     } finally {
