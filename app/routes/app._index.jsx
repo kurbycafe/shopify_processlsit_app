@@ -27,7 +27,7 @@ import prisma from "../db.server";
 dayjs.extend(relativeTime);
 
 // ========================================================
-// 📦 Odoo ERP API - 최근 입고 일정 조회 (디펜시브 설계)
+// Odoo ERP API - 최근 입고 일정 조회 (디펜시브 설계)
 // ========================================================
 async function getUpcomingContainers() {
   const ODOO_URL = "https://popeye.odoo.com/jsonrpc";
@@ -146,7 +146,7 @@ function getCalendarMonths() {
 }
 
 // ========================================================
-// 📦 Odoo ERP API - 컨테이너 세부 품목 리스트 조회 (모달 바인딩용)
+// Odoo ERP API - 컨테이너 세부 품목 리스트 조회 (모달 바인딩용)
 // ========================================================
 async function getContainerItems(containerRef) {
   const ODOO_URL = "https://popeye.odoo.com/jsonrpc";
@@ -290,7 +290,7 @@ export const loader = async ({ request }) => {
     }
   });
 
-  // 📈 최근 7일간의 검수 통계 데이터 조회 (생산성 차트용)
+  // 최근 7일간의 검수 통계 데이터 조회 (생산성 차트용)
   const sevenDaysAgo = dayjs().subtract(7, 'day').startOf('day').toDate();
   const pastRecordsForChart = await prisma.inspectionRecord.findMany({
     where: {
@@ -362,23 +362,9 @@ export default function Index() {
   const navigate = useNavigate();
   const calendarMonths = getCalendarMonths();
 
-  // ✨ 신규 기능 출시 1회성 팝업 (What's New Modal) 상태 관리
-  const [showFeatureModal, setShowFeatureModal] = useState(false);
 
-  useEffect(() => {
-    const currentVersion = "v1.3.0";
-    const lastSeen = localStorage.getItem("last_seen_feature_version");
-    if (lastSeen !== currentVersion) {
-      setShowFeatureModal(true);
-    }
-  }, []);
 
-  const handleCloseFeatureModal = () => {
-    localStorage.setItem("last_seen_feature_version", "v1.3.0");
-    setShowFeatureModal(false);
-  };
-
-  // ✨ 추가: 달력 입고 상세 팝업 모달 관리를 위한 훅 및 상태
+  // 달력 입고 상세 팝업 모달 관리를 위한 훅 및 상태
   const containerItemsFetcher = useFetcher();
   const [activeContainerModal, setActiveContainerModal] = useState(false);
   const [modalContainerRef, setModalContainerRef] = useState("");
@@ -460,7 +446,7 @@ export default function Index() {
           transform: scale(0.95);
         }
 
-        /* 📅 입고 예정일 미니 달력 스타일 */
+        /* 입고 예정일 미니 달력 스타일 */
         .container-dashboard-layout {
           display: flex;
           flex-direction: column;
@@ -611,7 +597,7 @@ export default function Index() {
           gap: 16px;
         }
 
-        /* 📈 SVG 생산성 차트 스타일 */
+        /* SVG 생산성 차트 스타일 */
         .productivity-chart-container {
           background: #ffffff;
           padding: 8px 4px;
@@ -635,7 +621,7 @@ export default function Index() {
           transform-origin: bottom;
         }
         
-        /* 🔄 로딩 스피너 애니메이션 */
+        /* 로딩 스피너 애니메이션 */
         .spinner-loader {
           width: 36px;
           height: 36px;
@@ -711,20 +697,7 @@ export default function Index() {
                   </div>
                 </div>
 
-                <div>
-                  <Text variant="bodyMd" fontWeight="bold" color="subdued">2026-07-22 (v1.2.4)</Text>
-                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6", color: "#64748b" }}>
-                    <div><strong>[신규 추가]</strong> 영수증(Rechnung) 품목별 할인 전 정가(취소선 표기) 및 할인 후 가격/세율 명시</div>
-                    <div><strong>[기능 변경]</strong> Lieferschein 목록 기본 필터 조건을 '전체'에서 '인쇄 안됨(UNPRINTED)'으로 변경</div>
-                  </div>
-                </div>
 
-                <div>
-                  <Text variant="bodyMd" fontWeight="bold" color="subdued">2026-07-16 (v1.2.1)</Text>
-                  <div style={{ paddingLeft: "12px", marginTop: "4px", fontSize: "13px", lineHeight: "1.6", color: "#64748b" }}>
-                    <div><strong>[신규 추가]</strong> Odoo 연동 컨테이너 입고 일정 달력 뷰 대시보드 추가</div>
-                  </div>
-                </div>
               </BlockStack>
             </BlockStack>
           </Card>
@@ -1406,33 +1379,7 @@ export default function Index() {
         </Modal.Section>
       </Modal>
 
-      {/* 신규 기능 출시 알림 1회성 팝업 (What's New Modal) */}
-      <Modal
-        open={showFeatureModal}
-        onClose={handleCloseFeatureModal}
-        title="새로운 기능 출시 안내 (v1.3.0)"
-        primaryAction={{
-          content: "확인했습니다",
-          onAction: handleCloseFeatureModal,
-        }}
-      >
-        <Modal.Section>
-          <BlockStack gap="300">
-            <Text variant="bodyMd">
-              새로운 시스템 기능이 추가되었습니다. 본 팝업은 업데이트 후 처음 접속 시 1회만 표시됩니다.
-            </Text>
-            <Divider />
-            <BlockStack gap="200">
-              <Text variant="headingSm" as="h3">8월 7일 주요 업데이트 사항</Text>
-              <ul style={{ paddingLeft: "20px", margin: 0, fontSize: "13.5px", lineHeight: "1.8", color: "#334155" }}>
-                <li><strong>이번주 검수 현황 요약:</strong> 메인 대시보드에서 이번주 총 주문 수량 대비 검수 완료 현황을 파악하고 주간 단위 이력 필터링을 지원합니다.</li>
-                <li><strong>쇼핑몰 프론트 홍보 팝업:</strong> dawayo.de 메인 접속 시 1회성 프로모션 팝업 노출 및 어드민 팝업 설정 관리 기능을 추가했습니다.</li>
-                <li><strong>B2B 도매 카탈로그 고도화:</strong> DAWAYO 로고 적용, custom.producttype 기준 냉동/냉장/실온 분류 뱃지, dawayo.de 상품 상세 페이지 연결(밑줄 제거), 대외비 보안 문구 삽입을 구현했습니다.</li>
-              </ul>
-            </BlockStack>
-          </BlockStack>
-        </Modal.Section>
-      </Modal>
+
     </Page>
   );
 }
