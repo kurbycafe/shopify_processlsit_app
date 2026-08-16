@@ -26,7 +26,13 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
     shop {
       name
       currencyCode
+      taxesIncluded
       billingAddress {
+        address1
+        city
+        province
+        zip
+        country
         countryCodeV2
       }
     }
@@ -59,6 +65,11 @@ const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
   mutation InventoryDraftOrderCalculate($input: DraftOrderInput!) {
     draftOrderCalculate(input: $input) {
       calculatedDraftOrder {
+        taxLines {
+          rate
+          ratePercentage
+          title
+        }
         lineItems {
           variant {
             id
@@ -79,18 +90,41 @@ const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
 `;
 
 // Helper: Calculate real-time tax rates for taxable variants via Shopify Draft Order Calculate API
-async function fetchCalculatedTaxRates(admin, taxableVariantIds, countryCode = "DE") {
+async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {}, taxesIncluded = false) {
   const taxRateMap = new Map();
-  if (!taxableVariantIds || taxableVariantIds.length === 0) return taxRateMap;
+  let sampleDebug = {
+    addressUsed: null,
+    taxesIncluded: Boolean(taxesIncluded),
+    userErrors: [],
+    sampleItems: [],
+    rawTotalTax: null,
+  };
 
-  const chunkSize = 150;
+  if (!taxableVariantIds || taxableVariantIds.length === 0) {
+    return { taxRateMap, sampleDebug };
+  }
+
+  const countryCode = shopAddress.countryCodeV2 || "DE";
+  const address = {
+    address1: shopAddress.address1 || "Musterstraße 1",
+    city: shopAddress.city || "Berlin",
+    zip: shopAddress.zip || "10115",
+    country: shopAddress.country || "Germany",
+    countryCode: countryCode,
+  };
+
+  sampleDebug.addressUsed = address;
+
+  const chunkSize = 100;
   for (let i = 0; i < taxableVariantIds.length; i += chunkSize) {
     const chunk = taxableVariantIds.slice(i, i + chunkSize);
     try {
       const response = await admin.graphql(DRAFT_ORDER_CALCULATE_MUTATION, {
         variables: {
           input: {
-            shippingAddress: { countryCode },
+            shippingAddress: address,
+            billingAddress: address,
+            taxesIncluded: Boolean(taxesIncluded),
             lineItems: chunk.map((id) => ({
               variantId: id,
               quantity: 1,
@@ -100,7 +134,23 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, countryCode = "
       });
 
       const payload = await response.json();
-      const calculatedItems = payload?.data?.draftOrderCalculate?.calculatedDraftOrder?.lineItems || [];
+      const userErrors = payload?.data?.draftOrderCalculate?.userErrors || [];
+      if (userErrors.length > 0) {
+        console.error("Draft order calculate userErrors:", JSON.stringify(userErrors));
+        sampleDebug.userErrors.push(...userErrors);
+      }
+
+      const calculatedDraftOrder = payload?.data?.draftOrderCalculate?.calculatedDraftOrder;
+      const calculatedItems = calculatedDraftOrder?.lineItems || [];
+
+      if (i === 0) {
+        sampleDebug.rawTotalTax = calculatedDraftOrder?.taxLines || [];
+        sampleDebug.sampleItems = calculatedItems.slice(0, 10).map((item) => ({
+          variantId: item.variant?.id,
+          title: item.title,
+          taxLines: item.taxLines || [],
+        }));
+      }
 
       for (const item of calculatedItems) {
         const variantId = item.variant?.id;
@@ -110,10 +160,10 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, countryCode = "
         if (taxLines.length > 0) {
           const firstTax = taxLines[0];
           let rate = 0;
-          if (typeof firstTax.ratePercentage === "number") {
-            rate = Math.round(firstTax.ratePercentage);
-          } else if (typeof firstTax.rate === "number") {
-            rate = Math.round(firstTax.rate * 100);
+          if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
+            rate = Math.round(Number(firstTax.ratePercentage));
+          } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
+            rate = Math.round(Number(firstTax.rate) * 100);
           }
           taxRateMap.set(variantId, rate);
         } else {
@@ -121,11 +171,12 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, countryCode = "
         }
       }
     } catch (err) {
-      console.warn("Failed to calculate draft order tax for chunk:", err);
+      console.error("Failed to calculate draft order tax for chunk:", err);
+      sampleDebug.userErrors.push({ message: err.message });
     }
   }
 
-  return taxRateMap;
+  return { taxRateMap, sampleDebug };
 }
 
 // Helper: Process GraphQL products array into inventory items
@@ -180,7 +231,8 @@ export const loader = async ({ request }) => {
     let after = null;
     let shopName = "Shopify Store";
     let currencyCode = "EUR";
-    let shopCountryCode = "DE";
+    let shopBillingAddress = null;
+    let taxesIncluded = false;
 
     // Server-side loop to fetch all product pages from Shopify Admin GraphQL
     while (hasNextPage) {
@@ -192,8 +244,9 @@ export const loader = async ({ request }) => {
       const shopData = payload?.data?.shop || {};
       if (shopData.name) shopName = shopData.name;
       if (shopData.currencyCode) currencyCode = shopData.currencyCode;
-      if (shopData.billingAddress?.countryCodeV2) {
-        shopCountryCode = shopData.billingAddress.countryCodeV2;
+      if (shopData.taxesIncluded != null) taxesIncluded = shopData.taxesIncluded;
+      if (shopData.billingAddress) {
+        shopBillingAddress = shopData.billingAddress;
       }
 
       const productsData = payload?.data?.products || {};
@@ -215,7 +268,12 @@ export const loader = async ({ request }) => {
     }
 
     // Calculate real-time tax rates via Shopify Draft Order Calculate API
-    const calculatedTaxRates = await fetchCalculatedTaxRates(admin, taxableVariantIds, shopCountryCode);
+    const { taxRateMap: calculatedTaxRates, sampleDebug } = await fetchCalculatedTaxRates(
+      admin,
+      taxableVariantIds,
+      shopBillingAddress,
+      taxesIncluded
+    );
 
     const items = processProducts(allProducts, calculatedTaxRates);
 
@@ -223,6 +281,7 @@ export const loader = async ({ request }) => {
       shopName,
       currencyCode,
       items,
+      sampleDebug,
       fetchedAt: new Date().toISOString(),
       error: null,
     };
@@ -232,6 +291,7 @@ export const loader = async ({ request }) => {
       shopName: "Shopify Store",
       currencyCode: "EUR",
       items: [],
+      sampleDebug: null,
       fetchedAt: new Date().toISOString(),
       error: err.message || "상품 재고 데이터를 불러오는 중 오류가 발생했습니다.",
     };
@@ -255,6 +315,7 @@ export default function InventoryPage() {
   const [currencyCode] = useState(loaderData.currencyCode || "EUR");
   const [items] = useState(loaderData.items || []);
   const [errorMsg] = useState(loaderData.error || "");
+  const sampleDebug = loaderData.sampleDebug;
 
   const [stockFilter, setStockFilter] = useState("ALL");
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -581,6 +642,87 @@ export default function InventoryPage() {
           <Banner title="오류 발생" tone="critical">
             <p>{errorMsg}</p>
           </Banner>
+        )}
+
+        {sampleDebug && (
+          <Card padding="500">
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text variant="headingMd" as="h3">
+                  Draft Order API 실시간 세금 계산 결과 (샘플 10개 검증)
+                </Text>
+                <Text variant="bodySm" tone="subdued">
+                  배송 기준국가: {sampleDebug.addressUsed?.country} ({sampleDebug.addressUsed?.city} {sampleDebug.addressUsed?.zip}) | 부가세포함: {sampleDebug.taxesIncluded ? "예" : "아니오"}
+                </Text>
+              </InlineStack>
+
+              {sampleDebug.userErrors?.length > 0 && (
+                <Banner tone="critical" title="Draft Order API 응답 오류">
+                  {sampleDebug.userErrors.map((e, idx) => (
+                    <p key={idx}>{e.field ? `[${e.field}] ` : ""}{e.message}</p>
+                  ))}
+                </Banner>
+              )}
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                  <thead>
+                    <tr style={{ background: "#f6f6f7", borderBottom: "1px solid #dfe3e8", textAlign: "left" }}>
+                      <th style={{ padding: "8px 12px", width: "40px" }}>No</th>
+                      <th style={{ padding: "8px 12px" }}>상품명</th>
+                      <th style={{ padding: "8px 12px" }}>Shopify Draft Order 계산 세금 항목</th>
+                      <th style={{ padding: "8px 12px", textAlign: "center", width: "100px" }}>반환 세율</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sampleDebug.sampleItems?.length > 0 ? (
+                      sampleDebug.sampleItems.map((item, idx) => (
+                        <tr key={idx} style={{ borderBottom: "1px solid #f1f2f3" }}>
+                          <td style={{ padding: "8px 12px", color: "#6d7175" }}>{idx + 1}</td>
+                          <td style={{ padding: "8px 12px", fontWeight: "600" }}>{item.title}</td>
+                          <td style={{ padding: "8px 12px" }}>
+                            {item.taxLines?.length > 0 ? (
+                              item.taxLines.map((tl, tIdx) => (
+                                <span key={tIdx} style={{ marginRight: "10px" }}>
+                                  <strong>{tl.title || "세금"}</strong>: {tl.ratePercentage != null ? `${tl.ratePercentage}%` : `${Math.round((tl.rate || 0) * 100)}%`}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ color: "#8c9196" }}>과세 항목 없음 (0%)</span>
+                            )}
+                          </td>
+                          <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontWeight: "600",
+                                background: item.taxLines?.length > 0 ? "#ebfbee" : "#f1f3f5",
+                                color: item.taxLines?.length > 0 ? "#2b8a3e" : "#495057",
+                              }}
+                            >
+                              {item.taxLines?.[0]?.ratePercentage != null
+                                ? `${item.taxLines[0].ratePercentage}%`
+                                : item.taxLines?.[0]?.rate != null
+                                ? `${Math.round(item.taxLines[0].rate * 100)}%`
+                                : "0%"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} style={{ padding: "12px", textAlign: "center", color: "#6d7175" }}>
+                          과세 대상 샘플 상품이 없습니다.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </BlockStack>
+          </Card>
         )}
 
         <Card padding="600">
