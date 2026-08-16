@@ -19,13 +19,16 @@ import {
 import { PrintIcon } from "@shopify/polaris-icons";
 
 // ========================================================
-// 1. Shopify Admin GraphQL Query
+// 1. Shopify Admin GraphQL Queries & Mutations
 // ========================================================
 const INVENTORY_PRODUCTS_QUERY = `#graphql
   query InventoryProducts($first: Int!, $after: String) {
     shop {
       name
       currencyCode
+      billingAddress {
+        countryCodeV2
+      }
     }
     products(first: $first, after: $after) {
       pageInfo {
@@ -35,9 +38,7 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
       nodes {
         id
         title
-        productType
         status
-        producttypeMetafield: metafield(namespace: "custom", key: "producttype") { value }
         variants(first: 250) {
           nodes {
             id
@@ -54,12 +55,84 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
   }
 `;
 
+const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
+  mutation InventoryDraftOrderCalculate($input: DraftOrderInput!) {
+    draftOrderCalculate(input: $input) {
+      calculatedDraftOrder {
+        lineItems {
+          variant {
+            id
+          }
+          taxLines {
+            rate
+            ratePercentage
+            title
+          }
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+// Helper: Calculate real-time tax rates for taxable variants via Shopify Draft Order Calculate API
+async function fetchCalculatedTaxRates(admin, taxableVariantIds, countryCode = "DE") {
+  const taxRateMap = new Map();
+  if (!taxableVariantIds || taxableVariantIds.length === 0) return taxRateMap;
+
+  const chunkSize = 150;
+  for (let i = 0; i < taxableVariantIds.length; i += chunkSize) {
+    const chunk = taxableVariantIds.slice(i, i + chunkSize);
+    try {
+      const response = await admin.graphql(DRAFT_ORDER_CALCULATE_MUTATION, {
+        variables: {
+          input: {
+            shippingAddress: { countryCode },
+            lineItems: chunk.map((id) => ({
+              variantId: id,
+              quantity: 1,
+            })),
+          },
+        },
+      });
+
+      const payload = await response.json();
+      const calculatedItems = payload?.data?.draftOrderCalculate?.calculatedDraftOrder?.lineItems || [];
+
+      for (const item of calculatedItems) {
+        const variantId = item.variant?.id;
+        if (!variantId) continue;
+
+        const taxLines = item.taxLines || [];
+        if (taxLines.length > 0) {
+          const firstTax = taxLines[0];
+          let rate = 0;
+          if (typeof firstTax.ratePercentage === "number") {
+            rate = Math.round(firstTax.ratePercentage);
+          } else if (typeof firstTax.rate === "number") {
+            rate = Math.round(firstTax.rate * 100);
+          }
+          taxRateMap.set(variantId, rate);
+        } else {
+          taxRateMap.set(variantId, 0);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to calculate draft order tax for chunk:", err);
+    }
+  }
+
+  return taxRateMap;
+}
+
 // Helper: Process GraphQL products array into inventory items
-function processProducts(products) {
+function processProducts(products, calculatedTaxRates = new Map()) {
   const items = [];
   for (const product of products || []) {
     const productTitle = product.title || "알 수 없는 상품";
-    const productTypeVal = (product.producttypeMetafield?.value || product.productType || "").trim().toLowerCase();
 
     for (const variant of product.variants?.nodes || []) {
       const variantTitle = variant.title && variant.title !== "Default Title" ? variant.title : "";
@@ -70,13 +143,10 @@ function processProducts(products) {
       const taxable = Boolean(variant.taxable);
       const inventoryQuantity = typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
 
+      // Determine tax rate strictly from Draft Order calculation result (0% if non-taxable)
       let taxRate = 0;
       if (taxable) {
-        const isReduced =
-          productTypeVal === "t" ||
-          productTypeVal === "food" ||
-          productTypeVal === "grocery";
-        taxRate = isReduced ? 7 : 19;
+        taxRate = calculatedTaxRates.has(variant.id) ? calculatedTaxRates.get(variant.id) : 0;
       }
 
       items.push({
@@ -110,6 +180,7 @@ export const loader = async ({ request }) => {
     let after = null;
     let shopName = "Shopify Store";
     let currencyCode = "EUR";
+    let shopCountryCode = "DE";
 
     // Server-side loop to fetch all product pages from Shopify Admin GraphQL
     while (hasNextPage) {
@@ -121,6 +192,9 @@ export const loader = async ({ request }) => {
       const shopData = payload?.data?.shop || {};
       if (shopData.name) shopName = shopData.name;
       if (shopData.currencyCode) currencyCode = shopData.currencyCode;
+      if (shopData.billingAddress?.countryCodeV2) {
+        shopCountryCode = shopData.billingAddress.countryCodeV2;
+      }
 
       const productsData = payload?.data?.products || {};
       const rawProducts = productsData.nodes || [];
@@ -130,7 +204,20 @@ export const loader = async ({ request }) => {
       after = productsData.pageInfo?.endCursor || null;
     }
 
-    const items = processProducts(allProducts);
+    // Collect taxable variant IDs for actual tax rate calculation
+    const taxableVariantIds = [];
+    for (const product of allProducts) {
+      for (const variant of product.variants?.nodes || []) {
+        if (variant.taxable && variant.id) {
+          taxableVariantIds.push(variant.id);
+        }
+      }
+    }
+
+    // Calculate real-time tax rates via Shopify Draft Order Calculate API
+    const calculatedTaxRates = await fetchCalculatedTaxRates(admin, taxableVariantIds, shopCountryCode);
+
+    const items = processProducts(allProducts, calculatedTaxRates);
 
     return {
       shopName,
