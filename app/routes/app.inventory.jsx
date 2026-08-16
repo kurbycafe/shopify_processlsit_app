@@ -74,11 +74,8 @@ const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
           variant {
             id
           }
-          taxLines {
-            rate
-            ratePercentage
-            title
-          }
+          title
+          taxable
         }
       }
       userErrors {
@@ -115,65 +112,67 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {
 
   sampleDebug.addressUsed = address;
 
-  const chunkSize = 100;
-  for (let i = 0; i < taxableVariantIds.length; i += chunkSize) {
-    const chunk = taxableVariantIds.slice(i, i + chunkSize);
-    try {
-      const response = await admin.graphql(DRAFT_ORDER_CALCULATE_MUTATION, {
-        variables: {
-          input: {
-            shippingAddress: address,
-            billingAddress: address,
-            taxesIncluded: Boolean(taxesIncluded),
-            lineItems: chunk.map((id) => ({
-              variantId: id,
-              quantity: 1,
-            })),
-          },
-        },
-      });
+  // Query individual variant tax rate via draftOrderCalculate in concurrent batches
+  const concurrency = 15;
+  const uniqueVariantIds = Array.from(new Set(taxableVariantIds));
 
-      const payload = await response.json();
-      const userErrors = payload?.data?.draftOrderCalculate?.userErrors || [];
-      if (userErrors.length > 0) {
-        console.error("Draft order calculate userErrors:", JSON.stringify(userErrors));
-        sampleDebug.userErrors.push(...userErrors);
-      }
+  for (let i = 0; i < uniqueVariantIds.length; i += concurrency) {
+    const batch = uniqueVariantIds.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map(async (variantId) => {
+        try {
+          const response = await admin.graphql(DRAFT_ORDER_CALCULATE_MUTATION, {
+            variables: {
+              input: {
+                shippingAddress: address,
+                billingAddress: address,
+                taxesIncluded: Boolean(taxesIncluded),
+                lineItems: [{ variantId, quantity: 1 }],
+              },
+            },
+          });
 
-      const calculatedDraftOrder = payload?.data?.draftOrderCalculate?.calculatedDraftOrder;
-      const calculatedItems = calculatedDraftOrder?.lineItems || [];
-
-      if (i === 0) {
-        sampleDebug.rawTotalTax = calculatedDraftOrder?.taxLines || [];
-        sampleDebug.sampleItems = calculatedItems.slice(0, 10).map((item) => ({
-          variantId: item.variant?.id,
-          title: item.title,
-          taxLines: item.taxLines || [],
-        }));
-      }
-
-      for (const item of calculatedItems) {
-        const variantId = item.variant?.id;
-        if (!variantId) continue;
-
-        const taxLines = item.taxLines || [];
-        if (taxLines.length > 0) {
-          const firstTax = taxLines[0];
-          let rate = 0;
-          if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
-            rate = Math.round(Number(firstTax.ratePercentage));
-          } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
-            rate = Math.round(Number(firstTax.rate) * 100);
+          const payload = await response.json();
+          const userErrors = payload?.data?.draftOrderCalculate?.userErrors || [];
+          if (userErrors.length > 0) {
+            console.error("Draft order calculate userErrors:", JSON.stringify(userErrors));
+            if (sampleDebug.userErrors.length < 5) {
+              sampleDebug.userErrors.push(...userErrors);
+            }
           }
+
+          const calculatedDraftOrder = payload?.data?.draftOrderCalculate?.calculatedDraftOrder;
+          const taxLines = calculatedDraftOrder?.taxLines || [];
+          const itemTitle = calculatedDraftOrder?.lineItems?.[0]?.title || variantId;
+
+          let rate = 0;
+          if (taxLines.length > 0) {
+            const firstTax = taxLines[0];
+            if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
+              rate = Math.round(Number(firstTax.ratePercentage));
+            } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
+              rate = Math.round(Number(firstTax.rate) * 100);
+            }
+          }
+
           taxRateMap.set(variantId, rate);
-        } else {
+
+          if (sampleDebug.sampleItems.length < 10) {
+            sampleDebug.sampleItems.push({
+              variantId,
+              title: itemTitle,
+              taxLines,
+            });
+          }
+        } catch (err) {
+          console.error(`Failed to calculate draft order tax for variant ${variantId}:`, err);
+          if (sampleDebug.userErrors.length < 5) {
+            sampleDebug.userErrors.push({ message: err.message });
+          }
           taxRateMap.set(variantId, 0);
         }
-      }
-    } catch (err) {
-      console.error("Failed to calculate draft order tax for chunk:", err);
-      sampleDebug.userErrors.push({ message: err.message });
-    }
+      })
+    );
   }
 
   return { taxRateMap, sampleDebug };
