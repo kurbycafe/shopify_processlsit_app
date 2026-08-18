@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { authenticate, unauthenticated } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import * as XLSX from "xlsx";
 import {
   Page,
@@ -17,6 +17,9 @@ import {
   Divider,
 } from "@shopify/polaris";
 import { PrintIcon } from "@shopify/polaris-icons";
+
+// Storefront Access Token for Cart API tax simulation
+const STOREFRONT_ACCESS_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || "4b0685385306441f7c6ec1261579662b";
 
 // ========================================================
 // 1. GraphQL Queries & Mutations
@@ -101,7 +104,7 @@ const STOREFRONT_CART_CREATE_MUTATION = `#graphql
 `;
 
 // Helper: Calculate real-time tax rates via Shopify Storefront Cart API
-async function fetchStorefrontCartTaxRates(storefront, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
+async function fetchStorefrontCartTaxRates(shopDomain, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
   const taxRateMap = new Map();
   let sampleDebug = {
     addressUsed: null,
@@ -132,28 +135,36 @@ async function fetchStorefrontCartTaxRates(storefront, taxableVariantIds, shopAd
     await Promise.all(
       batch.map(async (variantId) => {
         try {
-          const response = await storefront.graphql(STOREFRONT_CART_CREATE_MUTATION, {
-            variables: {
-              input: {
-                buyerIdentity: {
-                  countryCode: countryCode,
-                  deliveryAddressPreferences: [
+          const resp = await fetch(`https://${shopDomain}/api/2025-01/graphql.json`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Storefront-Access-Token": STOREFRONT_ACCESS_TOKEN,
+            },
+            body: JSON.stringify({
+              query: STOREFRONT_CART_CREATE_MUTATION,
+              variables: {
+                input: {
+                  buyerIdentity: {
+                    countryCode: countryCode,
+                    deliveryAddressPreferences: [
+                      {
+                        deliveryAddress: address,
+                      },
+                    ],
+                  },
+                  lines: [
                     {
-                      deliveryAddress: address,
+                      merchandiseId: variantId,
+                      quantity: 1,
                     },
                   ],
                 },
-                lines: [
-                  {
-                    merchandiseId: variantId,
-                    quantity: 1,
-                  },
-                ],
               },
-            },
+            }),
           });
 
-          const payload = await response.json();
+          const payload = await resp.json();
           const userErrors = payload?.data?.cartCreate?.userErrors || payload?.errors || [];
           if (userErrors.length > 0) {
             console.error("Storefront cartCreate userErrors:", JSON.stringify(userErrors));
@@ -219,7 +230,7 @@ function processProducts(products, calculatedTaxRates = new Map()) {
       const taxable = Boolean(variant.taxable);
       const inventoryQuantity = typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
 
-      // Determine tax rate strictly from Storefront Cart calculation result (0% if non-taxable)
+      // Determine tax rate strictly from calculation result (0% if non-taxable)
       let taxRate = 0;
       if (taxable) {
         taxRate = calculatedTaxRates.has(variant.id) ? calculatedTaxRates.get(variant.id) : 0;
@@ -296,9 +307,8 @@ export const loader = async ({ request }) => {
     }
 
     // Calculate real-time tax rates via Shopify Storefront Cart API
-    const { storefront } = await unauthenticated.storefront(myshopifyDomain || session.shop);
     const { taxRateMap: calculatedTaxRates, sampleDebug } = await fetchStorefrontCartTaxRates(
-      storefront,
+      myshopifyDomain || session.shop,
       taxableVariantIds,
       shopBillingAddress,
       productTitleMap
