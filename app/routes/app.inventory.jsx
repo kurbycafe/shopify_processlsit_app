@@ -18,9 +18,6 @@ import {
 } from "@shopify/polaris";
 import { PrintIcon } from "@shopify/polaris-icons";
 
-// Storefront Access Token for Cart API tax simulation
-const STOREFRONT_ACCESS_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || "4b0685385306441f7c6ec1261579662b";
-
 // ========================================================
 // 1. GraphQL Queries & Mutations
 // ========================================================
@@ -30,7 +27,6 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
       name
       currencyCode
       taxesIncluded
-      myshopifyDomain
       billingAddress {
         address1
         city
@@ -65,34 +61,21 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
   }
 `;
 
-const STOREFRONT_CART_CREATE_MUTATION = `#graphql
-  mutation StorefrontCartTaxSimulation($input: CartInput!) {
-    cartCreate(input: $input) {
-      cart {
-        id
-        cost {
-          totalAmount {
-            amount
-            currencyCode
-          }
-          subtotalAmount {
-            amount
-            currencyCode
-          }
-          totalTaxAmount {
-            amount
-            currencyCode
-          }
+const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
+  mutation InventoryDraftOrderCalculate($input: DraftOrderInput!) {
+    draftOrderCalculate(input: $input) {
+      calculatedDraftOrder {
+        taxLines {
+          rate
+          ratePercentage
+          title
         }
-        lines(first: 5) {
-          nodes {
-            merchandise {
-              ... on ProductVariant {
-                id
-                title
-              }
-            }
+        lineItems {
+          variant {
+            id
           }
+          title
+          taxable
         }
       }
       userErrors {
@@ -103,12 +86,12 @@ const STOREFRONT_CART_CREATE_MUTATION = `#graphql
   }
 `;
 
-// Helper: Calculate real-time tax rates via Shopify Storefront Cart API
-async function fetchStorefrontCartTaxRates(shopDomain, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
+// Helper: Calculate real-time tax rates for all taxable variants via Shopify Admin Draft Order Calculate API
+async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
   const taxRateMap = new Map();
   let sampleDebug = {
     addressUsed: null,
-    apiType: "Storefront Cart API",
+    apiType: "Shopify Tax Engine (Draft Order Calculate)",
     userErrors: [],
     sampleItems: [],
   };
@@ -123,9 +106,10 @@ async function fetchStorefrontCartTaxRates(shopDomain, taxableVariantIds, shopAd
     city: shopAddress.city || "Düsseldorf",
     zip: shopAddress.zip || "40231",
     country: shopAddress.country || "Germany",
+    countryCode: countryCode,
   };
 
-  sampleDebug.addressUsed = { ...address, countryCode };
+  sampleDebug.addressUsed = address;
 
   const concurrency = 15;
   const uniqueVariantIds = Array.from(new Set(taxableVariantIds));
@@ -135,74 +119,51 @@ async function fetchStorefrontCartTaxRates(shopDomain, taxableVariantIds, shopAd
     await Promise.all(
       batch.map(async (variantId) => {
         try {
-          const resp = await fetch(`https://${shopDomain}/api/2025-01/graphql.json`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Shopify-Storefront-Access-Token": STOREFRONT_ACCESS_TOKEN,
-            },
-            body: JSON.stringify({
-              query: STOREFRONT_CART_CREATE_MUTATION,
-              variables: {
-                input: {
-                  buyerIdentity: {
-                    countryCode: countryCode,
-                    deliveryAddressPreferences: [
-                      {
-                        deliveryAddress: address,
-                      },
-                    ],
-                  },
-                  lines: [
-                    {
-                      merchandiseId: variantId,
-                      quantity: 1,
-                    },
-                  ],
-                },
+          const response = await admin.graphql(DRAFT_ORDER_CALCULATE_MUTATION, {
+            variables: {
+              input: {
+                shippingAddress: address,
+                billingAddress: address,
+                lineItems: [{ variantId, quantity: 1 }],
               },
-            }),
+            },
           });
 
-          const payload = await resp.json();
-          const userErrors = payload?.data?.cartCreate?.userErrors || payload?.errors || [];
+          const payload = await response.json();
+          const userErrors = payload?.data?.draftOrderCalculate?.userErrors || payload?.errors || [];
           if (userErrors.length > 0) {
-            console.error("Storefront cartCreate userErrors:", JSON.stringify(userErrors));
+            console.error("Draft order calculate userErrors:", JSON.stringify(userErrors));
             if (sampleDebug.userErrors.length < 5) {
               sampleDebug.userErrors.push(...userErrors);
             }
           }
 
-          const cart = payload?.data?.cartCreate?.cart;
-          const cost = cart?.cost;
-          const taxAmt = parseFloat(cost?.totalTaxAmount?.amount || "0");
-          const totalAmt = parseFloat(cost?.totalAmount?.amount || "0");
-          const subtotalAmt = parseFloat(cost?.subtotalAmount?.amount || "0");
+          const calculatedDraftOrder = payload?.data?.draftOrderCalculate?.calculatedDraftOrder;
+          const taxLines = calculatedDraftOrder?.taxLines || [];
+          const productTitle = productTitleMap.get(variantId) || calculatedDraftOrder?.lineItems?.[0]?.title || variantId;
 
           let rate = 0;
-          if (taxAmt > 0) {
-            const netAmt = totalAmt > taxAmt ? totalAmt - taxAmt : subtotalAmt;
-            if (netAmt > 0) {
-              const rawRate = (taxAmt / netAmt) * 100;
-              rate = Math.round(rawRate);
+          if (taxLines.length > 0) {
+            const firstTax = taxLines[0];
+            if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
+              rate = Math.round(Number(firstTax.ratePercentage));
+            } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
+              rate = Math.round(Number(firstTax.rate) * 100);
             }
           }
 
           taxRateMap.set(variantId, rate);
 
           if (sampleDebug.sampleItems.length < 10) {
-            const productTitle = productTitleMap.get(variantId) || variantId;
             sampleDebug.sampleItems.push({
               variantId,
               title: productTitle,
-              taxAmt,
-              totalAmt,
-              subtotalAmt,
+              taxLines,
               rate,
             });
           }
         } catch (err) {
-          console.error(`Storefront cart simulation error for ${variantId}:`, err);
+          console.error(`Failed to calculate tax for variant ${variantId}:`, err);
           if (sampleDebug.userErrors.length < 5) {
             sampleDebug.userErrors.push({ message: err.message });
           }
@@ -260,7 +221,7 @@ function processProducts(products, calculatedTaxRates = new Map()) {
 // ========================================================
 export const loader = async ({ request }) => {
   try {
-    const { admin, session } = await authenticate.admin(request);
+    const { admin } = await authenticate.admin(request);
 
     let allProducts = [];
     let hasNextPage = true;
@@ -268,7 +229,6 @@ export const loader = async ({ request }) => {
     let shopName = "Shopify Store";
     let currencyCode = "EUR";
     let shopBillingAddress = null;
-    let myshopifyDomain = session.shop;
 
     // Server-side loop to fetch all product pages from Shopify Admin GraphQL
     while (hasNextPage) {
@@ -280,7 +240,6 @@ export const loader = async ({ request }) => {
       const shopData = payload?.data?.shop || {};
       if (shopData.name) shopName = shopData.name;
       if (shopData.currencyCode) currencyCode = shopData.currencyCode;
-      if (shopData.myshopifyDomain) myshopifyDomain = shopData.myshopifyDomain;
       if (shopData.billingAddress) {
         shopBillingAddress = shopData.billingAddress;
       }
@@ -306,9 +265,9 @@ export const loader = async ({ request }) => {
       }
     }
 
-    // Calculate real-time tax rates via Shopify Storefront Cart API
-    const { taxRateMap: calculatedTaxRates, sampleDebug } = await fetchStorefrontCartTaxRates(
-      myshopifyDomain || session.shop,
+    // Calculate real-time tax rates via Shopify Admin Draft Order Calculate API
+    const { taxRateMap: calculatedTaxRates, sampleDebug } = await fetchCalculatedTaxRates(
+      admin,
       taxableVariantIds,
       shopBillingAddress,
       productTitleMap
@@ -688,7 +647,7 @@ export default function InventoryPage() {
             <BlockStack gap="300">
               <InlineStack align="space-between">
                 <Text variant="headingMd" as="h3">
-                  Storefront Cart API 실시간 세금 계산 결과 (샘플 10개 검증)
+                  Shopify 실시간 세금 계산 결과 (샘플 10개 검증)
                 </Text>
                 <Text variant="bodySm" tone="subdued">
                   배송 기준국가: {sampleDebug.addressUsed?.country} ({sampleDebug.addressUsed?.city} {sampleDebug.addressUsed?.zip})
@@ -696,7 +655,7 @@ export default function InventoryPage() {
               </InlineStack>
 
               {sampleDebug.userErrors?.length > 0 && (
-                <Banner tone="critical" title="Storefront Cart API 응답 오류">
+                <Banner tone="critical" title="Shopify 세금 계산 API 오류">
                   {sampleDebug.userErrors.map((e, idx) => (
                     <p key={idx}>{e.field ? `[${e.field}] ` : ""}{e.message}</p>
                   ))}
@@ -709,8 +668,7 @@ export default function InventoryPage() {
                     <tr style={{ background: "#f6f6f7", borderBottom: "1px solid #dfe3e8", textAlign: "left" }}>
                       <th style={{ padding: "8px 12px", width: "40px" }}>No</th>
                       <th style={{ padding: "8px 12px" }}>상품명</th>
-                      <th style={{ padding: "8px 12px", textAlign: "right" }}>장바구니 총액</th>
-                      <th style={{ padding: "8px 12px", textAlign: "right" }}>계산된 부가세(Tax)</th>
+                      <th style={{ padding: "8px 12px" }}>Shopify 계산 세금 항목</th>
                       <th style={{ padding: "8px 12px", textAlign: "center", width: "100px" }}>산출 세율</th>
                     </tr>
                   </thead>
@@ -720,11 +678,16 @@ export default function InventoryPage() {
                         <tr key={idx} style={{ borderBottom: "1px solid #f1f2f3" }}>
                           <td style={{ padding: "8px 12px", color: "#6d7175" }}>{idx + 1}</td>
                           <td style={{ padding: "8px 12px", fontWeight: "600" }}>{item.title}</td>
-                          <td style={{ padding: "8px 12px", textAlign: "right" }}>
-                            {formatCurrency(item.totalAmt || 0, currencyCode)}
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: item.taxAmt > 0 ? "#1971c2" : "#6d7175" }}>
-                            {formatCurrency(item.taxAmt || 0, currencyCode)}
+                          <td style={{ padding: "8px 12px" }}>
+                            {item.taxLines?.length > 0 ? (
+                              item.taxLines.map((tl, tIdx) => (
+                                <span key={tIdx} style={{ marginRight: "10px" }}>
+                                  <strong>{tl.title || "세금"}</strong>: {tl.ratePercentage != null ? `${tl.ratePercentage}%` : `${Math.round((tl.rate || 0) * 100)}%`}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ color: "#8c9196" }}>과세 항목 없음 (0%)</span>
+                            )}
                           </td>
                           <td style={{ padding: "8px 12px", textAlign: "center" }}>
                             <span
@@ -744,7 +707,7 @@ export default function InventoryPage() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} style={{ padding: "12px", textAlign: "center", color: "#6d7175" }}>
+                        <td colSpan={4} style={{ padding: "12px", textAlign: "center", color: "#6d7175" }}>
                           과세 대상 샘플 상품이 없습니다.
                         </td>
                       </tr>
