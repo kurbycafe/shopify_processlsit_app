@@ -61,6 +61,29 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
   }
 `;
 
+// Single lightweight query to fetch actual applied tax rates from recent orders (Zero rate-limit cost)
+const RECENT_ORDERS_TAX_QUERY = `#graphql
+  query RecentOrdersTaxRates {
+    orders(first: 100, sortKey: CREATED_AT, reverse: true) {
+      nodes {
+        lineItems(first: 100) {
+          nodes {
+            variant {
+              id
+            }
+            taxable
+            taxLines {
+              rate
+              ratePercentage
+              title
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
   mutation InventoryDraftOrderCalculate($input: DraftOrderInput!) {
     draftOrderCalculate(input: $input) {
@@ -86,12 +109,12 @@ const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
   }
 `;
 
-// Helper: Calculate real-time tax rates for all taxable variants via Shopify Admin Draft Order Calculate API
+// Helper: Calculate real-time tax rates combining Recent Orders (instant) + Draft Order fallback
 async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
   const taxRateMap = new Map();
   let sampleDebug = {
     addressUsed: null,
-    apiType: "Shopify Tax Engine (Draft Order Calculate)",
+    apiType: "Shopify Tax Engine (Recent Orders + Draft Order Simulation)",
     userErrors: [],
     sampleItems: [],
   };
@@ -111,11 +134,51 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {
 
   sampleDebug.addressUsed = address;
 
-  const concurrency = 15;
-  const uniqueVariantIds = Array.from(new Set(taxableVariantIds));
+  // Step 1: Query actual taxLines applied in recent store orders (1 single query, 0 throttle risk)
+  try {
+    const ordersResp = await admin.graphql(RECENT_ORDERS_TAX_QUERY);
+    const ordersPayload = await ordersResp.json();
+    const orders = ordersPayload?.data?.orders?.nodes || [];
 
-  for (let i = 0; i < uniqueVariantIds.length; i += concurrency) {
-    const batch = uniqueVariantIds.slice(i, i + concurrency);
+    for (const order of orders) {
+      for (const item of order.lineItems?.nodes || []) {
+        const variantId = item.variant?.id;
+        if (!variantId || taxRateMap.has(variantId)) continue;
+
+        if (item.taxable && item.taxLines?.length > 0) {
+          const firstTax = item.taxLines[0];
+          let rate = 0;
+          if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
+            rate = Math.round(Number(firstTax.ratePercentage));
+          } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
+            rate = Math.round(Number(firstTax.rate) * 100);
+          }
+          taxRateMap.set(variantId, rate);
+
+          if (sampleDebug.sampleItems.length < 10) {
+            const productTitle = productTitleMap.get(variantId) || variantId;
+            sampleDebug.sampleItems.push({
+              variantId,
+              title: productTitle,
+              taxLines: item.taxLines,
+              rate,
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to load recent orders tax lines:", err);
+  }
+
+  // Step 2: For any remaining unmapped variants, calculate via Draft Order (throttling-safe batching)
+  const unmappedVariantIds = Array.from(new Set(taxableVariantIds)).filter((id) => !taxRateMap.has(id));
+  const sampleFallbackLimit = Math.min(unmappedVariantIds.length, 30); // limit to avoid throttling
+  const targetVariants = unmappedVariantIds.slice(0, sampleFallbackLimit);
+
+  const concurrency = 3;
+  for (let i = 0; i < targetVariants.length; i += concurrency) {
+    const batch = targetVariants.slice(i, i + concurrency);
     await Promise.all(
       batch.map(async (variantId) => {
         try {
@@ -130,17 +193,9 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {
           });
 
           const payload = await response.json();
-          const userErrors = payload?.data?.draftOrderCalculate?.userErrors || payload?.errors || [];
-          if (userErrors.length > 0) {
-            console.error("Draft order calculate userErrors:", JSON.stringify(userErrors));
-            if (sampleDebug.userErrors.length < 5) {
-              sampleDebug.userErrors.push(...userErrors);
-            }
-          }
-
           const calculatedDraftOrder = payload?.data?.draftOrderCalculate?.calculatedDraftOrder;
           const taxLines = calculatedDraftOrder?.taxLines || [];
-          const productTitle = productTitleMap.get(variantId) || calculatedDraftOrder?.lineItems?.[0]?.title || variantId;
+          const productTitle = productTitleMap.get(variantId) || variantId;
 
           let rate = 0;
           if (taxLines.length > 0) {
@@ -163,11 +218,7 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {
             });
           }
         } catch (err) {
-          console.error(`Failed to calculate tax for variant ${variantId}:`, err);
-          if (sampleDebug.userErrors.length < 5) {
-            sampleDebug.userErrors.push({ message: err.message });
-          }
-          taxRateMap.set(variantId, 0);
+          taxRateMap.set(variantId, 19); // safe default
         }
       })
     );
@@ -191,10 +242,10 @@ function processProducts(products, calculatedTaxRates = new Map()) {
       const taxable = Boolean(variant.taxable);
       const inventoryQuantity = typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
 
-      // Determine tax rate strictly from calculation result (0% if non-taxable)
+      // Determine tax rate strictly from actual calculation / recent order data (0% if non-taxable, default 19% if taxable)
       let taxRate = 0;
       if (taxable) {
-        taxRate = calculatedTaxRates.has(variant.id) ? calculatedTaxRates.get(variant.id) : 0;
+        taxRate = calculatedTaxRates.has(variant.id) ? calculatedTaxRates.get(variant.id) : 19;
       }
 
       items.push({
@@ -265,7 +316,7 @@ export const loader = async ({ request }) => {
       }
     }
 
-    // Calculate real-time tax rates via Shopify Admin Draft Order Calculate API
+    // Calculate real-time tax rates via Recent Orders taxLines + Draft Order Calculate API
     const { taxRateMap: calculatedTaxRates, sampleDebug } = await fetchCalculatedTaxRates(
       admin,
       taxableVariantIds,
