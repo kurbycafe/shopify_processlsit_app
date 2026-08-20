@@ -828,7 +828,7 @@ export default function StoreLabelPage() {
               <Card>
                 <BlockStack gap="400">
                   <InlineStack align="space-between" blockAlign="center">
-                    <Text variant="headingMd" as="h2">⚙️ 라벨 실시간 커스텀 설정 (글자 크기 & 항목)</Text>
+                    <Text variant="headingMd" as="h2">라벨 실시간 커스텀 설정 (글자 크기 & 항목)</Text>
                     <Button 
                       plain 
                       onClick={() => {

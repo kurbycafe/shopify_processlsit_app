@@ -973,9 +973,7 @@ export default function Inspect() {
           {item.issueType && (
             <div style={{ marginTop: "4px", background: "#fef2f2", padding: "6px", borderRadius: "6px", border: "1px solid #fca5a5", fontSize: "12px" }}>
               <span style={{ fontWeight: "bold", color: "#b91c1c" }}>
-                {item.issueType === "REFUND" && "💸 환불 처리 요청"}
-                {item.issueType === "CREDIT" && "🪙 포인트 적립 요청"}
-                {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 요청"}
+                문제 보고: {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
               </span>
               {item.substitutedProductTitle && <div>→ 대체: {item.substitutedProductTitle}</div>}
               {item.issueNote && <div style={{ color: "#7f1d1d", marginTop: "2px" }}>메모: {item.issueNote}</div>}
@@ -1024,7 +1022,7 @@ export default function Inspect() {
                 setTempBarcode(item.barcode || "");
               }}
             >
-              ✏️ 수정
+              수정
             </Button>
           </div>
         )}
@@ -1039,7 +1037,7 @@ export default function Inspect() {
           </InlineStack>
           <InlineStack gap="100" align="center">
             <Button size="micro" variant="secondary" tone="success" onClick={() => scanAllQuantity(item.id)} disabled={item.inspectedQuantity === item.orderedQuantity || item.issueType}>완료</Button>
-            <Button size="micro" variant="secondary" tone="critical" onClick={() => markAsError(item.title, item.sku)}>❌ 오류</Button>
+            <Button size="micro" variant="secondary" tone="critical" onClick={() => markAsError(item.title, item.sku)}>오류</Button>
           </InlineStack>
         </BlockStack>
       </div>,
@@ -1048,7 +1046,7 @@ export default function Inspect() {
         <BlockStack align="center" gap="200">
           {statusBadge}
           {!item.issueType && item.inspectedQuantity < item.orderedQuantity && (
-            <Button size="micro" tone="critical" onClick={() => openIssueModal(item.id)}>🚨 문제 보고</Button>
+            <Button size="micro" tone="critical" onClick={() => openIssueModal(item.id)}>문제 보고</Button>
           )}
         </BlockStack>
       </div>
@@ -1142,7 +1140,7 @@ export default function Inspect() {
                             setCameraModalOpen(true);
                           }}
                         >
-                          📷 카메라 스캔
+                          카메라 스캔
                         </Button>
                       </Box>
                     </InlineStack>
@@ -1186,7 +1184,7 @@ export default function Inspect() {
                     <Layout.Section variant="oneHalf">
                       <Card>
                         <BlockStack gap="200">
-                          <Text variant="headingSm" as="h3">📜 스캔 로그</Text>
+                          <Text variant="headingSm" as="h3">스캔 로그</Text>
                           <div style={{
                             maxHeight: "180px",
                             overflowY: "auto",
@@ -1221,7 +1219,7 @@ export default function Inspect() {
                     <Layout.Section variant="oneHalf">
                       <Card>
                         <BlockStack gap="200">
-                          <Text variant="headingSm" as="h3" tone="critical">❌ 오류 상품 목록</Text>
+                          <Text variant="headingSm" as="h3" tone="critical">오류 상품 목록</Text>
                           <div style={{
                             maxHeight: "180px",
                             overflowY: "auto",
@@ -1291,9 +1289,9 @@ export default function Inspect() {
             <ChoiceList
               title="해결 옵션"
               choices={[
-                {label: '💸 고객에게 환불 처리 (Refund)', value: 'REFUND'},
-                {label: '🪙 스토어 포인트 지급 (Credit)', value: 'CREDIT'},
-                {label: '🔄 다른 상품으로 대체 발송 (Substitute)', value: 'SUBSTITUTE'},
+                {label: '고객에게 환불 처리 (Refund)', value: 'REFUND'},
+                {label: '스토어 포인트 지급 (Credit)', value: 'CREDIT'},
+                {label: '다른 상품으로 대체 발송 (Substitute)', value: 'SUBSTITUTE'},
               ]}
               selected={issueType}
               onChange={setIssueType}
@@ -1339,7 +1337,7 @@ export default function Inspect() {
                 {/* 선택된 대체 상품 표시 */}
                 {selectedSubstitute && (
                   <div style={{ background: "#ecfdf3", padding: "10px", borderRadius: "8px", border: "1px solid #86efac", color: "#166534" }}>
-                    ✅ <strong>선택됨:</strong> {selectedSubstitute.title}
+                    <strong>선택됨:</strong> {selectedSubstitute.title}
                   </div>
                 )}
               </BlockStack>

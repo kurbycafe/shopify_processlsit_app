@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { Form, useLoaderData, useActionData, useSubmit, useSearchParams, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import prisma from "../db.server";
+import { generatePickListPdfBuffer } from "../utils/pickListPrint";
 
 // ========================================================
 // 1. Odoo ERP API 연동 함수 (다중 창고 위치 결합 및 매장창고 우선)
@@ -225,99 +225,7 @@ async function loadPickListData(admin, tempFilter = "ALL") {
 }
 
 // ========================================================
-// 3. 가로 폭(넓이) 자동 압축 및 조율형 PDF 생성기
-// ========================================================
-async function generatePdfBuffer(items, techTime) {
-  const pdfDoc = await PDFDocument.create();
-  const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  
-  const pageWidth = 842; // A4 가로 전체 너비 고정
-  const pageHeight = 595;
-  
-  let page = pdfDoc.addPage([pageWidth, pageHeight]);
-  let currentY = pageHeight - 50;
-
-  // 💡 가로 넓이가 잘리지 않도록 각 열의 X 시작 좌표를 완벽하게 분할 배치 (여백 확보)
-  const colX = {
-    location: 40,    // 창고 위치 (폭 180px 할당)
-    sku: 220,         // SKU (폭 110px 할당)
-    product: 330,     // 상품명 (폭 320px 할당)
-    qty: 660,         // 주문 수량 (폭 40px 할당)
-    orders: 710       // 주문 번호 (폭 90px 할당) -> 마지막 좌표 800 (우측 마진 42px 남음)
-  };
-
-  const drawPageHeader = (pageNum) => {
-    page.drawText(`PICKING LIST - [${techTime}]`, { x: 40, y: pageHeight - 35, size: 14, font: HelveticaBold, color: rgb(0.06, 0.09, 0.16) });
-    page.drawText(`Page: ${pageNum}`, { x: pageWidth - 80, y: pageHeight - 35, size: 9, font: Helvetica, color: rgb(0.39, 0.45, 0.55) });
-    
-    let headerY = pageHeight - 65;
-    page.drawRectangle({ x: 40, y: headerY - 5, width: pageWidth - 80, height: 22, color: rgb(0.06, 0.09, 0.16) });
-    
-    page.drawText("SHELF LOCATION", { x: colX.location + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("SKU", { x: colX.sku + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("PRODUCT DESCRIPTION (ENG)", { x: colX.product + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("QTY", { x: colX.qty + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    page.drawText("ORDERS", { x: colX.orders + 5, y: headerY, size: 9, font: HelveticaBold, color: rgb(1, 1, 1) });
-    
-    return headerY - 20;
-  };
-
-  currentY = drawPageHeader(1);
-  let pageCounter = 1;
-
-  items.forEach((item) => {
-    if (currentY < 45) {
-      page = pdfDoc.addPage([pageWidth, pageHeight]);
-      pageCounter++;
-      currentY = drawPageHeader(pageCounter);
-    }
-
-    page.drawLine({ start: { x: 40, y: currentY - 4 }, end: { x: pageWidth - 40, y: currentY - 4 }, strokeWidth: 0.5, color: rgb(0.88, 0.91, 0.95) });
-
-    // 💡 PDF 기본 폰트(Helvetica)는 한글을 지원하지 않으므로 한글 및 비-WinAnsi 문자를 안전하게 치환/제거합니다.
-    const cleanLocation = item.binLocation
-      .replace(/신창고/g, "NEW")
-      .replace(/매장창고/g, "STORE")
-      .replace(/위치 미정/g, "Pending")
-      .replace(/위치 미지정/g, "No Bin")
-      .replace(/조회중/g, "Querying")
-      .replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "")
-      .split("")
-      .map(char => (char.charCodeAt(0) <= 255 ? char : ""))
-      .join("")
-      .trim();
-
-    const safeTitle = item.productName
-      .replace(/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g, "Item")
-      .split("")
-      .map(char => (char.charCodeAt(0) <= 255 ? char : ""))
-      .join("")
-      .trim();
-
-    // 💡 텍스트가 가로로 넘쳐서 짤리는 걸 막기 위해 글자 수 제한 규칙(Substring)을 타이트하게 적용
-    page.drawText(cleanLocation.substring(0, 24), { x: colX.location + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0.11, 0.3, 0.85) });
-    page.drawText(item.sku.substring(0, 16), { x: colX.sku + 5, y: currentY, size: 9, font: Helvetica, color: rgb(0.1, 0.11, 0.14) });
-    
-    // 상품명 열 너비 보장을 위해 최대 36자로 제한 처리
-    const trunTitle = safeTitle.length > 36 ? `${safeTitle.substring(0, 34)}...` : safeTitle;
-    page.drawText(trunTitle, { x: colX.product + 5, y: currentY, size: 8, font: Helvetica, color: rgb(0.25, 0.32, 0.44) });
-    
-    page.drawText(String(item.orderedQty), { x: colX.qty + 5, y: currentY, size: 9, font: HelveticaBold, color: rgb(0, 0, 0) });
-    
-    const ordersStr = item.orderNumbers.join(", ");
-    const trunOrders = ordersStr.length > 12 ? `${ordersStr.substring(0, 10)}...` : ordersStr;
-    page.drawText(trunOrders, { x: colX.orders + 5, y: currentY, size: 8, font: Helvetica, color: rgb(0.11, 0.3, 0.85) });
-
-    currentY -= 18; // 행 세로 압축률 향상
-  });
-
-  const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes);
-}
-
-// ========================================================
-// 4. 백엔드 컨트롤러 핸들러 (Loader & Action)
+// 3. 백엔드 컨트롤러 핸들러 (Loader & Action)
 // ========================================================
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -357,7 +265,7 @@ export const action = async ({ request }) => {
     });
     await Promise.all(updatePromises);
 
-    const pdfBuffer = await generatePdfBuffer(items, techTime);
+    const pdfBuffer = await generatePickListPdfBuffer(items, techTime);
     const mailTitle = `${clientTime} 기준 처리중`;
 
     try {
@@ -526,11 +434,11 @@ export default function PickListPage() {
             marginBottom: "20px",
             boxShadow: "0 4px 6px -1px rgba(217, 119, 6, 0.1)"
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-              <span style={{ fontSize: "18px" }}>⚠️</span>
-              <span style={{ fontSize: "15px", fontWeight: "bold", color: "#b45309" }}>
-                위치 미지정 & 재고 부족 경고 (10개 미만 수량)
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+              <span style={{ fontWeight: "bold" }}>주의:</span>
+              <h2 style={{ fontSize: "14px", fontWeight: "bold", margin: 0, color: "#92400e" }}>
+                창고 위치 미정 또는 재고 부족(10개 미만) 상품 발견
+              </h2>
               <span style={{ background: "#fef3c7", color: "#d97706", padding: "2px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold" }}>
                 {lowStockNoBinItems.length}건
               </span>
@@ -561,14 +469,14 @@ export default function PickListPage() {
 
         {actionData?.success === false && (
           <div className="no-print" style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
-            ⚠️ <b>이메일 발송 실패 안내:</b> {actionData.error} <br />
+            <b>이메일 발송 실패 안내:</b> {actionData.error} <br />
             <small style={{ color: "#7f1d1d" }}>구글 계정의 앱 비밀번호 발급 상태를 최종적으로 확인해 주세요.</small>
           </div>
         )}
         
         {actionData?.success === true && (
           <div className="no-print" style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "12px", marginBottom: "16px", fontSize: "14px" }}>
-            ✅ 가로 폭 최적화 PDF 보고서가 popeye.gmbh@gmail.com 으로 전송되었습니다.
+            가로 폭 최적화 PDF 보고서가 popeye.gmbh@gmail.com 으로 전송되었습니다.
           </div>
         )}
 

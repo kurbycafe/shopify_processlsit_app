@@ -620,19 +620,19 @@ export default function ContainerCatalog() {
     <!-- B2B 수주 정책 안내 카드 -->
     <div class="b2b-terms-bar">
       <div class="term-item">
-        <span class="term-title">📦 발주 단위 (MOQ)</span>
+        <span class="term-title">발주 단위 (MOQ)</span>
         <span class="term-desc">Box(입수) 단위 주문 출고</span>
       </div>
       <div class="term-item">
-        <span class="term-title">💶 공급가 기준</span>
+        <span class="term-title">공급가 기준</span>
         <span class="term-desc">EUR (€) 도매가 (VAT 별도)</span>
       </div>
       <div class="term-item">
-        <span class="term-title">❄️ 콜드체인 통합배송</span>
+        <span class="term-title">콜드체인 통합배송</span>
         <span class="term-desc">냉동 / 냉장 / 실온 분류</span>
       </div>
       <div class="term-item">
-        <span class="term-title">📞 B2B 영업 데스크</span>
+        <span class="term-title">B2B 영업 데스크</span>
         <span class="term-desc">b2b@dawayo.de | dawayo.de</span>
       </div>
     </div>
@@ -655,22 +655,22 @@ export default function ContainerCatalog() {
     function getStorageBadge(productTypeVal, title) {
       const pType = (productTypeVal || "").trim().toLowerCase();
       if (pType === "tk" || pType === "frozen" || pType.includes("냉동")) {
-        return `<span class="storage-badge frozen">❄️ 냉동 (-18℃)</span>`;
+        return `<span class="storage-badge frozen">냉동 (-18℃)</span>`;
       }
       if (pType === "k" || pType === "chilled" || pType.includes("냉장")) {
-        return `<span class="storage-badge chilled">🧊 냉장 (1~5℃)</span>`;
+        return `<span class="storage-badge chilled">냉장 (1~5℃)</span>`;
       }
       if (pType === "t" || pType === "dry" || pType === "ambient" || pType.includes("상온") || pType.includes("실온")) {
-        return `<span class="storage-badge ambient">🌡️ 실온</span>`;
+        return `<span class="storage-badge ambient">실온</span>`;
       }
 
       const t = (title || "").toLowerCase();
       if (t.includes("냉동") || t.includes("만두") || t.includes("치킨") || t.includes("핫도그") || t.includes("강정") || t.includes("바오") || t.includes("피자") || t.includes("떡볶이") || t.includes("아이스") || t.includes("대용량")) {
-        return `<span class="storage-badge frozen">❄️ 냉동 (-18℃)</span>`;
+        return `<span class="storage-badge frozen">냉동 (-18℃)</span>`;
       } else if (t.includes("냉장") || t.includes("김치") || t.includes("단무지") || t.includes("어묵") || t.includes("두부") || t.includes("핫바")) {
-        return `<span class="storage-badge chilled">🧊 냉장 (1~5℃)</span>`;
+        return `<span class="storage-badge chilled">냉장 (1~5℃)</span>`;
       }
-      return `<span class="storage-badge ambient">🌡️ 실온</span>`;
+      return `<span class="storage-badge ambient">실온</span>`;
     }
 
     printItems.forEach(item => {
@@ -768,7 +768,7 @@ export default function ContainerCatalog() {
   const tableRows = items.map(item => {
     const img = item.imageUrl 
       ? <Thumbnail source={item.imageUrl} alt={item.sku} size="small" />
-      : <div style={{ width: "40px", height: "40px", backgroundColor: "#f1f5f9", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px" }}>📦</div>;
+      : <div style={{ width: "40px", height: "40px", backgroundColor: "#f1f5f9", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", color: "#64748b" }}>N/A</div>;
 
     const nameSection = item.isMatched ? (
       <BlockStack gap="100">

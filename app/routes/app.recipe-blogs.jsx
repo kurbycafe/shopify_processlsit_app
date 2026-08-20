@@ -424,7 +424,7 @@ function buildArticleHtml(recipe) {
 
   <div class="recipe-ingredients-widget" style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; background: #f7fafc; margin-top: 35px;">
     <h3 style="font-size: 1.2rem; margin-top: 0; margin-bottom: 6px; color: #1a202c; font-weight: 700; display: flex; align-items: center; gap: 6px;">
-      🛒 레시피 재료 한 번에 담기
+      레시피 재료 한 번에 담기
     </h3>
     <p style="color: #718096; font-size: 0.88rem; margin-bottom: 16px; line-height: 1.4;">아래 목록에서 원하는 식재료를 선택하고 수량을 맞춰 장바구니에 한 번에 담아 간편하게 쇼핑하세요!</p>
     
@@ -434,7 +434,7 @@ function buildArticleHtml(recipe) {
     
     ${productsCardsHtml ? `
     <button type="button" id="recipe-add-all-btn" style="margin-top: 20px; width: 100%; padding: 14px; background-color: #ff4a5a; color: #ffffff; border: none; border-radius: 6px; font-size: 1.05rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 6px rgba(255, 74, 90, 0.2);">
-      <span>🛒 선택한 제품 장바구니 담기</span>
+      <span>선택한 제품 장바구니 담기</span>
     </button>
     ` : ""}
   </div>
@@ -448,7 +448,7 @@ function buildArticleHtml(recipe) {
         btn.disabled = true;
         btn.style.backgroundColor = '#a0aec0';
         btn.style.boxShadow = 'none';
-        btn.innerHTML = '<span>⏳ 장바구니에 담는 중...</span>';
+        btn.innerHTML = '<span>장바구니에 담는 중...</span>';
         
         const items = [];
         const cards = document.querySelectorAll('.recipe-product-card');
@@ -487,7 +487,7 @@ function buildArticleHtml(recipe) {
           return response.json();
         })
         .then(data => {
-          btn.innerHTML = '<span>✅ 완료! 장바구니로 이동합니다...</span>';
+          btn.innerHTML = '<span>완료! 장바구니로 이동합니다...</span>';
           btn.style.backgroundColor = '#48bb78';
           setTimeout(() => {
             window.location.href = '/cart';
@@ -693,8 +693,8 @@ export default function RecipeBlogs() {
             <Card>
               <BlockStack gap="300">
                 <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">📋 나의 레시피 목록</Text>
-                  <Button size="slim" variant="primary" onClick={handleNewRecipe}>✨ 새 레시피</Button>
+                  <Text as="h2" variant="headingMd">나의 레시피 목록</Text>
+                  <Button size="slim" variant="primary" onClick={handleNewRecipe}>새 레시피</Button>
                 </InlineStack>
 
                 <Divider />
@@ -735,11 +735,10 @@ export default function RecipeBlogs() {
                                 variant="tertiary"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  // Open published blog article in new tab
                                   window.open(`${shopUrl}/blogs/news/${recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, "_blank");
                                 }}
                               >
-                                🔗 상점 보기
+                                상점 보기
                               </Button>
                             )}
                             <Button
@@ -750,7 +749,7 @@ export default function RecipeBlogs() {
                                 handleDeleteRecipe(recipe.id);
                               }}
                             >
-                              🗑️ 삭제
+                              삭제
                             </Button>
                           </InlineStack>
                         </BlockStack>
@@ -767,19 +766,19 @@ export default function RecipeBlogs() {
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingLg">
-                  {selectedRecipe ? `📝 레시피 편집: ${selectedRecipe.title}` : "✍️ 새 레시피 작성"}
+                  {selectedRecipe ? `레시피 편집: ${selectedRecipe.title}` : "새 레시피 작성"}
                 </Text>
 
                 {/* Pre-population presets */}
                 {!selectedRecipe && (
                   <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                     <BlockStack gap="200">
-                      <Text as="h3" variant="headingXs" tone="subdued">⚡ 빠른 시작 프리셋 (K-Food 대표 레시피 자동입력)</Text>
+                      <Text as="h3" variant="headingXs" tone="subdued">빠른 시작 프리셋 (K-Food 대표 레시피 자동입력)</Text>
                       <InlineStack gap="200">
-                        <Button onClick={() => handleApplyPreset("tteokbokki")}>🌶️ 떡볶이</Button>
-                        <Button onClick={() => handleApplyPreset("kimchijjigae")}>🍲 김치찌개</Button>
-                        <Button onClick={() => handleApplyPreset("bulgogi")}>🥩 소불고기</Button>
-                        <Button onClick={() => handleApplyPreset("bibimbap")}>🥗 비빔밥</Button>
+                        <Button onClick={() => handleApplyPreset("tteokbokki")}>떡볶이</Button>
+                        <Button onClick={() => handleApplyPreset("kimchijjigae")}>김치찌개</Button>
+                        <Button onClick={() => handleApplyPreset("bulgogi")}>소불고기</Button>
+                        <Button onClick={() => handleApplyPreset("bibimbap")}>비빔밥</Button>
                       </InlineStack>
                     </BlockStack>
                   </Box>
@@ -834,7 +833,7 @@ export default function RecipeBlogs() {
 
                 {/* Ingredients / Products Bundling section */}
                 <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">🛒 레시피 식재료 / 판매 상품 매칭</Text>
+                  <Text as="h3" variant="headingMd">레시피 식재료 / 판매 상품 매칭</Text>
                   <Text as="p" tone="subdued" variant="bodySm">
                     이 레시피를 읽은 독자에게 구매를 제안할 내 상점의 제품들을 연결하세요.
                   </Text>
@@ -871,7 +870,7 @@ export default function RecipeBlogs() {
                   {/* Shopify Products Search Input */}
                   <Box background="bg-surface-secondary" padding="300" borderRadius="200">
                     <BlockStack gap="300">
-                      <Text as="h4" variant="headingXs">🔍 우리 쇼피파이 매장 상품 검색</Text>
+                      <Text as="h4" variant="headingXs">우리 쇼피파이 매장 상품 검색</Text>
                       <InlineStack gap="200">
                         <div style={{ flexGrow: 1 }}>
                           <TextField
@@ -908,7 +907,7 @@ export default function RecipeBlogs() {
                                           onClick={() => handleAddProduct(product, v)}
                                           disabled={selectedProducts.some(sp => sp.variantId === v.id)}
                                         >
-                                          {selectedProducts.some(sp => sp.variantId === v.id) ? "추가됨" : "➕ 레시피에 추가"}
+                                          {selectedProducts.some(sp => sp.variantId === v.id) ? "추가됨" : "레시피에 추가"}
                                         </Button>
                                       </InlineStack>
                                     ))}
@@ -927,7 +926,7 @@ export default function RecipeBlogs() {
 
                 {/* Shopify Blog Target and Publishing buttons */}
                 <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">🚀 쇼피파이 상점 출시 설정</Text>
+                  <Text as="h3" variant="headingMd">쇼피파이 상점 출시 설정</Text>
 
                   {blogs.length === 0 ? (
                     <Banner tone="critical">
@@ -944,7 +943,7 @@ export default function RecipeBlogs() {
 
                   <InlineStack align="space-between" blockAlign="center" gap="400">
                     <InlineStack gap="200">
-                      <Button onClick={handleNewRecipe}>🧹 입력 필드 초기화</Button>
+                      <Button onClick={handleNewRecipe}>입력 필드 초기화</Button>
                     </InlineStack>
 
                     <InlineStack gap="200">
@@ -952,7 +951,7 @@ export default function RecipeBlogs() {
                         onClick={() => handleSubmitForm("save")}
                         loading={isSaving}
                       >
-                        💾 초안 임시저장 (App DB)
+                        초안 임시저장 (App DB)
                       </Button>
                       <Button
                         variant="primary"
@@ -960,7 +959,7 @@ export default function RecipeBlogs() {
                         loading={isPublishing}
                         disabled={blogs.length === 0}
                       >
-                        🚀 쇼피파이 블로그 게시 / 동기화
+                        쇼피파이 블로그 게시 / 동기화
                       </Button>
                     </InlineStack>
                   </InlineStack>

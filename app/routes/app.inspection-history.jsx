@@ -229,10 +229,10 @@ export default function InspectionHistory() {
                   label="검수 상태"
                   options={[
                     { label: "전체 상태", value: "ALL" },
-                    { label: "✅ 검수 성공 (SUCCESS)", value: "SUCCESS" },
-                    { label: "⚠️ 일부 완료 (PARTIAL)", value: "PARTIAL" },
-                    { label: "🚨 문제 보고됨 (ISSUE_REPORTED)", value: "ISSUE_REPORTED" },
-                    { label: "❌ 검수 실패 (FAILED)", value: "FAILED" }
+                    { label: "검수 성공 (SUCCESS)", value: "SUCCESS" },
+                    { label: "일부 완료 (PARTIAL)", value: "PARTIAL" },
+                    { label: "문제 보고됨 (ISSUE_REPORTED)", value: "ISSUE_REPORTED" },
+                    { label: "검수 실패 (FAILED)", value: "FAILED" }
                   ]}
                   value={selectedStatus}
                   onChange={handleStatusChange}
@@ -363,13 +363,13 @@ export default function InspectionHistory() {
                   if (item.issueType) {
                     statusBadge = (
                       <Badge tone="critical">
-                        🚨 {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
+                        {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
                       </Badge>
                     );
                   } else if (item.inspectedQuantity === item.orderedQuantity) {
-                    statusBadge = <Badge tone="success">✅ 완료</Badge>;
+                    statusBadge = <Badge tone="success">완료</Badge>;
                   } else if (item.inspectedQuantity > 0) {
-                    statusBadge = <Badge tone="warning">⚠️ 일부 완료</Badge>;
+                    statusBadge = <Badge tone="warning">일부 완료</Badge>;
                   }
 
                   const titleContent = (
