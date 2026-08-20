@@ -61,11 +61,17 @@ const INVENTORY_PRODUCTS_QUERY = `#graphql
   }
 `;
 
-// Single lightweight query to fetch actual applied tax rates from recent orders (Zero rate-limit cost)
+// Single lightweight query to fetch actual applied tax rates from recent orders (Filtered by Store country)
 const RECENT_ORDERS_TAX_QUERY = `#graphql
   query RecentOrdersTaxRates {
     orders(first: 100, sortKey: CREATED_AT, reverse: true) {
       nodes {
+        shippingAddress {
+          countryCodeV2
+        }
+        billingAddress {
+          countryCodeV2
+        }
         lineItems(first: 100) {
           nodes {
             variant {
@@ -109,12 +115,12 @@ const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
   }
 `;
 
-// Helper: Calculate real-time tax rates combining Recent Orders (instant) + Draft Order fallback
+// Helper: Calculate real-time tax rates combining Recent Orders (Germany DE only) + Draft Order fallback
 async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
   const taxRateMap = new Map();
   let sampleDebug = {
     addressUsed: null,
-    apiType: "Shopify Tax Engine (Recent Orders + Draft Order Simulation)",
+    apiType: "Shopify Tax Engine (Germany DE Orders + Draft Order Simulation)",
     userErrors: [],
     sampleItems: [],
   };
@@ -134,13 +140,19 @@ async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {
 
   sampleDebug.addressUsed = address;
 
-  // Step 1: Query actual taxLines applied in recent store orders (1 single query, 0 throttle risk)
+  // Step 1: Query actual taxLines applied in recent store orders (Strictly filtered by destination Germany 'DE')
   try {
     const ordersResp = await admin.graphql(RECENT_ORDERS_TAX_QUERY);
     const ordersPayload = await ordersResp.json();
     const orders = ordersPayload?.data?.orders?.nodes || [];
 
     for (const order of orders) {
+      // Ignore orders shipped to other EU countries (e.g. Netherlands/Belgium/Spain 21% VAT)
+      const orderCountry = order.shippingAddress?.countryCodeV2 || order.billingAddress?.countryCodeV2 || "DE";
+      if (orderCountry !== countryCode && orderCountry !== "DE") {
+        continue;
+      }
+
       for (const item of order.lineItems?.nodes || []) {
         const variantId = item.variant?.id;
         if (!variantId || taxRateMap.has(variantId)) continue;

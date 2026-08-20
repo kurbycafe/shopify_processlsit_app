@@ -1,0 +1,19 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "5ce150f617dcc5ced07ca1fe86fe9203"
+application_url = "https://example.com"
+embedded = true
+name = "Process-list"
+
+[webhooks]
+api_version = "2026-10"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_content,read_customers,read_orders,write_content,write_draft_orders,write_metaobject_definitions,write_metaobjects,write_orders,write_products"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[build]
+automatically_update_urls_on_dev = true
