@@ -62,29 +62,23 @@ export const loader = async ({ request }) => {
     },
   });
 
-  // 이번주 날짜 범위 계산 (월요일 시작)
-  const startOfWeek = dayjs().startOf("week").add(1, "day").startOf("day").toDate();
-  const endOfWeek = dayjs().endOf("week").add(1, "day").endOf("day").toDate();
+  // 이번주 월요일(00:00:00) ~ 일요일(23:59:59) 정확한 날짜 범위 계산
+  const now = dayjs();
+  const dayOfWeek = now.day(); // 0(일), 1(월), ... 6(토)
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const startOfWeek = now.subtract(daysFromMonday, "day").startOf("day").toDate();
+  const endOfWeek = now.add(dayOfWeek === 0 ? 0 : 7 - dayOfWeek, "day").endOf("day").toDate();
 
-  // 이번주 총 검수 건수 및 완료 건수
-  const thisWeekTotalCount = await prisma.inspectionRecord.count({
-    where: {
-      shop: session.shop,
-      createdAt: {
-        gte: startOfWeek,
-        lte: endOfWeek,
-      },
-    },
-  });
-
+  // 이번주 실제 검수 성공(SUCCESS) 완료 건수 카운트
   const thisWeekFulfilledCount = await prisma.inspectionRecord.count({
     where: {
       shop: session.shop,
       status: "SUCCESS",
-      createdAt: {
-        gte: startOfWeek,
-        lte: endOfWeek,
-      },
+      OR: [
+        { completedAt: { gte: startOfWeek, lte: endOfWeek } },
+        { updatedAt: { gte: startOfWeek, lte: endOfWeek } },
+        { createdAt: { gte: startOfWeek, lte: endOfWeek } },
+      ],
     },
   });
 

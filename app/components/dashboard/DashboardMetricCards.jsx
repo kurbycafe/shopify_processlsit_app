@@ -47,16 +47,14 @@ export function DashboardMetricCards({
         <BlockStack gap="200">
           <InlineStack align="space-between" blockAlign="center">
             <Text variant="bodyMd" fontWeight="semibold" tone="subdued">
-              이번주 검수 진행/완료
+              이번주 검수 완료
             </Text>
             <Icon source={CheckCircleIcon} tone="success" />
           </InlineStack>
           <InlineStack align="space-between" blockAlign="baseline">
             <Text variant="heading2xl" as="p" style={{ color: "#059669", fontWeight: "800" }}>
               {thisWeekFulfilledCount}{" "}
-              <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>
-                / {thisWeekTotalCount} 건
-              </span>
+              <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>건</span>
             </Text>
             <Badge tone="success">히스토리 &rarr;</Badge>
           </InlineStack>
