@@ -118,8 +118,14 @@ export function ContainerScheduleCard({
                           return <div key={`empty-${dIdx}`} className="calendar-day-empty" />;
                         }
 
-                        const formattedDate = day.format("YYYY-MM-DD");
-                        const matchedContainers = upcomingContainers.filter(
+                        const formattedDate = typeof day === "string" 
+                          ? day 
+                          : day.formattedDate || (day.format ? day.format("YYYY-MM-DD") : String(day));
+                        const dateNum = typeof day === "object" && day.dateNumber 
+                          ? day.dateNumber 
+                          : (day.date ? day.date() : dIdx + 1);
+
+                        const matchedContainers = (upcomingContainers || []).filter(
                           (c) => c.eta === formattedDate
                         );
                         const hasEvents = matchedContainers.length > 0;
@@ -154,7 +160,7 @@ export function ContainerScheduleCard({
                               }
                             }}
                           >
-                            {day.date()}
+                            {dateNum}
                             {hasEvents && (
                               <div className="tooltip">
                                 <div
