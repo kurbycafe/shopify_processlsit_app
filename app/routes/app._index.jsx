@@ -140,7 +140,6 @@ export const loader = async ({ request }) => {
   return {
     unfulfilledCount,
     todayPrintedCount,
-    thisWeekTotalCount,
     thisWeekFulfilledCount,
     recentLogs,
     upcomingContainers,
@@ -169,7 +168,6 @@ export default function Dashboard() {
   const {
     unfulfilledCount,
     todayPrintedCount,
-    thisWeekTotalCount,
     thisWeekFulfilledCount,
     recentLogs,
     upcomingContainers,
@@ -416,7 +414,6 @@ export default function Dashboard() {
           <DashboardMetricCards
             todayPrintedCount={todayPrintedCount}
             thisWeekFulfilledCount={thisWeekFulfilledCount}
-            thisWeekTotalCount={thisWeekTotalCount}
             unfulfilledCount={unfulfilledCount}
           />
         </Layout.Section>

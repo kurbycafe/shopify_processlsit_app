@@ -8,7 +8,6 @@ import { useNavigate } from "react-router";
 export function DashboardMetricCards({
   todayPrintedCount,
   thisWeekFulfilledCount,
-  thisWeekTotalCount,
   unfulfilledCount,
 }) {
   const navigate = useNavigate();
