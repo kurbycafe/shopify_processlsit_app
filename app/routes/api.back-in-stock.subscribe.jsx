@@ -214,11 +214,11 @@ export const loader = async ({ request }) => {
       const latestSub = await prisma.backInStockSubscription.findFirst({
         where: { shop, variantId: String(variantId), etaDate: { not: null } },
         orderBy: { createdAt: "desc" },
-        select: { etaDate: true, etaSource: true },
+        select: { etaDate: true },
       });
       if (latestSub && latestSub.etaDate) {
         etaDate = latestSub.etaDate;
-        etaSource = latestSub.etaSource || "FALLBACK";
+        etaSource = "FALLBACK";
       }
     }
 
@@ -364,14 +364,12 @@ export const action = async ({ request }) => {
         shop: String(shop),
         productId: String(productId || ""),
         variantId: String(variantId),
-        sku: sku ? String(sku).trim() : null,
         productTitle: String(productTitle),
         variantTitle: variantTitle ? String(variantTitle) : null,
         email: cleanEmail,
         phone: phone ? String(phone).trim() : null,
         channel: String(channel),
         etaDate: resolvedEta,
-        etaSource: resolvedSource,
         status: "PENDING",
       },
     });

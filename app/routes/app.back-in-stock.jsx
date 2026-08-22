@@ -74,7 +74,7 @@ export const loader = async ({ request }) => {
 
   // Group by variant to get product-level aggregates
   const allVariantGroups = await prisma.backInStockSubscription.groupBy({
-    by: ["variantId", "productId", "productTitle", "variantTitle", "sku", "etaDate", "etaSource"],
+    by: ["variantId", "productId", "productTitle", "variantTitle", "etaDate"],
     where: { shop },
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
@@ -87,8 +87,6 @@ export const loader = async ({ request }) => {
     _count: { id: true },
   });
   const pendingMap = new Map(pendingVariantGroups.map((g) => [g.variantId, g._count.id]));
-
-  const todayStr = dayjs().format("YYYY-MM-DD");
 
   let highDemandProductsCount = 0;
   let arrivingSoonCount = 0;
@@ -123,9 +121,9 @@ export const loader = async ({ request }) => {
       productId: g.productId,
       productTitle: g.productTitle,
       variantTitle: g.variantTitle,
-      sku: g.sku,
+      sku: "",
       etaDate: g.etaDate,
-      etaSource: g.etaSource,
+      etaSource: g.etaDate ? "ODOO" : "NONE",
       subscriberCount: totalCount,
       pendingCount: pendingCount,
       etaStage: etaStage.stage,
@@ -161,8 +159,7 @@ export const loader = async ({ request }) => {
         const q = search.toLowerCase();
         const matches =
           (p.productTitle && p.productTitle.toLowerCase().includes(q)) ||
-          (p.variantTitle && p.variantTitle.toLowerCase().includes(q)) ||
-          (p.sku && p.sku.toLowerCase().includes(q));
+          (p.variantTitle && p.variantTitle.toLowerCase().includes(q));
         if (!matches) return false;
       }
 
@@ -202,7 +199,6 @@ export const loader = async ({ request }) => {
       whereClause.OR = [
         { productTitle: { contains: search, mode: "insensitive" } },
         { variantTitle: { contains: search, mode: "insensitive" } },
-        { sku: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
         { phone: { contains: search, mode: "insensitive" } },
       ];
@@ -452,7 +448,7 @@ export const action = async ({ request }) => {
 
     await prisma.backInStockSubscription.updateMany({
       where: { shop, variantId: String(variantId) },
-      data: { etaDate, etaSource: "ODOO" },
+      data: { etaDate },
     });
 
     return Response.json({
