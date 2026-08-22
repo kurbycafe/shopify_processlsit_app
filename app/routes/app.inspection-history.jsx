@@ -12,11 +12,20 @@ import {
   DataTable,
   TextField,
   Select,
-  Box
+  Box,
+  Button,
 } from "@shopify/polaris";
+import {
+  CheckCircleIcon,
+  AlertTriangleIcon,
+  ClockIcon,
+  PrintIcon,
+} from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import CommonKpiGrid from "../components/common/CommonKpiGrid";
+import CommonPagination from "../components/common/CommonPagination";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -27,6 +36,8 @@ export const loader = async ({ request }) => {
   const datePreset = url.searchParams.get("datePreset") || "ALL";
   const startDate = url.searchParams.get("startDate") || "";
   const endDate = url.searchParams.get("endDate") || "";
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+  const limit = Math.max(10, parseInt(url.searchParams.get("limit") || "25", 10));
 
   const whereClause = { shop };
 
@@ -47,11 +58,11 @@ export const loader = async ({ request }) => {
               { productTitle: { contains: query, mode: "insensitive" } },
               { sku: { contains: query, mode: "insensitive" } },
               { barcode: { contains: query, mode: "insensitive" } },
-              { substitutedProductTitle: { contains: query, mode: "insensitive" } }
-            ]
-          }
-        }
-      }
+              { substitutedProductTitle: { contains: query, mode: "insensitive" } },
+            ],
+          },
+        },
+      },
     ];
   }
 
@@ -84,17 +95,57 @@ export const loader = async ({ request }) => {
     if (end) whereClause.createdAt.lte = end;
   }
 
-  const records = await prisma.inspectionRecord.findMany({
-    where: whereClause,
-    orderBy: { createdAt: "desc" },
-    include: { items: true }
-  });
+  // Aggregation for KPIs
+  const [totalCount, successCount, issueCount, printedCount, records] = await Promise.all([
+    prisma.inspectionRecord.count({ where: whereClause }),
+    prisma.inspectionRecord.count({ where: { ...whereClause, status: "SUCCESS" } }),
+    prisma.inspectionRecord.count({
+      where: { ...whereClause, status: { in: ["ISSUE_REPORTED", "FAILED", "PARTIAL"] } },
+    }),
+    prisma.inspectionRecord.count({
+      where: { ...whereClause, isLieferscheinPrinted: true },
+    }),
+    prisma.inspectionRecord.findMany({
+      where: whereClause,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+      include: { items: true },
+    }),
+  ]);
 
-  return { records, query, status, datePreset, startDate, endDate };
+  return {
+    records,
+    totalCount,
+    successCount,
+    issueCount,
+    printedCount,
+    page,
+    limit,
+    query,
+    status,
+    datePreset,
+    startDate,
+    endDate,
+  };
 };
 
 export default function InspectionHistory() {
-  const { records, query: initialQuery, status: initialStatus, datePreset: initialDatePreset, startDate: initialStartDate, endDate: initialEndDate } = useLoaderData();
+  const {
+    records,
+    totalCount,
+    successCount,
+    issueCount,
+    printedCount,
+    page,
+    limit,
+    query: initialQuery,
+    status: initialStatus,
+    datePreset: initialDatePreset,
+    startDate: initialStartDate,
+    endDate: initialEndDate,
+  } = useLoaderData();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -107,7 +158,7 @@ export default function InspectionHistory() {
 
   const updateSearchParams = (newParams) => {
     const params = new URLSearchParams(searchParams);
-    Object.keys(newParams).forEach(key => {
+    Object.keys(newParams).forEach((key) => {
       const val = newParams[key];
       if (val !== undefined && val !== null && val !== "" && val !== "ALL") {
         params.set(key, val);
@@ -120,31 +171,31 @@ export default function InspectionHistory() {
 
   const handleSearchChange = (value) => {
     setSearchQuery(value);
-    updateSearchParams({ query: value });
+    updateSearchParams({ query: value, page: 1 });
   };
 
   const handleStatusChange = (value) => {
     setSelectedStatus(value);
-    updateSearchParams({ status: value });
+    updateSearchParams({ status: value, page: 1 });
   };
 
   const handleDatePresetChange = (value) => {
     setDatePreset(value);
     if (value === "CUSTOM") {
-      updateSearchParams({ datePreset: value, startDate, endDate });
+      updateSearchParams({ datePreset: value, startDate, endDate, page: 1 });
     } else {
-      updateSearchParams({ datePreset: value, startDate: "", endDate: "" });
+      updateSearchParams({ datePreset: value, startDate: "", endDate: "", page: 1 });
     }
   };
 
   const handleStartDateChange = (value) => {
     setStartDate(value);
-    updateSearchParams({ datePreset: "CUSTOM", startDate: value, endDate });
+    updateSearchParams({ datePreset: "CUSTOM", startDate: value, endDate, page: 1 });
   };
 
   const handleEndDateChange = (value) => {
     setEndDate(value);
-    updateSearchParams({ datePreset: "CUSTOM", startDate, endDate: value });
+    updateSearchParams({ datePreset: "CUSTOM", startDate, endDate: value, page: 1 });
   };
 
   const handleClearFilters = () => {
@@ -155,6 +206,45 @@ export default function InspectionHistory() {
     setEndDate("");
     setSearchParams({});
   };
+
+  const kpiItems = [
+    {
+      id: "ALL",
+      title: "전체 검수 완료",
+      count: totalCount,
+      unit: "건",
+      icon: ClockIcon,
+      subtext: "조회 기간 내 검수 기록",
+    },
+    {
+      id: "SUCCESS",
+      title: "정상 완료율",
+      count: totalCount > 0 ? `${Math.round((successCount / totalCount) * 100)}%` : "0%",
+      unit: `(${successCount}건)`,
+      tone: "success",
+      icon: CheckCircleIcon,
+      subtext: "이상 없는 무결점 출고",
+    },
+    {
+      id: "ISSUE_REPORTED",
+      title: "이슈/결품 보고",
+      count: issueCount,
+      unit: "건",
+      tone: issueCount > 0 ? "critical" : undefined,
+      icon: AlertTriangleIcon,
+      subtext: "환불/적립/대체 처리",
+    },
+    {
+      id: "PRINTED",
+      title: "납품서 출력 완료",
+      count: totalCount > 0 ? `${Math.round((printedCount / totalCount) * 100)}%` : "0%",
+      unit: `(${printedCount}건)`,
+      icon: PrintIcon,
+      subtext: "Lieferschein 인쇄 완료",
+    },
+  ];
+
+  const totalPages = Math.ceil(totalCount / limit) || 1;
 
   const rows = useMemo(() => {
     return records.map((log) => {
@@ -178,6 +268,7 @@ export default function InspectionHistory() {
 
       return [
         <button
+          key={log.id}
           onClick={() => setSelectedLog(log)}
           style={{
             background: "none",
@@ -186,19 +277,19 @@ export default function InspectionHistory() {
             fontWeight: "bold",
             cursor: "pointer",
             padding: 0,
-            textDecoration: "underline"
+            textDecoration: "underline",
           }}
         >
           {log.orderName}
         </button>,
-        <Badge tone={statusBadgeTone}>{statusText}</Badge>,
+        <Badge key={`badge-${log.id}`} tone={statusBadgeTone}>{statusText}</Badge>,
         log.inspectorName || "알 수 없음",
         formattedDate,
-        <InlineStack gap="100">
+        <InlineStack key={`print-${log.id}`} gap="100">
           {log.isLieferscheinPrinted ? <Badge tone="info">납품서</Badge> : <Badge tone="subdued">미출력</Badge>}
           {log.isPickListPrinted ? <Badge tone="info">피킹리스트</Badge> : <Badge tone="subdued">미출력</Badge>}
         </InlineStack>,
-        `${log.items.length}종 품목`
+        `${log.items.length}종 품목`,
       ];
     });
   }, [records]);
@@ -209,216 +300,181 @@ export default function InspectionHistory() {
       backAction={{ content: "대시보드", url: "/app" }}
     >
       <BlockStack gap="400">
+        {/* KPI Grid */}
+        <CommonKpiGrid
+          items={kpiItems}
+          activeKey={selectedStatus}
+          onSelectKey={(key) => {
+            if (key === "PRINTED") return;
+            handleStatusChange(key);
+          }}
+        />
+
+        {/* Filter Card */}
         <Card>
           <BlockStack gap="400">
-            <Text variant="headingSm" as="h3">검색 및 필터</Text>
+            <Text variant="headingSm" as="h3">
+              검색 및 필터
+            </Text>
             <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "flex-end" }}>
               <div style={{ flex: 2, minWidth: "240px" }}>
                 <TextField
                   label="주문 번호, 검수자명, 상품명, SKU 검색"
                   value={searchQuery}
                   onChange={handleSearchChange}
-                  placeholder="예: #1001, 라면, SKU123"
-                  autoComplete="off"
                   clearButton
                   onClearButtonClick={() => handleSearchChange("")}
+                  placeholder="예: #1001, 홍길동, 신라면..."
+                  autoComplete="off"
                 />
               </div>
-              <div style={{ flex: 1, minWidth: "150px" }}>
+              <div style={{ flex: 1, minWidth: "140px" }}>
                 <Select
                   label="검수 상태"
                   options={[
-                    { label: "전체 상태", value: "ALL" },
+                    { label: "전체 상태 (대기 제외)", value: "ALL" },
                     { label: "검수 성공 (SUCCESS)", value: "SUCCESS" },
                     { label: "일부 완료 (PARTIAL)", value: "PARTIAL" },
-                    { label: "문제 보고됨 (ISSUE_REPORTED)", value: "ISSUE_REPORTED" },
-                    { label: "검수 실패 (FAILED)", value: "FAILED" }
+                    { label: "문제 보고됨 (ISSUE)", value: "ISSUE_REPORTED" },
+                    { label: "검수 실패 (FAILED)", value: "FAILED" },
                   ]}
                   value={selectedStatus}
                   onChange={handleStatusChange}
                 />
               </div>
-              <div style={{ flex: 1, minWidth: "150px" }}>
+              <div style={{ flex: 1, minWidth: "140px" }}>
                 <Select
-                  label="조회 기간"
+                  label="기간 선택"
                   options={[
                     { label: "전체 기간", value: "ALL" },
-                    { label: "오늘 (Today)", value: "TODAY" },
-                    { label: "이번주 (This Week)", value: "THIS_WEEK" },
+                    { label: "오늘", value: "TODAY" },
+                    { label: "이번 주", value: "THIS_WEEK" },
                     { label: "최근 3일", value: "3DAYS" },
                     { label: "최근 7일", value: "7DAYS" },
                     { label: "최근 30일", value: "30DAYS" },
-                    { label: "직접 입력 (Custom)", value: "CUSTOM" }
+                    { label: "직접 입력", value: "CUSTOM" },
                   ]}
                   value={datePreset}
                   onChange={handleDatePresetChange}
                 />
               </div>
-            </div>
-
-            {datePreset === "CUSTOM" && (
-              <Box style={{ background: "#f9fafb", padding: "12px", borderRadius: "8px", border: "1px solid #e5e7eb", marginTop: "12px" }}>
-                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: "140px" }}>
+              {datePreset === "CUSTOM" && (
+                <>
+                  <div style={{ width: "140px" }}>
                     <TextField
-                      label="시작 날짜"
+                      label="시작일"
+                      type="date"
                       value={startDate}
                       onChange={handleStartDateChange}
-                      type="date"
                       autoComplete="off"
                     />
                   </div>
-                  <div style={{ flex: 1, minWidth: "140px" }}>
+                  <div style={{ width: "140px" }}>
                     <TextField
-                      label="종료 날짜"
+                      label="종료일"
+                      type="date"
                       value={endDate}
                       onChange={handleEndDateChange}
-                      type="date"
                       autoComplete="off"
                     />
                   </div>
-                </div>
-              </Box>
-            )}
-
-            {(searchQuery || selectedStatus !== "ALL" || datePreset !== "ALL" || startDate || endDate) && (
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  onClick={handleClearFilters}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: "8px",
-                    border: "1px solid #cbd5e1",
-                    background: "#f8fafc",
-                    cursor: "pointer",
-                    height: "36px",
-                    fontSize: "14px",
-                    fontWeight: "500"
-                  }}
-                >
-                  필터 초기화
-                </button>
+                </>
+              )}
+              <div style={{ paddingBottom: "2px" }}>
+                <Button onClick={handleClearFilters}>필터 초기화</Button>
               </div>
-            )}
+            </div>
           </BlockStack>
         </Card>
 
+        {/* Results Table */}
         <Card padding="0">
           <DataTable
             columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-            headings={["주문 번호", "상태", "검수자", "검수 일시", "출력 상태", "요약"]}
+            headings={["주문 번호", "검수 상태", "검수자", "검수 완료 일시", "출력 상태", "품목 수"]}
             rows={rows}
-            emptyState={
-              <Box padding="600" textAlign="center">
-                <Text color="subdued" as="p">해당 조건에 맞는 검수 이력이 존재하지 않습니다.</Text>
-              </Box>
-            }
+            hoverable
+          />
+
+          {rows.length === 0 && (
+            <Box padding="600">
+              <BlockStack align="center" inlineAlign="center" gap="200">
+                <Text variant="bodyMd" tone="subdued">
+                  조건에 해당하는 검수 이력이 없습니다.
+                </Text>
+                <Button onClick={handleClearFilters}>전체 필터 초기화</Button>
+              </BlockStack>
+            </Box>
+          )}
+
+          <Divider />
+
+          {/* Standardized Pagination */}
+          <CommonPagination
+            currentPage={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            limit={limit}
+            onChangePage={(newPage) => updateSearchParams({ page: newPage })}
+            onChangeLimit={(newLimit) => updateSearchParams({ limit: newLimit, page: 1 })}
           />
         </Card>
       </BlockStack>
 
-      {/* 검수 상세 내역 모달 */}
-      <Modal
-        open={selectedLog !== null}
-        onClose={() => setSelectedLog(null)}
-        title={`${selectedLog?.orderName || ""} 검수 상세 내역`}
-        primaryAction={{
-          content: "닫기",
-          onAction: () => setSelectedLog(null),
-        }}
-        secondaryActions={
-          selectedLog && selectedLog.status !== "SUCCESS"
-            ? [
-                {
-                  content: "검수 이어서 하기",
-                  onAction: () => {
-                    navigate(`/app/inspect?orderName=${encodeURIComponent(selectedLog.orderName)}`);
-                  },
-                },
-              ]
-            : []
-        }
-      >
-        <Modal.Section>
-          {selectedLog && (
+      {/* Log Detail Modal */}
+      {selectedLog && (
+        <Modal
+          open={!!selectedLog}
+          onClose={() => setSelectedLog(null)}
+          title={`주문 ${selectedLog.orderName} 검수 상세 내역`}
+          primaryAction={{
+            content: "닫기",
+            onAction: () => setSelectedLog(null),
+          }}
+          secondaryActions={[
+            {
+              content: "납품서 보기/인쇄",
+              onAction: () => {
+                navigate(`/app/lieferschein/${selectedLog.orderId.replace("gid://shopify/Order/", "")}`);
+              },
+            },
+          ]}
+        >
+          <Modal.Section>
             <BlockStack gap="400">
               <InlineStack align="space-between">
-                <Text as="p" tone="subdued">
-                  <strong>검수 일시:</strong> {dayjs(selectedLog.createdAt).format("YYYY-MM-DD HH:mm:ss")}
+                <Text variant="bodyMd">
+                  검수자: <strong>{selectedLog.inspectorName || "알 수 없음"}</strong>
                 </Text>
-                <Text as="p" tone="subdued">
-                  <strong>검수자:</strong> {selectedLog.inspectorName || "알 수 없음"}
+                <Text variant="bodyMd">
+                  일시: <strong>{dayjs(selectedLog.createdAt).format("YYYY-MM-DD HH:mm:ss")}</strong>
                 </Text>
               </InlineStack>
 
               <Divider />
 
-              <Text variant="headingMd" as="h3">검수 상품 목록</Text>
-
+              <Text variant="headingSm" as="h4">
+                검수 품목 목록 ({selectedLog.items.length}종)
+              </Text>
               <DataTable
-                columnContentTypes={["text", "text", "text"]}
-                headings={["상품 정보", "검수 수량 / 주문 수량", "상태"]}
-                rows={selectedLog.items.map((item) => {
-                  let statusBadge = <Badge tone="attention">대기</Badge>;
-                  if (item.issueType) {
-                    statusBadge = (
-                      <Badge tone="critical">
-                        {item.issueType === "REFUND" ? "환불" : item.issueType === "CREDIT" ? "적립" : item.issueType === "SUBSTITUTE" ? "대체" : item.issueType}
-                      </Badge>
-                    );
-                  } else if (item.inspectedQuantity === item.orderedQuantity) {
-                    statusBadge = <Badge tone="success">완료</Badge>;
-                  } else if (item.inspectedQuantity > 0) {
-                    statusBadge = <Badge tone="warning">일부 완료</Badge>;
-                  }
-
-                  const titleContent = (
-                    <BlockStack gap="100">
-                      <Text variant="bodyMd" fontWeight="bold">{item.productTitle}</Text>
-                      <Text variant="bodySm" color="subdued">
-                        {item.variantTitle && `${item.variantTitle} | `}SKU: {item.sku || "N/A"}
-                      </Text>
-                      {item.issueType && (
-                        <div style={{
-                          marginTop: "6px",
-                          background: "#fff5f5",
-                          padding: "8px",
-                          borderRadius: "6px",
-                          border: "1px solid #fee2e2",
-                          fontSize: "12px",
-                          whiteSpace: "normal"
-                        }}>
-                          <span style={{ fontWeight: "bold", color: "#e11d48" }}>
-                            {item.issueType === "REFUND" && "💸 환불 처리 요청"}
-                            {item.issueType === "CREDIT" && "🪙 스토어 크레딧 지급 요청"}
-                            {item.issueType === "SUBSTITUTE" && "🔄 상품 대체 발송"}
-                          </span>
-                          {item.substitutedProductTitle && (
-                            <div style={{ marginTop: "2px", color: "#1e293b" }}>
-                              → <strong>대체 상품:</strong> {item.substitutedProductTitle}
-                            </div>
-                          )}
-                          {item.issueNote && (
-                            <div style={{ color: "#475569", marginTop: "2px", fontStyle: "italic" }}>
-                              메모: {item.issueNote}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </BlockStack>
-                  );
-
-                  return [
-                    titleContent,
-                    `${item.inspectedQuantity} / ${item.orderedQuantity}`,
-                    statusBadge
-                  ];
-                })}
+                columnContentTypes={["text", "text", "numeric", "numeric", "text"]}
+                headings={["상품명", "SKU / 바코드", "주문 수량", "검수 수량", "이슈 메모"]}
+                rows={selectedLog.items.map((item) => [
+                  item.productTitle + (item.variantTitle ? ` (${item.variantTitle})` : ""),
+                  `${item.sku || "-"}\n${item.barcode || ""}`,
+                  item.orderedQuantity,
+                  item.inspectedQuantity,
+                  item.issueType ? (
+                    <Badge tone="critical">{`${item.issueType}: ${item.issueNote || ""}`}</Badge>
+                  ) : (
+                    <Badge tone="success">정상</Badge>
+                  ),
+                ])}
               />
             </BlockStack>
-          )}
-        </Modal.Section>
-      </Modal>
+          </Modal.Section>
+        </Modal>
+      )}
     </Page>
   );
 }

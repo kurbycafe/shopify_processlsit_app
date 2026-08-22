@@ -15,7 +15,7 @@ import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { sendBackInStockEmail } from "../utils/emailService";
-import { getEtaFromOdoo } from "./api.back-in-stock.subscribe";
+import { getEtaBySku } from "../services/odooClient.server";
 import {
   getDemandLevel,
   getEtaStageInfo,
@@ -438,7 +438,7 @@ export const action = async ({ request }) => {
       return Response.json({ success: false, error: "조회할 SKU 정보가 없습니다." }, { status: 400 });
     }
 
-    const etaDate = await getEtaFromOdoo(sku);
+    const etaDate = await getEtaBySku(sku);
     if (!etaDate) {
       return Response.json({
         success: true,

@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import { DEFAULT_CURRENCY } from "../constants/shopify";
+import { DEFAULT_CURRENCY } from "../constants/shopify.js";
 
 /**
  * Format numeric value as currency string

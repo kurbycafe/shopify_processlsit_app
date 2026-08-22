@@ -1,5 +1,5 @@
 /**
- * Email Notification Service (Brevo HTTP API)
+ * Email Notification Service (Brevo HTTP API Engine)
  */
 
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
@@ -91,6 +91,66 @@ export function buildBackInStockEmailHtml({ productTitle, variantTitle, productU
 }
 
 /**
+ * Builds HTML template for Inspection QC issue report email
+ */
+export function buildQcIssueEmailHtml({ orderName, issueItems = [], customMessage, shopDomain }) {
+  const shopName = "Dawayo (다와요)";
+  const rows = issueItems
+    .map(
+      (item) => `
+    <tr style="border-bottom: 1px solid #e2e8f0;">
+      <td style="padding: 10px 12px; font-size: 14px;"><strong>${escapeHtml(item.productTitle)}</strong> ${item.variantTitle ? `(${escapeHtml(item.variantTitle)})` : ""}</td>
+      <td style="padding: 10px 12px; font-size: 14px; color: #dc2626;">${item.issueType === "REFUND" ? "환불 (Refund)" : item.issueType === "CREDIT" ? "적립금 (Credit)" : "대체상품 (Substitute)"}</td>
+      <td style="padding: 10px 12px; font-size: 13px; color: #64748b;">${escapeHtml(item.issueNote || "-")}</td>
+    </tr>
+  `
+    )
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px; }
+    .box { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 24px; }
+    .hdr { font-size: 20px; font-weight: bold; color: #008060; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th { background: #f1f5f9; padding: 10px; text-align: left; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="hdr">[Dawayo] Wichtige Information zu Ihrer Bestellung ${escapeHtml(orderName)}</div>
+    <p>Sehr geehrte Kundin, sehr geehrter Kunde,<br>bei der Qualitätsprüfung Ihrer Bestellung ${escapeHtml(orderName)} gab es folgende Anpassungen:</p>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>Produkt</th>
+          <th>Status</th>
+          <th>Hinweis</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+
+    ${customMessage ? `<p style="background: #f8fafc; padding: 12px; border-left: 3px solid #008060; font-size: 14px;">${escapeHtml(customMessage)}</p>` : ""}
+
+    <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
+      Vielen Dank für Ihr Verständnis.<br>
+      Ihr <strong>${shopName}</strong> Team
+    </p>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
  * Sends a transactional Back-in-stock notification via Brevo HTTP API
  */
 export async function sendBackInStockEmail({ email, productTitle, variantTitle, productUrl, shopDomain }) {
@@ -108,15 +168,8 @@ export async function sendBackInStockEmail({ email, productTitle, variantTitle, 
   const subject = `[Dawayo] Wieder auf Lager: ${productTitle} / 재입고 알림`;
 
   const payload = {
-    sender: {
-      name: SENDER_NAME,
-      email: SENDER_EMAIL,
-    },
-    to: [
-      {
-        email: email.trim().toLowerCase(),
-      },
-    ],
+    sender: { name: SENDER_NAME, email: SENDER_EMAIL },
+    to: [{ email: email.trim().toLowerCase() }],
     subject: subject,
     htmlContent: htmlContent,
   };
@@ -136,6 +189,47 @@ export async function sendBackInStockEmail({ email, productTitle, variantTitle, 
     throw new Error(`Brevo API Error (${response.status}): ${errorText}`);
   }
 
-  const result = await response.json();
-  return result;
+  return await response.json();
+}
+
+/**
+ * Sends QC Issue Report email to customer via Brevo HTTP API
+ */
+export async function sendQcIssueReportEmail({ email, orderName, issueItems = [], customMessage, shopDomain }) {
+  if (!email || !email.includes("@")) {
+    throw new Error(`Invalid recipient email: ${email}`);
+  }
+
+  const htmlContent = buildQcIssueEmailHtml({
+    orderName,
+    issueItems,
+    customMessage,
+    shopDomain,
+  });
+
+  const subject = `[Dawayo] Wichtige Information zu Ihrer Bestellung ${orderName} (검수 안내)`;
+
+  const payload = {
+    sender: { name: SENDER_NAME, email: SENDER_EMAIL },
+    to: [{ email: email.trim().toLowerCase() }],
+    subject: subject,
+    htmlContent: htmlContent,
+  };
+
+  const response = await fetch(BREVO_API_URL, {
+    method: "POST",
+    headers: {
+      "accept": "application/json",
+      "content-type": "application/json",
+      "api-key": BREVO_API_KEY,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Brevo API Error (${response.status}): ${errorText}`);
+  }
+
+  return await response.json();
 }
