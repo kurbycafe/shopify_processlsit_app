@@ -11,7 +11,7 @@ import {
   Banner,
 } from "@shopify/polaris";
 
-export default function RecipeLocalizationEditor({ translations, onChangeTranslations }) {
+export default function RecipeLocalizationEditor({ translations = {}, onChangeTranslations }) {
   const [selectedTab, setSelectedTab] = useState(1); // Default to German (DE) for DAWAYO
 
   const tabs = [
@@ -20,8 +20,8 @@ export default function RecipeLocalizationEditor({ translations, onChangeTransla
     { id: "en", content: "영어 (EN)", badge: "글로벌" },
   ];
 
-  const currentLang = tabs[selectedTab].id;
-  const currentData = translations[currentLang] || {
+  const currentLang = tabs[selectedTab]?.id || "de";
+  const currentData = (translations && translations[currentLang]) || {
     title: "",
     subtitle: "",
     introduction: "",

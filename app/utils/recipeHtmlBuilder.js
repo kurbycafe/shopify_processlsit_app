@@ -3,20 +3,29 @@
  * Generates SEO-optimized Article HTML with interactive bundle purchasing widget.
  */
 
-export function buildAdvancedArticleHtml(recipe, options = {}) {
+export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   const {
     activeLocale = "de", // "de", "en", or "ko"
     currencySymbol = "€",
   } = options;
 
-  const translations = recipe.translations || {};
-  const locData = translations[activeLocale] || translations["ko"] || {
-    title: recipe.title,
-    introduction: recipe.introduction,
+  let translations = recipe.translations;
+  if (typeof translations === "string") {
+    try {
+      translations = JSON.parse(translations);
+    } catch {
+      translations = {};
+    }
+  }
+  translations = translations || {};
+
+  const locData = translations[activeLocale] || translations["ko"] || translations["de"] || translations["en"] || {
+    title: recipe.title || "Untitled Recipe",
+    introduction: recipe.introduction || "",
     steps: Array.isArray(recipe.steps) ? recipe.steps : (recipe.steps || "").split("\n").filter(Boolean)
   };
 
-  const title = locData.title || recipe.title;
+  const title = locData.title || recipe.title || "K-Food Recipe";
   const subtitle = locData.subtitle || "";
   const introduction = (locData.introduction || recipe.introduction || "").replace(/\n/g, "<br />");
   
@@ -44,14 +53,32 @@ export function buildAdvancedArticleHtml(recipe, options = {}) {
   const totalTime = prepTime + cookTime;
   const baseServings = recipe.servings || 2;
   const spiceLevel = recipe.spiceLevel ?? 2;
-  const dietaryFlags = Array.isArray(recipe.dietaryFlags) ? recipe.dietaryFlags : [];
+
+  let dietaryFlags = recipe.dietaryFlags;
+  if (typeof dietaryFlags === "string") {
+    try {
+      dietaryFlags = JSON.parse(dietaryFlags);
+    } catch {
+      dietaryFlags = [];
+    }
+  }
+  dietaryFlags = Array.isArray(dietaryFlags) ? dietaryFlags : [];
+
+  let ingredients = recipe.ingredientsJson;
+  if (typeof ingredients === "string") {
+    try {
+      ingredients = JSON.parse(ingredients);
+    } catch {
+      ingredients = [];
+    }
+  }
+  ingredients = Array.isArray(ingredients) ? ingredients : [];
 
   const spiceLabels = ["Mild / Nicht scharf", "Leicht pikant", "Mittel scharf", "Sehr scharf", "Extrem scharf"];
   const spiceText = spiceLabels[spiceLevel] || "Mittel scharf";
 
   // Products and Ingredients list
-  const products = recipe.products || [];
-  const ingredients = Array.isArray(recipe.ingredientsJson) ? recipe.ingredientsJson : [];
+  const products = Array.isArray(recipe.products) ? recipe.products : [];
 
   let productsCardsHtml = "";
   let essentialProductIds = [];

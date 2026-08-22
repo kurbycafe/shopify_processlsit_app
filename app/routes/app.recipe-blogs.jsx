@@ -445,22 +445,55 @@ export default function RecipeBlogs() {
     setCookTimeMinutes(recipe.cookTimeMinutes || 15);
     setServings(recipe.servings || 2);
     setSpiceLevel(recipe.spiceLevel ?? 2);
-    setDietaryFlags(recipe.dietaryFlags || []);
     setImageUrl(recipe.imageUrl || "");
     setShopifyBlogId(recipe.shopifyBlogId || (blogs[0]?.id || ""));
 
-    if (recipe.translations) {
-      setTranslations(recipe.translations);
+    // Defensive parsing for translations
+    let parsedTranslations = recipe.translations;
+    if (typeof parsedTranslations === "string") {
+      try {
+        parsedTranslations = JSON.parse(parsedTranslations);
+      } catch {
+        parsedTranslations = null;
+      }
+    }
+    if (parsedTranslations && typeof parsedTranslations === "object") {
+      setTranslations({
+        ko: parsedTranslations.ko || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+        de: parsedTranslations.de || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+        en: parsedTranslations.en || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+      });
     } else {
       setTranslations({
-        ko: { title: recipe.title, subtitle: "", introduction: recipe.introduction, steps: recipe.steps },
-        de: { title: recipe.title, subtitle: "", introduction: recipe.introduction, steps: recipe.steps },
-        en: { title: recipe.title, subtitle: "", introduction: recipe.introduction, steps: recipe.steps },
+        ko: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+        de: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+        en: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
       });
     }
 
-    setIngredients(recipe.ingredientsJson || []);
-    setSelectedProducts(recipe.products || []);
+    // Defensive parsing for ingredients
+    let parsedIngredients = recipe.ingredientsJson;
+    if (typeof parsedIngredients === "string") {
+      try {
+        parsedIngredients = JSON.parse(parsedIngredients);
+      } catch {
+        parsedIngredients = [];
+      }
+    }
+    setIngredients(Array.isArray(parsedIngredients) ? parsedIngredients : []);
+
+    // Defensive parsing for dietary flags
+    let parsedFlags = recipe.dietaryFlags;
+    if (typeof parsedFlags === "string") {
+      try {
+        parsedFlags = JSON.parse(parsedFlags);
+      } catch {
+        parsedFlags = [];
+      }
+    }
+    setDietaryFlags(Array.isArray(parsedFlags) ? parsedFlags : []);
+
+    setSelectedProducts(Array.isArray(recipe.products) ? recipe.products : []);
   };
 
   // Reset editor for new recipe
@@ -499,13 +532,17 @@ export default function RecipeBlogs() {
     setDietaryFlags(preset.dietaryFlags || []);
     setImageUrl(preset.imageUrl || "");
     setShopifyBlogId(blogs[0]?.id || "");
-    setTranslations(preset.translations);
+    setTranslations(preset.translations || {
+      ko: { title: "", subtitle: "", introduction: "", steps: "" },
+      de: { title: "", subtitle: "", introduction: "", steps: "" },
+      en: { title: "", subtitle: "", introduction: "", steps: "" },
+    });
     setIngredients(preset.defaultIngredients || []);
 
     setToastMessage({
       type: "success",
       title: "프리셋 적용 완료",
-      content: `[${preset.translations.ko?.title}] 프리셋의 다국어 텍스트 및 기본 식재료가 로드되었습니다. 이제 상점 상품을 매칭해 주세요.`,
+      content: `[${preset.translations?.ko?.title || preset.translations?.de?.title || ""}] 프리셋의 다국어 텍스트 및 기본 식재료가 로드되었습니다. 이제 상점 상품을 매칭해 주세요.`,
     });
   };
 
@@ -517,7 +554,7 @@ export default function RecipeBlogs() {
 
   // Submit action (Save or Publish)
   const handleSubmitForm = (intent) => {
-    const mainTitle = translations.de?.title || translations.ko?.title;
+    const mainTitle = translations.de?.title || translations.ko?.title || translations.en?.title;
     if (!mainTitle) {
       alert("레시피 제목(독일어 또는 한국어)을 입력해 주세요.");
       return;
@@ -575,13 +612,13 @@ export default function RecipeBlogs() {
   const filteredRecipes = recipes.filter((r) => {
     if (!listSearchQuery.trim()) return true;
     const q = listSearchQuery.toLowerCase();
-    return r.title.toLowerCase().includes(q) || (r.category && r.category.toLowerCase().includes(q));
+    return (r.title && r.title.toLowerCase().includes(q)) || (r.category && r.category.toLowerCase().includes(q));
   });
 
   // Current draft object for preview modal
   const previewRecipeObject = {
     id: selectedRecipe?.id || "preview_recipe_id",
-    title: translations.de?.title || translations.ko?.title || "레시피 제목",
+    title: translations.de?.title || translations.ko?.title || translations.en?.title || "레시피 제목",
     introduction: translations.de?.introduction || translations.ko?.introduction || "",
     steps: translations.de?.steps || translations.ko?.steps || "",
     imageUrl,
@@ -696,10 +733,8 @@ export default function RecipeBlogs() {
                                     variant="tertiary"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      window.open(
-                                        `${shopUrl}/blogs/news/${recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-                                        "_blank"
-                                      );
+                                      const slug = encodeURIComponent(recipe.title || "");
+                                      window.open(`${shopUrl}/blogs/news/${slug}`, "_blank");
                                     }}
                                   >
                                     상점 보기

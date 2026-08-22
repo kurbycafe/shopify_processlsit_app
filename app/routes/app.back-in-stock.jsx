@@ -20,10 +20,12 @@ import {
   CheckCircleIcon,
   ClockIcon,
   SendIcon,
+  RefreshIcon,
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { sendBackInStockEmail } from "../utils/emailService";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -84,7 +86,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
   const formData = await request.formData();
@@ -92,17 +94,45 @@ export const action = async ({ request }) => {
   const subscriptionId = formData.get("subscriptionId");
   const variantId = formData.get("variantId");
 
+  // 1. 단일 고객 수동 발송
   if (intent === "notify_single" && subscriptionId) {
-    await prisma.backInStockSubscription.update({
+    const sub = await prisma.backInStockSubscription.findUnique({
       where: { id: String(subscriptionId) },
-      data: {
-        status: "NOTIFIED",
-        notifiedAt: new Date(),
-      },
     });
-    return { success: true, message: "알림 발송 처리되었습니다." };
+
+    if (!sub) {
+      return { success: false, error: "신청 내역을 찾을 수 없습니다." };
+    }
+
+    try {
+      if (sub.email && sub.email.includes("@")) {
+        await sendBackInStockEmail({
+          email: sub.email,
+          productTitle: sub.productTitle,
+          variantTitle: sub.variantTitle,
+          shopDomain: shop,
+        });
+      }
+
+      await prisma.backInStockSubscription.update({
+        where: { id: sub.id },
+        data: {
+          status: "NOTIFIED",
+          notifiedAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        message: `${sub.email} 고객님께 재입고 알림 이메일이 성공적으로 발송되었습니다.`,
+      };
+    } catch (err) {
+      console.error("Single email send error:", err);
+      return { success: false, error: `이메일 발송 실패: ${err.message}` };
+    }
   }
 
+  // 2. 단일 신청 취소 처리
   if (intent === "cancel_single" && subscriptionId) {
     await prisma.backInStockSubscription.update({
       where: { id: String(subscriptionId) },
@@ -113,19 +143,161 @@ export const action = async ({ request }) => {
     return { success: true, message: "알림 신청이 취소 처리되었습니다." };
   }
 
+  // 3. 특정 품목의 모든 대기자 일괄 수동 발송
   if (intent === "notify_variant" && variantId) {
-    const updated = await prisma.backInStockSubscription.updateMany({
+    const pendingList = await prisma.backInStockSubscription.findMany({
       where: {
         shop,
         variantId: String(variantId),
         status: "PENDING",
       },
-      data: {
-        status: "NOTIFIED",
-        notifiedAt: new Date(),
+    });
+
+    if (pendingList.length === 0) {
+      return { success: true, message: "발송 대기 중인 신청자가 없습니다." };
+    }
+
+    let sentCount = 0;
+    let failCount = 0;
+
+    for (const sub of pendingList) {
+      try {
+        if (sub.email && sub.email.includes("@")) {
+          await sendBackInStockEmail({
+            email: sub.email,
+            productTitle: sub.productTitle,
+            variantTitle: sub.variantTitle,
+            shopDomain: shop,
+          });
+          sentCount++;
+        }
+
+        await prisma.backInStockSubscription.update({
+          where: { id: sub.id },
+          data: {
+            status: "NOTIFIED",
+            notifiedAt: new Date(),
+          },
+        });
+      } catch (err) {
+        console.error(`Batch send error for ${sub.email}:`, err);
+        failCount++;
+      }
+    }
+
+    return {
+      success: true,
+      message: `${sentCount}명의 신청자에게 재입고 알림 이메일이 발송되었습니다.${
+        failCount > 0 ? ` (실패 ${failCount}건)` : ""
+      }`,
+    };
+  }
+
+  // 4. 실시간 재고 대조 및 입고 상품 대기자 일괄 자동 발송
+  if (intent === "scan_and_notify_instock") {
+    const pendingList = await prisma.backInStockSubscription.findMany({
+      where: {
+        shop,
+        status: "PENDING",
       },
     });
-    return { success: true, message: `${updated.count}명의 신청자에게 알림이 발송되었습니다.` };
+
+    if (pendingList.length === 0) {
+      return { success: true, message: "현재 재입고 알림을 대기 중인 고객이 없습니다." };
+    }
+
+    // Extract unique variant GIDs
+    const variantIdMap = new Map();
+    pendingList.forEach((sub) => {
+      const gid = sub.variantId.startsWith("gid://")
+        ? sub.variantId
+        : `gid://shopify/ProductVariant/${sub.variantId}`;
+      if (!variantIdMap.has(gid)) {
+        variantIdMap.set(gid, []);
+      }
+      variantIdMap.get(gid).push(sub);
+    });
+
+    const gids = Array.from(variantIdMap.keys());
+    let notifiedSubscribersCount = 0;
+    let inStockVariantsCount = 0;
+
+    try {
+      const queryResponse = await admin.graphql(
+        `#graphql
+        query getStockLevels($ids: [ID!]!) {
+          nodes(ids: $ids) {
+            ... on ProductVariant {
+              id
+              title
+              inventoryQuantity
+              availableForSale
+              product {
+                id
+                title
+                handle
+              }
+            }
+          }
+        }`,
+        { variables: { ids: gids } }
+      );
+
+      const json = await queryResponse.json();
+      const nodes = json.data?.nodes || [];
+
+      for (const variant of nodes) {
+        if (!variant) continue;
+        const isAvailable = variant.availableForSale === true || (variant.inventoryQuantity && variant.inventoryQuantity > 0);
+
+        if (isAvailable) {
+          inStockVariantsCount++;
+          const matchingSubs = variantIdMap.get(variant.id) || [];
+          const productHandle = variant.product?.handle || "";
+          const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
+
+          for (const sub of matchingSubs) {
+            try {
+              if (sub.email && sub.email.includes("@")) {
+                await sendBackInStockEmail({
+                  email: sub.email,
+                  productTitle: sub.productTitle || variant.product?.title || "상품",
+                  variantTitle: sub.variantTitle || variant.title,
+                  productUrl: productUrl,
+                  shopDomain: shop,
+                });
+                notifiedSubscribersCount++;
+              }
+
+              await prisma.backInStockSubscription.update({
+                where: { id: sub.id },
+                data: {
+                  status: "NOTIFIED",
+                  notifiedAt: new Date(),
+                },
+              });
+            } catch (err) {
+              console.error(`Automated stock match send error for ${sub.email}:`, err);
+            }
+          }
+        }
+      }
+
+      if (inStockVariantsCount === 0) {
+        return {
+          success: true,
+          message: "대기 중인 품목 중 현재 입고된(재고 > 0) 상품이 없습니다.",
+        };
+      }
+
+      return {
+        success: true,
+        message: `재고 감지 완료: 입고된 ${inStockVariantsCount}개 품목의 대기 고객 ${notifiedSubscribersCount}명에게 재입고 알림 이메일이 자동 발송되었습니다.`,
+      };
+    } catch (err) {
+      console.error("Scan and notify error:", err);
+      return { success: false, error: `재고 조회 중 오류 발생: ${err.message}` };
+    }
   }
 
   return { success: false, error: "알 수 없는 요청입니다." };
@@ -146,6 +318,9 @@ export default function BackInStockAdmin() {
       sub.email.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesStatus && matchesQuery;
   });
+
+  const isScanning =
+    fetcher.state !== "idle" && fetcher.formData?.get("intent") === "scan_and_notify_instock";
 
   const topProductRows = topProducts.map((p) => [
     <BlockStack key={p.variantId} gap="050">
@@ -171,9 +346,9 @@ export default function BackInStockAdmin() {
         size="micro"
         icon={SendIcon}
         variant="primary"
-        loading={fetcher.state !== "idle"}
+        loading={fetcher.state !== "idle" && fetcher.formData?.get("variantId") === p.variantId}
       >
-        일괄 알림 발송
+        이 품목 일괄 발송
       </Button>
     </fetcher.Form>,
   ]);
@@ -214,8 +389,11 @@ export default function BackInStockAdmin() {
         <fetcher.Form method="post">
           <input type="hidden" name="intent" value="notify_single" />
           <input type="hidden" name="subscriptionId" value={sub.id} />
-          <Button size="micro" loading={fetcher.state !== "idle"}>
-            알림 전송
+          <Button
+            size="micro"
+            loading={fetcher.state !== "idle" && fetcher.formData?.get("subscriptionId") === sub.id}
+          >
+            이메일 발송
           </Button>
         </fetcher.Form>
         <fetcher.Form method="post">
@@ -236,26 +414,38 @@ export default function BackInStockAdmin() {
   return (
     <Page
       title="재입고 알림 신청 관리 (Back-in-Stock)"
-      subtitle="품절 상품에 대한 고객의 재입고 알림 신청 내역 및 발주 우선순위 리포트입니다."
+      subtitle="품절 상품에 대한 고객의 재입고 알림 신청 내역 및 Brevo 이메일 발송 자동화 시스템입니다."
+      primaryAction={{
+        content: "실시간 재고 확인 & 입고 상품 대기자 자동 발송",
+        icon: RefreshIcon,
+        loading: isScanning,
+        onAction: () => {
+          const formData = new FormData();
+          formData.append("intent", "scan_and_notify_instock");
+          fetcher.submit(formData, { method: "post" });
+        },
+      }}
     >
       <BlockStack gap="500">
         {fetcher.data?.message && (
-          <Banner tone="success" onDismiss={() => { }}>
+          <Banner tone="success" onDismiss={() => {}}>
             {fetcher.data.message}
           </Banner>
         )}
 
-        <Banner title="쇼핑몰 고객 화면(스토어프론트) 설치 방법" tone="info">
+        {fetcher.data?.error && (
+          <Banner tone="critical" onDismiss={() => {}}>
+            {fetcher.data.error}
+          </Banner>
+        )}
+
+        {/* 자동화 안내 배너 */}
+        <Banner title="재입고 알림 자동 및 수동 발송 시스템 안내" tone="info">
           <BlockStack gap="200">
             <Text variant="bodyMd" as="p">
-              고객 화면에 재입고 알림 버튼을 표시하려면 쇼피파이 테마에 아래 스크립트를 1줄 추가해 주세요.
+              1. <strong>실시간 자동 발송</strong>: Shopify 또는 Odoo에서 컨테이너 상품이 입고되어 재고가 1개 이상으로 변경되면 웹훅을 통해 대기 고객에게 이메일이 자동 발송됩니다.<br />
+              2. <strong>수동 즉시 발송</strong>: 상단의 <strong>[실시간 재고 확인 &amp; 입고 상품 대기자 자동 발송]</strong> 버튼을 누르거나, 각 품목별 <strong>[이 품목 일괄 발송]</strong>을 눌러 언제든 즉시 이메일을 보낼 수 있습니다.
             </Text>
-            <Text variant="bodySm" as="p" tone="subdued">
-              경로: <strong>쇼피파이 어드민 &gt; Online Store &gt; Themes &gt; Edit code &gt; layout/theme.liquid</strong> (<code>&lt;/head&gt;</code> 직전에 추가)
-            </Text>
-            <pre style={{ background: "#f1f5f9", padding: "10px", borderRadius: "6px", overflowX: "auto", fontSize: "13px" }}>
-              {`<script src="https://process-list-beryl.vercel.app/back-in-stock.js" defer></script>`}
-            </pre>
           </BlockStack>
         </Banner>
 
@@ -274,7 +464,7 @@ export default function BackInStockAdmin() {
                   {`${pendingCount} 명`}
                 </Text>
                 <Text variant="bodySm" tone="subdued">
-                  입고 시 자동/수동 통보 예정
+                  입고 시 자동/수동 통보 대상
                 </Text>
               </BlockStack>
             </Card>
@@ -293,7 +483,7 @@ export default function BackInStockAdmin() {
                   {`${notifiedCount} 건`}
                 </Text>
                 <Text variant="bodySm" tone="subdued">
-                  재입고 통보가 완료된 총 수
+                  Brevo 이메일 발송 완료된 총 수
                 </Text>
               </BlockStack>
             </Card>
@@ -322,13 +512,13 @@ export default function BackInStockAdmin() {
         {/* Top 10 알림 신청 품목 (발주 우선순위) */}
         <Card>
           <BlockStack gap="400">
-            <InlineStack align="space-between">
+            <InlineStack align="space-between" blockAlign="center">
               <BlockStack gap="100">
                 <Text variant="headingMd" as="h2">
-                  가장 요청이 많은 품목 Top 10
+                  가장 요청이 많은 품목 Top 10 (발주 우선순위)
                 </Text>
                 <Text variant="bodySm" tone="subdued">
-                  고객 수요가 높은 품목입니다. 컨테이너 입고 시 우선 검수 및 발주에 참고하세요.
+                  컨테이너 입고 후 [이 품목 일괄 발송]을 누르면 해당 품목의 모든 대기자에게 이메일이 발송됩니다.
                 </Text>
               </BlockStack>
             </InlineStack>
