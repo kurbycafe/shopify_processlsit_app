@@ -64,7 +64,7 @@ export async function loader({ request }) {
           }
         }
       }`,
-      { variables: { query: `title:*${searchProducts}* OR tag:*${searchProducts}*` } }
+      { variables: { query: `title:*${search}* OR tag:*${search}*` } }
     );
     const json = await response.json();
     const products = json.data?.products?.nodes || [];
@@ -72,11 +72,13 @@ export async function loader({ request }) {
   }
 
   // Fetch local recipes with products
-  const recipes = await prisma.recipe.findMany({
+  const rawRecipes = await prisma.recipe.findMany({
     where: { shop },
     include: { products: true },
     orderBy: { createdAt: "desc" },
   });
+
+  const recipes = rawRecipes.map(unpackRecipe);
 
   // Fetch store blogs (to target where to post the article)
   let blogs = [];
@@ -160,7 +162,7 @@ export async function action({ request }) {
           }
         );
       } catch (err) {
-        console.error("Error deleting Article in Shopify:", err);
+        console.error("Failed to delete article on Shopify:", err);
       }
     }
 
@@ -171,9 +173,9 @@ export async function action({ request }) {
     return Response.json({ success: true, message: "레시피가 삭제되었습니다." });
   }
 
-  // Action: SAVE (Draft) or PUBLISH
+  // Action: SAVE (Create or Update Draft) / PUBLISH
   if (intent === "save" || intent === "publish") {
-    const id = formData.get("id") || undefined;
+    const id = formData.get("id");
     const title = formData.get("title");
     const category = formData.get("category") || "STREET_FOOD";
     const occasion = formData.get("occasion") || "QUICK_MEAL";
@@ -196,12 +198,8 @@ export async function action({ request }) {
       ? translations.de.steps.join("\n")
       : (translations.de?.steps || translations.ko?.steps || "");
 
-    const dataPayload = {
-      shop,
-      title,
-      introduction: deIntro,
-      steps: deSteps,
-      imageUrl,
+    const stepsPayload = JSON.stringify({
+      stepsText: deSteps,
       category,
       occasion,
       difficulty,
@@ -212,65 +210,62 @@ export async function action({ request }) {
       dietaryFlags,
       translations,
       ingredientsJson,
+      bundlesJson: [],
+    });
+
+    const dataPayload = {
+      shop,
+      title,
+      introduction: deIntro,
+      steps: stepsPayload,
+      imageUrl,
       shopifyBlogId,
     };
 
-    let recipe;
+    let rawRecipe;
     if (id) {
       // Clear previous products and update
       await prisma.recipeProduct.deleteMany({
         where: { recipeId: id },
       });
 
-      recipe = await prisma.recipe.update({
+      rawRecipe = await prisma.recipe.update({
         where: { id },
         data: {
           ...dataPayload,
           products: {
             create: productsData.map((p) => ({
-              productId: p.productId,
-              variantId: p.variantId,
-              title: p.title,
+              productId: String(p.productId || ""),
+              variantId: String(p.variantId || ""),
+              title: String(p.title || ""),
               variantTitle: p.variantTitle || "",
               price: String(p.price || ""),
               imageUrl: p.imageUrl || "",
-              ingredientName: p.ingredientName || "",
-              matchTier: p.matchTier || "PRIMARY",
-              confidenceScore: parseFloat(p.confidenceScore || 1.0),
-              isApproved: p.isApproved !== false,
-              requiredQuantity: parseInt(p.requiredQuantity || 1, 10),
-              unit: p.unit || "pack",
-              isAvailable: p.isAvailable !== false,
             })),
           },
         },
         include: { products: true },
       });
     } else {
-      recipe = await prisma.recipe.create({
+      rawRecipe = await prisma.recipe.create({
         data: {
           ...dataPayload,
           products: {
             create: productsData.map((p) => ({
-              productId: p.productId,
-              variantId: p.variantId,
-              title: p.title,
+              productId: String(p.productId || ""),
+              variantId: String(p.variantId || ""),
+              title: String(p.title || ""),
               variantTitle: p.variantTitle || "",
               price: String(p.price || ""),
               imageUrl: p.imageUrl || "",
-              ingredientName: p.ingredientName || "",
-              matchTier: p.matchTier || "PRIMARY",
-              confidenceScore: parseFloat(p.confidenceScore || 1.0),
-              isApproved: p.isApproved !== false,
-              requiredQuantity: parseInt(p.requiredQuantity || 1, 10),
-              unit: p.unit || "pack",
-              isAvailable: p.isAvailable !== false,
             })),
           },
         },
         include: { products: true },
       });
     }
+
+    let recipe = unpackRecipe(rawRecipe);
 
     // Handle publishing to Shopify Blog Article
     if (intent === "publish") {
