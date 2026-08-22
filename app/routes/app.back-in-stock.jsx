@@ -1,38 +1,66 @@
-import { useState } from "react";
-import { useLoaderData, useFetcher } from "react-router";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  useLoaderData,
+  useFetcher,
+  useSearchParams,
+} from "react-router";
 import {
   Page,
-  Layout,
-  Card,
-  Text,
   BlockStack,
-  InlineStack,
-  Badge,
-  DataTable,
-  Button,
-  Select,
-  TextField,
   Banner,
-  Icon,
+  Card,
+  Box,
 } from "@shopify/polaris";
-import {
-  NotificationIcon,
-  CheckCircleIcon,
-  ClockIcon,
-  SendIcon,
-  RefreshIcon,
-} from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { sendBackInStockEmail } from "../utils/emailService";
+import { getEtaFromOdoo } from "./api.back-in-stock.subscribe";
+import {
+  getDemandLevel,
+  getEtaStageInfo,
+  exportSubscriptionsToCsv,
+} from "../utils/backInStockHelpers";
+
+import BackInStockHeader from "../components/backInStock/BackInStockHeader";
+import BackInStockKpiGrid from "../components/backInStock/BackInStockKpiGrid";
+import BackInStockControlBar from "../components/backInStock/BackInStockControlBar";
+import BackInStockBulkBar from "../components/backInStock/BackInStockBulkBar";
+import BackInStockProductTable from "../components/backInStock/BackInStockProductTable";
+import BackInStockSubscriberTable from "../components/backInStock/BackInStockSubscriberTable";
+import BackInStockPagination from "../components/backInStock/BackInStockPagination";
+import BackInStockDetailDrawer from "../components/backInStock/BackInStockDetailDrawer";
+import BackInStockEmailPreviewModal from "../components/backInStock/BackInStockEmailPreviewModal";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // 1. 전체 통계
-  const pendingCount = await prisma.backInStockSubscription.count({
+  const url = new URL(request.url);
+  const viewMode = url.searchParams.get("view") || "products"; // "products" or "subscribers"
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+  const limit = Math.min(100, Math.max(10, parseInt(url.searchParams.get("limit") || "25", 10)));
+  const search = (url.searchParams.get("search") || "").trim();
+  const statusFilter = url.searchParams.get("status") || "ALL";
+  const etaFilter = url.searchParams.get("eta") || "ALL";
+  const demandFilter = url.searchParams.get("demand") || "ALL";
+  const channelFilter = url.searchParams.get("channel") || "ALL";
+  const dateRangeFilter = url.searchParams.get("dateRange") || "ALL";
+  const kpiFilter = url.searchParams.get("kpiFilter") || "ALL";
+  const exportCsv = url.searchParams.get("exportCsv") === "true";
+  const drawerVariantId = url.searchParams.get("drawerVariantId");
+
+  // If requesting detail drawer subscribers
+  if (drawerVariantId) {
+    const drawerSubscribers = await prisma.backInStockSubscription.findMany({
+      where: { shop, variantId: drawerVariantId },
+      orderBy: { createdAt: "desc" },
+    });
+    return Response.json({ drawerSubscribers });
+  }
+
+  // --- 1. Global KPI Aggregations ---
+  const pendingSubscribersCount = await prisma.backInStockSubscription.count({
     where: { shop, status: "PENDING" },
   });
 
@@ -44,44 +72,189 @@ export const loader = async ({ request }) => {
     where: { shop, status: "CANCELLED" },
   });
 
-  // 2. 가장 알림 신청이 많은 품목 Top 10 (주문/발주 참고용)
-  const topProductsRaw = await prisma.backInStockSubscription.groupBy({
-    by: ["productId", "variantId", "productTitle", "variantTitle", "etaDate"],
-    where: { shop, status: "PENDING" },
-    _count: {
-      id: true,
-    },
-    orderBy: {
-      _count: {
-        id: "desc",
-      },
-    },
-    take: 10,
-  });
-
-  const topProducts = topProductsRaw.map((item) => ({
-    productId: item.productId,
-    variantId: item.variantId,
-    productTitle: item.productTitle,
-    variantTitle: item.variantTitle,
-    etaDate: item.etaDate || "미정",
-    count: item._count.id,
-  }));
-
-  // 3. 전체 신청자 리스트 (최근 50건)
-  const subscriptions = await prisma.backInStockSubscription.findMany({
+  // Group by variant to get product-level aggregates
+  const allVariantGroups = await prisma.backInStockSubscription.groupBy({
+    by: ["variantId", "productId", "productTitle", "variantTitle", "sku", "etaDate", "etaSource"],
     where: { shop },
-    orderBy: { createdAt: "desc" },
-    take: 50,
+    _count: { id: true },
+    orderBy: { _count: { id: "desc" } },
   });
+
+  // Calculate pending count per variant
+  const pendingVariantGroups = await prisma.backInStockSubscription.groupBy({
+    by: ["variantId"],
+    where: { shop, status: "PENDING" },
+    _count: { id: true },
+  });
+  const pendingMap = new Map(pendingVariantGroups.map((g) => [g.variantId, g._count.id]));
+
+  const todayStr = dayjs().format("YYYY-MM-DD");
+
+  let highDemandProductsCount = 0;
+  let arrivingSoonCount = 0;
+  let etaOverdueCount = 0;
+  let etaUnknownCount = 0;
+  let needsAttentionCount = 0;
+
+  const productAggregates = allVariantGroups.map((g) => {
+    const totalCount = g._count.id;
+    const pendingCount = pendingMap.get(g.variantId) || 0;
+    const etaStage = getEtaStageInfo(g.etaDate);
+    const demand = getDemandLevel(pendingCount);
+
+    if (demand.level === "HIGH" || demand.level === "VERY_HIGH") {
+      highDemandProductsCount++;
+    }
+    if (etaStage.stage === "ARRIVING_SOON" || etaStage.stage === "TODAY") {
+      arrivingSoonCount++;
+    }
+    if (etaStage.stage === "OVERDUE") {
+      etaOverdueCount++;
+    }
+    if (etaStage.stage === "UNKNOWN") {
+      etaUnknownCount++;
+    }
+    if ((demand.level === "HIGH" && etaStage.stage === "UNKNOWN") || etaStage.stage === "OVERDUE") {
+      needsAttentionCount++;
+    }
+
+    return {
+      variantId: g.variantId,
+      productId: g.productId,
+      productTitle: g.productTitle,
+      variantTitle: g.variantTitle,
+      sku: g.sku,
+      etaDate: g.etaDate,
+      etaSource: g.etaSource,
+      subscriberCount: totalCount,
+      pendingCount: pendingCount,
+      etaStage: etaStage.stage,
+      demandLevel: demand.level,
+    };
+  });
+
+  // --- 2. CSV Export Mode ---
+  if (exportCsv) {
+    const allRows = await prisma.backInStockSubscription.findMany({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+    });
+    const csvContent = exportSubscriptionsToCsv(allRows);
+    return new Response(csvContent, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="back-in-stock-${dayjs().format("YYYYMMDD-HHmmss")}.csv"`,
+      },
+    });
+  }
+
+  // --- 3. View Mode: Products View vs Subscribers View ---
+  let totalCount = 0;
+  let paginatedProducts = [];
+  let paginatedSubscribers = [];
+
+  if (viewMode === "products") {
+    // Filter product aggregates
+    let filtered = productAggregates.filter((p) => {
+      // Search
+      if (search) {
+        const q = search.toLowerCase();
+        const matches =
+          (p.productTitle && p.productTitle.toLowerCase().includes(q)) ||
+          (p.variantTitle && p.variantTitle.toLowerCase().includes(q)) ||
+          (p.sku && p.sku.toLowerCase().includes(q));
+        if (!matches) return false;
+      }
+
+      // Status
+      if (statusFilter === "PENDING" && p.pendingCount === 0) return false;
+      if (statusFilter === "NOTIFIED" && p.pendingCount > 0) return false;
+
+      // ETA Filter
+      if (etaFilter !== "ALL" && p.etaStage !== etaFilter) return false;
+
+      // Demand Filter
+      if (demandFilter !== "ALL" && p.demandLevel !== demandFilter) return false;
+
+      // KPI Filter Drilldowns
+      if (kpiFilter === "NEEDS_ATTENTION") {
+        const isAttn = (p.demandLevel === "HIGH" && p.etaStage === "UNKNOWN") || p.etaStage === "OVERDUE";
+        if (!isAttn) return false;
+      }
+      if (kpiFilter === "HIGH_DEMAND" && p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH") return false;
+      if (kpiFilter === "ARRIVING_SOON" && p.etaStage !== "ARRIVING_SOON" && p.etaStage !== "TODAY") return false;
+      if (kpiFilter === "ETA_OVERDUE" && p.etaStage !== "OVERDUE") return false;
+      if (kpiFilter === "ETA_UNKNOWN" && p.etaStage !== "UNKNOWN") return false;
+
+      return true;
+    });
+
+    totalCount = filtered.length;
+    const start = (page - 1) * limit;
+    paginatedProducts = filtered.slice(start, start + limit);
+  } else {
+    // Subscribers View (Prisma Query with Server-side Pagination)
+    const whereClause = {
+      shop,
+    };
+
+    if (search) {
+      whereClause.OR = [
+        { productTitle: { contains: search, mode: "insensitive" } },
+        { variantTitle: { contains: search, mode: "insensitive" } },
+        { sku: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { phone: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    if (statusFilter !== "ALL") {
+      whereClause.status = statusFilter;
+    }
+
+    if (channelFilter !== "ALL") {
+      whereClause.channel = channelFilter;
+    }
+
+    if (dateRangeFilter === "TODAY") {
+      whereClause.createdAt = { gte: dayjs().startOf("day").toDate() };
+    } else if (dateRangeFilter === "LAST_7D") {
+      whereClause.createdAt = { gte: dayjs().subtract(7, "day").toDate() };
+    } else if (dateRangeFilter === "LAST_30D") {
+      whereClause.createdAt = { gte: dayjs().subtract(30, "day").toDate() };
+    }
+
+    totalCount = await prisma.backInStockSubscription.count({ where: whereClause });
+    paginatedSubscribers = await prisma.backInStockSubscription.findMany({
+      where: whereClause,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+  }
+
+  const totalPages = Math.ceil(totalCount / limit);
 
   return {
     shop,
-    pendingCount,
-    notifiedCount,
-    cancelledCount,
-    topProducts,
-    subscriptions,
+    lastSyncedAt: new Date().toISOString(),
+    viewMode,
+    page,
+    limit,
+    totalCount,
+    totalPages,
+    products: paginatedProducts,
+    subscribers: paginatedSubscribers,
+    kpiData: {
+      needsAttentionCount,
+      pendingSubscribersCount,
+      highDemandProductsCount,
+      arrivingSoonCount,
+      etaOverdueCount,
+      etaUnknownCount,
+      notifiedCount,
+      cancelledCount,
+    },
   };
 };
 
@@ -91,28 +264,25 @@ export const action = async ({ request }) => {
 
   const formData = await request.formData();
   const intent = formData.get("intent");
-  const subscriptionId = formData.get("subscriptionId");
-  const variantId = formData.get("variantId");
 
-  // 1. 단일 고객 수동 발송
-  if (intent === "notify_single" && subscriptionId) {
+  // 1. 단일 고객 알림 발송
+  if (intent === "notify_single") {
+    const subscriptionId = formData.get("subscriptionId");
     const sub = await prisma.backInStockSubscription.findUnique({
       where: { id: String(subscriptionId) },
     });
 
-    if (!sub) {
-      return { success: false, error: "신청 내역을 찾을 수 없습니다." };
+    if (!sub || !sub.email) {
+      return Response.json({ success: false, error: "유효한 이메일 정보를 찾을 수 없습니다." }, { status: 400 });
     }
 
     try {
-      if (sub.email && sub.email.includes("@")) {
-        await sendBackInStockEmail({
-          email: sub.email,
-          productTitle: sub.productTitle,
-          variantTitle: sub.variantTitle,
-          shopDomain: shop,
-        });
-      }
+      await sendBackInStockEmail({
+        email: sub.email,
+        productTitle: sub.productTitle || "상품",
+        variantTitle: sub.variantTitle || "",
+        shopDomain: shop,
+      });
 
       await prisma.backInStockSubscription.update({
         where: { id: sub.id },
@@ -122,29 +292,29 @@ export const action = async ({ request }) => {
         },
       });
 
-      return {
+      return Response.json({
         success: true,
-        message: `${sub.email} 고객님께 재입고 알림 이메일이 성공적으로 발송되었습니다.`,
-      };
+        message: `${sub.email} 고객님께 재입고 알림 이메일이 발송되었습니다.`,
+      });
     } catch (err) {
       console.error("Single email send error:", err);
-      return { success: false, error: `이메일 발송 실패: ${err.message}` };
+      return Response.json({ success: false, error: `이메일 발송 실패: ${err.message}` }, { status: 500 });
     }
   }
 
-  // 2. 단일 신청 취소 처리
-  if (intent === "cancel_single" && subscriptionId) {
+  // 2. 단일 신청 취소
+  if (intent === "cancel_single") {
+    const subscriptionId = formData.get("subscriptionId");
     await prisma.backInStockSubscription.update({
       where: { id: String(subscriptionId) },
-      data: {
-        status: "CANCELLED",
-      },
+      data: { status: "CANCELLED" },
     });
-    return { success: true, message: "알림 신청이 취소 처리되었습니다." };
+    return Response.json({ success: true, message: "알림 신청이 취소 처리되었습니다." });
   }
 
-  // 3. 특정 품목의 모든 대기자 일괄 수동 발송
-  if (intent === "notify_variant" && variantId) {
+  // 3. 특정 품목(Variant) 대기자 전체 일괄 발송
+  if (intent === "notify_variant") {
+    const variantId = formData.get("variantId");
     const pendingList = await prisma.backInStockSubscription.findMany({
       where: {
         shop,
@@ -154,12 +324,10 @@ export const action = async ({ request }) => {
     });
 
     if (pendingList.length === 0) {
-      return { success: true, message: "발송 대기 중인 신청자가 없습니다." };
+      return Response.json({ success: true, message: "발송 대기 중인 신청자가 없습니다." });
     }
 
     let sentCount = 0;
-    let failCount = 0;
-
     for (const sub of pendingList) {
       try {
         if (sub.email && sub.email.includes("@")) {
@@ -171,42 +339,138 @@ export const action = async ({ request }) => {
           });
           sentCount++;
         }
-
         await prisma.backInStockSubscription.update({
           where: { id: sub.id },
-          data: {
-            status: "NOTIFIED",
-            notifiedAt: new Date(),
-          },
+          data: { status: "NOTIFIED", notifiedAt: new Date() },
         });
       } catch (err) {
         console.error(`Batch send error for ${sub.email}:`, err);
-        failCount++;
       }
     }
 
-    return {
+    return Response.json({
       success: true,
-      message: `${sentCount}명의 신청자에게 재입고 알림 이메일이 발송되었습니다.${
-        failCount > 0 ? ` (실패 ${failCount}건)` : ""
-      }`,
-    };
+      message: `${sentCount}명의 대기 고객에게 재입고 알림 이메일이 발송되었습니다.`,
+    });
   }
 
-  // 4. 실시간 재고 대조 및 입고 상품 대기자 일괄 자동 발송
+  // 4. 다중 선택 일괄 알림 발송 (Bulk Notify)
+  if (intent === "batch_notify") {
+    const idsJson = formData.get("ids") || "[]";
+    const mode = formData.get("mode") || "products"; // "products" or "subscribers"
+    const ids = JSON.parse(idsJson);
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return Response.json({ success: false, error: "선택된 항목이 없습니다." }, { status: 400 });
+    }
+
+    let pendingList = [];
+    if (mode === "products") {
+      pendingList = await prisma.backInStockSubscription.findMany({
+        where: { shop, variantId: { in: ids }, status: "PENDING" },
+      });
+    } else {
+      pendingList = await prisma.backInStockSubscription.findMany({
+        where: { shop, id: { in: ids }, status: "PENDING" },
+      });
+    }
+
+    let sentCount = 0;
+    for (const sub of pendingList) {
+      try {
+        if (sub.email && sub.email.includes("@")) {
+          await sendBackInStockEmail({
+            email: sub.email,
+            productTitle: sub.productTitle,
+            variantTitle: sub.variantTitle,
+            shopDomain: shop,
+          });
+          sentCount++;
+        }
+        await prisma.backInStockSubscription.update({
+          where: { id: sub.id },
+          data: { status: "NOTIFIED", notifiedAt: new Date() },
+        });
+      } catch (err) {
+        console.error(`Bulk send error for ${sub.email}:`, err);
+      }
+    }
+
+    return Response.json({
+      success: true,
+      message: `일괄 발송 완료: 총 ${sentCount}명의 고객에게 알림이 발송되었습니다.`,
+    });
+  }
+
+  // 5. 다중 선택 일괄 취소 (Bulk Cancel)
+  if (intent === "batch_cancel") {
+    const idsJson = formData.get("ids") || "[]";
+    const mode = formData.get("mode") || "products";
+    const ids = JSON.parse(idsJson);
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return Response.json({ success: false, error: "선택된 항목이 없습니다." }, { status: 400 });
+    }
+
+    let count = 0;
+    if (mode === "products") {
+      const res = await prisma.backInStockSubscription.updateMany({
+        where: { shop, variantId: { in: ids }, status: "PENDING" },
+        data: { status: "CANCELLED" },
+      });
+      count = res.count;
+    } else {
+      const res = await prisma.backInStockSubscription.updateMany({
+        where: { shop, id: { in: ids } },
+        data: { status: "CANCELLED" },
+      });
+      count = res.count;
+    }
+
+    return Response.json({
+      success: true,
+      message: `총 ${count}건의 알림 신청이 일괄 취소 처리되었습니다.`,
+    });
+  }
+
+  // 6. Odoo ERP ETA 단일 품목 실시간 동기화
+  if (intent === "sync_odoo_eta") {
+    const sku = formData.get("sku");
+    const variantId = formData.get("variantId");
+
+    if (!sku) {
+      return Response.json({ success: false, error: "조회할 SKU 정보가 없습니다." }, { status: 400 });
+    }
+
+    const etaDate = await getEtaFromOdoo(sku);
+    if (!etaDate) {
+      return Response.json({
+        success: true,
+        message: `Odoo 전표 조회 완료: SKU [${sku}]에 입고 예정인 컨테이너가 없습니다.`,
+      });
+    }
+
+    await prisma.backInStockSubscription.updateMany({
+      where: { shop, variantId: String(variantId) },
+      data: { etaDate, etaSource: "ODOO" },
+    });
+
+    return Response.json({
+      success: true,
+      message: `Odoo 입고 예정일 동기화 완료: ${etaDate}`,
+    });
+  }
+
+  // 7. 실시간 재고 대조 & 입고 상품 자동 발송
   if (intent === "scan_and_notify_instock") {
     const pendingList = await prisma.backInStockSubscription.findMany({
-      where: {
-        shop,
-        status: "PENDING",
-      },
+      where: { shop, status: "PENDING" },
     });
 
     if (pendingList.length === 0) {
-      return { success: true, message: "현재 재입고 알림을 대기 중인 고객이 없습니다." };
+      return Response.json({ success: true, message: "현재 재입고 알림을 대기 중인 고객이 없습니다." });
     }
 
-    // Extract unique variant GIDs
     const variantIdMap = new Map();
     pendingList.forEach((sub) => {
       const gid = sub.variantId.startsWith("gid://")
@@ -219,11 +483,11 @@ export const action = async ({ request }) => {
     });
 
     const gids = Array.from(variantIdMap.keys());
-    let notifiedSubscribersCount = 0;
-    let inStockVariantsCount = 0;
+    let notifiedCount = 0;
+    let inStockCount = 0;
 
     try {
-      const queryResponse = await admin.graphql(
+      const queryRes = await admin.graphql(
         `#graphql
         query getStockLevels($ids: [ID!]!) {
           nodes(ids: $ids) {
@@ -243,15 +507,17 @@ export const action = async ({ request }) => {
         { variables: { ids: gids } }
       );
 
-      const json = await queryResponse.json();
+      const json = await queryRes.json();
       const nodes = json.data?.nodes || [];
 
       for (const variant of nodes) {
         if (!variant) continue;
-        const isAvailable = variant.availableForSale === true || (variant.inventoryQuantity && variant.inventoryQuantity > 0);
+        const isAvailable =
+          variant.availableForSale === true ||
+          (variant.inventoryQuantity && variant.inventoryQuantity > 0);
 
         if (isAvailable) {
-          inStockVariantsCount++;
+          inStockCount++;
           const matchingSubs = variantIdMap.get(variant.id) || [];
           const productHandle = variant.product?.handle || "";
           const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
@@ -266,317 +532,443 @@ export const action = async ({ request }) => {
                   productUrl: productUrl,
                   shopDomain: shop,
                 });
-                notifiedSubscribersCount++;
+                notifiedCount++;
               }
-
               await prisma.backInStockSubscription.update({
                 where: { id: sub.id },
-                data: {
-                  status: "NOTIFIED",
-                  notifiedAt: new Date(),
-                },
+                data: { status: "NOTIFIED", notifiedAt: new Date() },
               });
             } catch (err) {
-              console.error(`Automated stock match send error for ${sub.email}:`, err);
+              console.error(`Automated send error for ${sub.email}:`, err);
             }
           }
         }
       }
 
-      if (inStockVariantsCount === 0) {
-        return {
+      if (inStockCount === 0) {
+        return Response.json({
           success: true,
           message: "대기 중인 품목 중 현재 입고된(재고 > 0) 상품이 없습니다.",
-        };
+        });
       }
 
-      return {
+      return Response.json({
         success: true,
-        message: `재고 감지 완료: 입고된 ${inStockVariantsCount}개 품목의 대기 고객 ${notifiedSubscribersCount}명에게 재입고 알림 이메일이 자동 발송되었습니다.`,
-      };
+        message: `재고 감지 완료: 입고된 ${inStockCount}개 품목의 대기 고객 ${notifiedCount}명에게 재입고 알림 이메일이 자동 발송되었습니다.`,
+      });
     } catch (err) {
-      console.error("Scan and notify error:", err);
-      return { success: false, error: `재고 조회 중 오류 발생: ${err.message}` };
+      console.error("Scan error:", err);
+      return Response.json({ success: false, error: `재고 조회 중 오류 발생: ${err.message}` }, { status: 500 });
     }
   }
 
-  return { success: false, error: "알 수 없는 요청입니다." };
+  return Response.json({ success: false, error: "알 수 없는 요청입니다." }, { status: 400 });
 };
 
-export default function BackInStockAdmin() {
-  const { pendingCount, notifiedCount, cancelledCount, topProducts, subscriptions } = useLoaderData();
+export default function BackInStockDashboard() {
+  const {
+    shop,
+    lastSyncedAt,
+    viewMode,
+    page,
+    limit,
+    totalCount,
+    totalPages,
+    products,
+    subscribers,
+    kpiData,
+  } = useLoaderData();
+
+  const [searchParams, setSearchParams] = useSearchParams();
   const fetcher = useFetcher();
+  const drawerFetcher = useFetcher();
 
-  const [selectedStatus, setSelectedStatus] = useState("ALL");
-  const [searchQuery, setSearchQuery] = useState("");
+  // Local filter states synced with URL
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") || "");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "ALL");
+  const [etaFilter, setEtaFilter] = useState(searchParams.get("eta") || "ALL");
+  const [demandFilter, setDemandFilter] = useState(searchParams.get("demand") || "ALL");
+  const [channelFilter, setChannelFilter] = useState(searchParams.get("channel") || "ALL");
+  const [dateRangeFilter, setDateRangeFilter] = useState(searchParams.get("dateRange") || "ALL");
+  const [kpiFilter, setKpiFilter] = useState(searchParams.get("kpiFilter") || "ALL");
+  const [activePreset, setActivePreset] = useState("ALL");
 
-  const filteredSubscriptions = subscriptions.filter((sub) => {
-    const matchesStatus = selectedStatus === "ALL" || sub.status === selectedStatus;
-    const matchesQuery =
-      searchQuery === "" ||
-      sub.productTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      sub.email.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesQuery;
-  });
+  // Selection states
+  const [selectedVariantIds, setSelectedVariantIds] = useState([]);
+  const [selectedSubscriberIds, setSelectedSubscriberIds] = useState([]);
+
+  // Detail Drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeDrawerProduct, setActiveDrawerProduct] = useState(null);
+  const [drawerSubscribers, setDrawerSubscribers] = useState([]);
+
+  // Email Preview Modal state
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewProduct, setPreviewProduct] = useState(null);
+
+  // Sync and Notifying indicators
+  const [syncingVariantId, setSyncingVariantId] = useState(null);
+  const [notifyingVariantId, setNotifyingVariantId] = useState(null);
+  const [notifyingSubId, setNotifyingSubId] = useState(null);
+  const [cancellingSubId, setCancellingSubId] = useState(null);
 
   const isScanning =
     fetcher.state !== "idle" && fetcher.formData?.get("intent") === "scan_and_notify_instock";
+  const isBatchLoading =
+    fetcher.state !== "idle" &&
+    (fetcher.formData?.get("intent") === "batch_notify" ||
+      fetcher.formData?.get("intent") === "batch_cancel");
 
-  const topProductRows = topProducts.map((p) => [
-    <BlockStack key={p.variantId} gap="050">
-      <Text variant="bodyMd" fontWeight="bold">
-        {p.productTitle}
-      </Text>
-      {p.variantTitle && (
-        <Text variant="bodySm" tone="subdued">
-          {p.variantTitle}
-        </Text>
-      )}
-    </BlockStack>,
-    <Badge tone="attention" key={`eta-${p.variantId}`}>
-      {p.etaDate}
-    </Badge>,
-    <Badge tone="primary" key={`count-${p.variantId}`}>
-      {`${p.count}명`}
-    </Badge>,
-    <fetcher.Form method="post" key={`act-${p.variantId}`}>
-      <input type="hidden" name="intent" value="notify_variant" />
-      <input type="hidden" name="variantId" value={p.variantId} />
-      <Button
-        size="micro"
-        icon={SendIcon}
-        variant="primary"
-        loading={fetcher.state !== "idle" && fetcher.formData?.get("variantId") === p.variantId}
-      >
-        이 품목 일괄 발송
-      </Button>
-    </fetcher.Form>,
-  ]);
+  // Update URL Search Parameters
+  const updateUrlParams = useCallback(
+    (updates) => {
+      const newParams = new URLSearchParams(searchParams);
+      Object.entries(updates).forEach(([k, v]) => {
+        if (v === null || v === undefined || v === "" || v === "ALL") {
+          newParams.delete(k);
+        } else {
+          newParams.set(k, String(v));
+        }
+      });
+      setSearchParams(newParams);
+    },
+    [searchParams, setSearchParams]
+  );
 
-  const subscriberRows = filteredSubscriptions.map((sub) => [
-    dayjs(sub.createdAt).format("YYYY-MM-DD HH:mm"),
-    <BlockStack key={`p-${sub.id}`} gap="050">
-      <Text variant="bodyMd" fontWeight="semibold">
-        {sub.productTitle}
-      </Text>
-      {sub.variantTitle && (
-        <Text variant="bodySm" tone="subdued">
-          {sub.variantTitle}
-        </Text>
-      )}
-    </BlockStack>,
-    sub.channel === "PUSH" ? (
-      <Badge tone="interactive" key={`ch-${sub.id}`}>웹 푸시</Badge>
-    ) : (
-      <Badge tone="info" key={`ch-${sub.id}`}>이메일</Badge>
-    ),
-    sub.email,
-    sub.status === "PENDING" ? (
-      <Badge tone="warning" key={`st-${sub.id}`}>
-        대기 중
-      </Badge>
-    ) : sub.status === "NOTIFIED" ? (
-      <Badge tone="success" key={`st-${sub.id}`}>
-        발송 완료
-      </Badge>
-    ) : (
-      <Badge tone="critical" key={`st-${sub.id}`}>
-        신청 취소됨
-      </Badge>
-    ),
-    sub.status === "PENDING" ? (
-      <InlineStack gap="150" key={`act-${sub.id}`}>
-        <fetcher.Form method="post">
-          <input type="hidden" name="intent" value="notify_single" />
-          <input type="hidden" name="subscriptionId" value={sub.id} />
-          <Button
-            size="micro"
-            loading={fetcher.state !== "idle" && fetcher.formData?.get("subscriptionId") === sub.id}
-          >
-            이메일 발송
-          </Button>
-        </fetcher.Form>
-        <fetcher.Form method="post">
-          <input type="hidden" name="intent" value="cancel_single" />
-          <input type="hidden" name="subscriptionId" value={sub.id} />
-          <Button size="micro" tone="critical" loading={fetcher.state !== "idle"}>
-            신청 취소
-          </Button>
-        </fetcher.Form>
-      </InlineStack>
-    ) : (
-      <Text variant="bodySm" tone="subdued" key={`date-${sub.id}`}>
-        {sub.notifiedAt ? dayjs(sub.notifiedAt).format("MM-DD HH:mm") : "-"}
-      </Text>
-    ),
-  ]);
+  // Debounced search handler
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      updateUrlParams({ search: searchQuery, page: 1 });
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [searchQuery, updateUrlParams]);
+
+  // Load drawer subscribers when drawer opens
+  const handleOpenDrawer = (item) => {
+    setActiveDrawerProduct(item);
+    setDrawerOpen(true);
+    drawerFetcher.load(`/app/back-in-stock?drawerVariantId=${encodeURIComponent(item.variantId)}`);
+  };
+
+  useEffect(() => {
+    if (drawerFetcher.data?.drawerSubscribers) {
+      setDrawerSubscribers(drawerFetcher.data.drawerSubscribers);
+    }
+  }, [drawerFetcher.data]);
+
+  // KPI Card click filter
+  const handleSelectKpiFilter = (kpiId) => {
+    if (kpiFilter === kpiId) {
+      setKpiFilter("ALL");
+      updateUrlParams({ kpiFilter: "ALL", page: 1 });
+    } else {
+      setKpiFilter(kpiId);
+      updateUrlParams({ kpiFilter: kpiId, page: 1 });
+    }
+  };
+
+  // Preset filter click
+  const handleSelectPreset = (presetId) => {
+    setActivePreset(presetId);
+    if (presetId === "ALL") {
+      setStatusFilter("ALL");
+      setEtaFilter("ALL");
+      setDemandFilter("ALL");
+      setDateRangeFilter("ALL");
+      setKpiFilter("ALL");
+      updateUrlParams({
+        status: "ALL",
+        eta: "ALL",
+        demand: "ALL",
+        dateRange: "ALL",
+        kpiFilter: "ALL",
+        page: 1,
+      });
+    } else if (presetId === "HIGH_DEMAND") {
+      setDemandFilter("HIGH");
+      updateUrlParams({ demand: "HIGH", page: 1 });
+    } else if (presetId === "ARRIVING_SOON") {
+      setEtaFilter("ARRIVING_SOON");
+      updateUrlParams({ eta: "ARRIVING_SOON", page: 1 });
+    } else if (presetId === "NEEDS_ATTENTION") {
+      setKpiFilter("NEEDS_ATTENTION");
+      updateUrlParams({ kpiFilter: "NEEDS_ATTENTION", page: 1 });
+    } else if (presetId === "RECENT_7D") {
+      setDateRangeFilter("LAST_7D");
+      updateUrlParams({ dateRange: "LAST_7D", page: 1 });
+    }
+  };
+
+  // Clear all filters
+  const handleClearAllFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setEtaFilter("ALL");
+    setDemandFilter("ALL");
+    setChannelFilter("ALL");
+    setDateRangeFilter("ALL");
+    setKpiFilter("ALL");
+    setActivePreset("ALL");
+    setSearchParams(new URLSearchParams());
+  };
+
+  // Export CSV
+  const handleExportCsv = () => {
+    const exportUrl = `/app/back-in-stock?exportCsv=true`;
+    window.open(exportUrl, "_blank");
+  };
+
+  // Sync Odoo ETA action
+  const handleSyncOdooEta = (item) => {
+    setSyncingVariantId(item.variantId);
+    const fd = new FormData();
+    fd.append("intent", "sync_odoo_eta");
+    fd.append("sku", item.sku || "");
+    fd.append("variantId", item.variantId);
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Notify Variant action
+  const handleNotifyVariant = (variantId) => {
+    setNotifyingVariantId(variantId);
+    const fd = new FormData();
+    fd.append("intent", "notify_variant");
+    fd.append("variantId", variantId);
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Notify Single action
+  const handleNotifySingle = (subId) => {
+    setNotifyingSubId(subId);
+    const fd = new FormData();
+    fd.append("intent", "notify_single");
+    fd.append("subscriptionId", subId);
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Cancel Single action
+  const handleCancelSingle = (subId) => {
+    setCancellingSubId(subId);
+    const fd = new FormData();
+    fd.append("intent", "cancel_single");
+    fd.append("subscriptionId", subId);
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Batch notify action
+  const handleBatchNotify = () => {
+    const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
+    if (ids.length === 0) return;
+    const fd = new FormData();
+    fd.append("intent", "batch_notify");
+    fd.append("mode", viewMode);
+    fd.append("ids", JSON.stringify(ids));
+    fetcher.submit(fd, { method: "post" });
+    if (viewMode === "products") setSelectedVariantIds([]);
+    else setSelectedSubscriberIds([]);
+  };
+
+  // Batch cancel action
+  const handleBatchCancel = () => {
+    const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
+    if (ids.length === 0) return;
+    if (confirm(`선택한 ${ids.length}개 항목의 알림 신청을 일괄 취소하시겠습니까?`)) {
+      const fd = new FormData();
+      fd.append("intent", "batch_cancel");
+      fd.append("mode", viewMode);
+      fd.append("ids", JSON.stringify(ids));
+      fetcher.submit(fd, { method: "post" });
+      if (viewMode === "products") setSelectedVariantIds([]);
+      else setSelectedSubscriberIds([]);
+    }
+  };
+
+  // Batch export action
+  const handleBatchExport = () => {
+    handleExportCsv();
+  };
+
+  // Scan & Auto-send
+  const handleScanAndNotify = () => {
+    const fd = new FormData();
+    fd.append("intent", "scan_and_notify_instock");
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Open Email Preview Modal
+  const handleOpenEmailPreview = (item) => {
+    setPreviewProduct(item);
+    setPreviewModalOpen(true);
+  };
+
+  // Reset spinners on fetcher completion
+  useEffect(() => {
+    if (fetcher.state === "idle") {
+      setSyncingVariantId(null);
+      setNotifyingVariantId(null);
+      setNotifyingSubId(null);
+      setCancellingSubId(null);
+    }
+  }, [fetcher.state]);
+
+  const selectedCount =
+    viewMode === "products" ? selectedVariantIds.length : selectedSubscriberIds.length;
 
   return (
-    <Page
-      title="재입고 알림 신청 관리 (Back-in-Stock)"
-      subtitle="품절 상품에 대한 고객의 재입고 알림 신청 내역 및 Brevo 이메일 발송 자동화 시스템입니다."
-      primaryAction={{
-        content: "실시간 재고 확인 & 입고 상품 대기자 자동 발송",
-        icon: RefreshIcon,
-        loading: isScanning,
-        onAction: () => {
-          const formData = new FormData();
-          formData.append("intent", "scan_and_notify_instock");
-          fetcher.submit(formData, { method: "post" });
-        },
-      }}
-    >
-      <BlockStack gap="500">
+    <Page fullWidth>
+      <BlockStack gap="400">
+        {/* Header Section */}
+        <BackInStockHeader
+          shop={shop}
+          lastSyncedAt={lastSyncedAt}
+          isScanning={isScanning}
+          onScanAndNotify={handleScanAndNotify}
+          onRefresh={() => updateUrlParams({ _t: Date.now() })}
+          onExportCsv={handleExportCsv}
+        />
+
+        {/* Feedback Banners */}
         {fetcher.data?.message && (
           <Banner tone="success" onDismiss={() => {}}>
             {fetcher.data.message}
           </Banner>
         )}
-
         {fetcher.data?.error && (
           <Banner tone="critical" onDismiss={() => {}}>
             {fetcher.data.error}
           </Banner>
         )}
 
-        {/* 자동화 안내 배너 */}
-        <Banner title="재입고 알림 자동 및 수동 발송 시스템 안내" tone="info">
-          <BlockStack gap="200">
-            <Text variant="bodyMd" as="p">
-              1. <strong>실시간 자동 발송</strong>: Shopify 또는 Odoo에서 컨테이너 상품이 입고되어 재고가 1개 이상으로 변경되면 웹훅을 통해 대기 고객에게 이메일이 자동 발송됩니다.<br />
-              2. <strong>수동 즉시 발송</strong>: 상단의 <strong>[실시간 재고 확인 &amp; 입고 상품 대기자 자동 발송]</strong> 버튼을 누르거나, 각 품목별 <strong>[이 품목 일괄 발송]</strong>을 눌러 언제든 즉시 이메일을 보낼 수 있습니다.
-            </Text>
-          </BlockStack>
-        </Banner>
+        {/* Interactive Priority KPI Metrics Grid */}
+        <BackInStockKpiGrid
+          kpiData={kpiData}
+          activeFilterKey={kpiFilter}
+          onSelectKpiFilter={handleSelectKpiFilter}
+        />
 
-        {/* 상단 통계 카드 */}
-        <Layout>
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200">
-                <InlineStack align="space-between">
-                  <Text variant="headingMd" as="h3">
-                    알림 대기 고객
-                  </Text>
-                  <Icon source={ClockIcon} tone="warning" />
-                </InlineStack>
-                <Text variant="heading2xl" as="p" tone="warning">
-                  {`${pendingCount} 명`}
-                </Text>
-                <Text variant="bodySm" tone="subdued">
-                  입고 시 자동/수동 통보 대상
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
+        {/* Operations Control Bar */}
+        <BackInStockControlBar
+          viewMode={viewMode}
+          onChangeViewMode={(v) => updateUrlParams({ view: v, page: 1 })}
+          searchQuery={searchQuery}
+          onChangeSearch={setSearchQuery}
+          statusFilter={statusFilter}
+          onChangeStatusFilter={(s) => {
+            setStatusFilter(s);
+            updateUrlParams({ status: s, page: 1 });
+          }}
+          etaFilter={etaFilter}
+          onChangeEtaFilter={(e) => {
+            setEtaFilter(e);
+            updateUrlParams({ eta: e, page: 1 });
+          }}
+          channelFilter={channelFilter}
+          onChangeChannelFilter={(c) => {
+            setChannelFilter(c);
+            updateUrlParams({ channel: c, page: 1 });
+          }}
+          demandFilter={demandFilter}
+          onChangeDemandFilter={(d) => {
+            setDemandFilter(d);
+            updateUrlParams({ demand: d, page: 1 });
+          }}
+          dateRangeFilter={dateRangeFilter}
+          onChangeDateRangeFilter={(r) => {
+            setDateRangeFilter(r);
+            updateUrlParams({ dateRange: r, page: 1 });
+          }}
+          onClearAllFilters={handleClearAllFilters}
+          activePresets={activePreset}
+          onSelectPreset={handleSelectPreset}
+        />
 
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200">
-                <InlineStack align="space-between">
-                  <Text variant="headingMd" as="h3">
-                    알림 발송 완료
-                  </Text>
-                  <Icon source={CheckCircleIcon} tone="success" />
-                </InlineStack>
-                <Text variant="heading2xl" as="p" tone="success">
-                  {`${notifiedCount} 건`}
-                </Text>
-                <Text variant="bodySm" tone="subdued">
-                  Brevo 이메일 발송 완료된 총 수
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
+        {/* Bulk Action Bar */}
+        <BackInStockBulkBar
+          selectedCount={selectedCount}
+          onBatchNotify={handleBatchNotify}
+          onBatchCancel={handleBatchCancel}
+          onBatchExport={handleBatchExport}
+          isBatchLoading={isBatchLoading}
+        />
 
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200">
-                <InlineStack align="space-between">
-                  <Text variant="headingMd" as="h3">
-                    인기 요청 품목 수
-                  </Text>
-                  <Icon source={NotificationIcon} tone="primary" />
-                </InlineStack>
-                <Text variant="heading2xl" as="p" tone="primary">
-                  {`${topProducts.length} 개`}
-                </Text>
-                <Text variant="bodySm" tone="subdued">
-                  대기자가 존재하는 품목 종류
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-        </Layout>
+        {/* Main Data Table (Product View vs Subscriber View) */}
+        {viewMode === "products" ? (
+          <BackInStockProductTable
+            products={products}
+            isLoading={fetcher.state === "loading"}
+            selectedVariantIds={selectedVariantIds}
+            onToggleSelectVariant={(vId) =>
+              setSelectedVariantIds((prev) =>
+                prev.includes(vId) ? prev.filter((id) => id !== vId) : [...prev, vId]
+              )
+            }
+            onToggleSelectAll={() =>
+              setSelectedVariantIds((prev) =>
+                prev.length === products.length ? [] : products.map((p) => p.variantId)
+              )
+            }
+            onOpenDrawer={handleOpenDrawer}
+            onSyncOdooEta={handleSyncOdooEta}
+            onNotifyVariant={handleNotifyVariant}
+            onClearFilters={handleClearAllFilters}
+            syncingVariantId={syncingVariantId}
+            notifyingVariantId={notifyingVariantId}
+          />
+        ) : (
+          <BackInStockSubscriberTable
+            subscribers={subscribers}
+            isLoading={fetcher.state === "loading"}
+            selectedSubscriberIds={selectedSubscriberIds}
+            onToggleSelectSubscriber={(sId) =>
+              setSelectedSubscriberIds((prev) =>
+                prev.includes(sId) ? prev.filter((id) => id !== sId) : [...prev, sId]
+              )
+            }
+            onToggleSelectAll={() =>
+              setSelectedSubscriberIds((prev) =>
+                prev.length === subscribers.length ? [] : subscribers.map((s) => s.id)
+              )
+            }
+            onNotifySingle={handleNotifySingle}
+            onCancelSingle={handleCancelSingle}
+            onClearFilters={handleClearAllFilters}
+            notifyingSubId={notifyingSubId}
+            cancellingSubId={cancellingSubId}
+          />
+        )}
 
-        {/* Top 10 알림 신청 품목 (발주 우선순위) */}
-        <Card>
-          <BlockStack gap="400">
-            <InlineStack align="space-between" blockAlign="center">
-              <BlockStack gap="100">
-                <Text variant="headingMd" as="h2">
-                  가장 요청이 많은 품목 Top 10 (발주 우선순위)
-                </Text>
-                <Text variant="bodySm" tone="subdued">
-                  컨테이너 입고 후 [이 품목 일괄 발송]을 누르면 해당 품목의 모든 대기자에게 이메일이 발송됩니다.
-                </Text>
-              </BlockStack>
-            </InlineStack>
+        {/* Server-Side Pagination */}
+        <BackInStockPagination
+          currentPage={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          limit={limit}
+          onChangePage={(p) => updateUrlParams({ page: p })}
+          onChangeLimit={(l) => updateUrlParams({ limit: l, page: 1 })}
+        />
 
-            {topProducts.length > 0 ? (
-              <DataTable
-                columnContentTypes={["text", "text", "text", "text"]}
-                headings={["상품명", "입고 예정일 (ETA)", "대기 신청자", "액션"]}
-                rows={topProductRows}
-              />
-            ) : (
-              <Text variant="bodyMd" tone="subdued">
-                현재 대기 중인 재입고 알림 신청이 없습니다.
-              </Text>
-            )}
-          </BlockStack>
-        </Card>
+        {/* Slide-Over Detail Drawer Modal */}
+        <BackInStockDetailDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          productItem={activeDrawerProduct}
+          subscribers={drawerSubscribers}
+          onSyncOdooEta={handleSyncOdooEta}
+          onNotifyVariant={handleNotifyVariant}
+          onNotifySingle={handleNotifySingle}
+          onCancelSingle={handleCancelSingle}
+          onOpenEmailPreview={handleOpenEmailPreview}
+          isSyncing={syncingVariantId === activeDrawerProduct?.variantId}
+          isNotifying={notifyingVariantId === activeDrawerProduct?.variantId}
+        />
 
-        {/* 최근 알림 신청자 리스트 */}
-        <Card>
-          <BlockStack gap="400">
-            <InlineStack align="space-between">
-              <Text variant="headingMd" as="h2">
-                전체 재입고 알림 신청 내역
-              </Text>
-              <InlineStack gap="300">
-                <div style={{ width: "200px" }}>
-                  <TextField
-                    placeholder="상품명 또는 이메일 검색"
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    clearButton
-                    onClearButtonClick={() => setSearchQuery("")}
-                    autoComplete="off"
-                  />
-                </div>
-                <div style={{ width: "150px" }}>
-                  <Select
-                    options={[
-                      { label: "전체 상태", value: "ALL" },
-                      { label: "대기 중", value: "PENDING" },
-                      { label: "발송 완료", value: "NOTIFIED" },
-                      { label: "신청 취소됨", value: "CANCELLED" },
-                    ]}
-                    value={selectedStatus}
-                    onChange={setSelectedStatus}
-                  />
-                </div>
-              </InlineStack>
-            </InlineStack>
-
-            <DataTable
-              columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-              headings={["신청 일시", "상품명", "수신 채널", "고객 연락처", "상태", "액션"]}
-              rows={subscriberRows}
-            />
-          </BlockStack>
-        </Card>
+        {/* Bilingual Email Preview Modal */}
+        <BackInStockEmailPreviewModal
+          open={previewModalOpen}
+          onClose={() => setPreviewModalOpen(false)}
+          productItem={previewProduct}
+          shopDomain={shop}
+        />
       </BlockStack>
     </Page>
   );
