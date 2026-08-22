@@ -233,7 +233,7 @@ export const action = async ({ request }) => {
               id
               name
               email
-              lineItems(first: 50) {
+              lineItems(first: 250) {
                 edges {
                   node {
                     id
@@ -469,7 +469,7 @@ export default function Inspect() {
         setHtml5QrcodeScanner(scanner);
       }).catch(err => {
         console.error("Camera start error:", err);
-        alert("카메라 활성화에 실패했습니다. 권한 설정을 확인해 주세요.");
+        setMessage({ type: "error", text: "카메라 활성화에 실패했습니다. 브라우저 권한 설정을 확인해 주세요." });
         setCameraModalOpen(false);
       });
     }
@@ -1106,7 +1106,7 @@ export default function Inspect() {
                           icon={BarcodeIcon} 
                           onClick={() => {
                             if (!window.Html5Qrcode) {
-                              alert("카메라 스캔 라이브러리가 아직 로딩 중입니다. 잠시만 대기해 주세요.");
+                              setMessage({ type: "error", text: "카메라 스캔 라이브러리가 아직 로딩 중입니다. 잠시만 대기해 주세요." });
                               return;
                             }
                             setCameraModalOpen(true);

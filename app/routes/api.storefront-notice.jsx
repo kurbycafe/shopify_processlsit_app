@@ -1,11 +1,22 @@
 import prisma from "../db.server";
 
-// CORS 공통 헤더
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+// CORS origin validator
+function getCorsHeaders(request) {
+  const origin = request.headers.get("origin") || "";
+  const allowed =
+    origin.includes("myshopify.com") ||
+    origin.includes("dawayo.de") ||
+    origin.includes("localhost") ||
+    origin.includes("process-list-beryl.vercel.app");
+
+  return {
+    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Shop-Domain",
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json; charset=utf-8",
+  };
+}
 
 // 기본 디폴트 공지 설정 (DB 기록이 없을 시 방어용)
 const DEFAULT_NOTICE = {
@@ -22,6 +33,7 @@ const DEFAULT_NOTICE = {
 };
 
 export const loader = async ({ request }) => {
+  const corsHeaders = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

@@ -15,6 +15,11 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { getUpcomingContainers, getContainerItemsByPo } from "../utils/odooApi";
 import { getCalendarMonths } from "../utils/dashboardCalendar";
+import {
+  getTodayRange,
+  getThisWeekRange,
+  getPastDaysRange,
+} from "../utils/dateTime.js";
 import { DashboardMetricCards } from "../components/dashboard/DashboardMetricCards";
 import { RecentActivityCard } from "../components/dashboard/RecentActivityCard";
 import { ContainerScheduleCard } from "../components/dashboard/ContainerScheduleCard";
@@ -47,8 +52,9 @@ export const loader = async ({ request }) => {
   }
 
   // 오늘 날짜 기준 (자정)
-  const todayStart = dayjs().startOf("day").toDate();
-  const todayEnd = dayjs().endOf("day").toDate();
+  // Timezone-aware date calculations (Europe/Berlin default)
+  const { start: todayStart, end: todayEnd } = getTodayRange();
+  const { start: startOfWeek, end: endOfWeek } = getThisWeekRange();
 
   // 오늘 Lieferschein 인쇄 건수 (DB 조회)
   const todayPrintedCount = await prisma.inspectionRecord.count({
@@ -61,13 +67,6 @@ export const loader = async ({ request }) => {
       },
     },
   });
-
-  // 이번주 월요일(00:00:00) ~ 일요일(23:59:59) 정확한 날짜 범위 계산
-  const now = dayjs();
-  const dayOfWeek = now.day(); // 0(일), 1(월), ... 6(토)
-  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const startOfWeek = now.subtract(daysFromMonday, "day").startOf("day").toDate();
-  const endOfWeek = now.add(dayOfWeek === 0 ? 0 : 7 - dayOfWeek, "day").endOf("day").toDate();
 
   // 이번주 실제 검수 성공(SUCCESS) 완료 건수 카운트
   const thisWeekFulfilledCount = await prisma.inspectionRecord.count({
@@ -92,46 +91,40 @@ export const loader = async ({ request }) => {
     },
   });
 
-  // 최근 7일간의 생산성 차트 데이터 집계
-  const chartDays = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = dayjs().subtract(i, "day");
-    chartDays.push({
-      dateStr: d.format("YYYY-MM-DD"),
-      dateLabel: d.format("MM.DD (ddd)"),
-      start: d.startOf("day").toDate(),
-      end: d.endOf("day").toDate(),
-    });
-  }
+  // 최근 7일간의 생산성 차트 데이터 단일 범위 쿼리로 최적화 (N+1 제거)
+  const chartDays = getPastDaysRange(7);
+  const chartRangeStart = chartDays[0].start;
+  const chartRangeEnd = chartDays[chartDays.length - 1].end;
 
-  const chartDataPromises = chartDays.map(async (dayObj) => {
-    const records = await prisma.inspectionRecord.findMany({
-      where: {
-        shop: session.shop,
-        createdAt: {
-          gte: dayObj.start,
-          lte: dayObj.end,
-        },
+  const past7DayRecords = await prisma.inspectionRecord.findMany({
+    where: {
+      shop: session.shop,
+      createdAt: {
+        gte: chartRangeStart,
+        lte: chartRangeEnd,
       },
-      select: {
-        status: true,
-      },
-    });
+    },
+    select: {
+      status: true,
+      createdAt: true,
+    },
+  });
 
-    const successCount = records.filter((r) => r.status === "SUCCESS").length;
-    const partialCount = records.filter((r) => r.status === "PARTIAL").length;
-    const issueCount = records.filter((r) => r.status === "ISSUE_REPORTED" || r.status === "FAILED").length;
+  const chartData = chartDays.map((dayObj) => {
+    const dayRecords = past7DayRecords.filter(
+      (r) => r.createdAt >= dayObj.start && r.createdAt <= dayObj.end
+    );
 
     return {
       dateLabel: dayObj.dateLabel,
-      totalCount: records.length,
-      successCount,
-      partialCount,
-      issueCount,
+      totalCount: dayRecords.length,
+      successCount: dayRecords.filter((r) => r.status === "SUCCESS").length,
+      partialCount: dayRecords.filter((r) => r.status === "PARTIAL").length,
+      issueCount: dayRecords.filter(
+        (r) => r.status === "ISSUE_REPORTED" || r.status === "FAILED"
+      ).length,
     };
   });
-
-  const chartData = await Promise.all(chartDataPromises);
 
   // Odoo 최근 입고 일정 및 달력 데이터
   const upcomingContainers = await getUpcomingContainers();

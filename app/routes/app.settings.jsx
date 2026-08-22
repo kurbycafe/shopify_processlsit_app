@@ -32,7 +32,7 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
 
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
-  const apiKey = process.env.SHOPIFY_API_KEY || "24143f6f7f7be925cb7037a74f9915b2";
+  const apiKey = process.env.SHOPIFY_API_KEY || "";
   const apiSecretKey = process.env.SHOPIFY_API_SECRET || "";
   const scopes = process.env.SCOPES ? process.env.SCOPES.split(",") : [];
   const shop = session?.shop || "";

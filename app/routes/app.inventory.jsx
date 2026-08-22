@@ -382,6 +382,8 @@ export default function InventoryReportPage() {
   const [stockFilter, setStockFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [statusBanner, setStatusBanner] = useState(null);
+
   const filteredItems = useMemo(() => {
     return (items || []).filter((item) => {
       if (stockFilter === "IN_STOCK" && item.inventoryQuantity <= 0) return false;
@@ -407,7 +409,7 @@ export default function InventoryReportPage() {
 
   const handleExportXLSX = useCallback(() => {
     if (filteredItems.length === 0) {
-      alert("선택한 조건에 해당하는 재고 데이터가 없습니다.");
+      setStatusBanner({ tone: "warning", message: "선택한 조건에 해당하는 재고 데이터가 없습니다." });
       return;
     }
 
@@ -431,13 +433,13 @@ export default function InventoryReportPage() {
 
   const handleGeneratePDF = useCallback(() => {
     if (filteredItems.length === 0) {
-      alert("선택한 조건에 해당하는 재고 데이터가 없습니다.");
+      setStatusBanner({ tone: "warning", message: "선택한 조건에 해당하는 재고 데이터가 없습니다." });
       return;
     }
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");
+      setStatusBanner({ tone: "critical", message: "브라우저 팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요." });
       return;
     }
 
@@ -462,6 +464,12 @@ export default function InventoryReportPage() {
         {errorMsg && (
           <Banner title="오류 발생" tone="critical">
             <p>{errorMsg}</p>
+          </Banner>
+        )}
+
+        {statusBanner && (
+          <Banner tone={statusBanner.tone} onDismiss={() => setStatusBanner(null)}>
+            <p>{statusBanner.message}</p>
           </Banner>
         )}
 

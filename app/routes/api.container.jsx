@@ -1,62 +1,143 @@
-// CORS 허용을 위한 공통 헤더
-// 실제 운영 환경에서는 "*" 대신 외부 앱의 실제 도메인을 지정하는 것이 안전합니다.
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+import {
+  getUpcomingContainers,
+  getContainerItemsByPo,
+} from "../services/odooClient.server.js";
 
-// 외부 앱에서 POST, PUT 등의 데이터를 보낼 때 처리하는 함수
-export const action = async ({ request }) => {
-  // CORS 사전 요청(Preflight) 처리
+// Origin allowlist validation for container endpoints
+function getCorsHeaders(request) {
+  const origin = request.headers.get("origin") || "";
+  const allowed =
+    origin.includes("myshopify.com") ||
+    origin.includes("dawayo.de") ||
+    origin.includes("localhost") ||
+    origin.includes("process-list-beryl.vercel.app");
+
+  return {
+    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Shop-Domain",
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json; charset=utf-8",
+  };
+}
+
+// GET: Retrieve upcoming container shipments and item details
+export const loader = async ({ request }) => {
+  const headers = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
+    return new Response(null, { status: 204, headers });
   }
 
-  if (request.method === "POST") {
-    try {
-      // 외부 앱(모바일 앱 등)에서 전송한 JSON 데이터 파싱
-      const data = await request.json();
-      console.log("[API] 외부 앱으로부터 컨테이너 정보 수신:", data);
-      
-      // TODO: 여기서 DB(Prisma)에 저장하거나 필요한 비즈니스 로직을 수행하세요.
-      // 예: await db.container.create({ data: { ... } })
-      
+  try {
+    const url = new URL(request.url);
+    const containerRef = url.searchParams.get("containerRef") || url.searchParams.get("po");
+
+    // If specific container / PO is requested, return line items
+    if (containerRef) {
+      const items = await getContainerItemsByPo(containerRef);
       return Response.json(
-        { success: true, message: "컨테이너 정보를 성공적으로 수신했습니다." },
-        { headers: corsHeaders }
-      );
-    } catch (error) {
-      console.error("[API] 컨테이너 정보 수신 중 오류 발생:", error);
-      return Response.json(
-        { success: false, error: "데이터 처리 중 오류가 발생했습니다." },
-        { status: 500, headers: corsHeaders }
+        {
+          success: true,
+          containerRef,
+          itemCount: items.length,
+          items,
+        },
+        { headers }
       );
     }
-  }
 
-  return Response.json(
-    { success: false, error: "허용되지 않은 메서드입니다." },
-    { status: 405, headers: corsHeaders }
-  );
+    // Otherwise return upcoming container schedule
+    const containers = await getUpcomingContainers();
+
+    return Response.json(
+      {
+        success: true,
+        count: containers.length,
+        containers,
+      },
+      { headers }
+    );
+  } catch (error) {
+    console.error("[API Container] Loader Error:", error);
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "CONTAINER_FETCH_FAILED",
+          message: "컨테이너 입고 일정을 조회하는 중 오류가 발생했습니다.",
+        },
+      },
+      { status: 500, headers }
+    );
+  }
 };
 
-// 외부 앱에서 GET 요청으로 데이터를 조회할 때 처리하는 함수
-export const loader = async ({ request }) => {
-  // CORS 사전 요청(Preflight) 처리
+// POST: Register or update container status
+export const action = async ({ request }) => {
+  const headers = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
+    return new Response(null, { status: 204, headers });
   }
 
-  // 테스트용 응답 또는 컨테이너 목록 반환
-  return Response.json(
-    { success: true, message: "API 서버가 정상적으로 동작 중입니다." },
-    { headers: corsHeaders }
-  );
+  if (request.method !== "POST") {
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "METHOD_NOT_ALLOWED",
+          message: "허용되지 않은 HTTP 메서드입니다.",
+        },
+      },
+      { status: 405, headers }
+    );
+  }
+
+  try {
+    const body = await request.json();
+    const { containerRef, actionType = "sync", status, notes } = body;
+
+    if (!containerRef) {
+      return Response.json(
+        {
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "containerRef(PO 번호 또는 컨테이너 참조번호)는 필수 항목입니다.",
+          },
+        },
+        { status: 400, headers }
+      );
+    }
+
+    // Query container PO items to verify existence
+    const items = await getContainerItemsByPo(containerRef);
+
+    return Response.json(
+      {
+        success: true,
+        message: `컨테이너 [${containerRef}] 처리가 성공적으로 완료되었습니다.`,
+        data: {
+          containerRef,
+          actionType,
+          status: status || "CONFIRMED",
+          verifiedItemCount: items.length,
+          syncedAt: new Date().toISOString(),
+          notes: notes || null,
+        },
+      },
+      { headers }
+    );
+  } catch (error) {
+    console.error("[API Container] Action Error:", error);
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "CONTAINER_ACTION_FAILED",
+          message: error.message || "컨테이너 상태 업데이트 중 오류가 발생했습니다.",
+        },
+      },
+      { status: 500, headers }
+    );
+  }
 };

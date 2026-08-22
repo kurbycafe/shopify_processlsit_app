@@ -1,15 +1,27 @@
 import prisma from "../db.server";
 import dayjs from "dayjs";
 
-// CORS 공통 헤더
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+// CORS origin validator
+function getCorsHeaders(request) {
+  const origin = request.headers.get("origin") || "";
+  const allowed =
+    origin.includes("myshopify.com") ||
+    origin.includes("dawayo.de") ||
+    origin.includes("localhost") ||
+    origin.includes("process-list-beryl.vercel.app");
+
+  return {
+    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Shop-Domain",
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json; charset=utf-8",
+  };
+}
 
 // GET: 검수 내역 조회 API
 export const loader = async ({ request }) => {
+  const corsHeaders = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -112,6 +124,7 @@ export const loader = async ({ request }) => {
 
 // POST / PUT: 검수 결과 저장 및 업데이트 API
 export const action = async ({ request }) => {
+  const corsHeaders = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

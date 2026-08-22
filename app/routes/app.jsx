@@ -16,17 +16,18 @@ export default function App() {
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app">Home</s-link>
-        <s-link href="/app/inspect">검수</s-link>
-        <s-link href="/app/lieferschein">주문서 출력하기</s-link>
-        <s-link href="/app/store-label">매장 에티켓</s-link>
-        <s-link href="/app/pick-list">처리중 리스트</s-link>
+        <s-link href="/app">대시보드</s-link>
+        <s-link href="/app/inspect">주문 검수</s-link>
+        <s-link href="/app/pick-list">피킹 리스트</s-link>
+        <s-link href="/app/lieferschein">납품서(Lieferschein)</s-link>
         <s-link href="/app/inspection-history">검수 내역</s-link>
-        <s-link href="/app/recipe-blogs">레시피 블로그</s-link>
-        <s-link href="/app/back-in-stock">재입고 알림 신청</s-link>
-        <s-link href="/app/inventory">월별 인벤토리 PDF</s-link>
-        <s-link href="/app/notice">고객 팝업 관리</s-link>
-        <s-link href="/app/settings">앱 설정</s-link>
+        <s-link href="/app/back-in-stock">재입고 수요 관리</s-link>
+        <s-link href="/app/container-catalog">컨테이너 입고</s-link>
+        <s-link href="/app/inventory">월별 재고 보고서</s-link>
+        <s-link href="/app/store-label">매장 라벨 인쇄</s-link>
+        <s-link href="/app/recipe-blogs">레시피 커머스</s-link>
+        <s-link href="/app/notice">스토어 공지</s-link>
+        <s-link href="/app/settings">시스템 연동 설정</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>

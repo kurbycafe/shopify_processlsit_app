@@ -26,6 +26,56 @@ import RecipeStorefrontPreviewModal from "../components/recipe/RecipeStorefrontP
 import { buildAdvancedArticleHtml } from "../utils/recipeHtmlBuilder";
 import { autoMatchIngredientsWithProducts } from "../utils/recipeMatchingEngine";
 
+/**
+ * Unpacks JSON metadata serialized inside the steps text column
+ */
+export function unpackRecipe(raw) {
+  if (!raw) return null;
+  let parsed = {};
+  if (raw.steps && typeof raw.steps === "string") {
+    try {
+      const trimmed = raw.steps.trim();
+      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        parsed = JSON.parse(trimmed);
+      }
+    } catch (e) {
+      parsed = {};
+    }
+  }
+
+  const category = parsed.category || "MAIN";
+  const occasion = parsed.occasion || "DINNER";
+  const difficulty = parsed.difficulty || "EASY";
+  const prepTimeMinutes = parsed.prepTimeMinutes || 15;
+  const cookTimeMinutes = parsed.cookTimeMinutes || 20;
+  const servings = parsed.servings || 2;
+  const spiceLevel = parsed.spiceLevel !== undefined ? parsed.spiceLevel : 1;
+  const dietaryFlags = parsed.dietaryFlags || [];
+  const translations = parsed.translations || {
+    ko: { title: raw.title || "", introduction: raw.introduction || "", steps: parsed.stepsText || raw.steps || "" },
+    de: { title: raw.title || "", introduction: raw.introduction || "", steps: parsed.stepsText || raw.steps || "" },
+    en: { title: raw.title || "", introduction: raw.introduction || "", steps: parsed.stepsText || raw.steps || "" },
+  };
+  const ingredientsJson = parsed.ingredientsJson || [];
+  const bundlesJson = parsed.bundlesJson || [];
+
+  return {
+    ...raw,
+    category,
+    occasion,
+    difficulty,
+    prepTimeMinutes,
+    cookTimeMinutes,
+    servings,
+    spiceLevel,
+    dietaryFlags,
+    translations,
+    ingredientsJson,
+    bundlesJson,
+    steps: parsed.stepsText || raw.steps || "",
+  };
+}
+
 // --- LOADER ---
 export async function loader({ request }) {
   const { admin, session } = await authenticate.admin(request);
@@ -64,7 +114,7 @@ export async function loader({ request }) {
           }
         }
       }`,
-      { variables: { query: `title:*${search}* OR tag:*${search}*` } }
+      { variables: { query: `title:*${searchProducts}* OR tag:*${searchProducts}*` } }
     );
     const json = await response.json();
     const products = json.data?.products?.nodes || [];
@@ -551,12 +601,12 @@ export default function RecipeBlogs() {
   const handleSubmitForm = (intent) => {
     const mainTitle = translations.de?.title || translations.ko?.title || translations.en?.title;
     if (!mainTitle) {
-      alert("레시피 제목(독일어 또는 한국어)을 입력해 주세요.");
+      setToastMessage({ error: true, text: "레시피 제목(독일어 또는 한국어)을 입력해 주세요." });
       return;
     }
 
     if (intent === "publish" && !shopifyBlogId) {
-      alert("게시할 쇼피파이 블로그 채널을 선택해 주세요.");
+      setToastMessage({ error: true, text: "게시할 쇼피파이 블로그 채널을 선택해 주세요." });
       return;
     }
 

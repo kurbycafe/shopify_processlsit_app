@@ -1,6 +1,6 @@
 import { authenticate, unauthenticated } from "../shopify.server";
 import prisma from "../db.server";
-import { sendBackInStockEmail } from "../utils/emailService";
+import { sendBackInStockEmail } from "../utils/emailService.js";
 
 export const action = async ({ request }) => {
   const { shop, topic, payload } = await authenticate.webhook(request);

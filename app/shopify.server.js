@@ -39,15 +39,26 @@ export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
 
 export function generatePrintToken(orderId, shop) {
+  const secret = process.env.SHOPIFY_API_SECRET;
+  if (!secret) {
+    throw new Error("SHOPIFY_API_SECRET is required to generate print tokens.");
+  }
   const cleanOrderId = orderId.toString().split("/").pop();
   return crypto
-    .createHmac("sha256", process.env.SHOPIFY_API_SECRET || "fallback_secret")
+    .createHmac("sha256", secret)
     .update(`${cleanOrderId}:${shop}`)
     .digest("hex");
 }
 
 export function verifyPrintToken(orderId, shop, token) {
-  if (!token) return false;
-  const expected = generatePrintToken(orderId, shop);
-  return expected === token;
+  if (!token || typeof token !== "string") return false;
+  try {
+    const expected = generatePrintToken(orderId, shop);
+    const expectedBuf = Buffer.from(expected, "utf8");
+    const tokenBuf = Buffer.from(token, "utf8");
+    if (expectedBuf.length !== tokenBuf.length) return false;
+    return crypto.timingSafeEqual(expectedBuf, tokenBuf);
+  } catch (err) {
+    return false;
+  }
 }

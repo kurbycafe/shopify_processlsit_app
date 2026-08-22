@@ -221,6 +221,7 @@ export default function ContainerCatalog() {
   const [includeUnmatched, setIncludeUnmatched] = useState(true);
   const [showRetailPrice, setShowRetailPrice] = useState(true);
   const [showExpiry, setShowExpiry] = useState(true);
+  const [statusBanner, setStatusBanner] = useState(null);
 
   const handleApplyBulkDiscount = () => {
     const rate = parseFloat(bulkDiscountRate) || 0;
@@ -302,13 +303,13 @@ export default function ContainerCatalog() {
     // 미등록 상품 필터링 여부에 따른 리스트 구성
     const printItems = includeUnmatched ? items : items.filter(item => item.isMatched);
     if (printItems.length === 0) {
-      alert("인쇄할 상품이 없습니다.");
+      setStatusBanner({ tone: "warning", message: "인쇄할 상품이 없습니다. 미등록 상품 포함 설정을 확인하세요." });
       return;
     }
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      alert("팝업 차단이 설정되어 있습니다. 팝업 허용 후 다시 시도해 주세요.");
+      setStatusBanner({ tone: "critical", message: "브라우저 팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요." });
       return;
     }
 
@@ -895,6 +896,16 @@ export default function ContainerCatalog() {
       }
     >
       <Layout>
+        {statusBanner && (
+          <Layout.Section>
+            <Banner
+              tone={statusBanner.tone}
+              onDismiss={() => setStatusBanner(null)}
+            >
+              <p>{statusBanner.message}</p>
+            </Banner>
+          </Layout.Section>
+        )}
         {/* 검색 조건 카드 */}
         <Layout.Section>
           <Card>
