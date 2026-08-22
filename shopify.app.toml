@@ -1,13 +1,20 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "24143f6f7f7be925cb7037a74f9915b2"
-name = "Process-list"
 application_url = "https://process-list-beryl.vercel.app"
 embedded = true
+name = "Process-list"
 
-[access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_orders,read_customers,write_draft_orders,write_orders,write_content,read_content"
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
@@ -33,23 +40,9 @@ required = true
 name = "Description"
 type = "multi_line_text_field"
 
-[webhooks]
-api_version = "2026-07"
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = [ "app/uninstalled" ]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/app/scopes_update"
-  topics = [ "app/scopes_update" ]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/inventory/update"
-  topics = [ "inventory_levels/update" ]
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_content,read_customers,read_orders,write_content,write_draft_orders,write_metaobject_definitions,write_metaobjects,write_orders,write_products"
 
 [auth]
 redirect_urls = [ "https://process-list-beryl.vercel.app" ]
-
-[build]
-automatically_update_urls_on_dev = true
