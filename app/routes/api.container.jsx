@@ -1,16 +1,34 @@
+import prisma from "../db.server.js";
 import {
   getUpcomingContainers,
+  fetchOdooContainerProducts,
   getContainerItemsByPo,
+  isOdooConfigured,
 } from "../services/odooClient.server.js";
 
 // Origin allowlist validation for container endpoints
 function getCorsHeaders(request) {
   const origin = request.headers.get("origin") || "";
-  const allowed =
-    origin.includes("myshopify.com") ||
-    origin.includes("dawayo.de") ||
-    origin.includes("localhost") ||
-    origin.includes("process-list-beryl.vercel.app");
+  let allowed = false;
+
+  try {
+    if (origin) {
+      const url = new URL(origin);
+      const host = url.hostname.toLowerCase();
+      if (
+        host === "dawayo.de" ||
+        host.endsWith(".dawayo.de") ||
+        host.endsWith(".myshopify.com") ||
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host.endsWith(".vercel.app")
+      ) {
+        allowed = true;
+      }
+    }
+  } catch (e) {
+    allowed = false;
+  }
 
   return {
     "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
@@ -21,7 +39,18 @@ function getCorsHeaders(request) {
   };
 }
 
-// GET: Retrieve upcoming container shipments and item details
+function resolveShop(request, explicitShop = null) {
+  const url = new URL(request.url);
+  const rawShop =
+    explicitShop ||
+    request.headers.get("x-shop-domain") ||
+    url.searchParams.get("shop") ||
+    "dawayo.de";
+
+  return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim();
+}
+
+// GET: Retrieve container shipments and item details from DB & Odoo
 export const loader = async ({ request }) => {
   const headers = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
@@ -30,30 +59,110 @@ export const loader = async ({ request }) => {
 
   try {
     const url = new URL(request.url);
-    const containerRef = url.searchParams.get("containerRef") || url.searchParams.get("po");
+    const shop = resolveShop(request);
+    const containerRef = (
+      url.searchParams.get("containerRef") ||
+      url.searchParams.get("po") ||
+      ""
+    ).trim();
 
-    // If specific container / PO is requested, return line items
+    // 1. If specific container / PO is requested:
     if (containerRef) {
-      const items = await getContainerItemsByPo(containerRef);
+      // Check database first
+      let dbContainer = await prisma.container.findUnique({
+        where: {
+          shop_containerRef: {
+            shop,
+            containerRef,
+          },
+        },
+        include: { items: true },
+      });
+
+      // If not in DB and Odoo is configured, try fetching from Odoo
+      if (!dbContainer && isOdooConfigured()) {
+        try {
+          const odooData = await fetchOdooContainerProducts(containerRef);
+          if (odooData && odooData.items.length > 0) {
+            dbContainer = await prisma.container.create({
+              data: {
+                shop,
+                containerRef: odooData.poName || containerRef,
+                supplier: odooData.partnerId || null,
+                scheduledDate: odooData.scheduledDate || null,
+                status: "SCHEDULED",
+                items: {
+                  create: odooData.items.map((it) => ({
+                    sku: it.sku || null,
+                    barcode: it.barcode || null,
+                    productName: it.odooName || "품목",
+                    expectedQty: it.qty || 0,
+                    receivedQty: 0,
+                    unitPrice: it.wholesalePrice || 0,
+                    unitPerBox: it.unitPerBox || 0,
+                    boxQty: it.boxQty || 0,
+                  })),
+                },
+              },
+              include: { items: true },
+            });
+          }
+        } catch (odooErr) {
+          console.warn("[API Container] Odoo fallback query warning:", odooErr.message);
+        }
+      }
+
+      if (!dbContainer) {
+        // Fallback to basic line item query
+        const basicItems = await getContainerItemsByPo(containerRef);
+        return Response.json(
+          {
+            success: true,
+            data: {
+              containerRef,
+              shop,
+              status: "SCHEDULED",
+              itemCount: basicItems.length,
+              items: basicItems.map((b) => ({
+                productName: b.productName,
+                expectedQty: b.qty,
+                receivedQty: 0,
+                unitPrice: b.price,
+              })),
+            },
+          },
+          { headers }
+        );
+      }
+
       return Response.json(
         {
           success: true,
-          containerRef,
-          itemCount: items.length,
-          items,
+          data: dbContainer,
         },
         { headers }
       );
     }
 
-    // Otherwise return upcoming container schedule
-    const containers = await getUpcomingContainers();
+    // 2. Return all registered containers for shop
+    const dbContainers = await prisma.container.findMany({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { items: true } },
+      },
+    });
+
+    // Also get upcoming Odoo schedule for overview
+    const upcomingOdoo = await getUpcomingContainers();
 
     return Response.json(
       {
         success: true,
-        count: containers.length,
-        containers,
+        data: {
+          containers: dbContainers,
+          upcomingSchedule: upcomingOdoo,
+        },
       },
       { headers }
     );
@@ -72,7 +181,7 @@ export const loader = async ({ request }) => {
   }
 };
 
-// POST: Register or update container status
+// POST: Register or update container status and items
 export const action = async ({ request }) => {
   const headers = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
@@ -94,9 +203,18 @@ export const action = async ({ request }) => {
 
   try {
     const body = await request.json();
-    const { containerRef, actionType = "sync", status, notes } = body;
+    const shop = resolveShop(request, body.shop);
+    const {
+      containerRef,
+      actionType = "sync",
+      status = "SCHEDULED",
+      supplier,
+      scheduledDate,
+      notes,
+      items = [],
+    } = body;
 
-    if (!containerRef) {
+    if (!containerRef || typeof containerRef !== "string" || containerRef.trim() === "") {
       return Response.json(
         {
           success: false,
@@ -109,21 +227,141 @@ export const action = async ({ request }) => {
       );
     }
 
-    // Query container PO items to verify existence
-    const items = await getContainerItemsByPo(containerRef);
+    const cleanRef = containerRef.trim();
+
+    // 1. Sync from Odoo
+    if (actionType === "sync" && isOdooConfigured()) {
+      try {
+        const odooData = await fetchOdooContainerProducts(cleanRef);
+        const syncedItems = odooData.items || [];
+
+        // Transactional upsert container + items
+        const updated = await prisma.$transaction(async (tx) => {
+          const container = await tx.container.upsert({
+            where: {
+              shop_containerRef: {
+                shop,
+                containerRef: cleanRef,
+              },
+            },
+            update: {
+              supplier: odooData.partnerId || supplier || null,
+              scheduledDate: odooData.scheduledDate || scheduledDate || null,
+              status: status || "SCHEDULED",
+              notes: notes || undefined,
+              syncedAt: new Date(),
+            },
+            create: {
+              shop,
+              containerRef: cleanRef,
+              supplier: odooData.partnerId || supplier || null,
+              scheduledDate: odooData.scheduledDate || scheduledDate || null,
+              status: status || "SCHEDULED",
+              notes: notes || null,
+              syncedAt: new Date(),
+            },
+          });
+
+          // Re-sync items
+          if (syncedItems.length > 0) {
+            await tx.containerItem.deleteMany({
+              where: { containerId: container.id },
+            });
+
+            await tx.containerItem.createMany({
+              data: syncedItems.map((it) => ({
+                containerId: container.id,
+                sku: it.sku || null,
+                barcode: it.barcode || null,
+                productName: it.odooName || "품목",
+                expectedQty: it.qty || 0,
+                receivedQty: 0,
+                unitPrice: it.wholesalePrice || 0,
+                unitPerBox: it.unitPerBox || 0,
+                boxQty: it.boxQty || 0,
+              })),
+            });
+          }
+
+          return await tx.container.findUnique({
+            where: { id: container.id },
+            include: { items: true },
+          });
+        });
+
+        return Response.json(
+          {
+            success: true,
+            message: `컨테이너 [${cleanRef}] Odoo 동기화가 완료되었습니다.`,
+            data: updated,
+          },
+          { headers }
+        );
+      } catch (syncErr) {
+        console.warn("[API Container] Odoo sync failed, falling back to manual save:", syncErr.message);
+      }
+    }
+
+    // 2. Manual Update / Upsert with provided items
+    const result = await prisma.$transaction(async (tx) => {
+      const container = await tx.container.upsert({
+        where: {
+          shop_containerRef: {
+            shop,
+            containerRef: cleanRef,
+          },
+        },
+        update: {
+          status,
+          supplier: supplier || undefined,
+          scheduledDate: scheduledDate || undefined,
+          notes: notes !== undefined ? notes : undefined,
+          receivedAt: status === "RECEIVED" ? new Date() : undefined,
+          syncedAt: new Date(),
+        },
+        create: {
+          shop,
+          containerRef: cleanRef,
+          status,
+          supplier: supplier || null,
+          scheduledDate: scheduledDate || null,
+          notes: notes || null,
+          receivedAt: status === "RECEIVED" ? new Date() : null,
+          syncedAt: new Date(),
+        },
+      });
+
+      if (Array.isArray(items) && items.length > 0) {
+        await tx.containerItem.deleteMany({
+          where: { containerId: container.id },
+        });
+
+        await tx.containerItem.createMany({
+          data: items.map((it) => ({
+            containerId: container.id,
+            sku: it.sku || null,
+            barcode: it.barcode || null,
+            productName: it.productName || it.title || "품목",
+            expectedQty: Number(it.expectedQty || it.qty) || 0,
+            receivedQty: Number(it.receivedQty) || 0,
+            unitPrice: it.unitPrice !== undefined ? Number(it.unitPrice) : null,
+            unitPerBox: Number(it.unitPerBox) || 0,
+            boxQty: Number(it.boxQty) || 0,
+          })),
+        });
+      }
+
+      return await tx.container.findUnique({
+        where: { id: container.id },
+        include: { items: true },
+      });
+    });
 
     return Response.json(
       {
         success: true,
-        message: `컨테이너 [${containerRef}] 처리가 성공적으로 완료되었습니다.`,
-        data: {
-          containerRef,
-          actionType,
-          status: status || "CONFIRMED",
-          verifiedItemCount: items.length,
-          syncedAt: new Date().toISOString(),
-          notes: notes || null,
-        },
+        message: `컨테이너 [${cleanRef}] 정보가 성공적으로 저장되었습니다.`,
+        data: result,
       },
       { headers }
     );

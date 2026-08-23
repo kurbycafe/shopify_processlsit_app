@@ -20,12 +20,15 @@ import {
   AlertTriangleIcon,
   ClockIcon,
   PrintIcon,
+  ExportIcon,
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import CommonKpiGrid from "../components/common/CommonKpiGrid";
 import CommonPagination from "../components/common/CommonPagination";
+import StatusBadge from "../components/common/StatusBadge";
+import AppEmptyState from "../components/common/AppEmptyState";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -207,6 +210,29 @@ export default function InspectionHistory() {
     setSearchParams({});
   };
 
+  const handleExportCsv = () => {
+    if (records.length === 0) return;
+    const headers = ["주문번호", "검수자", "검수일시", "상태", "납품서출력", "품목수"];
+    const rows = records.map((r) => [
+      `"${r.orderName}"`,
+      `"${r.inspectorName || ""}"`,
+      `"${dayjs(r.createdAt).format("YYYY-MM-DD HH:mm:ss")}"`,
+      `"${r.status}"`,
+      r.isLieferscheinPrinted ? "Y" : "N",
+      r.items.length,
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `inspection_history_${dayjs().format("YYYYMMDD_HHmm")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const kpiItems = [
     {
       id: "ALL",
@@ -248,22 +274,6 @@ export default function InspectionHistory() {
 
   const rows = useMemo(() => {
     return records.map((log) => {
-      let statusBadgeTone = "warning";
-      let statusText = log.status;
-      if (log.status === "SUCCESS") {
-        statusBadgeTone = "success";
-        statusText = "검수 성공";
-      } else if (log.status === "PARTIAL") {
-        statusBadgeTone = "warning";
-        statusText = "일부 완료";
-      } else if (log.status === "ISSUE_REPORTED") {
-        statusBadgeTone = "critical";
-        statusText = "문제 보고됨";
-      } else if (log.status === "FAILED") {
-        statusBadgeTone = "critical";
-        statusText = "검수 실패";
-      }
-
       const formattedDate = dayjs(log.createdAt).format("YYYY-MM-DD HH:mm:ss");
 
       return [
@@ -282,7 +292,7 @@ export default function InspectionHistory() {
         >
           {log.orderName}
         </button>,
-        <Badge key={`badge-${log.id}`} tone={statusBadgeTone}>{statusText}</Badge>,
+        <StatusBadge key={`badge-${log.id}`} status={log.status} />,
         log.inspectorName || "알 수 없음",
         formattedDate,
         <InlineStack key={`print-${log.id}`} gap="100">
@@ -296,8 +306,15 @@ export default function InspectionHistory() {
 
   return (
     <Page
-      title="검수 이력 내역"
+      title="검수 이력 및 감사 로그 (Inspection Audit)"
+      subtitle="작업자별 검수 결과, 결품 및 대체 상품 처리 내역을 조회하고 추적합니다."
       backAction={{ content: "대시보드", url: "/app" }}
+      primaryAction={{
+        content: "CSV 내보내기",
+        icon: ExportIcon,
+        disabled: records.length === 0,
+        onAction: handleExportCsv,
+      }}
     >
       <BlockStack gap="400">
         {/* KPI Grid */}
@@ -324,7 +341,7 @@ export default function InspectionHistory() {
                   onChange={handleSearchChange}
                   clearButton
                   onClearButtonClick={() => handleSearchChange("")}
-                  placeholder="예: #1001, 홍길동, 신라면..."
+                  placeholder="예: #1001, 작업자, 신라면..."
                   autoComplete="off"
                 />
               </div>
@@ -397,14 +414,12 @@ export default function InspectionHistory() {
           />
 
           {rows.length === 0 && (
-            <Box padding="600">
-              <BlockStack align="center" inlineAlign="center" gap="200">
-                <Text variant="bodyMd" tone="subdued">
-                  조건에 해당하는 검수 이력이 없습니다.
-                </Text>
-                <Button onClick={handleClearFilters}>전체 필터 초기화</Button>
-              </BlockStack>
-            </Box>
+            <AppEmptyState
+              title="조건에 해당하는 검수 이력이 없습니다"
+              description="검색어나 필터 조건을 변경해 보세요."
+              actionText="필터 초기화"
+              onAction={handleClearFilters}
+            />
           )}
 
           <Divider />
@@ -438,6 +453,12 @@ export default function InspectionHistory() {
                 navigate(`/app/lieferschein/${selectedLog.orderId.replace("gid://shopify/Order/", "")}`);
               },
             },
+            {
+              content: "재검수 진행",
+              onAction: () => {
+                navigate(`/app/inspect?orderName=${encodeURIComponent(selectedLog.orderName)}`);
+              },
+            },
           ]}
         >
           <Modal.Section>
@@ -465,9 +486,9 @@ export default function InspectionHistory() {
                   item.orderedQuantity,
                   item.inspectedQuantity,
                   item.issueType ? (
-                    <Badge tone="critical">{`${item.issueType}: ${item.issueNote || ""}`}</Badge>
+                    <StatusBadge status={item.issueType} />
                   ) : (
-                    <Badge tone="success">정상</Badge>
+                    <StatusBadge status="SUCCESS" />
                   ),
                 ])}
               />

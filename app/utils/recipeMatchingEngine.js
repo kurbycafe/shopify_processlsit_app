@@ -55,7 +55,7 @@ export function calculateMatchScore(ingredient, product, variant) {
 
     // 3. Token-level overlap (e.g. multi-word keywords)
     const kwTokens = kw.split(" ").filter((t) => t.length > 1);
-    const prodTokens = `${productTitle} ${variantTitle} ${tags} ${productType}`.split(" ").filter((t) => t.length > 1);
+    const prodTokens = `${productTitle} ${variantTitle} ${vendor} ${tags} ${productType}`.split(" ").filter((t) => t.length > 1);
 
     if (kwTokens.length > 0) {
       let matchedTokens = 0;

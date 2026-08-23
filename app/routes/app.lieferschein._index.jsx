@@ -329,7 +329,7 @@ export const loader = async ({ request }) => {
           : "-",
         email: node.email || "-",
         note: node.note || "",
-        financialStatus: node.displayFinancialStatus || "UNKNOWN", // ✨ 필터링을 위해 결제 상태 저장
+        financialStatus: node.displayFinancialStatus || "UNKNOWN", // 필터링을 위해 결제 상태 저장
         paymentGatewayNames: node.paymentGatewayNames || [],
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
@@ -495,20 +495,15 @@ export default function AdditionalPage() {
 
   const [orders, setOrders] = useState([]);
 
-  // ✨ 필터 상태 관리 (State)
+  // 필터 상태 관리 (State)
   const [paymentFilter, setPaymentFilter] = useState("ALL");
   const [regionFilter, setRegionFilter] = useState("ALL");
   const [complexityFilter, setComplexityFilter] = useState("ALL");
-  const [printFilter, setPrintFilter] = useState("UNPRINTED"); //2026-07-22 요청, default 값 인쇄 안됨으로 변경
+  const [printFilter, setPrintFilter] = useState("UNPRINTED"); // default 값 미출력
   const [sortOrder, setSortOrder] = useState("DATE_DESC");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || "");
   const [tempFilter, setTempFilter] = useState("ALL");
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
-
-  // Reset selection when filters change
-  useEffect(() => {
-    setSelectedOrderIds([]);
-  }, [paymentFilter, regionFilter, complexityFilter, printFilter, searchQuery, tempFilter]);
 
   const handleSearchChange = (value) => {
     setSearchQuery(value);
@@ -525,11 +520,11 @@ export default function AdditionalPage() {
 
   useEffect(() => {
     if (loaderData?.orders) {
-      setOrders(loaderData.orders); // ✨ DB의 isPrinted 상태 직접 활용
+      setOrders(loaderData.orders); // DB의 isPrinted 상태 직접 활용
     }
   }, [loaderData]);
 
-  // ✨ 주문 필터링 로직
+  // 주문 필터링 로직
   const filteredOrders = useMemo(() => {
     let result = [...orders];
 
@@ -705,7 +700,7 @@ export default function AdditionalPage() {
               </div>
 
               <InlineStack gap="400" wrap={true}>
-                {/* ✨ 결제 상태 필터 UI 추가 */}
+                {/* 결제 상태 필터 UI 추가 */}
                 <Box minWidth="150px">
                   <Select
                     label="결제 상태"
@@ -755,7 +750,7 @@ export default function AdditionalPage() {
                     onChange={setTempFilter}
                   />
                 </Box>
-                {/* ✨ 인쇄 상태 필터 UI 추가 */}
+                {/* 인쇄 상태 필터 UI 추가 */}
                 <Box minWidth="150px">
                   <Select
                     label="인쇄 상태"

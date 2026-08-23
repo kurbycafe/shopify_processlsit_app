@@ -460,7 +460,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     ? item.productTitle 
     : "";
 
-  // 💡 바코드 제거 극대화 폰트 엔진 (상품명 및 가격 극대화 표기)
+  // 바코드 제거 극대화 폰트 엔진 (상품명 및 가격 극대화 표기)
   const calculateGermanFontSize = (titleStr, basePt) => {
     const len = titleStr.length;
     if (len > 60) return 8.0;
@@ -823,7 +823,7 @@ export default function StoreLabelPage() {
               </Card>
             </Layout.Section>
 
-            {/* ⚙️ 라벨 커스텀 설정 컨트롤 카드 */}
+            {/* 라벨 커스텀 설정 컨트롤 카드 */}
             <Layout.Section>
               <Card>
                 <BlockStack gap="400">
@@ -953,8 +953,8 @@ export default function StoreLabelPage() {
                               >
                                 <option value="AUTO">자동 (할인 시 특가)</option>
                                 <option value="NONE">없음 (강제 해제)</option>
-                                <option value="SALE">🔴 특가</option>
-                                <option value="NEW">🟢 신상품</option>
+                                <option value="SALE">특가</option>
+                                <option value="NEW">신상품</option>
                               </select>
                             </label>
 

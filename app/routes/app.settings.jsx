@@ -19,37 +19,53 @@ import {
 } from "@shopify/polaris";
 import {
   ClipboardIcon,
-  ViewIcon,
-  HideIcon,
-  KeyIcon,
-  LinkIcon,
-  CodeIcon,
   CheckIcon,
 } from "@shopify/polaris-icons";
 import { authenticate, apiVersion } from "../shopify.server";
+import { isOdooConfigured } from "../services/odooClient.server.js";
+import { isEmailServiceConfigured } from "../utils/emailService.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
 
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
   const apiKey = process.env.SHOPIFY_API_KEY || "";
-  const apiSecretKey = process.env.SHOPIFY_API_SECRET || "";
+  const rawSecret = process.env.SHOPIFY_API_SECRET || "";
+  const maskedSecret = rawSecret.length > 4 ? `••••••••••••${rawSecret.slice(-4)}` : "미설정";
   const scopes = process.env.SCOPES ? process.env.SCOPES.split(",") : [];
-  const shop = session?.shop || "";
+  const shop = session?.shop || "dawayo.de";
+
+  const odooConnected = isOdooConfigured();
+  const emailConnected = isEmailServiceConfigured();
 
   return {
     appUrl,
     apiKey,
-    apiSecretKey,
+    maskedSecret,
     scopes,
     shop,
     apiVersion,
+    servicesStatus: {
+      shopify: { status: "CONNECTED", label: "연결됨" },
+      odoo: {
+        status: odooConnected ? "CONNECTED" : "NOT_CONFIGURED",
+        label: odooConnected ? "연결됨" : "환경변수 미설정",
+      },
+      email: {
+        status: emailConnected ? "CONNECTED" : "NOT_CONFIGURED",
+        label: emailConnected ? "연결됨" : "환경변수 미설정",
+      },
+      db: { status: "CONNECTED", label: "PostgreSQL 연결됨" },
+    },
     endpoints: {
       containerApi: `${appUrl}/api/container`,
       inspectionHistoryApi: `${appUrl}/api/inspection-history`,
-      printLieferscheinApi: `${appUrl}/print/lieferschein/{order_id}?token={print_token}`,
+      backInStockSubscribeApi: `${appUrl}/api/back-in-stock/subscribe`,
+      storefrontNoticeApi: `${appUrl}/api/storefront-notice`,
+      printLieferscheinApi: `${appUrl}/print/lieferschein/{order_id}?shop=${shop}&tokens={signed_token}`,
       webhookUninstalled: `${appUrl}/webhooks/app/uninstalled`,
       webhookScopesUpdate: `${appUrl}/webhooks/app/scopes_update`,
+      webhookInventoryUpdate: `${appUrl}/webhooks/inventory/update`,
     },
   };
 };
@@ -58,14 +74,14 @@ export default function Settings() {
   const {
     appUrl,
     apiKey,
-    apiSecretKey,
+    maskedSecret,
     scopes,
     shop,
     apiVersion: currentApiVersion,
+    servicesStatus,
     endpoints,
   } = useLoaderData();
 
-  const [showSecret, setShowSecret] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
   const [copiedField, setCopiedField] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
@@ -78,21 +94,25 @@ export default function Settings() {
   };
 
   const codeTabs = [
-    { id: "inspection-api", content: "GET/POST /api/inspection-history (검수 내역)" },
-    { id: "container-api", content: "POST /api/container (컨테이너 연동)" },
-    { id: "print-api", content: "GET /print/lieferschein (납품서 출력)" },
+    { id: "inspection-api", content: "검수 내역 API (/api/inspection-history)" },
+    { id: "container-api", content: "컨테이너 연동 API (/api/container)" },
+    { id: "back-in-stock-api", content: "재입고 신청 API (/api/back-in-stock/subscribe)" },
+    { id: "storefront-notice-api", content: "공지 팝업 API (/api/storefront-notice)" },
+    { id: "print-api", content: "납품서 외부 출력 규격" },
   ];
 
   const curlInspectionExample = `// 1. 검수 내역 목록 및 검색 조회 (GET)
-curl -X GET "${endpoints.inspectionHistoryApi}?query=%231001&status=SUCCESS&limit=20"
+curl -X GET "${endpoints.inspectionHistoryApi}?query=%231001&status=SUCCESS&limit=20" \\
+  -H "X-Shop-Domain: ${shop}"
 
 // 2. 검수 내역 저장 및 업서트 (POST)
 curl -X POST "${endpoints.inspectionHistoryApi}" \\
   -H "Content-Type: application/json" \\
+  -H "X-Shop-Domain: ${shop}" \\
   -d '{
     "orderId": "gid://shopify/Order/12345",
     "orderName": "#1001",
-    "shop": "${shop || "your-shop.myshopify.com"}",
+    "shop": "${shop}",
     "inspectorName": "홍길동",
     "status": "SUCCESS",
     "items": [
@@ -106,464 +126,337 @@ curl -X POST "${endpoints.inspectionHistoryApi}" \\
     ]
   }'`;
 
-  const jsInspectionExample = `// 검수 내역 조회 (GET)
-fetch("${endpoints.inspectionHistoryApi}?status=ALL&limit=50")
-  .then(res => res.json())
-  .then(data => console.log("검수 기록 목록:", data.records));`;
+  const curlContainerExample = `// 1. 컨테이너 및 발주 일정 조회 (GET)
+curl -X GET "${endpoints.containerApi}?shop=${shop}"
 
-  const curlContainerExample = `curl -X POST "${endpoints.containerApi}" \\
+// 2. Odoo 컨테이너 데이터 자동 동기화 (POST)
+curl -X POST "${endpoints.containerApi}" \\
   -H "Content-Type: application/json" \\
+  -H "X-Shop-Domain: ${shop}" \\
   -d '{
-    "containerId": "CONT-2026-001",
-    "status": "ARRIVED",
-    "items": [
-      { "sku": "SKU-1001", "quantity": 50 }
-    ]
+    "containerRef": "PO00412",
+    "actionType": "sync",
+    "shop": "${shop}"
   }'`;
 
-  const jsContainerExample = `fetch("${endpoints.containerApi}", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    containerId: "CONT-2026-001",
-    status: "ARRIVED",
-    items: [
-      { sku: "SKU-1001", quantity: 50 }
-    ]
-  })
-})
-.then(res => res.json())
-.then(data => console.log("응답 결과:", data));`;
+  const curlBackInStockExample = `// 1. 재입고 ETA 및 대기자 현황 조회 (GET)
+curl -X GET "${endpoints.backInStockSubscribeApi}?variantId=456789&sku=SKU-1001&shop=${shop}"
 
-  const printTokenGuide = `// Node.js crypto 예시 (Token 생성 규격)
+// 2. 고객 재입고 알림 신청 등록 (POST)
+curl -X POST "${endpoints.backInStockSubscribeApi}" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Shop-Domain: ${shop}" \\
+  -d '{
+    "shop": "${shop}",
+    "variantId": "456789",
+    "productTitle": "배추김치 1kg",
+    "email": "customer@example.com",
+    "channel": "EMAIL"
+  }'`;
+
+  const curlNoticeExample = `// 스토어프론트 공지 팝업 설정 조회 (GET)
+curl -X GET "${endpoints.storefrontNoticeApi}?shop=${shop}"`;
+
+  const printTokenGuide = `// Node.js crypto HMAC 기반 서명 생성 예시 (만료시간 포함)
 const crypto = require("crypto");
 
-function generatePrintToken(orderId, shop, apiSecret) {
+function generatePrintToken(orderId, shop, expiresInHours = 48) {
+  const secret = process.env.SHOPIFY_API_SECRET;
   const cleanOrderId = orderId.toString().split("/").pop();
-  return crypto
-    .createHmac("sha256", apiSecret)
-    .update(\`\${cleanOrderId}:\${shop}\`)
+  const cleanShop = shop.toLowerCase().trim();
+  const expiresAt = Math.floor(Date.now() / 1000) + expiresInHours * 3600;
+
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(\`\${cleanOrderId}:\${cleanShop}:\${expiresAt}\`)
     .digest("hex");
+
+  return \`\${expiresAt}.\${signature}\`;
 }
 
-// 호출 URL 예시:
-// ${appUrl}/print/lieferschein/1001?token=GENERATED_HMAC_TOKEN&shop=${shop || "your-shop.myshopify.com"}`;
+// 출력 URL 예시:
+// ${appUrl}/print/lieferschein/12345?shop=${shop}&tokens=\${token}`;
 
   return (
-    <Page
-      title="앱 설정 (App Settings)"
-      subtitle="API 요청 URL, 인증 키, 웹훅 엔드포인트 및 외부 연동 정보"
-    >
+    <Page title="시스템 연동 및 환경 설정">
       <BlockStack gap="500">
-        {/* 설명 배너 */}
-        <Banner title="외부 모바일 앱 및 API 연동 가이드" status="info">
-          <p>
-            외부 앱(모바일 검수 앱 등) 및 커스텀 서비스에서 본 Shopify 앱으로 데이터를 요청할 때 필요한 
-            <strong> API Endpoints, API Key, Secret Key</strong> 정보를 확인하고 테스트할 수 있습니다.
-          </p>
+        {/* 시스템 안내 배너 */}
+        <Banner tone="info">
+          Shopify Admin GraphQL, Odoo ERP, Brevo Email 및 외부 물류 시스템 간의 연동 규격과 연결 상태를 확인하고 관리합니다.
         </Banner>
 
         <Layout>
-          {/* 좌측: API 인증 정보 & 상점 설정 */}
-          <Layout.Section variant="oneThird">
-            <BlockStack gap="400">
-              <Card>
-                <BlockStack gap="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text variant="headingMd" as="h2">
-                      API 인증 키 (Credentials)
-                    </Text>
-                    <Icon source={KeyIcon} tone="base" />
-                  </InlineStack>
-
-                  <Divider />
-
-                  <BlockStack gap="300">
-                    <Text variant="bodyMd" fontWeight="semibold" as="span">
-                      상점 도메인 (Shop Domain)
-                    </Text>
-                    <InlineStack align="space-between" blockAlign="center">
-                      <Badge tone="info">{shop || "설정 안됨"}</Badge>
-                      <Button
-                        size="micro"
-                        icon={copiedField === "Shop Domain" ? CheckIcon : ClipboardIcon}
-                        onClick={() => handleCopy(shop, "Shop Domain")}
-                      >
-                        복사
-                      </Button>
-                    </InlineStack>
-                  </BlockStack>
-
-                  <BlockStack gap="200">
-                    <TextField
-                      label="Shopify Client ID (API Key)"
-                      value={apiKey}
-                      readOnly
-                      autoComplete="off"
-                      connectedRight={
-                        <Button
-                          icon={copiedField === "API Key" ? CheckIcon : ClipboardIcon}
-                          onClick={() => handleCopy(apiKey, "API Key")}
-                        >
-                          복사
-                        </Button>
-                      }
-                    />
-                  </BlockStack>
-
-                  <BlockStack gap="200">
-                    <TextField
-                      label="Shopify API Secret Key"
-                      type={showSecret ? "text" : "password"}
-                      value={apiSecretKey || "미설정 (env 파일 확인 필요)"}
-                      readOnly
-                      autoComplete="off"
-                      connectedRight={
-                        <InlineStack gap="100">
-                          <Button
-                            icon={showSecret ? HideIcon : ViewIcon}
-                            onClick={() => setShowSecret(!showSecret)}
-                            accessibilityLabel={showSecret ? "숨기기" : "보기"}
-                          >
-                            {showSecret ? "숨기기" : "보기"}
-                          </Button>
-                          <Button
-                            icon={copiedField === "API Secret Key" ? CheckIcon : ClipboardIcon}
-                            onClick={() => handleCopy(apiSecretKey, "API Secret Key")}
-                          >
-                            복사
-                          </Button>
-                        </InlineStack>
-                      }
-                    />
-                  </BlockStack>
-
-                  <BlockStack gap="200">
-                    <Text variant="bodyMd" fontWeight="semibold" as="span">
-                      현재 API Version
-                    </Text>
-                    <Badge tone="success">{currentApiVersion}</Badge>
-                  </BlockStack>
-
-                  <Divider />
-
-                  <BlockStack gap="200">
-                    <Text variant="bodyMd" fontWeight="semibold" as="span">
-                      부여된 Scope 권한 목록
-                    </Text>
-                    <InlineStack gap="100" wrap>
-                      {scopes.length > 0 ? (
-                        scopes.map((scope) => (
-                          <Badge key={scope} tone="subdued">
-                            {scope}
-                          </Badge>
-                        ))
-                      ) : (
-                        <Text tone="subdued">권한 정보 없음</Text>
-                      )}
-                    </InlineStack>
-                  </BlockStack>
-                </BlockStack>
-              </Card>
-            </BlockStack>
-          </Layout.Section>
-
-          {/* 우측: 엔드포인트 URL 및 코드 예시 */}
+          {/* 1. 서비스 연결 상태 카드 */}
           <Layout.Section>
-            <BlockStack gap="400">
-              {/* 카드: 요청 URL 정보 */}
-              <Card>
-                <BlockStack gap="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text variant="headingMd" as="h2">
-                      요청 URL & 엔드포인트 (Request Endpoints)
-                    </Text>
-                    <Icon source={LinkIcon} tone="base" />
-                  </InlineStack>
-
-                  <Divider />
-
-                  <BlockStack gap="300">
-                    <TextField
-                      label="기본 앱 URL (Base App URL)"
-                      value={appUrl}
-                      readOnly
-                      autoComplete="off"
-                      connectedRight={
-                        <Button
-                          icon={copiedField === "Base App URL" ? CheckIcon : ClipboardIcon}
-                          onClick={() => handleCopy(appUrl, "Base App URL")}
-                        >
-                          복사
-                        </Button>
-                      }
-                    />
-                  </BlockStack>
-
-                  <BlockStack gap="300">
-                    <InlineStack align="space-between">
-                      <Text variant="bodyMd" fontWeight="bold" as="span">
-                        검수 내역 조회/저장 API (Inspection History API)
-                      </Text>
-                      <Badge tone="success">GET / POST</Badge>
-                    </InlineStack>
-                    <TextField
-                      label=""
-                      labelHidden
-                      value={endpoints.inspectionHistoryApi}
-                      readOnly
-                      autoComplete="off"
-                      connectedRight={
-                        <Button
-                          icon={copiedField === "Inspection API URL" ? CheckIcon : ClipboardIcon}
-                          onClick={() => handleCopy(endpoints.inspectionHistoryApi, "Inspection API URL")}
-                        >
-                          복사
-                        </Button>
-                      }
-                    />
-                    <Text variant="bodySm" tone="subdued">
-                      모바일 검수 앱이나 외부 시스템에서 검수 완료 기록을 조회하고 결과를 등록할 수 있습니다.
-                    </Text>
-                  </BlockStack>
-
-                  <Divider />
-
-                  <BlockStack gap="300">
-                    <InlineStack align="space-between">
-                      <Text variant="bodyMd" fontWeight="bold" as="span">
-                        컨테이너 정보 수신/조회 API (Container API)
-                      </Text>
-                      <Badge tone="attention">POST / GET</Badge>
-                    </InlineStack>
-                    <TextField
-                      label=""
-                      labelHidden
-                      value={endpoints.containerApi}
-                      readOnly
-                      autoComplete="off"
-                      connectedRight={
-                        <Button
-                          icon={copiedField === "Container API URL" ? CheckIcon : ClipboardIcon}
-                          onClick={() => handleCopy(endpoints.containerApi, "Container API URL")}
-                        >
-                          복사
-                        </Button>
-                      }
-                    />
-                    <Text variant="bodySm" tone="subdued">
-                      모바일 앱이나 외부 시스템에서 컨테이너 수량 및 검수 상태를 연동할 때 호출하는 URL입니다.
-                    </Text>
-                  </BlockStack>
-
-                  <Divider />
-
-                  <BlockStack gap="300">
-                    <InlineStack align="space-between">
-                      <Text variant="bodyMd" fontWeight="bold" as="span">
-                        납품서 (Lieferschein) PDF 출력 API
-                      </Text>
-                      <Badge tone="success">GET</Badge>
-                    </InlineStack>
-                    <TextField
-                      label=""
-                      labelHidden
-                      value={endpoints.printLieferscheinApi}
-                      readOnly
-                      autoComplete="off"
-                      connectedRight={
-                        <Button
-                          icon={copiedField === "Print API URL" ? CheckIcon : ClipboardIcon}
-                          onClick={() => handleCopy(endpoints.printLieferscheinApi, "Print API URL")}
-                        >
-                          복사
-                        </Button>
-                      }
-                    />
-                    <Text variant="bodySm" tone="subdued">
-                      외부 앱이나 웹 브라우저에서 주문서/납품서를 바로 인쇄할 수 있는 보안 링크입니다 (token 필수).
-                    </Text>
-                  </BlockStack>
-
-                  <Divider />
-
-                  <BlockStack gap="200">
-                    <Text variant="bodyMd" fontWeight="bold" as="span">
-                      등록된 웹훅(Webhook) 엔드포인트
-                    </Text>
+            <Card>
+              <BlockStack gap="400">
+                <Text variant="headingMd" as="h2">
+                  핵심 서비스 연동 현황
+                </Text>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: "16px",
+                  }}
+                >
+                  <Box
+                    padding="300"
+                    background="bg-surface-secondary"
+                    borderRadius="200"
+                    borderWidth="025"
+                    borderColor="border"
+                  >
                     <BlockStack gap="100">
+                      <Text variant="bodySm" tone="subdued">
+                        Shopify Admin API
+                      </Text>
                       <InlineStack align="space-between" blockAlign="center">
-                        <Text variant="bodySm">app/uninstalled:</Text>
-                        <Text variant="bodySm" tone="subdued" fontFamily="monospace">
-                          {endpoints.webhookUninstalled}
+                        <Text variant="bodyMd" fontWeight="bold">
+                          {currentApiVersion}
                         </Text>
-                      </InlineStack>
-                      <InlineStack align="space-between" blockAlign="center">
-                        <Text variant="bodySm">app/scopes_update:</Text>
-                        <Text variant="bodySm" tone="subdued" fontFamily="monospace">
-                          {endpoints.webhookScopesUpdate}
-                        </Text>
+                        <Badge tone="success">{servicesStatus.shopify.label}</Badge>
                       </InlineStack>
                     </BlockStack>
-                  </BlockStack>
-                </BlockStack>
-              </Card>
+                  </Box>
 
-              {/* 카드: 연동 예시 코드 */}
-              <Card>
-                <BlockStack gap="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text variant="headingMd" as="h2">
-                      API 연동 가이드 & 코드 예시
-                    </Text>
-                    <Icon source={CodeIcon} tone="base" />
+                  <Box
+                    padding="300"
+                    background="bg-surface-secondary"
+                    borderRadius="200"
+                    borderWidth="025"
+                    borderColor="border"
+                  >
+                    <BlockStack gap="100">
+                      <Text variant="bodySm" tone="subdued">
+                        Odoo ERP (JSON-RPC)
+                      </Text>
+                      <InlineStack align="space-between" blockAlign="center">
+                        <Text variant="bodyMd" fontWeight="bold">
+                          ETA & 위치
+                        </Text>
+                        <Badge tone={servicesStatus.odoo.status === "CONNECTED" ? "success" : "attention"}>
+                          {servicesStatus.odoo.label}
+                        </Badge>
+                      </InlineStack>
+                    </BlockStack>
+                  </Box>
+
+                  <Box
+                    padding="300"
+                    background="bg-surface-secondary"
+                    borderRadius="200"
+                    borderWidth="025"
+                    borderColor="border"
+                  >
+                    <BlockStack gap="100">
+                      <Text variant="bodySm" tone="subdued">
+                        Brevo 이메일 엔진
+                      </Text>
+                      <InlineStack align="space-between" blockAlign="center">
+                        <Text variant="bodyMd" fontWeight="bold">
+                          HTTP v3
+                        </Text>
+                        <Badge tone={servicesStatus.email.status === "CONNECTED" ? "success" : "attention"}>
+                          {servicesStatus.email.label}
+                        </Badge>
+                      </InlineStack>
+                    </BlockStack>
+                  </Box>
+
+                  <Box
+                    padding="300"
+                    background="bg-surface-secondary"
+                    borderRadius="200"
+                    borderWidth="025"
+                    borderColor="border"
+                  >
+                    <BlockStack gap="100">
+                      <Text variant="bodySm" tone="subdued">
+                        데이터베이스
+                      </Text>
+                      <InlineStack align="space-between" blockAlign="center">
+                        <Text variant="bodyMd" fontWeight="bold">
+                          Prisma ORM
+                        </Text>
+                        <Badge tone="success">{servicesStatus.db.label}</Badge>
+                      </InlineStack>
+                    </BlockStack>
+                  </Box>
+                </div>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* 2. 기본 인증 정보 */}
+          <Layout.Section variant="oneHalf">
+            <Card>
+              <BlockStack gap="400">
+                <Text variant="headingMd" as="h2">
+                  애플리케이션 인증 정보
+                </Text>
+                <Divider />
+
+                <TextField
+                  label="스토어 도메인"
+                  value={shop}
+                  readOnly
+                  autoComplete="off"
+                  connectedRight={
+                    <Button onClick={() => handleCopy(shop, "스토어 도메인")}>복사</Button>
+                  }
+                />
+
+                <TextField
+                  label="Shopify API Key (Client ID)"
+                  value={apiKey}
+                  readOnly
+                  autoComplete="off"
+                  connectedRight={
+                    <Button onClick={() => handleCopy(apiKey, "API Key")}>복사</Button>
+                  }
+                />
+
+                <TextField
+                  label="API Secret Key (보안 마스킹)"
+                  value={maskedSecret}
+                  readOnly
+                  autoComplete="off"
+                  helpText="보안을 위해 실제 API Secret은 서버 환경변수에서만 관리되며 클라이언트에 노출되지 않습니다."
+                />
+
+                <BlockStack gap="100">
+                  <Text variant="bodySm" tone="subdued">
+                    부여된 API 권한 범위 (Scopes)
+                  </Text>
+                  <InlineStack gap="150" wrap>
+                    {scopes.map((scope, idx) => (
+                      <Badge key={idx} tone="info">
+                        {scope}
+                      </Badge>
+                    ))}
                   </InlineStack>
-
-                  <Divider />
-
-                  <Tabs tabs={codeTabs} selected={selectedTab} onSelect={setSelectedTab}>
-                    <Box paddingBlockStart="300">
-                      {selectedTab === 0 && (
-                        <BlockStack gap="300">
-                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
-                            1. cURL 요청 예시 (검수 내역 조회 & 저장)
-                          </Text>
-                          <Box
-                            padding="300"
-                            background="bg-surface-secondary"
-                            borderRadius="200"
-                          >
-                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
-                              {curlInspectionExample}
-                            </pre>
-                          </Box>
-                          <InlineStack align="end">
-                            <Button
-                              size="micro"
-                              icon={copiedField === "cURL Inspection Example" ? CheckIcon : ClipboardIcon}
-                              onClick={() => handleCopy(curlInspectionExample, "cURL Inspection Example")}
-                            >
-                              cURL 예시 복사
-                            </Button>
-                          </InlineStack>
-
-                          <Divider />
-
-                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
-                            2. JavaScript Fetch 요청 예시
-                          </Text>
-                          <Box
-                            padding="300"
-                            background="bg-surface-secondary"
-                            borderRadius="200"
-                          >
-                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
-                              {jsInspectionExample}
-                            </pre>
-                          </Box>
-                          <InlineStack align="end">
-                            <Button
-                              size="micro"
-                              icon={copiedField === "JS Inspection Example" ? CheckIcon : ClipboardIcon}
-                              onClick={() => handleCopy(jsInspectionExample, "JS Inspection Example")}
-                            >
-                              JS 예시 복사
-                            </Button>
-                          </InlineStack>
-                        </BlockStack>
-                      )}
-
-                      {selectedTab === 1 && (
-                        <BlockStack gap="300">
-                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
-                            1. cURL 요청 예시
-                          </Text>
-                          <Box
-                            padding="300"
-                            background="bg-surface-secondary"
-                            borderRadius="200"
-                          >
-                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
-                              {curlContainerExample}
-                            </pre>
-                          </Box>
-                          <InlineStack align="end">
-                            <Button
-                              size="micro"
-                              icon={copiedField === "cURL Example" ? CheckIcon : ClipboardIcon}
-                              onClick={() => handleCopy(curlContainerExample, "cURL Example")}
-                            >
-                              cURL 예시 복사
-                            </Button>
-                          </InlineStack>
-
-                          <Divider />
-
-                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
-                            2. JavaScript Fetch 요청 예시
-                          </Text>
-                          <Box
-                            padding="300"
-                            background="bg-surface-secondary"
-                            borderRadius="200"
-                          >
-                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
-                              {jsContainerExample}
-                            </pre>
-                          </Box>
-                          <InlineStack align="end">
-                            <Button
-                              size="micro"
-                              icon={copiedField === "JS Fetch Example" ? CheckIcon : ClipboardIcon}
-                              onClick={() => handleCopy(jsContainerExample, "JS Fetch Example")}
-                            >
-                              JS 예시 복사
-                            </Button>
-                          </InlineStack>
-                        </BlockStack>
-                      )}
-
-                      {selectedTab === 2 && (
-                        <BlockStack gap="300">
-                          <Text variant="bodyMd" fontWeight="semibold" as="h3">
-                            납품서 출력 토큰(HMAC SHA-256) 생성 예시
-                          </Text>
-                          <Text variant="bodySm">
-                            출력 페이지 보안을 위해 <code>SHOPIFY_API_SECRET</code>을 키로 사용하여 <code>orderId:shop</code> 규격의 HMAC 토큰을 생성합니다.
-                          </Text>
-                          <Box
-                            padding="300"
-                            background="bg-surface-secondary"
-                            borderRadius="200"
-                          >
-                            <pre style={{ margin: 0, fontSize: "12px", fontFamily: "monospace", overflowX: "auto" }}>
-                              {printTokenGuide}
-                            </pre>
-                          </Box>
-                          <InlineStack align="end">
-                            <Button
-                              size="micro"
-                              icon={copiedField === "Print Token Guide" ? CheckIcon : ClipboardIcon}
-                              onClick={() => handleCopy(printTokenGuide, "Print Token Guide")}
-                            >
-                              토큰 가이드 복사
-                            </Button>
-                          </InlineStack>
-                        </BlockStack>
-                      )}
-                    </Box>
-                  </Tabs>
                 </BlockStack>
-              </Card>
-            </BlockStack>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* 3. 웹훅 및 엔드포인트 URL */}
+          <Layout.Section variant="oneHalf">
+            <Card>
+              <BlockStack gap="400">
+                <Text variant="headingMd" as="h2">
+                  등록 엔드포인트 및 웹훅 URL
+                </Text>
+                <Divider />
+
+                <TextField
+                  label="App Base URL"
+                  value={appUrl}
+                  readOnly
+                  autoComplete="off"
+                  connectedRight={
+                    <Button onClick={() => handleCopy(appUrl, "App Base URL")}>복사</Button>
+                  }
+                />
+
+                <TextField
+                  label="재고 변경 웹훅 (inventory_levels/update)"
+                  value={endpoints.webhookInventoryUpdate}
+                  readOnly
+                  autoComplete="off"
+                  connectedRight={
+                    <Button onClick={() => handleCopy(endpoints.webhookInventoryUpdate, "재고 웹훅 URL")}>
+                      복사
+                    </Button>
+                  }
+                />
+
+                <TextField
+                  label="앱 삭제 웹훅 (app/uninstalled)"
+                  value={endpoints.webhookUninstalled}
+                  readOnly
+                  autoComplete="off"
+                  connectedRight={
+                    <Button onClick={() => handleCopy(endpoints.webhookUninstalled, "앱 삭제 웹훅 URL")}>
+                      복사
+                    </Button>
+                  }
+                />
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* 4. 외부 연동 개발자 가이드 및 cURL 예시 */}
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text variant="headingMd" as="h2">
+                  외부 시스템 연동 API 가이드
+                </Text>
+                <Text variant="bodySm" tone="subdued">
+                  모바일 바코드 앱 또는 외부 물류 시스템에서 호출할 수 있는 표준 API 규격입니다.
+                </Text>
+
+                <Tabs tabs={codeTabs} selected={selectedTab} onSelect={setSelectedTab} />
+
+                <Box
+                  padding="400"
+                  background="bg-surface-secondary"
+                  borderRadius="200"
+                  borderWidth="025"
+                  borderColor="border"
+                >
+                  <BlockStack gap="200">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Text variant="bodySm" fontWeight="bold">
+                        {codeTabs[selectedTab].content}
+                      </Text>
+                      <Button
+                        size="slim"
+                        icon={copiedField === codeTabs[selectedTab].id ? CheckIcon : ClipboardIcon}
+                        onClick={() => {
+                          let snippet = "";
+                          if (selectedTab === 0) snippet = curlInspectionExample;
+                          else if (selectedTab === 1) snippet = curlContainerExample;
+                          else if (selectedTab === 2) snippet = curlBackInStockExample;
+                          else if (selectedTab === 3) snippet = curlNoticeExample;
+                          else snippet = printTokenGuide;
+                          handleCopy(snippet, codeTabs[selectedTab].id);
+                        }}
+                      >
+                        코드 복사
+                      </Button>
+                    </InlineStack>
+
+                    <pre
+                      style={{
+                        margin: 0,
+                        padding: "12px",
+                        backgroundColor: "#0f172a",
+                        color: "#f8fafc",
+                        borderRadius: "6px",
+                        overflowX: "auto",
+                        fontSize: "12px",
+                        fontFamily: "monospace",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {selectedTab === 0 && curlInspectionExample}
+                      {selectedTab === 1 && curlContainerExample}
+                      {selectedTab === 2 && curlBackInStockExample}
+                      {selectedTab === 3 && curlNoticeExample}
+                      {selectedTab === 4 && printTokenGuide}
+                    </pre>
+                  </BlockStack>
+                </Box>
+              </BlockStack>
+            </Card>
           </Layout.Section>
         </Layout>
 
-        {/* 토스트 알림 */}
         {toastMessage && (
-          <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} duration={3000} />
+          <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />
         )}
       </BlockStack>
     </Page>

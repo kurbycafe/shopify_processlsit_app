@@ -1,115 +1,64 @@
 import { BlockStack, InlineStack, Text, Icon, Badge } from "@shopify/polaris";
-import { PrintIcon, CheckCircleIcon, ClockIcon } from "@shopify/polaris-icons";
+import { PrintIcon, CheckCircleIcon, ClockIcon, AlertTriangleIcon } from "@shopify/polaris-icons";
 import { useNavigate } from "react-router";
+import MetricCard from "../common/MetricCard";
 
 /**
- * 대시보드 4열 핵심 메트릭 카드 컴포넌트
+ * Operations Command Center 4-column KPI Metric Grid
  */
 export function DashboardMetricCards({
-  todayPrintedCount,
-  thisWeekFulfilledCount,
-  unfulfilledCount,
+  todayPrintedCount = 0,
+  thisWeekFulfilledCount = 0,
+  unfulfilledCount = 0,
+  pendingBackInStockCount = 0,
 }) {
   const navigate = useNavigate();
 
   return (
-    <div className="dashboard-metric-grid">
-      {/* 메트릭 1: Lieferschein 인쇄 */}
-      <div
-        className="dashboard-metric-card metric-glow-purple"
-        style={{ cursor: "pointer" }}
-        onClick={() => navigate("/app/lieferschein")}
-      >
-        <BlockStack gap="200">
-          <InlineStack align="space-between" blockAlign="center">
-            <Text variant="bodyMd" fontWeight="semibold" tone="subdued">
-              오늘 Lieferschein 인쇄
-            </Text>
-            <Icon source={PrintIcon} tone="interactive" />
-          </InlineStack>
-          <InlineStack align="space-between" blockAlign="baseline">
-            <Text variant="heading2xl" as="p" style={{ color: "#7c3aed", fontWeight: "800" }}>
-              {todayPrintedCount}{" "}
-              <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>건</span>
-            </Text>
-            <Badge tone="info">출력 내역 &rarr;</Badge>
-          </InlineStack>
-        </BlockStack>
-      </div>
-
-      {/* 메트릭 2: 이번주 검수 작업 */}
-      <div
-        className="dashboard-metric-card metric-glow-emerald"
-        style={{ cursor: "pointer" }}
-        onClick={() => navigate("/app/inspection-history?datePreset=THIS_WEEK")}
-      >
-        <BlockStack gap="200">
-          <InlineStack align="space-between" blockAlign="center">
-            <Text variant="bodyMd" fontWeight="semibold" tone="subdued">
-              이번주 검수 완료
-            </Text>
-            <Icon source={CheckCircleIcon} tone="success" />
-          </InlineStack>
-          <InlineStack align="space-between" blockAlign="baseline">
-            <Text variant="heading2xl" as="p" style={{ color: "#059669", fontWeight: "800" }}>
-              {thisWeekFulfilledCount}{" "}
-              <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>건</span>
-            </Text>
-            <Badge tone="success">히스토리 &rarr;</Badge>
-          </InlineStack>
-        </BlockStack>
-      </div>
-
-      {/* 메트릭 3: 미배송 주문 */}
-      <div
-        className="dashboard-metric-card metric-glow-amber"
-        style={{ cursor: "pointer" }}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        gap: "16px",
+      }}
+    >
+      <MetricCard
+        title="출고 대기 미처리 주문"
+        value={`${unfulfilledCount.toLocaleString()} 건`}
+        subtitle="피킹 및 검수 대상"
+        badgeText="피킹 리스트"
+        badgeTone="warning"
+        variant={unfulfilledCount > 0 ? "warning" : "secondary"}
         onClick={() => navigate("/app/pick-list")}
-      >
-        <BlockStack gap="200">
-          <InlineStack align="space-between" blockAlign="center">
-            <Text variant="bodyMd" fontWeight="semibold" tone="subdued">
-              처리 대기중 주문
-            </Text>
-            <Icon source={ClockIcon} tone="warning" />
-          </InlineStack>
-          <InlineStack align="space-between" blockAlign="baseline">
-            <Text variant="heading2xl" as="p" style={{ color: "#d97706", fontWeight: "800" }}>
-              {unfulfilledCount}{" "}
-              <span style={{ fontSize: "14px", fontWeight: "600", color: "#94a3b8" }}>건</span>
-            </Text>
-            <Badge tone="warning">처리 목록 &rarr;</Badge>
-          </InlineStack>
-        </BlockStack>
-      </div>
+      />
 
-      {/* 메트릭 4: API 연동 상태 */}
-      <div
-        className="dashboard-metric-card metric-glow-cyan"
-        style={{ cursor: "pointer" }}
-        onClick={() => navigate("/app/settings")}
-      >
-        <BlockStack gap="200">
-          <InlineStack align="space-between" blockAlign="center">
-            <Text variant="bodyMd" fontWeight="semibold" tone="subdued">
-              외부 모바일 API 연동
-            </Text>
-            <div className="pulse-badge">
-              <span className="pulse-dot" />
-            </div>
-          </InlineStack>
-          <InlineStack align="space-between" blockAlign="baseline">
-            <Text
-              variant="heading2xl"
-              as="p"
-              style={{ color: "#0891b2", fontWeight: "800", fontSize: "20px" }}
-            >
-              정상 가동 중
-            </Text>
-            <Badge tone="interactive">API 설정 &rarr;</Badge>
-          </InlineStack>
-        </BlockStack>
-      </div>
+      <MetricCard
+        title="오늘 Lieferschein 출력"
+        value={`${todayPrintedCount.toLocaleString()} 건`}
+        subtitle="납품서 인쇄 완료"
+        badgeText="납품서 목록"
+        badgeTone="info"
+        onClick={() => navigate("/app/lieferschein")}
+      />
+
+      <MetricCard
+        title="이번 주 검수 완료"
+        value={`${thisWeekFulfilledCount.toLocaleString()} 건`}
+        subtitle="정상 출고 완료"
+        badgeText="검수 이력"
+        badgeTone="success"
+        variant="primary"
+        onClick={() => navigate("/app/inspection-history?datePreset=THIS_WEEK")}
+      />
+
+      <MetricCard
+        title="재입고 알림 대기 수요"
+        value={`${pendingBackInStockCount.toLocaleString()} 명`}
+        subtitle="입고 시 자동 발송"
+        badgeText="수요 관리"
+        badgeTone="info"
+        onClick={() => navigate("/app/back-in-stock")}
+      />
     </div>
   );
 }

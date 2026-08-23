@@ -12,7 +12,7 @@ export function validateSubscriptionInput({ email, phone, channel = "EMAIL" }) {
   const validChannels = ["EMAIL", "PUSH", "SMS"];
 
   if (!validChannels.includes(normalizedChannel)) {
-    return { valid: false, error: "유효하지 않은 알림 채널입니다." };
+    return { valid: false, error: "유효하지 않은 알림 채널입니다. (EMAIL, PUSH, SMS 지원)" };
   }
 
   const cleanEmail = email ? String(email).trim().toLowerCase() : null;
@@ -39,7 +39,7 @@ export function validateSubscriptionInput({ email, phone, channel = "EMAIL" }) {
 }
 
 /**
- * Idempotent subscription creation or status reactivation
+ * Idempotent subscription creation or reactivation
  */
 export async function createSubscription({
   shop,
@@ -53,6 +53,7 @@ export async function createSubscription({
   channel = "EMAIL",
   etaDate = null,
 }) {
+  const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
   const validation = validateSubscriptionInput({ email, phone, channel });
   if (!validation.valid) {
     throw new Error(validation.error);
@@ -63,17 +64,17 @@ export async function createSubscription({
   // Resolve ETA if not provided
   let resolvedEta = etaDate;
   if (!resolvedEta) {
-    const etaRes = await resolveVariantEta({ shop, variantId, sku });
+    const etaRes = await resolveVariantEta({ shop: cleanShop, variantId, sku });
     resolvedEta = etaRes.etaDate;
   }
 
-  // Idempotency: Check if active subscription already exists
+  // Idempotency: Check if active or pending subscription already exists
   const existing = await prisma.backInStockSubscription.findFirst({
     where: {
-      shop,
+      shop: cleanShop,
       variantId: String(variantId),
       email: cleanEmail,
-      status: "PENDING",
+      status: { in: ["PENDING", "PROCESSING"] },
     },
   });
 
@@ -88,7 +89,7 @@ export async function createSubscription({
   // Create new subscription
   const subscription = await prisma.backInStockSubscription.create({
     data: {
-      shop: String(shop),
+      shop: cleanShop,
       productId: String(productId || ""),
       variantId: String(variantId),
       productTitle: String(productTitle || "상품"),
@@ -98,6 +99,7 @@ export async function createSubscription({
       channel: cleanChannel,
       etaDate: resolvedEta,
       status: "PENDING",
+      notificationAttempts: 0,
     },
   });
 
@@ -112,12 +114,14 @@ export async function createSubscription({
  * Securely unsubscribes a specific subscription
  */
 export async function cancelSubscription({ shop, subscriptionId, email, variantId }) {
+  const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
+
   if (subscriptionId) {
     const sub = await prisma.backInStockSubscription.findUnique({
       where: { id: String(subscriptionId) },
     });
 
-    if (!sub || sub.shop !== shop) {
+    if (!sub || sub.shop !== cleanShop) {
       throw new Error("신청 내역을 찾을 수 없거나 권한이 없습니다.");
     }
 
@@ -133,7 +137,7 @@ export async function cancelSubscription({ shop, subscriptionId, email, variantI
     const cleanEmail = String(email).trim().toLowerCase();
     const res = await prisma.backInStockSubscription.updateMany({
       where: {
-        shop,
+        shop: cleanShop,
         variantId: String(variantId),
         email: cleanEmail,
         status: "PENDING",
@@ -145,4 +149,109 @@ export async function cancelSubscription({ shop, subscriptionId, email, variantI
   }
 
   throw new Error("취소할 구독 ID 또는 이메일 정보가 필요합니다.");
+}
+
+/**
+ * Atomically notifies pending subscribers for a restocked variant
+ * Uses state machine: PENDING -> PROCESSING -> NOTIFIED or FAILED
+ */
+export async function notifyPendingSubscribersForVariant({
+  shop,
+  variantId,
+  productTitle,
+  variantTitle,
+  productUrl,
+}) {
+  const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
+  const cleanVariantId = String(variantId);
+  const numericVariantId = cleanVariantId.replace("gid://shopify/ProductVariant/", "");
+
+  // 1. Find all pending subscribers
+  const pendingSubscribers = await prisma.backInStockSubscription.findMany({
+    where: {
+      shop: cleanShop,
+      status: "PENDING",
+      OR: [
+        { variantId: cleanVariantId },
+        { variantId: numericVariantId },
+      ],
+    },
+  });
+
+  if (pendingSubscribers.length === 0) {
+    return { success: true, total: 0, sent: 0, failed: 0 };
+  }
+
+  // 2. Mark as PROCESSING to prevent duplicate concurrent runs
+  const subIds = pendingSubscribers.map((s) => s.id);
+  await prisma.backInStockSubscription.updateMany({
+    where: { id: { in: subIds }, status: "PENDING" },
+    data: { status: "PROCESSING", processingAt: new Date() },
+  });
+
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const sub of pendingSubscribers) {
+    const pTitle = sub.productTitle || productTitle || "상품";
+    const vTitle = sub.variantTitle || variantTitle || "";
+
+    try {
+      if (sub.channel === "EMAIL" || sub.channel === "PUSH") {
+        if (sub.email) {
+          await sendBackInStockEmail({
+            email: sub.email,
+            productTitle: pTitle,
+            variantTitle: vTitle,
+            productUrl,
+            shopDomain: cleanShop,
+          });
+        }
+      } else if (sub.channel === "SMS") {
+        // SMS provider is currently handled via email fallback notification
+        if (sub.email) {
+          await sendBackInStockEmail({
+            email: sub.email,
+            productTitle: pTitle,
+            variantTitle: vTitle,
+            productUrl,
+            shopDomain: cleanShop,
+          });
+        }
+      }
+
+      // Mark as NOTIFIED
+      await prisma.backInStockSubscription.update({
+        where: { id: sub.id },
+        data: {
+          status: "NOTIFIED",
+          notifiedAt: new Date(),
+          notificationAttempts: { increment: 1 },
+          lastNotificationAt: new Date(),
+          lastNotificationError: null,
+        },
+      });
+      sentCount++;
+    } catch (err) {
+      failedCount++;
+      console.error(`Back in stock email failed for subscriber [${sub.id}]:`, err.message);
+
+      await prisma.backInStockSubscription.update({
+        where: { id: sub.id },
+        data: {
+          status: "FAILED",
+          notificationAttempts: { increment: 1 },
+          lastNotificationAt: new Date(),
+          lastNotificationError: err.message || "Email dispatch failed",
+        },
+      });
+    }
+  }
+
+  return {
+    success: true,
+    total: pendingSubscribers.length,
+    sent: sentCount,
+    failed: failedCount,
+  };
 }

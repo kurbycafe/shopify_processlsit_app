@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import {
   Page,
@@ -8,6 +8,11 @@ import {
   Badge,
   Text,
   BlockStack,
+  InlineStack,
+  Card,
+  Box,
+  Button,
+  Banner,
 } from "@shopify/polaris";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -33,8 +38,9 @@ dayjs.extend(relativeTime);
 // ========================================================
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
+  const shop = session.shop;
 
-  // 미배송 주문 카운트 쿼리
+  // 1. Unfulfilled orders count
   let unfulfilledCount = 0;
   try {
     const unfulfilledQuery = `#graphql
@@ -48,18 +54,17 @@ export const loader = async ({ request }) => {
     const json = await response.json();
     unfulfilledCount = json.data?.ordersCount?.count || 0;
   } catch (err) {
-    console.error("Failed to fetch unfulfilled orders count:", err);
+    console.error("Failed to fetch unfulfilled orders count:", err.message);
   }
 
-  // 오늘 날짜 기준 (자정)
-  // Timezone-aware date calculations (Europe/Berlin default)
+  // 2. Timezone-aware date calculations (Europe/Berlin default)
   const { start: todayStart, end: todayEnd } = getTodayRange();
   const { start: startOfWeek, end: endOfWeek } = getThisWeekRange();
 
-  // 오늘 Lieferschein 인쇄 건수 (DB 조회)
+  // 3. Today printed delivery notes
   const todayPrintedCount = await prisma.inspectionRecord.count({
     where: {
-      shop: session.shop,
+      shop,
       isLieferscheinPrinted: true,
       updatedAt: {
         gte: todayStart,
@@ -68,10 +73,10 @@ export const loader = async ({ request }) => {
     },
   });
 
-  // 이번주 실제 검수 성공(SUCCESS) 완료 건수 카운트
+  // 4. This week fulfilled & inspected count
   const thisWeekFulfilledCount = await prisma.inspectionRecord.count({
     where: {
-      shop: session.shop,
+      shop,
       status: "SUCCESS",
       OR: [
         { completedAt: { gte: startOfWeek, lte: endOfWeek } },
@@ -81,24 +86,32 @@ export const loader = async ({ request }) => {
     },
   });
 
-  // 최근 5개 검수 기록 (세부 아이템 및 대체 상품 정보 포함)
+  // 5. Back in stock pending requests count
+  const pendingBackInStockCount = await prisma.backInStockSubscription.count({
+    where: {
+      shop,
+      status: "PENDING",
+    },
+  });
+
+  // 6. Recent QC & Inspection logs
   const recentLogs = await prisma.inspectionRecord.findMany({
-    where: { shop: session.shop },
+    where: { shop },
     orderBy: { createdAt: "desc" },
-    take: 5,
+    take: 6,
     include: {
       items: true,
     },
   });
 
-  // 최근 7일간의 생산성 차트 데이터 단일 범위 쿼리로 최적화 (N+1 제거)
+  // 7. Optimized single query for 7-day productivity metrics (N+1 eliminated)
   const chartDays = getPastDaysRange(7);
   const chartRangeStart = chartDays[0].start;
   const chartRangeEnd = chartDays[chartDays.length - 1].end;
 
   const past7DayRecords = await prisma.inspectionRecord.findMany({
     where: {
-      shop: session.shop,
+      shop,
       createdAt: {
         gte: chartRangeStart,
         lte: chartRangeEnd,
@@ -126,7 +139,7 @@ export const loader = async ({ request }) => {
     };
   });
 
-  // Odoo 최근 입고 일정 및 달력 데이터
+  // 8. Odoo incoming container schedule & calendar
   const upcomingContainers = await getUpcomingContainers();
   const calendarMonths = getCalendarMonths();
 
@@ -134,6 +147,7 @@ export const loader = async ({ request }) => {
     unfulfilledCount,
     todayPrintedCount,
     thisWeekFulfilledCount,
+    pendingBackInStockCount,
     recentLogs,
     upcomingContainers,
     calendarMonths,
@@ -155,13 +169,14 @@ export const action = async ({ request }) => {
 };
 
 // ========================================================
-// 2. 메인 대시보드 컴포넌트
+// 2. Main Operations Command Center
 // ========================================================
 export default function Dashboard() {
   const {
     unfulfilledCount,
     todayPrintedCount,
     thisWeekFulfilledCount,
+    pendingBackInStockCount,
     recentLogs,
     upcomingContainers,
     calendarMonths,
@@ -171,7 +186,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const containerItemsFetcher = useFetcher();
 
-  // 모달 상태 관리
+  // Modal states
   const [selectedLog, setSelectedLog] = useState(null);
   const [activeContainerModal, setActiveContainerModal] = useState(false);
   const [modalContainerRef, setModalContainerRef] = useState("");
@@ -186,255 +201,70 @@ export default function Dashboard() {
   };
 
   return (
-    <Page title="WMS & 물류 관리 대시보드">
-      <style>{`
-        .dashboard-metric-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 16px;
-          margin-bottom: 24px;
-        }
-        .dashboard-metric-card {
-          background: #ffffff;
-          border-radius: 12px;
-          padding: 20px;
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-          transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-        }
-        .dashboard-metric-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
-          border-color: #cbd5e1;
-        }
-        .metric-glow-purple:hover { border-color: #c084fc; }
-        .metric-glow-emerald:hover { border-color: #6ee7b7; }
-        .metric-glow-amber:hover { border-color: #fcd34d; }
-        .metric-glow-cyan:hover { border-color: #67e8f9; }
+    <Page
+      title="WMS 물류 운영 종합 상황실 (Operations Center)"
+      subtitle="실시간 주문 출고, 검수 완료, 입고 일정 및 재입고 수요 현황을 모니터링합니다."
+    >
+      <BlockStack gap="500">
+        {/* 1. 최상단: 4대 핵심 운영 메트릭 카드 */}
+        <DashboardMetricCards
+          todayPrintedCount={todayPrintedCount}
+          thisWeekFulfilledCount={thisWeekFulfilledCount}
+          unfulfilledCount={unfulfilledCount}
+          pendingBackInStockCount={pendingBackInStockCount}
+        />
 
-        .recent-log-item {
-          padding: 12px 14px;
-          border: 1px solid #f1f5f9;
-          border-radius: 8px;
-          background: #ffffff;
-          cursor: pointer;
-          transition: background-color 0.15s ease, border-color 0.15s ease;
-        }
-        .recent-log-item:hover {
-          background-color: #f8fafc;
-          border-color: #cbd5e1;
-        }
+        {/* 2. 긴급/우선 작업 알림 배너 */}
+        {unfulfilledCount > 0 && (
+          <Card>
+            <InlineStack align="space-between" blockAlign="center" wrap>
+              <BlockStack gap="100">
+                <Text variant="headingSm" as="h3" fontWeight="bold">
+                  출고 대기 미처리 주문 {unfulfilledCount}건이 있습니다.
+                </Text>
+                <Text variant="bodySm" tone="subdued">
+                  피킹 리스트를 인쇄하여 창고 피킹 동선에 맞춰 검수 및 포장을 진행해 주세요.
+                </Text>
+              </BlockStack>
 
-        .continue-btn {
-          background-color: #eff6ff;
-          color: #2563eb;
-          border: 1px solid #bfdbfe;
-          border-radius: 4px;
-          padding: 3px 8px;
-          font-size: 11px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-        .continue-btn:hover {
-          background-color: #dbeafe;
-          border-color: #93c5fd;
-        }
+              <InlineStack gap="200">
+                <Button onClick={() => navigate("/app/pick-list")}>
+                  피킹 리스트 열기
+                </Button>
+                <Button variant="primary" onClick={() => navigate("/app/inspect")}>
+                  주문 검수 시작
+                </Button>
+              </InlineStack>
+            </InlineStack>
+          </Card>
+        )}
 
-        .calendar-month-box {
-          background: #ffffff;
-          border: 1px solid #e2e8f0;
-          border-radius: 10px;
-          padding: 14px;
-        }
-        .calendar-month-title {
-          font-weight: 700;
-          font-size: 14px;
-          color: #1e293b;
-          text-align: center;
-          margin-bottom: 12px;
-        }
-        .calendar-weekdays {
-          display: grid;
-          grid-template-columns: repeat(7, 1fr);
-          text-align: center;
-          font-size: 11px;
-          font-weight: 600;
-          color: #94a3b8;
-          margin-bottom: 8px;
-        }
-        .calendar-days-grid {
-          display: grid;
-          grid-template-columns: repeat(7, 1fr);
-          gap: 4px;
-        }
-        .calendar-day-empty {
-          height: 32px;
-        }
-        .calendar-day {
-          position: relative;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 32px;
-          width: 32px;
-          border-radius: 50%;
-          font-size: 12px;
-          font-weight: 500;
-          color: #334155;
-          transition: all 0.2s ease;
-        }
-        .calendar-day.has-events {
-          cursor: pointer;
-          font-weight: 700;
-        }
-        .calendar-day.has-events:hover {
-          transform: scale(1.1);
-          z-index: 2;
-        }
-        .calendar-day.state-done {
-          background-color: #f0fdf4;
-          color: #16a34a;
-          border: 1.5px solid #bbf7d0;
-        }
-        .calendar-day.state-assigned {
-          background-color: #eff6ff;
-          color: #2563eb;
-          border: 1.5px solid #bfdbfe;
-        }
-        .calendar-day.state-waiting {
-          background-color: #fffbeb;
-          color: #d97706;
-          border: 1.5px solid #fef3c7;
-        }
-        .calendar-day.state-other {
-          background-color: #f1f5f9;
-          color: #475569;
-          border: 1.5px solid #e2e8f0;
-        }
-        .calendar-day .tooltip {
-          visibility: hidden;
-          width: 240px;
-          background-color: #0f172a;
-          color: #f8fafc;
-          text-align: left;
-          border-radius: 8px;
-          padding: 10px 12px;
-          position: absolute;
-          z-index: 50;
-          bottom: 130%;
-          left: 50%;
-          transform: translateX(-50%);
-          opacity: 0;
-          transition: opacity 0.15s ease, transform 0.15s ease;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
-          font-size: 11px;
-          line-height: 1.5;
-          pointer-events: none;
-        }
-        .calendar-day.has-events:hover .tooltip {
-          visibility: visible;
-          opacity: 1;
-          transform: translateX(-50%) translateY(-2px);
-        }
-        .container-dashboard-layout {
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-        }
-        .double-calendar-container {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-          gap: 16px;
-        }
-        .productivity-chart-container {
-          background: #ffffff;
-          padding: 8px 4px;
-        }
-        .chart-tooltip {
-          visibility: hidden;
-          pointer-events: none;
-          opacity: 0;
-          transition: opacity 0.15s ease;
-        }
-        .chart-bar-group:hover .chart-tooltip {
-          visibility: visible;
-          opacity: 1;
-        }
-        .chart-rect {
-          transition: transform 0.2s ease, opacity 0.2s ease;
-        }
-        .chart-bar-group:hover .chart-rect {
-          opacity: 0.85;
-          transform: scaleY(1.02);
-          transform-origin: bottom;
-        }
-        .spinner-loader {
-          width: 36px;
-          height: 36px;
-          border: 3.5px solid #f1f5f9;
-          border-top: 3.5px solid #008060;
-          border-radius: 50%;
-          animation: spin 0.85s linear infinite;
-        }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        .pulse-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-        }
-        .pulse-dot {
-          width: 8px;
-          height: 8px;
-          background-color: #10b981;
-          border-radius: 50%;
-          box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-          animation: pulse-ring 1.8s infinite;
-        }
-        @keyframes pulse-ring {
-          0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-          70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-      `}</style>
+        <Layout>
+          {/* 3. 최근 검수 활동 (좌측) */}
+          <Layout.Section variant="oneHalf">
+            <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
+          </Layout.Section>
 
-      <Layout>
-        {/* 1. 최상단: 4대 핵심 메트릭 카드 */}
-        <Layout.Section>
-          <DashboardMetricCards
-            todayPrintedCount={todayPrintedCount}
-            thisWeekFulfilledCount={thisWeekFulfilledCount}
-            unfulfilledCount={unfulfilledCount}
-          />
-        </Layout.Section>
+          {/* 4. 컨테이너 입고 일정 & 2개월 달력 (우측) */}
+          <Layout.Section variant="oneHalf">
+            <ContainerScheduleCard
+              upcomingContainers={upcomingContainers}
+              calendarMonths={calendarMonths}
+              onSelectContainer={handleSelectContainer}
+            />
+          </Layout.Section>
 
-        {/* 2. 최근 검수 활동 (좌측) */}
-        <Layout.Section variant="oneHalf">
-          <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
-        </Layout.Section>
+          {/* 5. 최근 7일간 검수 생산성 차트 */}
+          <Layout.Section>
+            <ProductivityChartCard chartData={chartData} />
+          </Layout.Section>
 
-        {/* 3. 컨테이너 입고 일정 & 2개월 달력 (우측) */}
-        <Layout.Section variant="oneHalf">
-          <ContainerScheduleCard
-            upcomingContainers={upcomingContainers}
-            calendarMonths={calendarMonths}
-            onSelectContainer={handleSelectContainer}
-          />
-        </Layout.Section>
-
-        {/* 4. 최근 7일간 검수 생산성 차트 (실제 건수 기준 스케일) */}
-        <Layout.Section>
-          <ProductivityChartCard chartData={chartData} />
-        </Layout.Section>
-
-        {/* 5. 최하단: 시스템 업데이트 내역 (단일 배치) */}
-        <Layout.Section>
-          <DashboardSystemUpdateCard />
-        </Layout.Section>
-      </Layout>
+          {/* 6. 최하단: 시스템 및 연동 상태 내역 */}
+          <Layout.Section>
+            <DashboardSystemUpdateCard />
+          </Layout.Section>
+        </Layout>
+      </BlockStack>
 
       {/* 컨테이너 입고 품목 상세 모달 */}
       <Modal
@@ -466,7 +296,9 @@ export default function Dashboard() {
           {containerItemsFetcher.state === "submitting" ||
           containerItemsFetcher.state === "loading" ? (
             <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
-              <div className="spinner-loader" />
+              <Text variant="bodyMd" tone="subdued">
+                품목 정보를 불러오는 중입니다...
+              </Text>
             </div>
           ) : containerItemsFetcher.data?.items ? (
             <BlockStack gap="400">

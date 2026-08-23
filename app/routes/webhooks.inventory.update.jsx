@@ -1,22 +1,20 @@
 import { authenticate, unauthenticated } from "../shopify.server";
-import prisma from "../db.server";
-import { sendBackInStockEmail } from "../utils/emailService.js";
+import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server.js";
 
 export const action = async ({ request }) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
 
-  console.log(`Received ${topic} webhook for shop: ${shop}`);
-
+  const cleanShop = String(shop || "").toLowerCase().trim();
   const available = payload?.available;
   const inventoryItemId = payload?.inventory_item_id;
 
   // Only proceed if inventory became positive (instock)
   if (typeof available === "number" && available > 0 && inventoryItemId) {
     try {
-      const { admin } = await unauthenticated.admin(shop);
+      const { admin } = await unauthenticated.admin(cleanShop);
       if (!admin) {
-        console.warn(`Cannot get offline admin client for shop: ${shop}`);
-        return new Response();
+        console.warn(`[Webhook ${topic}] Cannot get offline admin client for shop: ${cleanShop}`);
+        return new Response(null, { status: 200 });
       }
 
       // 1. Resolve variant and product information from inventoryItemId
@@ -44,69 +42,35 @@ export const action = async ({ request }) => {
       const variant = json.data?.inventoryItem?.variant;
 
       if (!variant) {
-        console.log(`No variant linked to inventory item: ${inventoryItemId}`);
-        return new Response();
+        return new Response(null, { status: 200 });
       }
 
       const variantGid = variant.id;
-      const variantNumericId = variantGid.replace("gid://shopify/ProductVariant/", "");
-      const productTitle = variant.product?.title || "Product";
+      const productTitle = variant.product?.title || "상품";
       const variantTitle = variant.title !== "Default Title" ? variant.title : "";
       const productHandle = variant.product?.handle || "";
-      const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
+      const productUrl = productHandle
+        ? `https://${cleanShop}/products/${productHandle}`
+        : `https://${cleanShop}`;
 
-      // 2. Find all pending back-in-stock subscriptions for this variant
-      const pendingSubscribers = await prisma.backInStockSubscription.findMany({
-        where: {
-          shop,
-          status: "PENDING",
-          OR: [
-            { variantId: variantGid },
-            { variantId: variantNumericId },
-          ],
-        },
+      // 2. Atomically notify subscribers via subscriptionService
+      const result = await notifyPendingSubscribersForVariant({
+        shop: cleanShop,
+        variantId: variantGid,
+        productTitle,
+        variantTitle,
+        productUrl,
       });
 
-      if (pendingSubscribers.length === 0) {
-        console.log(`No pending subscribers for variant: ${variantGid} (${productTitle})`);
-        return new Response();
+      if (result.total > 0) {
+        console.log(
+          `[Webhook ${topic}] Notified ${result.sent}/${result.total} subscribers for ${productTitle} (${cleanShop})`
+        );
       }
-
-      console.log(`Found ${pendingSubscribers.length} pending subscriber(s) for in-stock variant ${variantGid}. Sending emails...`);
-
-      // 3. Send emails and update status
-      let sentCount = 0;
-      for (const sub of pendingSubscribers) {
-        try {
-          if (sub.channel === "EMAIL" && sub.email) {
-            await sendBackInStockEmail({
-              email: sub.email,
-              productTitle: sub.productTitle || productTitle,
-              variantTitle: sub.variantTitle || variantTitle,
-              productUrl: productUrl,
-              shopDomain: shop,
-            });
-            sentCount++;
-          }
-
-          // Mark as notified in DB
-          await prisma.backInStockSubscription.update({
-            where: { id: sub.id },
-            data: {
-              status: "NOTIFIED",
-              notifiedAt: new Date(),
-            },
-          });
-        } catch (mailErr) {
-          console.error(`Failed to send back-in-stock email to ${sub.email}:`, mailErr.message);
-        }
-      }
-
-      console.log(`Successfully sent ${sentCount} back-in-stock notification emails for ${productTitle}`);
     } catch (err) {
-      console.error("Error processing inventory level webhook:", err);
+      console.error(`[Webhook ${topic}] Error processing inventory update:`, err.message);
     }
   }
 
-  return new Response();
+  return new Response(null, { status: 200 });
 };

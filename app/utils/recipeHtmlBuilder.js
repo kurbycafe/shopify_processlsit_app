@@ -35,7 +35,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
 
   const stepsListHtml = rawSteps
     .map((step, idx) => {
-      const cleanStep = String(step).replace(/^\d+[\.\)]\s*/, "").trim();
+      const cleanStep = String(step).replace(/^\d+[.)]\s*/, "").trim();
       if (!cleanStep) return "";
       return `
         <li style="margin-bottom: 16px; font-size: 1.05rem; color: #2d3748; line-height: 1.65; padding-left: 8px;">
@@ -84,7 +84,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   let essentialProductIds = [];
   let completeProductIds = [];
 
-  products.forEach((p, index) => {
+  products.forEach((p) => {
     const isAvailable = p.isAvailable !== false;
     const numericVariantId = String(p.variantId).replace("gid://shopify/ProductVariant/", "");
     const priceFloat = parseFloat(p.price || "0.00");
@@ -138,7 +138,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
     "@type": "Recipe",
     "name": title,
     "image": recipe.imageUrl ? [recipe.imageUrl] : [],
-    "description": subtitle || introduction.replace(/<br\s*[\/]?>/gi, " "),
+    "description": subtitle || introduction.replace(/<br\s*[/]?>/gi, " "),
     "prepTime": `PT${prepTime}M`,
     "cookTime": `PT${cookTime}M`,
     "totalTime": `PT${totalTime}M`,

@@ -31,11 +31,11 @@ model Session {
 
 model InspectionRecord {
   id                    String    @id @default(cuid())
-  orderId               String    @unique  // ✨ 수정: upsert를 위해 @unique 제약 조건 추가
+  orderId               String    @unique
   orderName             String             // Shopify Order Name (e.g., #1001)
   shop                  String             // Shop domain
   inspectorName         String?            // Name of the person who inspected
-  status                String             // SUCCESS, FAILED, PARTIAL, ISSUE_REPORTED
+  status                String             // SUCCESS, FAILED, PARTIAL, ISSUE_REPORTED, PENDING
   isLieferscheinPrinted Boolean   @default(false) // 납품서 출력 여부
   lieferscheinPrintedAt DateTime?                 // 납품서 출력 일시
   isPickListPrinted     Boolean   @default(false) // 피킹 리스트 출력 여부
@@ -50,6 +50,8 @@ model InspectionRecord {
 
   @@index([shop])
   @@index([orderId])
+  @@index([shop, status])
+  @@index([shop, createdAt])
 }
 
 model InspectionItem {
@@ -64,11 +66,53 @@ model InspectionItem {
   orderedQuantity    Int
   inspectedQuantity  Int
 
-  // ✨ 결품 및 예외 처리 기록을 위한 컬럼 추가
+  // 결품 및 예외 처리 기록
   issueType               String?   // REFUND, CREDIT, SUBSTITUTE
   issueNote               String?   // 작업자 메모
   substitutedVariantId    String?   // 대체된 상품의 Variant ID
   substitutedProductTitle String?   // 대체된 상품명
+
+  @@index([inspectionRecordId])
+  @@index([variantId])
+  @@index([sku])
+}
+
+model Container {
+  id            String          @id @default(cuid())
+  shop          String
+  containerRef  String          // PO 번호 또는 컨테이너 참조번호 (예: PO00412, CONT-2026-001)
+  status        String          @default("SCHEDULED") // SCHEDULED, IN_TRANSIT, ARRIVED, RECEIVED, CANCELLED
+  supplier      String?
+  scheduledDate String?         // YYYY-MM-DD
+  receivedAt    DateTime?
+  notes         String?         @db.Text
+  syncedAt      DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  items         ContainerItem[]
+
+  @@unique([shop, containerRef])
+  @@index([shop, status])
+  @@index([scheduledDate])
+}
+
+model ContainerItem {
+  id             String    @id @default(cuid())
+  containerId    String
+  container      Container @relation(fields: [containerId], references: [id], onDelete: Cascade)
+  sku            String?
+  barcode        String?
+  productName    String
+  expectedQty    Int       @default(0)
+  receivedQty    Int       @default(0)
+  unitPrice      Decimal?  @db.Decimal(10, 2)
+  unitPerBox     Int       @default(0)
+  boxQty         Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([containerId])
+  @@index([sku])
 }
 
 model Recipe {
@@ -98,24 +142,30 @@ model RecipeProduct {
   variantTitle String? // Variant title (e.g. "Default Title" or "500g")
   price        String? // Product price
   imageUrl     String? // Product image URL
+
+  @@index([recipeId])
 }
 
 model BackInStockSubscription {
-  id           String    @id @default(cuid())
-  shop         String
-  productId    String    // Shopify Product GID or ID
-  variantId    String    // Shopify Variant GID or ID
-  productTitle String
-  variantTitle String?
-  email        String
-  phone        String?
-  channel      String    @default("EMAIL") // EMAIL, PUSH, SMS
-  status       String    @default("PENDING") // PENDING, NOTIFIED, CANCELLED
-  etaDate      String?   // Expected arrival date (e.g. 2026-08-15)
-  subscribedAt DateTime  @default(now())
-  notifiedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  shop                 String
+  productId            String    // Shopify Product GID or ID
+  variantId            String    // Shopify Variant GID or ID
+  productTitle         String
+  variantTitle         String?
+  email                String
+  phone                String?
+  channel              String    @default("EMAIL") // EMAIL, PUSH, SMS
+  status               String    @default("PENDING") // PENDING, PROCESSING, NOTIFIED, FAILED, CANCELLED
+  etaDate              String?   // Expected arrival date (e.g. 2026-08-15)
+  subscribedAt         DateTime  @default(now())
+  notifiedAt           DateTime?
+  processingAt         DateTime?
+  notificationAttempts Int       @default(0)
+  lastNotificationError String?
+  lastNotificationAt   DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@index([shop])
   @@index([variantId])
@@ -123,6 +173,7 @@ model BackInStockSubscription {
   @@index([email])
   @@index([shop, variantId, status])
   @@index([shop, status, createdAt])
+  @@index([shop, variantId, email, status])
 }
 
 model StorefrontNotice {

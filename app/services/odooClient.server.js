@@ -3,23 +3,41 @@ import dayjs from "dayjs";
 // ============================================================================
 // Odoo ERP Central Client (Strictly Managed via Server Environment Variables)
 // ============================================================================
-const ODOO_URL = process.env.ODOO_URL || "https://popeye.odoo.com/jsonrpc";
-const ODOO_DB = process.env.ODOO_DB || "dawayoerp-popeye-odoo1-live-28006356";
-const ODOO_USER = process.env.ODOO_USER || "dawayo.odoo@gmail.com";
-const ODOO_API_KEY = process.env.ODOO_API_KEY || "1838f10637250d6314ac9c8c1b4a1afa62026c34";
+function getOdooConfig() {
+  const url = process.env.ODOO_URL;
+  const db = process.env.ODOO_DB;
+  const user = process.env.ODOO_USER;
+  const apiKey = process.env.ODOO_API_KEY;
 
-// In-memory Authentication and Data Caches
+  const isConfigured = Boolean(url && db && user && apiKey);
+  return { url, db, user, apiKey, isConfigured };
+}
+
+export function isOdooConfigured() {
+  return getOdooConfig().isConfigured;
+}
+
+// In-memory Authentication and Data Caches with bounded size
 let cachedSession = {
   uid: null,
   expiresAt: 0,
 };
 
+const MAX_CACHE_ENTRIES = 500;
 const skuEtaCache = new Map(); // SKU -> { etaDate: string, cachedAt: number }
 const binLocationCache = new Map(); // SKU -> { bin: string, cachedAt: number }
 const ETA_CACHE_TTL_MS = 15 * 60 * 1000; // 15 Minutes
 const BIN_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minutes
 const AUTH_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minutes
-const REQUEST_TIMEOUT_MS = 4000; // 4 Seconds default
+const REQUEST_TIMEOUT_MS = 5000; // 5 Seconds default
+
+function safeSetCache(cacheMap, key, value) {
+  if (cacheMap.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = cacheMap.keys().next().value;
+    if (oldestKey) cacheMap.delete(oldestKey);
+  }
+  cacheMap.set(key, value);
+}
 
 /**
  * Wraps a fetch call with an AbortController timeout
@@ -55,6 +73,11 @@ function createJsonRpcPayload(service, method, args) {
  * Authenticates with Odoo JSON-RPC, utilizing cached session UID when valid
  */
 export async function getOdooUid() {
+  const config = getOdooConfig();
+  if (!config.isConfigured) {
+    return null;
+  }
+
   const now = Date.now();
   if (cachedSession.uid && cachedSession.expiresAt > now) {
     return cachedSession.uid;
@@ -62,18 +85,24 @@ export async function getOdooUid() {
 
   try {
     const res = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createJsonRpcPayload("common", "login", [ODOO_DB, ODOO_USER, ODOO_API_KEY])),
+        body: JSON.stringify(
+          createJsonRpcPayload("common", "login", [
+            config.db,
+            config.user,
+            config.apiKey,
+          ])
+        ),
       },
-      3000
+      3500
     );
 
     const json = await res.json();
     if (json.error) {
-      console.warn("Odoo JSON-RPC Auth Error:", json.error.message || json.error.data);
+      console.warn("Odoo JSON-RPC Auth Warning:", json.error.message || json.error.data);
       return null;
     }
 
@@ -88,7 +117,7 @@ export async function getOdooUid() {
 
     return null;
   } catch (err) {
-    console.warn("Odoo login network/timeout error:", err.message);
+    console.warn("Odoo login network/timeout warning:", err.message);
     return null;
   }
 }
@@ -100,6 +129,9 @@ export async function getEtaBySku(sku) {
   if (!sku || typeof sku !== "string") return null;
   const cleanSku = sku.trim();
   if (!cleanSku) return null;
+
+  const config = getOdooConfig();
+  if (!config.isConfigured) return null;
 
   // Check In-memory Cache
   const now = Date.now();
@@ -114,15 +146,15 @@ export async function getEtaBySku(sku) {
   try {
     // 1. Find Product ID by default_code (SKU)
     const prodRes = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           createJsonRpcPayload("object", "execute_kw", [
-            ODOO_DB,
+            config.db,
             uid,
-            ODOO_API_KEY,
+            config.apiKey,
             "product.product",
             "search_read",
             [[["default_code", "=", cleanSku]]],
@@ -135,7 +167,7 @@ export async function getEtaBySku(sku) {
 
     const prodJson = await prodRes.json();
     if (prodJson.error || !prodJson.result || prodJson.result.length === 0) {
-      skuEtaCache.set(cleanSku, { etaDate: null, cachedAt: now });
+      safeSetCache(skuEtaCache, cleanSku, { etaDate: null, cachedAt: now });
       return null;
     }
 
@@ -143,15 +175,15 @@ export async function getEtaBySku(sku) {
 
     // 2. Query incoming stock moves
     const moveRes = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           createJsonRpcPayload("object", "execute_kw", [
-            ODOO_DB,
+            config.db,
             uid,
-            ODOO_API_KEY,
+            config.apiKey,
             "stock.move",
             "search_read",
             [
@@ -176,7 +208,7 @@ export async function getEtaBySku(sku) {
     const moves = moveJson?.result || [];
 
     if (moves.length === 0) {
-      skuEtaCache.set(cleanSku, { etaDate: null, cachedAt: now });
+      safeSetCache(skuEtaCache, cleanSku, { etaDate: null, cachedAt: now });
       return null;
     }
 
@@ -194,10 +226,10 @@ export async function getEtaBySku(sku) {
     const rawDate = bestMove.date_deadline || bestMove.date;
     const formattedEta = rawDate ? dayjs(rawDate).format("YYYY-MM-DD") : null;
 
-    skuEtaCache.set(cleanSku, { etaDate: formattedEta, cachedAt: now });
+    safeSetCache(skuEtaCache, cleanSku, { etaDate: formattedEta, cachedAt: now });
     return formattedEta;
   } catch (err) {
-    console.warn(`Odoo ETA query error for SKU [${cleanSku}]:`, err.message);
+    console.warn(`Odoo ETA query warning for SKU [${cleanSku}]:`, err.message);
     return null;
   }
 }
@@ -206,20 +238,23 @@ export async function getEtaBySku(sku) {
  * Retrieves upcoming incoming container pickings for operations dashboard
  */
 export async function getUpcomingContainers() {
+  const config = getOdooConfig();
+  if (!config.isConfigured) return [];
+
   const uid = await getOdooUid();
   if (!uid) return [];
 
   try {
     const pickingsResponse = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           createJsonRpcPayload("object", "execute_kw", [
-            ODOO_DB,
+            config.db,
             uid,
-            ODOO_API_KEY,
+            config.apiKey,
             "stock.picking",
             "search_read",
             [[
@@ -262,20 +297,23 @@ export async function getUpcomingContainers() {
  */
 export async function getContainerItemsByPo(containerRef) {
   if (!containerRef) return [];
+  const config = getOdooConfig();
+  if (!config.isConfigured) return [];
+
   const uid = await getOdooUid();
   if (!uid) return [];
 
   try {
     const poRes = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           createJsonRpcPayload("object", "execute_kw", [
-            ODOO_DB,
+            config.db,
             uid,
-            ODOO_API_KEY,
+            config.apiKey,
             "purchase.order",
             "search_read",
             [[["name", "=", containerRef]]],
@@ -291,15 +329,15 @@ export async function getContainerItemsByPo(containerRef) {
     if (!po || !po.order_line || po.order_line.length === 0) return [];
 
     const linesRes = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           createJsonRpcPayload("object", "execute_kw", [
-            ODOO_DB,
+            config.db,
             uid,
-            ODOO_API_KEY,
+            config.apiKey,
             "purchase.order.line",
             "read",
             [po.order_line],
@@ -325,6 +363,144 @@ export async function getContainerItemsByPo(containerRef) {
 }
 
 /**
+ * Full container & product detail fetch from Odoo ERP for catalog / receiving
+ */
+export async function fetchOdooContainerProducts(containerRef) {
+  if (!containerRef) {
+    throw new Error("컨테이너(PO) 번호가 제공되지 않았습니다.");
+  }
+
+  const config = getOdooConfig();
+  if (!config.isConfigured) {
+    throw new Error("Odoo ERP 환경변수가 설정되지 않았습니다. ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY를 확인하세요.");
+  }
+
+  const uid = await getOdooUid();
+  if (!uid) {
+    throw new Error("Odoo ERP 로그인 인증에 실패했습니다.");
+  }
+
+  try {
+    // 1. Purchase Order 검색
+    const posRes = await fetchWithTimeout(
+      config.url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          createJsonRpcPayload("object", "execute_kw", [
+            config.db,
+            uid,
+            config.apiKey,
+            "purchase.order",
+            "search_read",
+            [[["name", "ilike", containerRef.trim()]]],
+            { fields: ["id", "name", "order_line", "partner_id", "date_planned", "state"], limit: 1 }
+          ])
+        ),
+      },
+      5000
+    );
+
+    const posJson = await posRes.json();
+    const pos = posJson?.result || [];
+    if (pos.length === 0) {
+      throw new Error(`컨테이너(주문) '${containerRef}'에 해당하는 Odoo PO를 찾을 수 없습니다.`);
+    }
+
+    const po = pos[0];
+    const partnerId = po.partner_id ? po.partner_id[1] : "알 수 없음";
+    const scheduledDate = po.date_planned ? dayjs(po.date_planned).format("YYYY-MM-DD") : null;
+    const poState = po.state || "draft";
+
+    if (!po.order_line || po.order_line.length === 0) {
+      return { poName: po.name, partnerId, scheduledDate, poState, items: [] };
+    }
+
+    // 2. PO Lines 조회
+    const linesRes = await fetchWithTimeout(
+      config.url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          createJsonRpcPayload("object", "execute_kw", [
+            config.db,
+            uid,
+            config.apiKey,
+            "purchase.order.line",
+            "read",
+            [po.order_line],
+            { fields: ["id", "product_id", "product_qty", "price_unit", "name", "unit_per_box", "box_qty"] }
+          ])
+        ),
+      },
+      6000
+    );
+
+    const linesJson = await linesRes.json();
+    const lines = linesJson?.result || [];
+
+    // 3. 제품 상세 (SKU, 바코드) 조회
+    const productIds = lines.map((l) => l.product_id[0]).filter(Boolean);
+    const productMap = {};
+
+    if (productIds.length > 0) {
+      const prodRes = await fetchWithTimeout(
+        config.url,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            createJsonRpcPayload("object", "execute_kw", [
+              config.db,
+              uid,
+              config.apiKey,
+              "product.product",
+              "read",
+              [productIds],
+              { fields: ["id", "default_code", "barcode", "name"] }
+            ])
+          ),
+        },
+        6000
+      );
+
+      const prodJson = await prodRes.json();
+      const products = prodJson?.result || [];
+      products.forEach((p) => {
+        productMap[p.id] = p;
+      });
+    }
+
+    // 4. 아이템 매핑
+    const items = lines.map((l) => {
+      const prod = productMap[l.product_id?.[0]];
+      return {
+        sku: prod?.default_code || "",
+        barcode: prod?.barcode || "",
+        odooName: l.name || prod?.name || "알 수 없는 품목",
+        qty: Number(l.product_qty) || 0,
+        wholesalePrice: Number(l.price_unit) || 0,
+        unitPerBox: Number(l.unit_per_box) || 0,
+        boxQty: Number(l.box_qty) || 0,
+      };
+    });
+
+    return {
+      poName: po.name,
+      partnerId,
+      scheduledDate,
+      poState,
+      items,
+    };
+  } catch (error) {
+    console.warn("fetchOdooContainerProducts error:", error.message);
+    throw error;
+  }
+}
+
+/**
  * Fetches multiple SKU warehouse bin locations in a single batch query
  */
 export async function fetchOdooBinLocations(skus = []) {
@@ -332,6 +508,13 @@ export async function fetchOdooBinLocations(skus = []) {
 
   const cleanSkus = skus.map((s) => String(s || "").trim()).filter(Boolean);
   if (cleanSkus.length === 0) return {};
+
+  const config = getOdooConfig();
+  if (!config.isConfigured) {
+    const fallback = {};
+    cleanSkus.forEach((s) => { fallback[s] = "위치 미정"; });
+    return fallback;
+  }
 
   const resultMap = {};
   const missingSkus = [];
@@ -360,15 +543,15 @@ export async function fetchOdooBinLocations(skus = []) {
 
   try {
     const searchResponse = await fetchWithTimeout(
-      ODOO_URL,
+      config.url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           createJsonRpcPayload("object", "execute_kw", [
-            ODOO_DB,
+            config.db,
             uid,
-            ODOO_API_KEY,
+            config.apiKey,
             "stock.quant",
             "search_read",
             [
@@ -407,10 +590,10 @@ export async function fetchOdooBinLocations(skus = []) {
         const best = shopLocation || matched[0];
         const locationName = best.location_id ? best.location_id[1] : "위치 미정";
         resultMap[sku] = locationName;
-        binLocationCache.set(sku, { bin: locationName, cachedAt: now });
+        safeSetCache(binLocationCache, sku, { bin: locationName, cachedAt: now });
       } else {
         resultMap[sku] = "위치 미정";
-        binLocationCache.set(sku, { bin: "위치 미정", cachedAt: now });
+        safeSetCache(binLocationCache, sku, { bin: "위치 미정", cachedAt: now });
       }
     });
 

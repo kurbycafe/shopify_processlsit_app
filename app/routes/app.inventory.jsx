@@ -481,7 +481,7 @@ export default function InventoryReportPage() {
               월별 인벤토리 보고서 출력 설정
             </Text>
             <Text variant="bodyMd" tone="subdued">
-              기준 연월과 재고 상태 필터를 선택한 후 'PDF 보고서 출력하기' 버튼을 클릭하세요.
+              기준 연월과 재고 상태 필터를 선택한 후 &quot;PDF 보고서 출력하기&quot; 버튼을 클릭하세요.
             </Text>
 
             <Divider />

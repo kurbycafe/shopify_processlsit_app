@@ -37,7 +37,7 @@ export function DashboardSystemUpdateCard() {
           >
             <li>
               <strong>주간 단위 검수 모니터링:</strong> 메인 대시보드 검수 메트릭을 주간 단위
-              현황으로 개편하고 검수 이력 조회에 '이번주 (THIS_WEEK)' 필터 옵션을 추가했습니다.
+              현황으로 개편하고 검수 이력 조회에 &quot;이번주 (THIS_WEEK)&quot; 필터 옵션을 추가했습니다.
             </li>
             <li>
               <strong>자사몰 홍보 팝업 모달 연동:</strong> 고객 프론트 화면(dawayo.de) 접속 시 1회성

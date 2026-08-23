@@ -1,13 +1,28 @@
 /**
- * Email Notification Service (Brevo HTTP API Engine)
+ * Central Email Notification Service (Brevo HTTP API Engine)
+ * Strictly managed via server environment variables with no hardcoded fallback secrets.
  */
 
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
-const SENDER_EMAIL = process.env.SMTP_USER || "popeye.gmbh@gmail.com";
-const SENDER_NAME = "Dawayo K-Food";
-const BREVO_API_KEY =
-  process.env.SMTP_PASSWORD ||
-  "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";
+const DEFAULT_SENDER_NAME = "Dawayo K-Food";
+const REQUEST_TIMEOUT_MS = 8000; // 8 seconds
+
+function getEmailConfig() {
+  const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASSWORD;
+  const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  const senderName = process.env.SMTP_FROM_NAME || DEFAULT_SENDER_NAME;
+
+  return {
+    apiKey,
+    senderEmail,
+    senderName,
+    isConfigured: Boolean(apiKey && senderEmail),
+  };
+}
+
+export function isEmailServiceConfigured() {
+  return getEmailConfig().isConfigured;
+}
 
 function escapeHtml(str) {
   if (!str) return "";
@@ -27,6 +42,7 @@ export function buildBackInStockEmailHtml({ productTitle, variantTitle, productU
   const storeUrl = shopDomain ? `https://${shopDomain}` : "https://dawayo.de";
   const itemUrl = productUrl || storeUrl;
   const variantText = variantTitle && variantTitle !== "Default Title" ? `(${variantTitle})` : "";
+  const { senderEmail } = getEmailConfig();
 
   return `
 <!DOCTYPE html>
@@ -82,7 +98,7 @@ export function buildBackInStockEmailHtml({ productTitle, variantTitle, productU
 
     <div class="footer">
       <p style="margin: 0 0 6px 0;"><strong>${shopName}</strong></p>
-      <p style="margin: 0;">Bei Fragen wenden Sie sich bitte an unseren Kundenservice: ${SENDER_EMAIL}</p>
+      <p style="margin: 0;">Bei Fragen wenden Sie sich bitte an unseren Kundenservice: ${escapeHtml(senderEmail || "support@dawayo.de")}</p>
     </div>
   </div>
 </body>
@@ -93,13 +109,13 @@ export function buildBackInStockEmailHtml({ productTitle, variantTitle, productU
 /**
  * Builds HTML template for Inspection QC issue report email
  */
-export function buildQcIssueEmailHtml({ orderName, issueItems = [], customMessage, shopDomain }) {
+export function buildQcIssueEmailHtml({ orderName, issueItems = [], customMessage }) {
   const shopName = "Dawayo (다와요)";
   const rows = issueItems
     .map(
       (item) => `
     <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 10px 12px; font-size: 14px;"><strong>${escapeHtml(item.productTitle)}</strong> ${item.variantTitle ? `(${escapeHtml(item.variantTitle)})` : ""}</td>
+      <td style="padding: 10px 12px; font-size: 14px;"><strong>${escapeHtml(item.productTitle || item.title)}</strong> ${item.variantTitle ? `(${escapeHtml(item.variantTitle)})` : ""}</td>
       <td style="padding: 10px 12px; font-size: 14px; color: #dc2626;">${item.issueType === "REFUND" ? "환불 (Refund)" : item.issueType === "CREDIT" ? "적립금 (Credit)" : "대체상품 (Substitute)"}</td>
       <td style="padding: 10px 12px; font-size: 13px; color: #64748b;">${escapeHtml(item.issueNote || "-")}</td>
     </tr>
@@ -151,6 +167,43 @@ export function buildQcIssueEmailHtml({ orderName, issueItems = [], customMessag
 }
 
 /**
+ * Executes a Brevo HTTP API email send request
+ */
+async function sendBrevoMail(payload) {
+  const config = getEmailConfig();
+  if (!config.isConfigured) {
+    throw new Error(
+      "이메일 서비스 설정이 완료되지 않았습니다. BREVO_API_KEY(또는 SMTP_PASSWORD) 및 SMTP_USER 환경변수를 설정해 주세요."
+    );
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(BREVO_API_URL, {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "api-key": config.apiKey,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Brevo API Error (${response.status}): ${errorText}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Sends a transactional Back-in-stock notification via Brevo HTTP API
  */
 export async function sendBackInStockEmail({ email, productTitle, variantTitle, productUrl, shopDomain }) {
@@ -158,6 +211,7 @@ export async function sendBackInStockEmail({ email, productTitle, variantTitle, 
     throw new Error(`Invalid recipient email: ${email}`);
   }
 
+  const config = getEmailConfig();
   const htmlContent = buildBackInStockEmailHtml({
     productTitle,
     variantTitle,
@@ -168,28 +222,13 @@ export async function sendBackInStockEmail({ email, productTitle, variantTitle, 
   const subject = `[Dawayo] Wieder auf Lager: ${productTitle} / 재입고 알림`;
 
   const payload = {
-    sender: { name: SENDER_NAME, email: SENDER_EMAIL },
+    sender: { name: config.senderName, email: config.senderEmail },
     to: [{ email: email.trim().toLowerCase() }],
     subject: subject,
     htmlContent: htmlContent,
   };
 
-  const response = await fetch(BREVO_API_URL, {
-    method: "POST",
-    headers: {
-      "accept": "application/json",
-      "content-type": "application/json",
-      "api-key": BREVO_API_KEY,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Brevo API Error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
+  return await sendBrevoMail(payload);
 }
 
 /**
@@ -200,6 +239,7 @@ export async function sendQcIssueReportEmail({ email, orderName, issueItems = []
     throw new Error(`Invalid recipient email: ${email}`);
   }
 
+  const config = getEmailConfig();
   const htmlContent = buildQcIssueEmailHtml({
     orderName,
     issueItems,
@@ -210,26 +250,52 @@ export async function sendQcIssueReportEmail({ email, orderName, issueItems = []
   const subject = `[Dawayo] Wichtige Information zu Ihrer Bestellung ${orderName} (검수 안내)`;
 
   const payload = {
-    sender: { name: SENDER_NAME, email: SENDER_EMAIL },
+    sender: { name: config.senderName, email: config.senderEmail },
     to: [{ email: email.trim().toLowerCase() }],
     subject: subject,
     htmlContent: htmlContent,
   };
 
-  const response = await fetch(BREVO_API_URL, {
-    method: "POST",
-    headers: {
-      "accept": "application/json",
-      "content-type": "application/json",
-      "api-key": BREVO_API_KEY,
-    },
-    body: JSON.stringify(payload),
-  });
+  return await sendBrevoMail(payload);
+}
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Brevo API Error (${response.status}): ${errorText}`);
+/**
+ * Sends warehouse Pick List PDF report to designated recipients
+ */
+export async function sendPickListEmailWithPdf({ toEmails = [], mailTitle, base64Pdf, techTime }) {
+  const config = getEmailConfig();
+  const recipients = (Array.isArray(toEmails) ? toEmails : [toEmails])
+    .map((e) => String(e || "").trim().toLowerCase())
+    .filter((e) => e && e.includes("@"));
+
+  if (recipients.length === 0) {
+    // Default to configured sender email as warehouse recipient if none provided
+    recipients.push(config.senderEmail || "popeye.gmbh@gmail.com");
   }
 
-  return await response.json();
+  const payload = {
+    sender: {
+      name: "Dawayo WMS Logistics",
+      email: config.senderEmail,
+    },
+    to: recipients.map((r) => ({ email: r })),
+    subject: `[Dawayo WMS] ${mailTitle}`,
+    htmlContent: `
+      <div style="font-family: sans-serif; color: #1e293b; padding: 20px;">
+        <h2>Shopify 창고 피킹 및 처리중 리스트</h2>
+        <p>생성 시각: <strong>${escapeHtml(techTime || new Date().toISOString())}</strong></p>
+        <p>첨부된 PDF 파일을 확인하여 창고 피킹 및 출고 작업을 진행해 주세요.</p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+        <p style="font-size: 12px; color: #64748b;">자동 발송 시스템 (Dawayo Operations WMS)</p>
+      </div>
+    `,
+    attachment: [
+      {
+        content: base64Pdf,
+        name: `PickList_${(mailTitle || "report").replace(/[\s/\\:]+/g, "_")}.pdf`,
+      },
+    ],
+  };
+
+  return await sendBrevoMail(payload);
 }

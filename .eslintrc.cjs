@@ -1,9 +1,3 @@
-/**
- * This is intended to be a basic starting point for linting in your app.
- * It relies on recommended configs out of the box for simplicity, but you can
- * and should modify this configuration to best suit your team's needs.
- */
-
 /** @type {import('eslint').Linter.Config} */
 module.exports = {
   root: true,
@@ -18,8 +12,9 @@ module.exports = {
     browser: true,
     commonjs: true,
     es6: true,
+    node: true,
   },
-  ignorePatterns: ["!**/.server", "!**/.client"],
+  ignorePatterns: ["!**/.server", "!**/.client", "build/", "dist/", "public/"],
 
   // Base config
   extends: ["eslint:recommended"],
@@ -33,7 +28,6 @@ module.exports = {
         "plugin:react/recommended",
         "plugin:react/jsx-runtime",
         "plugin:react-hooks/recommended",
-        "plugin:jsx-a11y/recommended",
       ],
       settings: {
         react: {
@@ -49,7 +43,10 @@ module.exports = {
         },
       },
       rules: {
+        "react/prop-types": "off",
         "react/no-unknown-property": ["error", { ignore: ["variant"] }],
+        "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+        "no-empty": ["error", { allowEmptyCatch: true }],
       },
     },
 
@@ -74,6 +71,10 @@ module.exports = {
         "plugin:import/recommended",
         "plugin:import/typescript",
       ],
+      rules: {
+        "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+        "@typescript-eslint/no-explicit-any": "warn",
+      },
     },
 
     // Node
@@ -91,6 +92,8 @@ module.exports = {
     },
   ],
   globals: {
-    shopify: "readonly"
+    shopify: "readonly",
+    process: "readonly",
+    Buffer: "readonly",
   },
 };

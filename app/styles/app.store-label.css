@@ -337,27 +337,26 @@
   }
 }
 
-/* ✨ 프린트 전용 CSS 세팅 */
+/* 프린트 전용 CSS 세팅 */
 @media print {
-  html,
   body {
     margin: 0 !important;
     padding: 0 !important;
-    background: #fff !important;
-    /* VC-500W 컬러 출력을 위해 브라우저가 배경색을 날려버리는 현상 방지 */
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    background: transparent !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  .label-page-shell {
+  .no-print, header, nav, .Polaris-Page-Header, .Polaris-Layout {
     display: none !important;
   }
 
-  .label-print-sheet {
-    display: block !important;
+  .label-page-container {
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
-  /* ✨ 62mm 라벨 공통: 여백 제거 및 페이지 나눔 방지 설정 */
+  /* 62mm 라벨 공통: 여백 제거 및 페이지 나눔 방지 설정 */
   .store-label-print {
     margin: 0 !important;
     border-radius: 0 !important;
