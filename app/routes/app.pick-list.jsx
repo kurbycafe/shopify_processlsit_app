@@ -424,16 +424,35 @@ export default function PickListPage() {
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                     <thead>
                       <tr style={{ borderBottom: "1px solid #cbd5e1", backgroundColor: "#f8fafc", textAlign: "left" }}>
-                        <th style={{ padding: "10px 12px", width: "40%" }}>상품명</th>
-                        <th style={{ padding: "10px 12px", width: "20%" }}>SKU / 바코드</th>
-                        <th style={{ padding: "10px 12px", width: "15%", textAlign: "right" }}>피킹 수량</th>
-                        <th style={{ padding: "10px 12px", width: "15%", textAlign: "right" }}>현재 재고</th>
+                        <th style={{ padding: "10px 12px", width: "20%" }}>창고 위치 (레갈 번호)</th>
+                        <th style={{ padding: "10px 12px", width: "32%" }}>상품명</th>
+                        <th style={{ padding: "10px 12px", width: "16%" }}>SKU / 바코드</th>
+                        <th style={{ padding: "10px 12px", width: "11%", textAlign: "right" }}>피킹 수량</th>
+                        <th style={{ padding: "10px 12px", width: "11%", textAlign: "right" }}>현재 재고</th>
                         <th style={{ padding: "10px 12px", width: "10%" }}>관련 주문</th>
                       </tr>
                     </thead>
                     <tbody>
                       {locItems.map((item, idx) => (
                         <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                          <td
+                            style={{
+                              padding: "10px 12px",
+                              fontWeight: "bold",
+                              color: item.binLocation.startsWith("*")
+                                ? "#0891b2"
+                                : item.binLocation.includes("미지정")
+                                ? "#b45309"
+                                : "#1d4ed8",
+                              backgroundColor: item.binLocation.startsWith("*")
+                                ? "#ecfeff"
+                                : item.binLocation.includes("미지정")
+                                ? "#fffbeb"
+                                : "#eff6ff",
+                            }}
+                          >
+                            {item.binLocation}
+                          </td>
                           <td style={{ padding: "10px 12px", fontWeight: "bold" }}>
                             {item.productName}
                           </td>

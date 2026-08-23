@@ -63,13 +63,17 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_M
 }
 
 /**
- * Creates standardized Odoo JSON-RPC 2.0 payload
+ * Creates standardized Odoo JSON-RPC 2.0 payload with optional kwargs
  */
-function createJsonRpcPayload(service, method, args) {
+function createJsonRpcPayload(service, method, args, kwargs = null) {
+  const params = { service, method, args };
+  if (kwargs && typeof kwargs === "object") {
+    params.kwargs = kwargs;
+  }
   return {
     jsonrpc: "2.0",
     method: "call",
-    params: { service, method, args },
+    params,
     id: Math.floor(Math.random() * 1000000),
   };
 }
@@ -523,7 +527,7 @@ export async function fetchOdooBinLocations(skus = []) {
   const config = getOdooConfig();
   if (!config.isConfigured) {
     const fallback = {};
-    cleanSkus.forEach((s) => { fallback[s] = "위치 미정"; });
+    cleanSkus.forEach((s) => { fallback[s] = "위치 미지정"; });
     return fallback;
   }
 
@@ -547,7 +551,7 @@ export async function fetchOdooBinLocations(skus = []) {
   const uid = await getOdooUid();
   if (!uid) {
     missingSkus.forEach((sku) => {
-      resultMap[sku] = "위치 미정";
+      resultMap[sku] = "위치 미지정";
     });
     return resultMap;
   }
@@ -559,59 +563,105 @@ export async function fetchOdooBinLocations(skus = []) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          createJsonRpcPayload("object", "execute_kw", [
-            config.db,
-            uid,
-            config.apiKey,
-            "stock.quant",
-            "search_read",
+          createJsonRpcPayload(
+            "object",
+            "execute_kw",
             [
-              [
-                ["product_id.default_code", "in", missingSkus],
-                ["quantity", ">", 0],
-                ["location_id.usage", "=", "internal"],
-              ],
+              config.db,
+              uid,
+              config.apiKey,
+              "stock.quant",
+              "search_read",
+              [[["product_id.default_code", "in", missingSkus]]],
             ],
             {
-              fields: ["product_id", "location_id", "quantity"],
-            },
-          ])
+              fields: [
+                "product_reference_code",
+                "location_id",
+                "shelf_location",
+                "warehouse_id",
+                "product_id",
+                "quantity",
+              ],
+            }
+          )
         ),
       },
-      6000
+      7000
     );
 
     const searchData = await searchResponse.json();
     const quants = searchData.result || [];
 
+    const rawDataMap = {};
     missingSkus.forEach((sku) => {
-      const matched = quants.filter(
-        (q) =>
-          q.product_id &&
-          Array.isArray(q.product_id) &&
-          q.product_id[1] &&
-          q.product_id[1].includes(`[${sku}]`)
-      );
+      rawDataMap[sku] = [];
+    });
 
-      if (matched.length > 0) {
-        const shopLocation = matched.find(
-          (q) => q.location_id && q.location_id[1] && q.location_id[1].includes("Shop")
-        );
-        const best = shopLocation || matched[0];
-        const locationName = best.location_id ? best.location_id[1] : "위치 미정";
-        resultMap[sku] = locationName;
-        safeSetCache(binLocationCache, sku, { bin: locationName, cachedAt: now });
-      } else {
-        resultMap[sku] = "위치 미정";
-        safeSetCache(binLocationCache, sku, { bin: "위치 미정", cachedAt: now });
+    quants.forEach((quant) => {
+      // 1. SKU 매칭 (product_reference_code 또는 product_id 문자열 추출)
+      let sku = quant.product_reference_code;
+      if (!sku && Array.isArray(quant.product_id) && quant.product_id[1]) {
+        const match = quant.product_id[1].match(/\[(.*?)\]/);
+        if (match && match[1]) {
+          sku = match[1].trim();
+        }
       }
+
+      if (!sku || !rawDataMap[sku]) return;
+
+      // 2. 레갈 번호(shelf_location) 추출
+      const shelf = quant.shelf_location;
+      if (!shelf) return;
+
+      const locationName = Array.isArray(quant.location_id) ? quant.location_id[1] : (quant.location_id || "");
+      const warehouseName = Array.isArray(quant.warehouse_id) ? quant.warehouse_id[1] : (quant.warehouse_id || "");
+
+      rawDataMap[sku].push({
+        shelf: String(shelf).trim(),
+        locationName,
+        warehouseName,
+        isStore:
+          locationName.includes("STORE") ||
+          locationName.includes("Shop") ||
+          locationName.includes("매장") ||
+          warehouseName.includes("매장"),
+      });
+    });
+
+    missingSkus.forEach((sku) => {
+      const records = rawDataMap[sku] || [];
+      if (records.length === 0) {
+        resultMap[sku] = "위치 미지정";
+        safeSetCache(binLocationCache, sku, { bin: "위치 미지정", cachedAt: now });
+        return;
+      }
+
+      const storeRecords = records.filter((r) => r.isStore);
+      const normalRecords = records.filter((r) => !r.isStore);
+      const storeShelf = storeRecords.length > 0 ? storeRecords[0].shelf : null;
+      const normalShelf = normalRecords.length > 0 ? normalRecords[0].shelf : null;
+
+      let binLocation = "위치 미지정";
+      if (storeShelf && normalShelf && storeShelf !== normalShelf) {
+        binLocation = `${storeShelf} (신창고: ${normalShelf})`;
+      } else if (storeShelf) {
+        binLocation = storeShelf;
+      } else if (normalShelf) {
+        binLocation = `*${normalShelf} (신창고)`;
+      } else if (records[0]?.shelf) {
+        binLocation = records[0].shelf;
+      }
+
+      resultMap[sku] = binLocation;
+      safeSetCache(binLocationCache, sku, { bin: binLocation, cachedAt: now });
     });
 
     return resultMap;
   } catch (err) {
     console.warn("Odoo bin location batch fetch warning:", err.message);
     missingSkus.forEach((sku) => {
-      resultMap[sku] = "위치 미정";
+      resultMap[sku] = "위치 미지정";
     });
     return resultMap;
   }

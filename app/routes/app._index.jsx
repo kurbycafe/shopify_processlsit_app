@@ -30,8 +30,11 @@ import { RecentActivityCard } from "../components/dashboard/RecentActivityCard";
 import { ContainerScheduleCard } from "../components/dashboard/ContainerScheduleCard";
 import { ProductivityChartCard } from "../components/dashboard/ProductivityChartCard";
 import { DashboardSystemUpdateCard } from "../components/dashboard/DashboardSystemUpdateCard";
+import calendarStyles from "../styles/container-calendar.css?url";
 
 dayjs.extend(relativeTime);
+
+export const links = () => [{ rel: "stylesheet", href: calendarStyles }];
 
 // ========================================================
 // 1. Remix Loader & Action
