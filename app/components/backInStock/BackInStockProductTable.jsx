@@ -16,6 +16,7 @@ import {
   ViewIcon,
   ClipboardIcon,
 } from "@shopify/polaris-icons";
+import dayjs from "dayjs";
 import { getDemandLevel, getEtaStageInfo } from "../../utils/backInStockHelpers";
 
 export default function BackInStockProductTable({
@@ -239,16 +240,23 @@ export default function BackInStockProductTable({
                     </BlockStack>
                   </td>
 
-                  {/* ETA */}
+                  {/* ETA & 입고/발송 정보 */}
                   <td style={{ padding: "10px 12px" }}>
                     {item.pendingCount === 0 && item.notifiedCount > 0 ? (
                       <BlockStack gap="050">
                         <Text variant="bodySm" fontWeight="bold" tone="success">
-                          입고/알림 완료
+                          입고 완료
                         </Text>
-                        <Badge tone="success" size="small">
-                          발송 완료
-                        </Badge>
+                        {item.poNumber && (
+                          <InlineStack gap="100" blockAlign="center">
+                            <Badge tone="info" size="small">PO: {item.poNumber}</Badge>
+                          </InlineStack>
+                        )}
+                        {item.notifiedAt && (
+                          <Text variant="bodyXs" tone="subdued">
+                            발송: {dayjs(item.notifiedAt).format("YYYY-MM-DD HH:mm")}
+                          </Text>
+                        )}
                       </BlockStack>
                     ) : (
                       <BlockStack gap="050">
@@ -261,12 +269,19 @@ export default function BackInStockProductTable({
                           <Badge tone={etaStage.tone} size="small">
                             {etaStage.relativeText}
                           </Badge>
-                          {item.etaSource && item.etaSource !== "NONE" && (
+                          {item.poNumber ? (
+                            <Badge tone="info" size="small">PO: {item.poNumber}</Badge>
+                          ) : item.etaSource && item.etaSource !== "NONE" ? (
                             <Text variant="bodyXs" tone="subdued">
                               [{item.etaSource}]
                             </Text>
-                          )}
+                          ) : null}
                         </InlineStack>
+                        {item.notifiedCount > 0 && item.notifiedAt && (
+                          <Text variant="bodyXs" tone="subdued">
+                            최근 발송: {dayjs(item.notifiedAt).format("MM-DD HH:mm")}
+                          </Text>
+                        )}
                       </BlockStack>
                     )}
                   </td>

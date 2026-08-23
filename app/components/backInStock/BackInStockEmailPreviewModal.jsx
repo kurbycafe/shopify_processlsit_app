@@ -7,6 +7,7 @@ import {
   Card,
   Box,
 } from "@shopify/polaris";
+import dayjs from "dayjs";
 import { buildBackInStockEmailHtml } from "../../utils/emailService";
 
 export default function BackInStockEmailPreviewModal({
@@ -17,11 +18,16 @@ export default function BackInStockEmailPreviewModal({
 }) {
   if (!productItem) return null;
 
+  const displayPo = productItem.poNumber || "PO00412";
+  const displayDate = productItem.notifiedAt ? new Date(productItem.notifiedAt) : new Date();
+
   const htmlContent = buildBackInStockEmailHtml({
     productTitle: productItem.productTitle || "DAWAYO K-Food Item",
     variantTitle: productItem.variantTitle || "",
     productUrl: `https://${shopDomain || "dawayo.de"}`,
     shopDomain: shopDomain || "dawayo.de",
+    poNumber: displayPo,
+    dispatchDate: displayDate,
   });
 
   return (
@@ -47,11 +53,21 @@ export default function BackInStockEmailPreviewModal({
               </InlineStack>
               <InlineStack gap="200">
                 <Text variant="bodySm" fontWeight="bold">제목:</Text>
-                <Text variant="bodySm">{`[Dawayo] Wieder auf Lager: ${productItem.productTitle} / 재입고 알림`}</Text>
+                <Text variant="bodySm">{`[Dawayo] Wieder auf Lager: ${productItem.productTitle} [PO: ${displayPo}] / 재입고 알림`}</Text>
               </InlineStack>
-              <InlineStack gap="200">
-                <Text variant="bodySm" fontWeight="bold">언어 구성:</Text>
-                <Badge tone="info">독일어(DE) 기본 + 한국어(KO) 보조 병기</Badge>
+              <InlineStack gap="300" wrap>
+                <InlineStack gap="100">
+                  <Text variant="bodySm" fontWeight="bold">입고 Odoo PO:</Text>
+                  <Badge tone="info">{displayPo}</Badge>
+                </InlineStack>
+                <InlineStack gap="100">
+                  <Text variant="bodySm" fontWeight="bold">발송 일시:</Text>
+                  <Text variant="bodySm">{dayjs(displayDate).format("YYYY-MM-DD HH:mm")}</Text>
+                </InlineStack>
+                <InlineStack gap="100">
+                  <Text variant="bodySm" fontWeight="bold">언어 구성:</Text>
+                  <Badge tone="info">독일어(DE) 기본 + 한국어(KO) 보조 병기</Badge>
+                </InlineStack>
               </InlineStack>
             </BlockStack>
           </Card>

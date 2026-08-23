@@ -27,6 +27,7 @@ export const action = async ({ request }) => {
             variant {
               id
               title
+              sku
               product {
                 id
                 title
@@ -52,6 +53,7 @@ export const action = async ({ request }) => {
       const productUrl = productHandle
         ? `https://${cleanShop}/products/${productHandle}`
         : `https://${cleanShop}`;
+      const sku = variant.sku || null;
 
       // 2. Atomically notify subscribers via subscriptionService
       const result = await notifyPendingSubscribersForVariant({
@@ -60,6 +62,8 @@ export const action = async ({ request }) => {
         productTitle,
         variantTitle,
         productUrl,
+        sku,
+        dispatchDate: new Date(),
       });
 
       if (result.total > 0) {

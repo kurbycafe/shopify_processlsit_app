@@ -30,6 +30,7 @@ import {
   getUpcomingContainers,
   isOdooConfigured,
 } from "../services/odooClient.server.js";
+import { notifySubscribersForContainer } from "../services/subscriptionService.server.js";
 import StatusBadge from "../components/common/StatusBadge";
 import AppEmptyState from "../components/common/AppEmptyState";
 
@@ -213,7 +214,8 @@ export const action = async ({ request }) => {
     const status = String(formData.get("status") || "SCHEDULED");
 
     try {
-      await prisma.container.update({
+      const now = new Date();
+      const updatedContainer = await prisma.container.update({
         where: {
           shop_containerRef: {
             shop,
@@ -222,11 +224,30 @@ export const action = async ({ request }) => {
         },
         data: {
           status,
-          receivedAt: status === "RECEIVED" ? new Date() : undefined,
+          receivedAt: status === "RECEIVED" ? now : undefined,
         },
+        include: { items: true },
       });
 
-      return { success: true, message: `컨테이너 [${containerRef}] 상태가 [${status}]로 변경되었습니다.` };
+      let notificationMsg = "";
+      if (status === "RECEIVED" && updatedContainer.items?.length > 0) {
+        const notifResult = await notifySubscribersForContainer({
+          shop,
+          containerRef,
+          receivedAt: now,
+          items: updatedContainer.items,
+        });
+
+        if (notifResult.totalNotified > 0) {
+          const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          notificationMsg = ` (대기 고객 ${notifResult.totalNotified}명에게 재입고 알림 발송 완료 - PO: ${containerRef}, 발송일: ${dateStr})`;
+        }
+      }
+
+      return {
+        success: true,
+        message: `컨테이너 [${containerRef}] 상태가 [${status}]로 변경되었습니다.${notificationMsg}`,
+      };
     } catch (e) {
       return { error: `상태 변경 실패: ${e.message}` };
     }

@@ -1,4 +1,4 @@
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import { resolveVariantEta } from "../services/etaService.server";
 import {
   createSubscription,
@@ -54,6 +54,8 @@ export const loader = async ({ request }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }
+
+  await ensureDatabaseSchema();
 
   try {
     const url = new URL(request.url);

@@ -104,12 +104,13 @@ export default function BackInStockSubscriberTable({
               </th>
               <th style={{ padding: "10px 12px", width: "130px" }}>신청 일시</th>
               <th style={{ padding: "10px 12px", minWidth: "220px" }}>상품 / 옵션</th>
-              <th style={{ padding: "10px 12px", width: "130px" }}>SKU</th>
+              <th style={{ padding: "10px 12px", width: "110px" }}>SKU</th>
+              <th style={{ padding: "10px 12px", width: "110px" }}>입고 PO</th>
               <th style={{ padding: "10px 12px", minWidth: "200px" }}>고객 연락처</th>
               <th style={{ padding: "10px 12px", width: "90px" }}>채널</th>
               <th style={{ padding: "10px 12px", width: "100px" }}>상태</th>
               <th style={{ padding: "10px 14px", textAlign: "right", minWidth: "160px" }}>
-                운영 액션
+                운영 액션 / 발송 일시
               </th>
             </tr>
           </thead>
@@ -166,6 +167,15 @@ export default function BackInStockSubscriberTable({
                     </Text>
                   </td>
 
+                  {/* Odoo PO */}
+                  <td style={{ padding: "10px 12px" }}>
+                    {sub.poNumber ? (
+                      <Badge tone="info" size="small">{sub.poNumber}</Badge>
+                    ) : (
+                      <Text variant="bodyXs" tone="subdued">-</Text>
+                    )}
+                  </td>
+
                   {/* Customer (Privacy Masked + Copy) */}
                   <td style={{ padding: "10px 12px" }}>
                     <BlockStack gap="050">
@@ -214,7 +224,7 @@ export default function BackInStockSubscriberTable({
                     )}
                   </td>
 
-                  {/* Actions */}
+                  {/* Actions / Sent Date */}
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
                     {sub.status === "PENDING" ? (
                       <InlineStack align="end" gap="150">
@@ -238,11 +248,16 @@ export default function BackInStockSubscriberTable({
                         </Button>
                       </InlineStack>
                     ) : (
-                      <Text variant="bodyXs" tone="subdued">
-                        {sub.notifiedAt
-                          ? dayjs(sub.notifiedAt).format("MM-DD HH:mm")
-                          : "-"}
-                      </Text>
+                      <BlockStack gap="050" inlineAlign="end">
+                        <Text variant="bodyXs" fontWeight="semibold" tone="success">
+                          발송 완료
+                        </Text>
+                        <Text variant="bodyXs" tone="subdued">
+                          {sub.notifiedAt
+                            ? dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm")
+                            : "-"}
+                        </Text>
+                      </BlockStack>
                     )}
                   </td>
                 </tr>

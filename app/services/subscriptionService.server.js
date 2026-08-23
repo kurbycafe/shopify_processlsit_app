@@ -1,4 +1,4 @@
-import prisma from "../db.server.js";
+import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { sendBackInStockEmail } from "../utils/emailService.js";
 import { resolveVariantEta } from "./etaService.server.js";
 
@@ -53,6 +53,7 @@ export async function createSubscription({
   channel = "EMAIL",
   etaDate = null,
 }) {
+  await ensureDatabaseSchema();
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
   const validation = validateSubscriptionInput({ email, phone, channel });
   if (!validation.valid) {
@@ -94,6 +95,7 @@ export async function createSubscription({
       variantId: String(variantId),
       productTitle: String(productTitle || "상품"),
       variantTitle: variantTitle ? String(variantTitle) : null,
+      sku: sku ? String(sku).trim() : null,
       email: cleanEmail,
       phone: cleanPhone,
       channel: cleanChannel,
@@ -161,7 +163,12 @@ export async function notifyPendingSubscribersForVariant({
   productTitle,
   variantTitle,
   productUrl,
+  poNumber = null,
+  restockedAt = null,
+  dispatchDate = null,
+  sku = null,
 }) {
+  await ensureDatabaseSchema();
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
   const cleanVariantId = String(variantId);
   const numericVariantId = cleanVariantId.replace("gid://shopify/ProductVariant/", "");
@@ -182,6 +189,36 @@ export async function notifyPendingSubscribersForVariant({
     return { success: true, total: 0, sent: 0, failed: 0 };
   }
 
+  // Resolve Odoo PO if not provided
+  let resolvedPo = poNumber ? String(poNumber).trim() : null;
+  let resolvedRestockedAt = restockedAt ? new Date(restockedAt) : new Date();
+  const nowDispatchDate = dispatchDate ? new Date(dispatchDate) : new Date();
+
+  if (!resolvedPo) {
+    const targetSku = sku || pendingSubscribers.find((s) => s.sku)?.sku;
+    if (targetSku) {
+      try {
+        const containerItem = await prisma.containerItem.findFirst({
+          where: {
+            sku: targetSku,
+            container: { shop: cleanShop },
+          },
+          orderBy: { createdAt: "desc" },
+          include: { container: true },
+        });
+
+        if (containerItem?.container?.containerRef) {
+          resolvedPo = containerItem.container.containerRef;
+          if (containerItem.container.receivedAt) {
+            resolvedRestockedAt = containerItem.container.receivedAt;
+          }
+        }
+      } catch (e) {
+        console.warn("PO lookup from container items warning:", e.message);
+      }
+    }
+  }
+
   // 2. Mark as PROCESSING to prevent duplicate concurrent runs
   const subIds = pendingSubscribers.map((s) => s.id);
   await prisma.backInStockSubscription.updateMany({
@@ -195,9 +232,10 @@ export async function notifyPendingSubscribersForVariant({
   for (const sub of pendingSubscribers) {
     const pTitle = sub.productTitle || productTitle || "상품";
     const vTitle = sub.variantTitle || variantTitle || "";
+    const subPo = resolvedPo || sub.poNumber || null;
 
     try {
-      if (sub.channel === "EMAIL" || sub.channel === "PUSH") {
+      if (sub.channel === "EMAIL" || sub.channel === "PUSH" || sub.channel === "SMS") {
         if (sub.email) {
           await sendBackInStockEmail({
             email: sub.email,
@@ -205,17 +243,8 @@ export async function notifyPendingSubscribersForVariant({
             variantTitle: vTitle,
             productUrl,
             shopDomain: cleanShop,
-          });
-        }
-      } else if (sub.channel === "SMS") {
-        // SMS provider is currently handled via email fallback notification
-        if (sub.email) {
-          await sendBackInStockEmail({
-            email: sub.email,
-            productTitle: pTitle,
-            variantTitle: vTitle,
-            productUrl,
-            shopDomain: cleanShop,
+            poNumber: subPo,
+            dispatchDate: nowDispatchDate,
           });
         }
       }
@@ -225,9 +254,11 @@ export async function notifyPendingSubscribersForVariant({
         where: { id: sub.id },
         data: {
           status: "NOTIFIED",
-          notifiedAt: new Date(),
+          poNumber: subPo,
+          restockedAt: resolvedRestockedAt,
+          notifiedAt: nowDispatchDate,
           notificationAttempts: { increment: 1 },
-          lastNotificationAt: new Date(),
+          lastNotificationAt: nowDispatchDate,
           lastNotificationError: null,
         },
       });
@@ -240,6 +271,7 @@ export async function notifyPendingSubscribersForVariant({
         where: { id: sub.id },
         data: {
           status: "FAILED",
+          poNumber: subPo,
           notificationAttempts: { increment: 1 },
           lastNotificationAt: new Date(),
           lastNotificationError: err.message || "Email dispatch failed",
@@ -253,5 +285,65 @@ export async function notifyPendingSubscribersForVariant({
     total: pendingSubscribers.length,
     sent: sentCount,
     failed: failedCount,
+    poNumber: resolvedPo,
   };
+}
+
+/**
+ * Notifies pending subscribers for all products/variants in a container upon receipt
+ */
+export async function notifySubscribersForContainer({
+  shop,
+  containerRef,
+  receivedAt = new Date(),
+  items = [],
+}) {
+  const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
+  const cleanPo = String(containerRef || "").trim();
+  const now = new Date(receivedAt || Date.now());
+
+  let totalNotified = 0;
+  let totalFailed = 0;
+  const processedVariants = new Set();
+
+  for (const item of items) {
+    const sku = item.sku;
+    if (!sku) continue;
+
+    try {
+      const subscribers = await prisma.backInStockSubscription.findMany({
+        where: {
+          shop: cleanShop,
+          status: "PENDING",
+          OR: [
+            { sku: sku },
+            { productTitle: item.productName || item.odooName || item.shopifyName },
+          ],
+        },
+      });
+
+      for (const sub of subscribers) {
+        if (processedVariants.has(sub.variantId)) continue;
+        processedVariants.add(sub.variantId);
+
+        const res = await notifyPendingSubscribersForVariant({
+          shop: cleanShop,
+          variantId: sub.variantId,
+          productTitle: sub.productTitle,
+          variantTitle: sub.variantTitle,
+          poNumber: cleanPo,
+          restockedAt: now,
+          dispatchDate: now,
+          sku: sub.sku || sku,
+        });
+
+        totalNotified += res.sent;
+        totalFailed += res.failed;
+      }
+    } catch (err) {
+      console.warn(`Container restock notification warning for SKU [${sku}]:`, err.message);
+    }
+  }
+
+  return { totalNotified, totalFailed };
 }

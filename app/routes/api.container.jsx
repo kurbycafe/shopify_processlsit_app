@@ -5,6 +5,7 @@ import {
   getContainerItemsByPo,
   isOdooConfigured,
 } from "../services/odooClient.server.js";
+import { notifySubscribersForContainer } from "../services/subscriptionService.server.js";
 
 // Origin allowlist validation for container endpoints
 function getCorsHeaders(request) {
@@ -392,6 +393,19 @@ export const action = async ({ request }) => {
         include: { items: true },
       });
     });
+
+    if (status === "RECEIVED" && result?.items?.length > 0) {
+      try {
+        await notifySubscribersForContainer({
+          shop,
+          containerRef: cleanRef,
+          receivedAt: new Date(),
+          items: result.items,
+        });
+      } catch (notifErr) {
+        console.warn("[API Container] Restock notification trigger notice:", notifErr.message);
+      }
+    }
 
     return Response.json(
       {

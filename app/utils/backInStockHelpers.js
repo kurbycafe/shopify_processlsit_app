@@ -118,8 +118,10 @@ export function exportSubscriptionsToCsv(rows) {
     "Phone",
     "Channel",
     "Status",
+    "Odoo PO",
     "ETA Date",
-    "ETA Source",
+    "Restocked At",
+    "Notified At",
     "Subscribed At",
   ];
 
@@ -142,8 +144,10 @@ export function exportSubscriptionsToCsv(rows) {
         escapeCell(r.phone),
         escapeCell(r.channel),
         escapeCell(r.status),
+        escapeCell(r.poNumber),
         escapeCell(r.etaDate),
-        escapeCell(r.etaSource),
+        escapeCell(r.restockedAt ? dayjs(r.restockedAt).format("YYYY-MM-DD HH:mm:ss") : ""),
+        escapeCell(r.notifiedAt ? dayjs(r.notifiedAt).format("YYYY-MM-DD HH:mm:ss") : ""),
         escapeCell(r.createdAt ? dayjs(r.createdAt).format("YYYY-MM-DD HH:mm:ss") : ""),
       ].join(",")
     );

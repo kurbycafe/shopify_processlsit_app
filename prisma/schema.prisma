@@ -153,11 +153,14 @@ model BackInStockSubscription {
   variantId            String    // Shopify Variant GID or ID
   productTitle         String
   variantTitle         String?
+  sku                  String?   // Product Variant SKU
   email                String
   phone                String?
   channel              String    @default("EMAIL") // EMAIL, PUSH, SMS
   status               String    @default("PENDING") // PENDING, PROCESSING, NOTIFIED, FAILED, CANCELLED
   etaDate              String?   // Expected arrival date (e.g. 2026-08-15)
+  poNumber             String?   // Odoo Purchase Order number (e.g. PO00412)
+  restockedAt          DateTime? // Actual restock / receipt date
   subscribedAt         DateTime  @default(now())
   notifiedAt           DateTime?
   processingAt         DateTime?
@@ -171,6 +174,8 @@ model BackInStockSubscription {
   @@index([variantId])
   @@index([status])
   @@index([email])
+  @@index([poNumber])
+  @@index([sku])
   @@index([shop, variantId, status])
   @@index([shop, status, createdAt])
   @@index([shop, variantId, email, status])

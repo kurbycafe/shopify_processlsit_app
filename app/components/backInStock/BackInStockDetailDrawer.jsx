@@ -46,10 +46,20 @@ export default function BackInStockDetailDrawer({
     ) : (
       <Badge tone="info" key={`ch-${sub.id}`}>이메일</Badge>
     ),
+    sub.poNumber ? (
+      <Badge tone="info" key={`po-${sub.id}`}>{sub.poNumber}</Badge>
+    ) : (
+      <Text variant="bodyXs" tone="subdued" key={`po-${sub.id}`}>-</Text>
+    ),
     sub.status === "PENDING" ? (
       <Badge tone="warning" key={`st-${sub.id}`}>대기 중</Badge>
     ) : sub.status === "NOTIFIED" ? (
-      <Badge tone="success" key={`st-${sub.id}`}>발송 완료</Badge>
+      <BlockStack gap="050" key={`st-${sub.id}`}>
+        <Badge tone="success">발송 완료</Badge>
+        <Text variant="bodyXs" tone="subdued">
+          {sub.notifiedAt ? dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm") : "-"}
+        </Text>
+      </BlockStack>
     ) : (
       <Badge tone="critical" key={`st-${sub.id}`}>취소됨</Badge>
     ),
@@ -63,8 +73,8 @@ export default function BackInStockDetailDrawer({
         </Button>
       </InlineStack>
     ) : (
-      <Text variant="bodyXs" tone="subdued" key={`date-${sub.id}`}>
-        {sub.notifiedAt ? dayjs(sub.notifiedAt).format("MM-DD HH:mm") : "-"}
+      <Text variant="bodyXs" tone="subdued" key={`act-${sub.id}`}>
+        -
       </Text>
     ),
   ]);
@@ -157,12 +167,12 @@ export default function BackInStockDetailDrawer({
             </InlineStack>
           </Card>
 
-          {/* Odoo ERP ETA Section */}
+          {/* Odoo ERP ETA & Restock Section */}
           <Card padding="400">
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
                 <Text variant="headingSm" as="h4">
-                  Odoo ERP 컨테이너 입고 예정 정보 (ETA)
+                  Odoo ERP 컨테이너 입고 및 발주 정보 (PO &amp; ETA)
                 </Text>
                 <Button
                   size="slim"
@@ -175,13 +185,33 @@ export default function BackInStockDetailDrawer({
               </InlineStack>
 
               {productItem.pendingCount === 0 && productItem.notifiedCount > 0 ? (
-                <InlineStack gap="400" blockAlign="center">
+                <InlineStack gap="500" blockAlign="center">
                   <BlockStack gap="050">
                     <Text variant="bodyXs" tone="subdued">
                       처리 상태
                     </Text>
                     <Text variant="headingMd" as="p" tone="success">
                       입고 및 알림 발송 완료
+                    </Text>
+                  </BlockStack>
+
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      Odoo 발주번호 (PO)
+                    </Text>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      {productItem.poNumber || "기록 없음"}
+                    </Text>
+                  </BlockStack>
+
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      알림 발송 일시
+                    </Text>
+                    <Text variant="bodySm">
+                      {productItem.notifiedAt
+                        ? dayjs(productItem.notifiedAt).format("YYYY-MM-DD HH:mm")
+                        : "-"}
                     </Text>
                   </BlockStack>
 
@@ -209,6 +239,17 @@ export default function BackInStockDetailDrawer({
                     </Text>
                     <Badge tone={etaStage.tone}>{etaStage.relativeText}</Badge>
                   </BlockStack>
+
+                  {productItem.poNumber && (
+                    <BlockStack gap="050">
+                      <Text variant="bodyXs" tone="subdued">
+                        연결 Odoo PO
+                      </Text>
+                      <Text variant="bodySm" fontWeight="bold">
+                        {productItem.poNumber}
+                      </Text>
+                    </BlockStack>
+                  )}
 
                   <BlockStack gap="050">
                     <Text variant="bodyXs" tone="subdued">
@@ -247,8 +288,8 @@ export default function BackInStockDetailDrawer({
 
               {subscribers.length > 0 ? (
                 <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text"]}
-                  headings={["신청일시", "고객 이메일", "채널", "상태", "액션"]}
+                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  headings={["신청일시", "고객 이메일", "채널", "입고 PO", "상태 / 발송일시", "액션"]}
                   rows={subscriberRows}
                 />
               ) : (

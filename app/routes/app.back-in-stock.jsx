@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   useLoaderData,
   useFetcher,
@@ -8,14 +8,13 @@ import {
   Page,
   BlockStack,
   Banner,
-  Card,
-  Box,
 } from "@shopify/polaris";
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema, safeFindSubscribers } from "../db.server";
 import { sendBackInStockEmail } from "../utils/emailService";
 import { getEtaBySku } from "../services/odooClient.server";
+import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server";
 import {
   getDemandLevel,
   getEtaStageInfo,
@@ -33,8 +32,10 @@ import BackInStockDetailDrawer from "../components/backInStock/BackInStockDetail
 import BackInStockEmailPreviewModal from "../components/backInStock/BackInStockEmailPreviewModal";
 
 export const loader = async ({ request }) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const shop = session.shop;
+
+  await ensureDatabaseSchema();
 
   const url = new URL(request.url);
   const viewMode = url.searchParams.get("view") || "products"; // "products" or "subscribers"
@@ -52,10 +53,10 @@ export const loader = async ({ request }) => {
 
   // If requesting detail drawer subscribers
   if (drawerVariantId) {
-    const drawerSubscribers = await prisma.backInStockSubscription.findMany({
-      where: { shop, variantId: drawerVariantId },
-      orderBy: { createdAt: "desc" },
-    });
+    const drawerSubscribers = await safeFindSubscribers(
+      { shop, variantId: drawerVariantId },
+      { createdAt: "desc" }
+    );
     return Response.json({ drawerSubscribers });
   }
 
@@ -102,12 +103,33 @@ export const loader = async ({ request }) => {
   let etaUnknownCount = 0;
   let needsAttentionCount = 0;
 
+  // Fetch latest subscription metadata per variant (SKU, poNumber, notifiedAt, restockedAt)
+  let metaMap = new Map();
+  try {
+    const latestSubscriptions = await prisma.backInStockSubscription.findMany({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+      distinct: ["variantId"],
+      select: {
+        variantId: true,
+        sku: true,
+        poNumber: true,
+        notifiedAt: true,
+        restockedAt: true,
+      },
+    });
+    metaMap = new Map(latestSubscriptions.map((s) => [s.variantId, s]));
+  } catch (e) {
+    console.warn("Subscription metadata fetch warning:", e.message);
+  }
+
   const productAggregates = allVariantGroups.map((g) => {
     const totalCount = g._count.id;
     const pendingCount = pendingMap.get(g.variantId) || 0;
     const notifiedCount = notifiedMap.get(g.variantId) || 0;
     const etaStage = getEtaStageInfo(g.etaDate);
     const demand = getDemandLevel(pendingCount > 0 ? pendingCount : totalCount);
+    const meta = metaMap.get(g.variantId) || {};
 
     const isPending = pendingCount > 0;
 
@@ -134,7 +156,10 @@ export const loader = async ({ request }) => {
       productId: g.productId,
       productTitle: g.productTitle,
       variantTitle: g.variantTitle,
-      sku: "",
+      sku: meta.sku || "",
+      poNumber: meta.poNumber || null,
+      notifiedAt: meta.notifiedAt ? meta.notifiedAt.toISOString() : null,
+      restockedAt: meta.restockedAt ? meta.restockedAt.toISOString() : null,
       etaDate: g.etaDate,
       etaSource: g.etaDate ? "ODOO" : "NONE",
       subscriberCount: totalCount,
@@ -250,12 +275,12 @@ export const loader = async ({ request }) => {
     }
 
     totalCount = await prisma.backInStockSubscription.count({ where: whereClause });
-    paginatedSubscribers = await prisma.backInStockSubscription.findMany({
-      where: whereClause,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    paginatedSubscribers = await safeFindSubscribers(
+      whereClause,
+      { createdAt: "desc" },
+      limit,
+      (page - 1) * limit
+    );
   }
 
   const totalPages = Math.ceil(totalCount / limit);
@@ -302,24 +327,53 @@ export const action = async ({ request }) => {
     }
 
     try {
+      let poNumber = sub.poNumber;
+      let restockedAt = sub.restockedAt || new Date();
+      if (!poNumber && sub.sku) {
+        try {
+          const contItem = await prisma.containerItem.findFirst({
+            where: { sku: sub.sku, container: { shop } },
+            orderBy: { createdAt: "desc" },
+            include: { container: true },
+          });
+          if (contItem?.container?.containerRef) {
+            poNumber = contItem.container.containerRef;
+            if (contItem.container.receivedAt) {
+              restockedAt = contItem.container.receivedAt;
+            }
+          }
+        } catch (e) {
+          console.warn("Single PO lookup notice:", e.message);
+        }
+      }
+
+      const now = new Date();
       await sendBackInStockEmail({
         email: sub.email,
         productTitle: sub.productTitle || "상품",
         variantTitle: sub.variantTitle || "",
         shopDomain: shop,
+        poNumber,
+        dispatchDate: now,
       });
 
       await prisma.backInStockSubscription.update({
         where: { id: sub.id },
         data: {
           status: "NOTIFIED",
-          notifiedAt: new Date(),
+          poNumber: poNumber || undefined,
+          restockedAt,
+          notifiedAt: now,
+          notificationAttempts: { increment: 1 },
+          lastNotificationAt: now,
+          lastNotificationError: null,
         },
       });
 
+      const poText = poNumber ? ` (Odoo PO: ${poNumber})` : "";
       return Response.json({
         success: true,
-        message: `${sub.email} 고객님께 재입고 알림 이메일이 발송되었습니다.`,
+        message: `${sub.email} 고객님께 재입고 알림 이메일이 발송되었습니다.${poText}`,
       });
     } catch (err) {
       console.error("Single email send error:", err);
@@ -339,43 +393,23 @@ export const action = async ({ request }) => {
 
   // 3. 특정 품목(Variant) 대기자 전체 일괄 발송
   if (intent === "notify_variant") {
-    const variantId = formData.get("variantId");
-    const pendingList = await prisma.backInStockSubscription.findMany({
-      where: {
-        shop,
-        variantId: String(variantId),
-        status: "PENDING",
-      },
+    const variantId = String(formData.get("variantId") || "");
+    const now = new Date();
+
+    const result = await notifyPendingSubscribersForVariant({
+      shop,
+      variantId,
+      dispatchDate: now,
     });
 
-    if (pendingList.length === 0) {
+    if (result.total === 0) {
       return Response.json({ success: true, message: "발송 대기 중인 신청자가 없습니다." });
     }
 
-    let sentCount = 0;
-    for (const sub of pendingList) {
-      try {
-        if (sub.email && sub.email.includes("@")) {
-          await sendBackInStockEmail({
-            email: sub.email,
-            productTitle: sub.productTitle,
-            variantTitle: sub.variantTitle,
-            shopDomain: shop,
-          });
-          sentCount++;
-        }
-        await prisma.backInStockSubscription.update({
-          where: { id: sub.id },
-          data: { status: "NOTIFIED", notifiedAt: new Date() },
-        });
-      } catch (err) {
-        console.error(`Batch send error for ${sub.email}:`, err);
-      }
-    }
-
+    const poText = result.poNumber ? ` [PO: ${result.poNumber}]` : "";
     return Response.json({
       success: true,
-      message: `${sentCount}명의 대기 고객에게 재입고 알림 이메일이 발송되었습니다.`,
+      message: `${result.sent}명의 대기 고객에게 재입고 알림 이메일이 발송되었습니다.${poText}`,
     });
   }
 
@@ -389,35 +423,67 @@ export const action = async ({ request }) => {
       return Response.json({ success: false, error: "선택된 항목이 없습니다." }, { status: 400 });
     }
 
-    let pendingList = [];
+    let sentCount = 0;
+    const now = new Date();
+
     if (mode === "products") {
-      pendingList = await prisma.backInStockSubscription.findMany({
-        where: { shop, variantId: { in: ids }, status: "PENDING" },
-      });
+      for (const vId of ids) {
+        const res = await notifyPendingSubscribersForVariant({
+          shop,
+          variantId: vId,
+          dispatchDate: now,
+        });
+        sentCount += res.sent;
+      }
     } else {
-      pendingList = await prisma.backInStockSubscription.findMany({
+      const pendingList = await prisma.backInStockSubscription.findMany({
         where: { shop, id: { in: ids }, status: "PENDING" },
       });
-    }
 
-    let sentCount = 0;
-    for (const sub of pendingList) {
-      try {
-        if (sub.email && sub.email.includes("@")) {
-          await sendBackInStockEmail({
-            email: sub.email,
-            productTitle: sub.productTitle,
-            variantTitle: sub.variantTitle,
-            shopDomain: shop,
+      for (const sub of pendingList) {
+        try {
+          let poNumber = sub.poNumber;
+          let restockedAt = sub.restockedAt || now;
+          if (!poNumber && sub.sku) {
+            const contItem = await prisma.containerItem.findFirst({
+              where: { sku: sub.sku, container: { shop } },
+              orderBy: { createdAt: "desc" },
+              include: { container: true },
+            });
+            if (contItem?.container?.containerRef) {
+              poNumber = contItem.container.containerRef;
+              if (contItem.container.receivedAt) {
+                restockedAt = contItem.container.receivedAt;
+              }
+            }
+          }
+
+          if (sub.email && sub.email.includes("@")) {
+            await sendBackInStockEmail({
+              email: sub.email,
+              productTitle: sub.productTitle,
+              variantTitle: sub.variantTitle,
+              shopDomain: shop,
+              poNumber,
+              dispatchDate: now,
+            });
+            sentCount++;
+          }
+
+          await prisma.backInStockSubscription.update({
+            where: { id: sub.id },
+            data: {
+              status: "NOTIFIED",
+              poNumber: poNumber || undefined,
+              restockedAt,
+              notifiedAt: now,
+              notificationAttempts: { increment: 1 },
+              lastNotificationAt: now,
+            },
           });
-          sentCount++;
+        } catch (err) {
+          console.error(`Bulk send error for ${sub.email}:`, err);
         }
-        await prisma.backInStockSubscription.update({
-          where: { id: sub.id },
-          data: { status: "NOTIFIED", notifiedAt: new Date() },
-        });
-      } catch (err) {
-        console.error(`Bulk send error for ${sub.email}:`, err);
       }
     }
 
@@ -508,7 +574,7 @@ export const action = async ({ request }) => {
     });
 
     const gids = Array.from(variantIdMap.keys());
-    let notifiedCount = 0;
+    let totalNotified = 0;
     let inStockCount = 0;
 
     try {
@@ -519,6 +585,7 @@ export const action = async ({ request }) => {
             ... on ProductVariant {
               id
               title
+              sku
               inventoryQuantity
               availableForSale
               product {
@@ -534,6 +601,7 @@ export const action = async ({ request }) => {
 
       const json = await queryRes.json();
       const nodes = json.data?.nodes || [];
+      const now = new Date();
 
       for (const variant of nodes) {
         if (!variant) continue;
@@ -543,30 +611,20 @@ export const action = async ({ request }) => {
 
         if (isAvailable) {
           inStockCount++;
-          const matchingSubs = variantIdMap.get(variant.id) || [];
           const productHandle = variant.product?.handle || "";
           const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
 
-          for (const sub of matchingSubs) {
-            try {
-              if (sub.email && sub.email.includes("@")) {
-                await sendBackInStockEmail({
-                  email: sub.email,
-                  productTitle: sub.productTitle || variant.product?.title || "상품",
-                  variantTitle: sub.variantTitle || variant.title,
-                  productUrl: productUrl,
-                  shopDomain: shop,
-                });
-                notifiedCount++;
-              }
-              await prisma.backInStockSubscription.update({
-                where: { id: sub.id },
-                data: { status: "NOTIFIED", notifiedAt: new Date() },
-              });
-            } catch (err) {
-              console.error(`Automated send error for ${sub.email}:`, err);
-            }
-          }
+          const res = await notifyPendingSubscribersForVariant({
+            shop,
+            variantId: variant.id,
+            productTitle: variant.product?.title || "상품",
+            variantTitle: variant.title,
+            productUrl,
+            sku: variant.sku || null,
+            dispatchDate: now,
+          });
+
+          totalNotified += res.sent;
         }
       }
 
@@ -579,7 +637,7 @@ export const action = async ({ request }) => {
 
       return Response.json({
         success: true,
-        message: `재고 감지 완료: 입고된 ${inStockCount}개 품목의 대기 고객 ${notifiedCount}명에게 재입고 알림 이메일이 자동 발송되었습니다.`,
+        message: `재고 감지 완료: 입고된 ${inStockCount}개 품목의 대기 고객 ${totalNotified}명에게 재입고 알림 이메일이 자동 발송되었습니다.`,
       });
     } catch (err) {
       console.error("Scan error:", err);
