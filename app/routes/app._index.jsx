@@ -243,13 +243,8 @@ export default function Dashboard() {
         )}
 
         <Layout>
-          {/* 3. 최근 검수 활동 (좌측) */}
-          <Layout.Section variant="oneHalf">
-            <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
-          </Layout.Section>
-
-          {/* 4. 컨테이너 입고 일정 & 2개월 달력 (우측) */}
-          <Layout.Section variant="oneHalf">
+          {/* 3. 컨테이너 입고 일정 & 2개월 달력 (Full Width) */}
+          <Layout.Section>
             <ContainerScheduleCard
               upcomingContainers={upcomingContainers}
               calendarMonths={calendarMonths}
@@ -257,8 +252,13 @@ export default function Dashboard() {
             />
           </Layout.Section>
 
-          {/* 5. 최근 7일간 검수 생산성 차트 */}
-          <Layout.Section>
+          {/* 4. 최근 검수 활동 (좌측) */}
+          <Layout.Section variant="oneHalf">
+            <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
+          </Layout.Section>
+
+          {/* 5. 최근 7일간 검수 생산성 차트 (우측) */}
+          <Layout.Section variant="oneHalf">
             <ProductivityChartCard chartData={chartData} />
           </Layout.Section>
 

@@ -3,11 +3,13 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 20px;
+  width: 100%;
+  min-width: 0;
 }
 
-@media (min-width: 960px) {
+@media (min-width: 1024px) {
   .container-dashboard-layout {
-    grid-template-columns: 1.15fr 1fr;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
     gap: 24px;
     align-items: start;
   }
@@ -19,31 +21,37 @@
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .container-calendar-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .double-calendar-container {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
-}
-
-@media (min-width: 580px) {
-  .double-calendar-container {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .calendar-month-box {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 12px 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .calendar-month-title {
@@ -64,18 +72,21 @@
   font-weight: 600;
   color: #94a3b8;
   margin-bottom: 8px;
+  width: 100%;
 }
 
 .calendar-days-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: 3px;
   justify-items: center;
+  align-items: center;
+  width: 100%;
 }
 
 .calendar-day-empty {
-  height: 30px;
-  width: 30px;
+  height: 28px;
+  width: 28px;
 }
 
 .calendar-day {
@@ -83,14 +94,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 30px;
-  width: 30px;
+  height: 28px;
+  width: 28px;
+  max-width: 100%;
   border-radius: 50%;
   font-size: 12px;
   font-weight: 500;
   color: #334155;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   user-select: none;
+  box-sizing: border-box;
 }
 
 .calendar-day.has-events {
@@ -157,7 +170,8 @@
 .calendar-legend-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 4px 6px;
   font-size: 11px;
