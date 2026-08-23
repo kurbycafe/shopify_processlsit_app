@@ -1,13 +1,18 @@
 import dayjs from "dayjs";
 
 // ============================================================================
-// Odoo ERP Central Client (Strictly Managed via Server Environment Variables)
+// Odoo ERP Central Client (Environment Variables with Dawayo Defaults)
 // ============================================================================
+const DEFAULT_ODOO_URL = "https://popeye.odoo.com/jsonrpc";
+const DEFAULT_ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
+const DEFAULT_ODOO_USER = "dawayo.odoo@gmail.com";
+const DEFAULT_ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34";
+
 function getOdooConfig() {
-  const url = process.env.ODOO_URL;
-  const db = process.env.ODOO_DB;
-  const user = process.env.ODOO_USER;
-  const apiKey = process.env.ODOO_API_KEY;
+  const url = process.env.ODOO_URL || DEFAULT_ODOO_URL;
+  const db = process.env.ODOO_DB || DEFAULT_ODOO_DB;
+  const user = process.env.ODOO_USER || DEFAULT_ODOO_USER;
+  const apiKey = process.env.ODOO_API_KEY || DEFAULT_ODOO_API_KEY;
 
   const isConfigured = Boolean(url && db && user && apiKey);
   return { url, db, user, apiKey, isConfigured };
@@ -29,7 +34,7 @@ const binLocationCache = new Map(); // SKU -> { bin: string, cachedAt: number }
 const ETA_CACHE_TTL_MS = 15 * 60 * 1000; // 15 Minutes
 const BIN_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minutes
 const AUTH_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minutes
-const REQUEST_TIMEOUT_MS = 5000; // 5 Seconds default
+const REQUEST_TIMEOUT_MS = 7000; // 7 Seconds default
 
 function safeSetCache(cacheMap, key, value) {
   if (cacheMap.size >= MAX_CACHE_ENTRIES) {
@@ -97,7 +102,7 @@ export async function getOdooUid() {
           ])
         ),
       },
-      3500
+      5000
     );
 
     const json = await res.json();
@@ -162,7 +167,7 @@ export async function getEtaBySku(sku) {
           ])
         ),
       },
-      3500
+      5000
     );
 
     const prodJson = await prodRes.json();
@@ -201,7 +206,7 @@ export async function getEtaBySku(sku) {
           ])
         ),
       },
-      4000
+      5000
     );
 
     const moveJson = await moveRes.json();
@@ -304,6 +309,7 @@ export async function getContainerItemsByPo(containerRef) {
   if (!uid) return [];
 
   try {
+    const cleanRef = containerRef.trim();
     const poRes = await fetchWithTimeout(
       config.url,
       {
@@ -316,12 +322,12 @@ export async function getContainerItemsByPo(containerRef) {
             config.apiKey,
             "purchase.order",
             "search_read",
-            [[["name", "=", containerRef]]],
-            { fields: ["id", "order_line"] },
+            [[["name", "ilike", cleanRef]]],
+            { fields: ["id", "order_line"], limit: 1 },
           ])
         ),
       },
-      4000
+      5000
     );
 
     const poJson = await poRes.json();
@@ -366,19 +372,21 @@ export async function getContainerItemsByPo(containerRef) {
  * Full container & product detail fetch from Odoo ERP for catalog / receiving
  */
 export async function fetchOdooContainerProducts(containerRef) {
-  if (!containerRef) {
+  if (!containerRef || typeof containerRef !== "string" || !containerRef.trim()) {
     throw new Error("컨테이너(PO) 번호가 제공되지 않았습니다.");
   }
 
   const config = getOdooConfig();
   if (!config.isConfigured) {
-    throw new Error("Odoo ERP 환경변수가 설정되지 않았습니다. ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY를 확인하세요.");
+    throw new Error("Odoo ERP 연동 설정이 유효하지 않습니다.");
   }
 
   const uid = await getOdooUid();
   if (!uid) {
     throw new Error("Odoo ERP 로그인 인증에 실패했습니다.");
   }
+
+  const cleanRef = containerRef.trim();
 
   try {
     // 1. Purchase Order 검색
@@ -394,18 +402,18 @@ export async function fetchOdooContainerProducts(containerRef) {
             config.apiKey,
             "purchase.order",
             "search_read",
-            [[["name", "ilike", containerRef.trim()]]],
-            { fields: ["id", "name", "order_line", "partner_id", "date_planned", "state"], limit: 1 }
+            [[["name", "ilike", cleanRef]]],
+            { fields: ["id", "name", "order_line", "partner_id", "date_planned", "state"], limit: 1 },
           ])
         ),
       },
-      5000
+      6000
     );
 
     const posJson = await posRes.json();
     const pos = posJson?.result || [];
     if (pos.length === 0) {
-      throw new Error(`컨테이너(주문) '${containerRef}'에 해당하는 Odoo PO를 찾을 수 없습니다.`);
+      throw new Error(`컨테이너(주문) '${cleanRef}'에 해당하는 Odoo PO를 찾을 수 없습니다.`);
     }
 
     const po = pos[0];
@@ -431,18 +439,20 @@ export async function fetchOdooContainerProducts(containerRef) {
             "purchase.order.line",
             "read",
             [po.order_line],
-            { fields: ["id", "product_id", "product_qty", "price_unit", "name", "unit_per_box", "box_qty"] }
+            { fields: ["id", "product_id", "product_qty", "price_unit", "name", "unit_per_box", "box_qty"] },
           ])
         ),
       },
-      6000
+      7000
     );
 
     const linesJson = await linesRes.json();
     const lines = linesJson?.result || [];
 
     // 3. 제품 상세 (SKU, 바코드) 조회
-    const productIds = lines.map((l) => l.product_id[0]).filter(Boolean);
+    const productIds = lines
+      .map((l) => (Array.isArray(l.product_id) ? l.product_id[0] : l.product_id))
+      .filter(Boolean);
     const productMap = {};
 
     if (productIds.length > 0) {
@@ -459,11 +469,11 @@ export async function fetchOdooContainerProducts(containerRef) {
               "product.product",
               "read",
               [productIds],
-              { fields: ["id", "default_code", "barcode", "name"] }
+              { fields: ["id", "default_code", "barcode", "name"] },
             ])
           ),
         },
-        6000
+        7000
       );
 
       const prodJson = await prodRes.json();
@@ -475,11 +485,12 @@ export async function fetchOdooContainerProducts(containerRef) {
 
     // 4. 아이템 매핑
     const items = lines.map((l) => {
-      const prod = productMap[l.product_id?.[0]];
+      const prodId = Array.isArray(l.product_id) ? l.product_id[0] : l.product_id;
+      const prod = productMap[prodId];
       return {
         sku: prod?.default_code || "",
         barcode: prod?.barcode || "",
-        odooName: l.name || prod?.name || "알 수 없는 품목",
+        odooName: l.name ? l.name.split("\n")[0] : prod?.name || "품목",
         qty: Number(l.product_qty) || 0,
         wholesalePrice: Number(l.price_unit) || 0,
         unitPerBox: Number(l.unit_per_box) || 0,
@@ -583,7 +594,6 @@ export async function fetchOdooBinLocations(skus = []) {
       );
 
       if (matched.length > 0) {
-        // Prioritize shop location if available
         const shopLocation = matched.find(
           (q) => q.location_id && q.location_id[1] && q.location_id[1].includes("Shop")
         );

@@ -45,6 +45,8 @@ export default function BackInStockControlBar({
 
   const presets = [
     { id: "ALL", label: "전체 목록" },
+    { id: "PENDING", label: "전송 대기 (미전송)" },
+    { id: "NOTIFIED", label: "전송 완료" },
     { id: "HIGH_DEMAND", label: "고수요 품목 (20+)" },
     { id: "ARRIVING_SOON", label: "입고 임박 (7일 이내)" },
     { id: "NEEDS_ATTENTION", label: "조치 필요" },
@@ -56,7 +58,7 @@ export default function BackInStockControlBar({
   if (statusFilter && statusFilter !== "ALL") {
     activeTags.push({
       key: "status",
-      label: `상태: ${statusFilter === "PENDING" ? "대기 중" : statusFilter === "NOTIFIED" ? "발송 완료" : "신청 취소"}`,
+      label: `상태: ${statusFilter === "PENDING" || statusFilter === "UNSENT" ? "전송 대기 (미전송)" : statusFilter === "NOTIFIED" || statusFilter === "SENT" ? "전송 완료" : "신청 취소"}`,
       onRemove: () => onChangeStatusFilter("ALL"),
     });
   }
@@ -146,7 +148,32 @@ export default function BackInStockControlBar({
           </ButtonGroup>
 
           <InlineStack gap="200" blockAlign="center" wrap>
-            <div style={{ width: "280px" }}>
+            {/* 전송 상태 퀵 세그먼트 버튼 (전체 / 전송 대기 / 전송 완료) */}
+            <ButtonGroup segmented>
+              <Button
+                pressed={statusFilter === "ALL"}
+                onClick={() => onChangeStatusFilter("ALL")}
+                size="micro"
+              >
+                전체
+              </Button>
+              <Button
+                pressed={statusFilter === "PENDING" || statusFilter === "UNSENT"}
+                onClick={() => onChangeStatusFilter("PENDING")}
+                size="micro"
+              >
+                전송 대기 (미전송)
+              </Button>
+              <Button
+                pressed={statusFilter === "NOTIFIED" || statusFilter === "SENT"}
+                onClick={() => onChangeStatusFilter("NOTIFIED")}
+                size="micro"
+              >
+                전송 완료
+              </Button>
+            </ButtonGroup>
+
+            <div style={{ width: "260px" }}>
               <TextField
                 prefix={<SearchIcon />}
                 placeholder="상품명, SKU, 옵션, 이메일 검색..."
@@ -167,11 +194,11 @@ export default function BackInStockControlBar({
             >
               <FormLayout>
                 <Select
-                  label="신청 상태 (Status)"
+                  label="전송 상태 (Delivery Status)"
                   options={[
-                    { label: "전체 상태", value: "ALL" },
-                    { label: "대기 중 (PENDING)", value: "PENDING" },
-                    { label: "발송 완료 (NOTIFIED)", value: "NOTIFIED" },
+                    { label: "전체 (대기 + 발송완료)", value: "ALL" },
+                    { label: "전송 대기 / 미전송 (PENDING)", value: "PENDING" },
+                    { label: "전송 완료 (NOTIFIED)", value: "NOTIFIED" },
                     { label: "신청 취소 (CANCELLED)", value: "CANCELLED" },
                   ]}
                   value={statusFilter}

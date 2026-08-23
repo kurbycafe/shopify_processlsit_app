@@ -80,13 +80,21 @@ export const loader = async ({ request }) => {
     orderBy: { _count: { id: "desc" } },
   });
 
-  // Calculate pending count per variant
+  // Calculate pending count per variant (Unsent)
   const pendingVariantGroups = await prisma.backInStockSubscription.groupBy({
     by: ["variantId"],
     where: { shop, status: "PENDING" },
     _count: { id: true },
   });
   const pendingMap = new Map(pendingVariantGroups.map((g) => [g.variantId, g._count.id]));
+
+  // Calculate notified count per variant (Sent)
+  const notifiedVariantGroups = await prisma.backInStockSubscription.groupBy({
+    by: ["variantId"],
+    where: { shop, status: "NOTIFIED" },
+    _count: { id: true },
+  });
+  const notifiedMap = new Map(notifiedVariantGroups.map((g) => [g.variantId, g._count.id]));
 
   let highDemandProductsCount = 0;
   let arrivingSoonCount = 0;
@@ -97,8 +105,9 @@ export const loader = async ({ request }) => {
   const productAggregates = allVariantGroups.map((g) => {
     const totalCount = g._count.id;
     const pendingCount = pendingMap.get(g.variantId) || 0;
+    const notifiedCount = notifiedMap.get(g.variantId) || 0;
     const etaStage = getEtaStageInfo(g.etaDate);
-    const demand = getDemandLevel(pendingCount);
+    const demand = getDemandLevel(pendingCount > 0 ? pendingCount : totalCount);
 
     if (demand.level === "HIGH" || demand.level === "VERY_HIGH") {
       highDemandProductsCount++;
@@ -126,6 +135,7 @@ export const loader = async ({ request }) => {
       etaSource: g.etaDate ? "ODOO" : "NONE",
       subscriberCount: totalCount,
       pendingCount: pendingCount,
+      notifiedCount: notifiedCount,
       etaStage: etaStage.stage,
       demandLevel: demand.level,
     };
@@ -163,9 +173,12 @@ export const loader = async ({ request }) => {
         if (!matches) return false;
       }
 
-      // Status
-      if (statusFilter === "PENDING" && p.pendingCount === 0) return false;
-      if (statusFilter === "NOTIFIED" && p.pendingCount > 0) return false;
+      // Status (전송 대기 / 미전송 vs 전송 완료)
+      if (statusFilter === "PENDING" || statusFilter === "UNSENT") {
+        if (p.pendingCount === 0) return false;
+      } else if (statusFilter === "NOTIFIED" || statusFilter === "SENT") {
+        if (p.notifiedCount === 0) return false;
+      }
 
       // ETA Filter
       if (etaFilter !== "ALL" && p.etaStage !== etaFilter) return false;
@@ -174,6 +187,12 @@ export const loader = async ({ request }) => {
       if (demandFilter !== "ALL" && p.demandLevel !== demandFilter) return false;
 
       // KPI Filter Drilldowns
+      if (kpiFilter === "PENDING") {
+        if (p.pendingCount === 0) return false;
+      }
+      if (kpiFilter === "NOTIFIED") {
+        if (p.notifiedCount === 0) return false;
+      }
       if (kpiFilter === "NEEDS_ATTENTION") {
         const isAttn = (p.demandLevel === "HIGH" && p.etaStage === "UNKNOWN") || p.etaStage === "OVERDUE";
         if (!isAttn) return false;
@@ -205,7 +224,13 @@ export const loader = async ({ request }) => {
     }
 
     if (statusFilter !== "ALL") {
-      whereClause.status = statusFilter;
+      if (statusFilter === "PENDING" || statusFilter === "UNSENT") {
+        whereClause.status = "PENDING";
+      } else if (statusFilter === "NOTIFIED" || statusFilter === "SENT") {
+        whereClause.status = "NOTIFIED";
+      } else {
+        whereClause.status = statusFilter;
+      }
     }
 
     if (channelFilter !== "ALL") {
@@ -680,6 +705,12 @@ export default function BackInStockDashboard() {
         kpiFilter: "ALL",
         page: 1,
       });
+    } else if (presetId === "PENDING") {
+      setStatusFilter("PENDING");
+      updateUrlParams({ status: "PENDING", page: 1 });
+    } else if (presetId === "NOTIFIED") {
+      setStatusFilter("NOTIFIED");
+      updateUrlParams({ status: "NOTIFIED", page: 1 });
     } else if (presetId === "HIGH_DEMAND") {
       setDemandFilter("HIGH");
       updateUrlParams({ demand: "HIGH", page: 1 });

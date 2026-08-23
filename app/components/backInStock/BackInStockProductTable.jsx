@@ -262,10 +262,17 @@ export default function BackInStockProductTable({
 
                   {/* Status */}
                   <td style={{ padding: "10px 12px" }}>
-                    {item.pendingCount > 0 ? (
-                      <Badge tone="warning">대기 중</Badge>
-                    ) : (
-                      <Badge tone="success">발송 완료</Badge>
+                    {item.pendingCount > 0 && item.notifiedCount === 0 && (
+                      <Badge tone="warning">전송 대기 ({item.pendingCount}명)</Badge>
+                    )}
+                    {item.pendingCount > 0 && item.notifiedCount > 0 && (
+                      <Badge tone="attention">일부 전송 ({item.notifiedCount}명 완료 / {item.pendingCount}명 대기)</Badge>
+                    )}
+                    {item.pendingCount === 0 && item.notifiedCount > 0 && (
+                      <Badge tone="success">전송 완료 ({item.notifiedCount}명)</Badge>
+                    )}
+                    {item.pendingCount === 0 && item.notifiedCount === 0 && (
+                      <Badge tone="subdued">신청 없음</Badge>
                     )}
                   </td>
 

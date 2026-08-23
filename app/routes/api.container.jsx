@@ -68,44 +68,70 @@ export const loader = async ({ request }) => {
 
     // 1. If specific container / PO is requested:
     if (containerRef) {
-      // Check database first
-      let dbContainer = await prisma.container.findUnique({
-        where: {
-          shop_containerRef: {
-            shop,
-            containerRef,
+      let dbContainer = null;
+      try {
+        dbContainer = await prisma.container.findUnique({
+          where: {
+            shop_containerRef: {
+              shop,
+              containerRef,
+            },
           },
-        },
-        include: { items: true },
-      });
+          include: { items: true },
+        });
+      } catch (dbErr) {
+        console.warn("[API Container] DB findUnique warning:", dbErr.message);
+      }
 
       // If not in DB and Odoo is configured, try fetching from Odoo
       if (!dbContainer && isOdooConfigured()) {
         try {
           const odooData = await fetchOdooContainerProducts(containerRef);
           if (odooData && odooData.items.length > 0) {
-            dbContainer = await prisma.container.create({
-              data: {
+            try {
+              dbContainer = await prisma.container.create({
+                data: {
+                  shop,
+                  containerRef: odooData.poName || containerRef,
+                  supplier: odooData.partnerId || null,
+                  scheduledDate: odooData.scheduledDate || null,
+                  status: "SCHEDULED",
+                  items: {
+                    create: odooData.items.map((it) => ({
+                      sku: it.sku || null,
+                      barcode: it.barcode || null,
+                      productName: it.odooName || "품목",
+                      expectedQty: it.qty || 0,
+                      receivedQty: 0,
+                      unitPrice: it.wholesalePrice || 0,
+                      unitPerBox: it.unitPerBox || 0,
+                      boxQty: it.boxQty || 0,
+                    })),
+                  },
+                },
+                include: { items: true },
+              });
+            } catch (createErr) {
+              console.warn("[API Container] DB create notice:", createErr.message);
+              // Fallback to Odoo in-memory object
+              dbContainer = {
                 shop,
                 containerRef: odooData.poName || containerRef,
                 supplier: odooData.partnerId || null,
                 scheduledDate: odooData.scheduledDate || null,
                 status: "SCHEDULED",
-                items: {
-                  create: odooData.items.map((it) => ({
-                    sku: it.sku || null,
-                    barcode: it.barcode || null,
-                    productName: it.odooName || "품목",
-                    expectedQty: it.qty || 0,
-                    receivedQty: 0,
-                    unitPrice: it.wholesalePrice || 0,
-                    unitPerBox: it.unitPerBox || 0,
-                    boxQty: it.boxQty || 0,
-                  })),
-                },
-              },
-              include: { items: true },
-            });
+                items: odooData.items.map((it) => ({
+                  sku: it.sku || null,
+                  barcode: it.barcode || null,
+                  productName: it.odooName || "품목",
+                  expectedQty: it.qty || 0,
+                  receivedQty: 0,
+                  unitPrice: it.wholesalePrice || 0,
+                  unitPerBox: it.unitPerBox || 0,
+                  boxQty: it.boxQty || 0,
+                })),
+              };
+            }
           }
         } catch (odooErr) {
           console.warn("[API Container] Odoo fallback query warning:", odooErr.message);
@@ -145,16 +171,26 @@ export const loader = async ({ request }) => {
     }
 
     // 2. Return all registered containers for shop
-    const dbContainers = await prisma.container.findMany({
-      where: { shop },
-      orderBy: { createdAt: "desc" },
-      include: {
-        _count: { select: { items: true } },
-      },
-    });
+    let dbContainers = [];
+    try {
+      dbContainers = await prisma.container.findMany({
+        where: { shop },
+        orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { items: true } },
+        },
+      });
+    } catch (dbListErr) {
+      console.warn("[API Container] DB findMany warning:", dbListErr.message);
+    }
 
     // Also get upcoming Odoo schedule for overview
-    const upcomingOdoo = await getUpcomingContainers();
+    let upcomingOdoo = [];
+    try {
+      upcomingOdoo = await getUpcomingContainers();
+    } catch (odooScheduleErr) {
+      console.warn("[API Container] Upcoming Odoo schedule warning:", odooScheduleErr.message);
+    }
 
     return Response.json(
       {
