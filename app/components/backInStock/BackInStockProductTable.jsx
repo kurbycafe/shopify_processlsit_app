@@ -241,23 +241,34 @@ export default function BackInStockProductTable({
 
                   {/* ETA */}
                   <td style={{ padding: "10px 12px" }}>
-                    <BlockStack gap="050">
-                      <InlineStack gap="100" blockAlign="center">
-                        <Text variant="bodySm" fontWeight="medium">
-                          {item.etaDate || "일정 미확정"}
+                    {item.pendingCount === 0 && item.notifiedCount > 0 ? (
+                      <BlockStack gap="050">
+                        <Text variant="bodySm" fontWeight="bold" tone="success">
+                          입고/알림 완료
                         </Text>
-                      </InlineStack>
-                      <InlineStack gap="100" blockAlign="center">
-                        <Badge tone={etaStage.tone} size="small">
-                          {etaStage.relativeText}
+                        <Badge tone="success" size="small">
+                          발송 완료
                         </Badge>
-                        {item.etaSource && (
-                          <Text variant="bodyXs" tone="subdued">
-                            [{item.etaSource}]
+                      </BlockStack>
+                    ) : (
+                      <BlockStack gap="050">
+                        <InlineStack gap="100" blockAlign="center">
+                          <Text variant="bodySm" fontWeight="medium">
+                            {item.etaDate || "일정 미확정"}
                           </Text>
-                        )}
-                      </InlineStack>
-                    </BlockStack>
+                        </InlineStack>
+                        <InlineStack gap="100" blockAlign="center">
+                          <Badge tone={etaStage.tone} size="small">
+                            {etaStage.relativeText}
+                          </Badge>
+                          {item.etaSource && item.etaSource !== "NONE" && (
+                            <Text variant="bodyXs" tone="subdued">
+                              [{item.etaSource}]
+                            </Text>
+                          )}
+                        </InlineStack>
+                      </BlockStack>
+                    )}
                   </td>
 
                   {/* Status */}

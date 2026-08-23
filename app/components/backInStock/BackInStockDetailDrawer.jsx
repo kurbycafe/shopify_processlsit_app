@@ -174,36 +174,56 @@ export default function BackInStockDetailDrawer({
                 </Button>
               </InlineStack>
 
-              <InlineStack gap="400" blockAlign="center">
-                <BlockStack gap="050">
-                  <Text variant="bodyXs" tone="subdued">
-                    입고 예정일 (ETA)
-                  </Text>
-                  <Text variant="headingMd" as="p">
-                    {productItem.etaDate || "입고 일정 미확정"}
-                  </Text>
-                </BlockStack>
+              {productItem.pendingCount === 0 && productItem.notifiedCount > 0 ? (
+                <InlineStack gap="400" blockAlign="center">
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      처리 상태
+                    </Text>
+                    <Text variant="headingMd" as="p" tone="success">
+                      입고 및 알림 발송 완료
+                    </Text>
+                  </BlockStack>
 
-                <BlockStack gap="050">
-                  <Text variant="bodyXs" tone="subdued">
-                    도착 상태
-                  </Text>
-                  <Badge tone={etaStage.tone}>{etaStage.relativeText}</Badge>
-                </BlockStack>
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      알림 결과
+                    </Text>
+                    <Badge tone="success">{`${productItem.notifiedCount}명 전송 완료`}</Badge>
+                  </BlockStack>
+                </InlineStack>
+              ) : (
+                <InlineStack gap="400" blockAlign="center">
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      입고 예정일 (ETA)
+                    </Text>
+                    <Text variant="headingMd" as="p">
+                      {productItem.etaDate || "입고 일정 미확정"}
+                    </Text>
+                  </BlockStack>
 
-                <BlockStack gap="050">
-                  <Text variant="bodyXs" tone="subdued">
-                    데이터 출처
-                  </Text>
-                  <Text variant="bodySm">
-                    {productItem.etaSource === "ODOO"
-                      ? "Odoo ERP 실시간 연동"
-                      : productItem.etaSource === "FALLBACK"
-                      ? "기존 DB 기록"
-                      : "미확정"}
-                  </Text>
-                </BlockStack>
-              </InlineStack>
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      도착 상태
+                    </Text>
+                    <Badge tone={etaStage.tone}>{etaStage.relativeText}</Badge>
+                  </BlockStack>
+
+                  <BlockStack gap="050">
+                    <Text variant="bodyXs" tone="subdued">
+                      데이터 출처
+                    </Text>
+                    <Text variant="bodySm">
+                      {productItem.etaSource === "ODOO"
+                        ? "Odoo ERP 실시간 연동"
+                        : productItem.etaSource === "FALLBACK"
+                        ? "기존 DB 기록"
+                        : "미확정"}
+                    </Text>
+                  </BlockStack>
+                </InlineStack>
+              )}
 
               {etaStage.stage === "OVERDUE" && (
                 <Banner tone="critical">

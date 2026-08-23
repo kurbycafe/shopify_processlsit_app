@@ -109,20 +109,24 @@ export const loader = async ({ request }) => {
     const etaStage = getEtaStageInfo(g.etaDate);
     const demand = getDemandLevel(pendingCount > 0 ? pendingCount : totalCount);
 
-    if (demand.level === "HIGH" || demand.level === "VERY_HIGH") {
-      highDemandProductsCount++;
-    }
-    if (etaStage.stage === "ARRIVING_SOON" || etaStage.stage === "TODAY") {
-      arrivingSoonCount++;
-    }
-    if (etaStage.stage === "OVERDUE") {
-      etaOverdueCount++;
-    }
-    if (etaStage.stage === "UNKNOWN") {
-      etaUnknownCount++;
-    }
-    if ((demand.level === "HIGH" && etaStage.stage === "UNKNOWN") || etaStage.stage === "OVERDUE") {
-      needsAttentionCount++;
+    const isPending = pendingCount > 0;
+
+    if (isPending) {
+      if (demand.level === "HIGH" || demand.level === "VERY_HIGH") {
+        highDemandProductsCount++;
+      }
+      if (etaStage.stage === "ARRIVING_SOON" || etaStage.stage === "TODAY") {
+        arrivingSoonCount++;
+      }
+      if (etaStage.stage === "OVERDUE") {
+        etaOverdueCount++;
+      }
+      if (etaStage.stage === "UNKNOWN") {
+        etaUnknownCount++;
+      }
+      if ((demand.level === "HIGH" && etaStage.stage === "UNKNOWN") || etaStage.stage === "OVERDUE") {
+        needsAttentionCount++;
+      }
     }
 
     return {
