@@ -76,6 +76,70 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_variantId_idx" ON "BackInStockSubscription"("variantId");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_status_idx" ON "BackInStockSubscription"("status");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_poNumber_idx" ON "BackInStockSubscription"("poNumber");`);
+
+      // 2. InspectionRecord Table and Columns
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "InspectionRecord" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "orderId" TEXT NOT NULL UNIQUE,
+          "orderName" TEXT NOT NULL,
+          "shop" TEXT NOT NULL,
+          "inspectorName" TEXT,
+          "status" TEXT NOT NULL,
+          "isLieferscheinPrinted" BOOLEAN NOT NULL DEFAULT false,
+          "lieferscheinPrintedAt" TIMESTAMP(3),
+          "isPickListPrinted" BOOLEAN NOT NULL DEFAULT false,
+          "customShippingAddress" JSONB,
+          "customBillingAddress" JSONB,
+          "customVat" TEXT,
+          "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "completedAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "isPickListPrinted" BOOLEAN DEFAULT false;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "isLieferscheinPrinted" BOOLEAN DEFAULT false;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "lieferscheinPrintedAt" TIMESTAMP(3);`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customShippingAddress" JSONB;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customBillingAddress" JSONB;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customVat" TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "startedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP(3);`);
+
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_idx" ON "InspectionRecord"("shop");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionRecord_orderId_idx" ON "InspectionRecord"("orderId");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_status_idx" ON "InspectionRecord"("shop", "status");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_createdAt_idx" ON "InspectionRecord"("shop", "createdAt");`);
+
+      // 3. InspectionItem Table and Columns
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "InspectionItem" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "inspectionRecordId" TEXT NOT NULL,
+          "variantId" TEXT NOT NULL,
+          "productTitle" TEXT NOT NULL,
+          "variantTitle" TEXT,
+          "sku" TEXT,
+          "barcode" TEXT,
+          "orderedQuantity" INTEGER NOT NULL,
+          "inspectedQuantity" INTEGER NOT NULL,
+          "issueType" TEXT,
+          "issueNote" TEXT,
+          "substitutedVariantId" TEXT,
+          "substitutedProductTitle" TEXT
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionItem" ADD COLUMN IF NOT EXISTS "issueType" TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionItem" ADD COLUMN IF NOT EXISTS "issueNote" TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionItem" ADD COLUMN IF NOT EXISTS "substitutedVariantId" TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionItem" ADD COLUMN IF NOT EXISTS "substitutedProductTitle" TEXT;`);
+
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_inspectionRecordId_idx" ON "InspectionItem"("inspectionRecordId");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_variantId_idx" ON "InspectionItem"("variantId");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_sku_idx" ON "InspectionItem"("sku");`);
     } catch (err) {
       console.warn("[DB Auto-Schema Notice]:", err.message);
     }
@@ -105,6 +169,35 @@ export async function safeFindSubscribers(whereClause, orderBy = { createdAt: "d
         orderBy,
         ...(limit ? { take: limit } : {}),
         ...(skip ? { skip } : {}),
+      });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Resilient queries for InspectionRecord with auto-schema retry
+ */
+export async function safeFindInspectionRecords(whereClause, orderBy = { createdAt: "desc" }, limit = null, skip = null) {
+  await ensureDatabaseSchema();
+  try {
+    return await prisma.inspectionRecord.findMany({
+      where: whereClause,
+      orderBy,
+      ...(limit ? { take: limit } : {}),
+      ...(skip ? { skip } : {}),
+      include: { items: true },
+    });
+  } catch (err) {
+    if (err.code === "P2022" || err.message?.includes("does not exist")) {
+      schemaEnsuredPromise = null;
+      await ensureDatabaseSchema();
+      return await prisma.inspectionRecord.findMany({
+        where: whereClause,
+        orderBy,
+        ...(limit ? { take: limit } : {}),
+        ...(skip ? { skip } : {}),
+        include: { items: true },
       });
     }
     throw err;

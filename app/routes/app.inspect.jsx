@@ -28,7 +28,7 @@ import {
   BarcodeIcon,
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import { sendQcIssueReportEmail } from "../utils/emailService.js";
 import {
   playSuccessBeep,
@@ -85,12 +85,14 @@ async function getInspectorName(admin, session) {
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
+  await ensureDatabaseSchema();
   const inspectorName = await getInspectorName(admin, session);
   return { inspectorName, shop: session.shop };
 };
 
 export const action = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
+  await ensureDatabaseSchema();
   const formData = await request.formData();
   const intent = formData.get("intent");
 

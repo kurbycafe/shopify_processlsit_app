@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useLoaderData, useSearchParams, useNavigate } from "react-router";
+import { useLoaderData, useSearchParams, useNavigate, useRouteError } from "react-router";
 import {
   Page,
   Card,
@@ -14,6 +14,7 @@ import {
   Select,
   Box,
   Button,
+  Banner,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -24,7 +25,7 @@ import {
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import CommonKpiGrid from "../components/common/CommonKpiGrid";
 import CommonPagination from "../components/common/CommonPagination";
 import StatusBadge from "../components/common/StatusBadge";
@@ -32,7 +33,7 @@ import AppEmptyState from "../components/common/AppEmptyState";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
-  const shop = session.shop;
+  const shop = session?.shop || "dawayo.de";
   const url = new URL(request.url);
   const query = url.searchParams.get("query") || "";
   const status = url.searchParams.get("status") || "ALL";
@@ -42,111 +43,146 @@ export const loader = async ({ request }) => {
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const limit = Math.max(10, parseInt(url.searchParams.get("limit") || "25", 10));
 
-  const whereClause = { shop };
+  try {
+    await ensureDatabaseSchema();
 
-  if (status !== "ALL") {
-    whereClause.status = status;
-  } else {
-    whereClause.status = { not: "PENDING" };
-  }
+    const shopClean = shop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase();
+    const whereClause = {
+      OR: [
+        { shop: shop },
+        { shop: shopClean },
+        { shop: shopClean.replace(".myshopify.com", "") },
+        { shop: "dawayo.de" },
+      ],
+    };
 
-  if (query.trim() !== "") {
-    whereClause.OR = [
-      { orderName: { contains: query, mode: "insensitive" } },
-      { inspectorName: { contains: query, mode: "insensitive" } },
-      {
-        items: {
-          some: {
-            OR: [
-              { productTitle: { contains: query, mode: "insensitive" } },
-              { sku: { contains: query, mode: "insensitive" } },
-              { barcode: { contains: query, mode: "insensitive" } },
-              { substitutedProductTitle: { contains: query, mode: "insensitive" } },
-            ],
-          },
+    if (status !== "ALL") {
+      whereClause.status = status;
+    } else {
+      whereClause.status = { not: "PENDING" };
+    }
+
+    if (query.trim() !== "") {
+      whereClause.AND = [
+        {
+          OR: [
+            { orderName: { contains: query, mode: "insensitive" } },
+            { inspectorName: { contains: query, mode: "insensitive" } },
+            {
+              items: {
+                some: {
+                  OR: [
+                    { productTitle: { contains: query, mode: "insensitive" } },
+                    { sku: { contains: query, mode: "insensitive" } },
+                    { barcode: { contains: query, mode: "insensitive" } },
+                    { substitutedProductTitle: { contains: query, mode: "insensitive" } },
+                  ],
+                },
+              },
+            },
+          ],
         },
-      },
-    ];
+      ];
+    }
+
+    let start = null;
+    let end = null;
+
+    if (datePreset === "TODAY") {
+      start = dayjs().startOf("day").toDate();
+      end = dayjs().endOf("day").toDate();
+    } else if (datePreset === "THIS_WEEK") {
+      start = dayjs().startOf("week").startOf("day").toDate();
+      end = dayjs().endOf("day").toDate();
+    } else if (datePreset === "3DAYS") {
+      start = dayjs().subtract(2, "day").startOf("day").toDate();
+      end = dayjs().endOf("day").toDate();
+    } else if (datePreset === "7DAYS") {
+      start = dayjs().subtract(6, "day").startOf("day").toDate();
+      end = dayjs().endOf("day").toDate();
+    } else if (datePreset === "30DAYS") {
+      start = dayjs().subtract(29, "day").startOf("day").toDate();
+      end = dayjs().endOf("day").toDate();
+    } else if (datePreset === "CUSTOM") {
+      if (startDate) start = dayjs(startDate).startOf("day").toDate();
+      if (endDate) end = dayjs(endDate).endOf("day").toDate();
+    }
+
+    if (start || end) {
+      whereClause.createdAt = {};
+      if (start) whereClause.createdAt.gte = start;
+      if (end) whereClause.createdAt.lte = end;
+    }
+
+    // Aggregation for KPIs
+    const [totalCount, successCount, issueCount, printedCount, records] = await Promise.all([
+      prisma.inspectionRecord.count({ where: whereClause }),
+      prisma.inspectionRecord.count({ where: { ...whereClause, status: "SUCCESS" } }),
+      prisma.inspectionRecord.count({
+        where: { ...whereClause, status: { in: ["ISSUE_REPORTED", "FAILED", "PARTIAL"] } },
+      }),
+      prisma.inspectionRecord.count({
+        where: { ...whereClause, isLieferscheinPrinted: true },
+      }),
+      prisma.inspectionRecord.findMany({
+        where: whereClause,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { items: true },
+      }),
+    ]);
+
+    return {
+      records: records || [],
+      totalCount: totalCount || 0,
+      successCount: successCount || 0,
+      issueCount: issueCount || 0,
+      printedCount: printedCount || 0,
+      page,
+      limit,
+      query,
+      status,
+      datePreset,
+      startDate,
+      endDate,
+      error: null,
+    };
+  } catch (err) {
+    console.error("[InspectionHistory Loader Error]:", err);
+    return {
+      records: [],
+      totalCount: 0,
+      successCount: 0,
+      issueCount: 0,
+      printedCount: 0,
+      page,
+      limit,
+      query,
+      status,
+      datePreset,
+      startDate,
+      endDate,
+      error: err.message || "검수 내역을 불러오는 중 오류가 발생했습니다.",
+    };
   }
-
-  let start = null;
-  let end = null;
-
-  if (datePreset === "TODAY") {
-    start = dayjs().startOf("day").toDate();
-    end = dayjs().endOf("day").toDate();
-  } else if (datePreset === "THIS_WEEK") {
-    start = dayjs().startOf("week").startOf("day").toDate();
-    end = dayjs().endOf("day").toDate();
-  } else if (datePreset === "3DAYS") {
-    start = dayjs().subtract(2, "day").startOf("day").toDate();
-    end = dayjs().endOf("day").toDate();
-  } else if (datePreset === "7DAYS") {
-    start = dayjs().subtract(6, "day").startOf("day").toDate();
-    end = dayjs().endOf("day").toDate();
-  } else if (datePreset === "30DAYS") {
-    start = dayjs().subtract(29, "day").startOf("day").toDate();
-    end = dayjs().endOf("day").toDate();
-  } else if (datePreset === "CUSTOM") {
-    if (startDate) start = dayjs(startDate).startOf("day").toDate();
-    if (endDate) end = dayjs(endDate).endOf("day").toDate();
-  }
-
-  if (start || end) {
-    whereClause.createdAt = {};
-    if (start) whereClause.createdAt.gte = start;
-    if (end) whereClause.createdAt.lte = end;
-  }
-
-  // Aggregation for KPIs
-  const [totalCount, successCount, issueCount, printedCount, records] = await Promise.all([
-    prisma.inspectionRecord.count({ where: whereClause }),
-    prisma.inspectionRecord.count({ where: { ...whereClause, status: "SUCCESS" } }),
-    prisma.inspectionRecord.count({
-      where: { ...whereClause, status: { in: ["ISSUE_REPORTED", "FAILED", "PARTIAL"] } },
-    }),
-    prisma.inspectionRecord.count({
-      where: { ...whereClause, isLieferscheinPrinted: true },
-    }),
-    prisma.inspectionRecord.findMany({
-      where: whereClause,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-      include: { items: true },
-    }),
-  ]);
-
-  return {
-    records,
-    totalCount,
-    successCount,
-    issueCount,
-    printedCount,
-    page,
-    limit,
-    query,
-    status,
-    datePreset,
-    startDate,
-    endDate,
-  };
 };
 
 export default function InspectionHistory() {
   const {
-    records,
-    totalCount,
-    successCount,
-    issueCount,
-    printedCount,
-    page,
-    limit,
-    query: initialQuery,
-    status: initialStatus,
-    datePreset: initialDatePreset,
-    startDate: initialStartDate,
-    endDate: initialEndDate,
+    records = [],
+    totalCount = 0,
+    successCount = 0,
+    issueCount = 0,
+    printedCount = 0,
+    page = 1,
+    limit = 25,
+    query: initialQuery = "",
+    status: initialStatus = "ALL",
+    datePreset: initialDatePreset = "ALL",
+    startDate: initialStartDate = "",
+    endDate: initialEndDate = "",
+    error,
   } = useLoaderData();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -211,15 +247,15 @@ export default function InspectionHistory() {
   };
 
   const handleExportCsv = () => {
-    if (records.length === 0) return;
+    if (!records || records.length === 0) return;
     const headers = ["주문번호", "검수자", "검수일시", "상태", "납품서출력", "품목수"];
     const rows = records.map((r) => [
-      `"${r.orderName}"`,
+      `"${r.orderName || ""}"`,
       `"${r.inspectorName || ""}"`,
       `"${dayjs(r.createdAt).format("YYYY-MM-DD HH:mm:ss")}"`,
-      `"${r.status}"`,
+      `"${r.status || ""}"`,
       r.isLieferscheinPrinted ? "Y" : "N",
-      r.items.length,
+      (r.items || []).length,
     ]);
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
@@ -273,7 +309,7 @@ export default function InspectionHistory() {
   const totalPages = Math.ceil(totalCount / limit) || 1;
 
   const rows = useMemo(() => {
-    return records.map((log) => {
+    return (records || []).map((log) => {
       const formattedDate = dayjs(log.createdAt).format("YYYY-MM-DD HH:mm:ss");
 
       return [
@@ -299,7 +335,7 @@ export default function InspectionHistory() {
           {log.isLieferscheinPrinted ? <Badge tone="info">납품서</Badge> : <Badge tone="subdued">미출력</Badge>}
           {log.isPickListPrinted ? <Badge tone="info">피킹리스트</Badge> : <Badge tone="subdued">미출력</Badge>}
         </InlineStack>,
-        `${log.items.length}종 품목`,
+        `${(log.items || []).length}종 품목`,
       ];
     });
   }, [records]);
@@ -312,11 +348,17 @@ export default function InspectionHistory() {
       primaryAction={{
         content: "CSV 내보내기",
         icon: ExportIcon,
-        disabled: records.length === 0,
+        disabled: !records || records.length === 0,
         onAction: handleExportCsv,
       }}
     >
       <BlockStack gap="400">
+        {error && (
+          <Banner tone="critical" title="검수 내역 조회 안내">
+            <p>{error}</p>
+          </Banner>
+        )}
+
         {/* KPI Grid */}
         <CommonKpiGrid
           items={kpiItems}
@@ -475,12 +517,12 @@ export default function InspectionHistory() {
               <Divider />
 
               <Text variant="headingSm" as="h4">
-                검수 품목 목록 ({selectedLog.items.length}종)
+                검수 품목 목록 ({(selectedLog.items || []).length}종)
               </Text>
               <DataTable
                 columnContentTypes={["text", "text", "numeric", "numeric", "text"]}
                 headings={["상품명", "SKU / 바코드", "주문 수량", "검수 수량", "이슈 메모"]}
-                rows={selectedLog.items.map((item) => [
+                rows={(selectedLog.items || []).map((item) => [
                   item.productTitle + (item.variantTitle ? ` (${item.variantTitle})` : ""),
                   `${item.sku || "-"}\n${item.barcode || ""}`,
                   item.orderedQuantity,
@@ -496,6 +538,29 @@ export default function InspectionHistory() {
           </Modal.Section>
         </Modal>
       )}
+    </Page>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const navigate = useNavigate();
+
+  return (
+    <Page title="검수 이력 오류" backAction={{ content: "대시보드", url: "/app" }}>
+      <BlockStack gap="400">
+        <Banner tone="critical" title="검수 내역을 불러오는 중 오류가 발생했습니다">
+          <p>{error?.message || "알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}</p>
+        </Banner>
+        <Card>
+          <InlineStack gap="300">
+            <Button onClick={() => window.location.reload()}>다시 시도</Button>
+            <Button variant="plain" onClick={() => navigate("/app")}>
+              대시보드로 이동
+            </Button>
+          </InlineStack>
+        </Card>
+      </BlockStack>
     </Page>
   );
 }

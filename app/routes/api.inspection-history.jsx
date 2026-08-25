@@ -1,4 +1,4 @@
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import dayjs from "dayjs";
 
 // CORS origin validator
@@ -53,6 +53,7 @@ export const loader = async ({ request }) => {
   }
 
   try {
+    await ensureDatabaseSchema();
     const url = new URL(request.url);
     const shop = resolveShop(request);
     const orderId = url.searchParams.get("orderId");
@@ -65,7 +66,13 @@ export const loader = async ({ request }) => {
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1);
     const skip = (page - 1) * limit;
 
-    const whereClause = { shop };
+    const whereClause = {
+      OR: [
+        { shop },
+        { shop: shop.replace(".myshopify.com", "") },
+        { shop: "dawayo.de" },
+      ],
+    };
 
     if (orderId) {
       whereClause.orderId = { contains: orderId, mode: "insensitive" };
@@ -80,20 +87,24 @@ export const loader = async ({ request }) => {
     }
 
     if (query !== "") {
-      whereClause.OR = [
-        { orderName: { contains: query, mode: "insensitive" } },
-        { inspectorName: { contains: query, mode: "insensitive" } },
+      whereClause.AND = [
         {
-          items: {
-            some: {
-              OR: [
-                { productTitle: { contains: query, mode: "insensitive" } },
-                { sku: { contains: query, mode: "insensitive" } },
-                { barcode: { contains: query, mode: "insensitive" } },
-                { substitutedProductTitle: { contains: query, mode: "insensitive" } },
-              ],
+          OR: [
+            { orderName: { contains: query, mode: "insensitive" } },
+            { inspectorName: { contains: query, mode: "insensitive" } },
+            {
+              items: {
+                some: {
+                  OR: [
+                    { productTitle: { contains: query, mode: "insensitive" } },
+                    { sku: { contains: query, mode: "insensitive" } },
+                    { barcode: { contains: query, mode: "insensitive" } },
+                    { substitutedProductTitle: { contains: query, mode: "insensitive" } },
+                  ],
+                },
+              },
             },
-          },
+          ],
         },
       ];
     }
