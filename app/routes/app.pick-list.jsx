@@ -44,7 +44,7 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
           name
           company
         }
-        lineItems(first: 100) { 
+        lineItems(first: 250) { 
           nodes {
             quantity
             name
