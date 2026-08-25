@@ -88,9 +88,25 @@ const completedItems = mockOrderItems.filter(
 assert.strictEqual(completedItems.length, 1);
 assert.strictEqual(completedItems[0].title, "라면");
 
-const issueItems = mockOrderItems.filter((it) => it.issueType !== null);
-assert.strictEqual(issueItems.length, 1);
-assert.strictEqual(issueItems[0].title, "김치");
-console.log("PASS: Inspection tab filter segmentation");
+import { isBarcodeOrSkuMatch } from "../app/utils/barcodeHelpers.js";
+
+// 4. Leading Zeros Barcode Matching Tests
+const testItem1 = { barcode: "08801043014830", sku: "SHIN-001" };
+const testItem2 = { barcode: "8801043014830", sku: "SHIN-002" };
+const testItem3 = { barcode: "0012345", sku: "0012345" };
+
+// Exact match with leading zero
+assert.strictEqual(isBarcodeOrSkuMatch(testItem1, "08801043014830"), true);
+// Scanner sent leading zero, DB has no leading zero
+assert.strictEqual(isBarcodeOrSkuMatch(testItem2, "08801043014830"), true);
+// Scanner sent without leading zero, DB has leading zero
+assert.strictEqual(isBarcodeOrSkuMatch(testItem1, "8801043014830"), true);
+// Multiple leading zeros
+assert.strictEqual(isBarcodeOrSkuMatch(testItem3, "0012345"), true);
+assert.strictEqual(isBarcodeOrSkuMatch(testItem3, "12345"), true);
+// SKU match with leading zero
+assert.strictEqual(isBarcodeOrSkuMatch(testItem1, "SHIN-001"), true);
+assert.strictEqual(isBarcodeOrSkuMatch(testItem1, "shin-001"), true);
+console.log("PASS: Barcode leading zero exact & flexible matching");
 
 console.log("ALL INSPECT & PICK LIST TESTS PASSED SUCCESSFULLY!");

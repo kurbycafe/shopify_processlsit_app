@@ -35,7 +35,10 @@ import {
   playErrorBuzz,
   playWarningBeep,
 } from "../utils/audioFeedback.js";
+import { isBarcodeOrSkuMatch } from "../utils/barcodeHelpers.js";
 import StatusBadge from "../components/common/StatusBadge";
+
+export { isBarcodeOrSkuMatch };
 
 async function getInspectorName(admin, session) {
   if (session.firstName || session.lastName) {
@@ -399,10 +402,8 @@ export default function Inspect() {
       if (!currentOrder || !scannedBarcode.trim()) return;
       const rawCode = scannedBarcode.trim();
 
-      const itemIndex = currentOrder.items.findIndex(
-        (i) =>
-          String(i.barcode || "").trim() === rawCode ||
-          String(i.sku || "").trim() === rawCode
+      const itemIndex = currentOrder.items.findIndex((i) =>
+        isBarcodeOrSkuMatch(i, rawCode)
       );
 
       const timestamp = new Date().toLocaleTimeString();
@@ -459,30 +460,69 @@ export default function Inspect() {
     [currentOrder]
   );
 
-  // Initial autofocus and global keydown for order search when no order is loaded
+  // Initial autofocus and Hands-Free Scanner for Order Search
   useEffect(() => {
-    if (!currentOrder) {
-      setTimeout(() => orderSearchRef.current?.focus(), 150);
+    if (currentOrder) return;
 
-      const handleSearchGlobalKeyDown = (e) => {
-        const activeEl = document.activeElement;
-        const isInputFocused =
-          activeEl &&
-          (activeEl.tagName === "INPUT" ||
-            activeEl.tagName === "TEXTAREA" ||
-            activeEl.isContentEditable);
+    setTimeout(() => orderSearchRef.current?.focus(), 150);
 
-        if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          orderSearchRef.current?.focus();
+    let orderBuffer = "";
+    let lastOrderKeyTime = 0;
+
+    const handleSearchKeyDown = (e) => {
+      const activeEl = document.activeElement;
+      const isInputFocused =
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable);
+
+      const currentTime = Date.now();
+      const timeDelta = currentTime - lastOrderKeyTime;
+      lastOrderKeyTime = currentTime;
+
+      // Handle Enter (Scanner commit)
+      if (e.key === "Enter") {
+        const orderToSearch =
+          orderBuffer.trim() ||
+          orderSearchRef.current?.value?.trim() ||
+          orderName.trim();
+
+        if (orderToSearch) {
+          e.preventDefault();
+          e.stopPropagation();
+          fetcher.submit({ intent: "fetch_order", orderName: orderToSearch }, { method: "POST" });
+          orderBuffer = "";
+          setOrderName(orderToSearch);
         }
-      };
+        return;
+      }
 
-      window.addEventListener("keydown", handleSearchGlobalKeyDown);
-      return () => window.removeEventListener("keydown", handleSearchGlobalKeyDown);
-    }
-  }, [currentOrder]);
+      // Handle printable characters (scanner or keyboard input)
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (timeDelta > 300) {
+          orderBuffer = e.key;
+        } else {
+          orderBuffer += e.key;
+        }
 
-  // Global Barcode Scanner / Keydown Listener for loaded order
+        // If focus is not already inside the search input, pipe characters into the field
+        if (activeEl !== orderSearchRef.current) {
+          setOrderName(orderBuffer);
+          if (orderSearchRef.current) {
+            orderSearchRef.current.value = orderBuffer;
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleSearchKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleSearchKeyDown, true);
+    };
+  }, [currentOrder, orderName, fetcher]);
+
+  // Hands-Free Global Barcode Scanner Engine for loaded order
   useEffect(() => {
     if (!currentOrder || cameraModalOpen || issueModalOpen || editingBarcodeId) {
       return;
@@ -493,63 +533,65 @@ export default function Inspect() {
 
     const handleGlobalKeyDown = (e) => {
       const activeEl = document.activeElement;
-      const isInputFocused =
+      // Do not intercept if user is typing in a modal textarea or editing a barcode manually
+      const isOtherInput =
         activeEl &&
-        (activeEl.tagName === "INPUT" ||
-          activeEl.tagName === "TEXTAREA" ||
-          activeEl.isContentEditable);
+        activeEl !== barcodeRef.current &&
+        activeEl.tagName === "TEXTAREA";
 
-      // If barcode input is already focused, let normal input handle it
-      if (activeEl === barcodeRef.current) {
-        return;
-      }
-
-      // If typing in another input (like substitute search), don't interfere
-      if (isInputFocused && activeEl !== barcodeRef.current) {
+      if (isOtherInput) {
         return;
       }
 
       const currentTime = Date.now();
+      const timeDelta = currentTime - lastKeyTime;
       lastKeyTime = currentTime;
 
       // Handle Enter (Scanner commit)
       if (e.key === "Enter") {
-        const rawToProcess =
+        const scannedCode =
           scanBuffer.trim() ||
           barcodeRef.current?.value?.trim() ||
           barcode.trim();
 
-        if (rawToProcess) {
+        if (scannedCode) {
           e.preventDefault();
-          processBarcode(rawToProcess);
+          e.stopPropagation();
+          processBarcode(scannedCode);
           scanBuffer = "";
           setBarcode("");
+          if (barcodeRef.current) {
+            barcodeRef.current.value = "";
+          }
         } else if (barcodeRef.current) {
           barcodeRef.current.focus();
         }
         return;
       }
 
-      // Handle printable characters (scanner wedge or keyboard input)
+      // Handle printable characters (scanner wedge keystrokes)
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        scanBuffer += e.key;
-
-        // Automatically bring focus back to the barcode input
-        if (barcodeRef.current) {
-          barcodeRef.current.focus();
+        // If burst of keystrokes from scanner or fresh typing sequence
+        if (timeDelta > 250) {
+          scanBuffer = e.key;
+        } else {
+          scanBuffer += e.key;
         }
 
-        setTimeout(() => {
-          if (Date.now() - lastKeyTime > 350) {
-            scanBuffer = "";
+        // Keep UI and input value in sync regardless of cursor position
+        if (activeEl !== barcodeRef.current) {
+          setBarcode(scanBuffer);
+          if (barcodeRef.current) {
+            barcodeRef.current.value = scanBuffer;
           }
-        }, 400);
+        }
       }
     };
 
-    window.addEventListener("keydown", handleGlobalKeyDown);
+    // Attach in capture phase so barcode scan Enter never triggers background buttons
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", handleGlobalKeyDown);
+      window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
   }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode, barcode]);
 
