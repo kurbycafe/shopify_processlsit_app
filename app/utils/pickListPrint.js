@@ -1,18 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { parseWarehouseInfo } from "../routes/app.pick-list.jsx";
-
-/**
- * Natural ascending sort for shelf / regal numbers
- */
-function compareRegalAscending(a, b) {
-  const infoA = a.whInfo || parseWarehouseInfo(a.binLocation);
-  const infoB = b.whInfo || parseWarehouseInfo(b.binLocation);
-
-  const shelfA = infoA.storeShelf || infoA.newShelf || a.binLocation || "ZZZ";
-  const shelfB = infoB.storeShelf || infoB.newShelf || b.binLocation || "ZZZ";
-
-  return shelfA.localeCompare(shelfB, undefined, { numeric: true, sensitivity: "base" });
-}
+import { parseWarehouseInfo, compareRegalAscending } from "./warehouseHelpers.js";
 
 /**
  * Generate Landscape A4 Picking List PDF Buffer separated by Store & New Warehouse

@@ -19,10 +19,14 @@ import {
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { generatePickListPdfBuffer } from "../utils/pickListPrint";
+import { generatePickListPrintHtml } from "../utils/pickListPrintHtml";
+import { parseWarehouseInfo, compareRegalAscending } from "../utils/warehouseHelpers.js";
 import { fetchOdooBinLocations } from "../services/odooClient.server.js";
 import { sendPickListEmailWithPdf } from "../utils/emailService.js";
 import AppEmptyState from "../components/common/AppEmptyState";
 import MetricCard from "../components/common/MetricCard";
+
+export { parseWarehouseInfo, compareRegalAscending };
 
 // ========================================================
 // GraphQL Query with Cursor Pagination
@@ -60,80 +64,6 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
     }
   }
 `;
-
-/**
- * Parses bin location string into warehouse category and individual shelf locations
- */
-export function parseWarehouseInfo(binLocation = "") {
-  const loc = (binLocation || "").trim();
-  if (!loc || loc === "위치 미정" || loc === "위치 미지정" || loc === "조회중") {
-    return {
-      category: "NO_BIN",
-      label: "위치 미지정",
-      storeShelf: null,
-      newShelf: null,
-      isStore: false,
-      isNewOnly: false,
-      hasBoth: false,
-    };
-  }
-
-  // 매장창고 + 신창고 결합: e.g. "A-01-02 (신창고: B-04)"
-  const matchBoth = loc.match(/^(.*?)\s*\(신창고:\s*(.*?)\)$/);
-  if (matchBoth) {
-    return {
-      category: "STORE",
-      label: loc,
-      storeShelf: matchBoth[1].trim(),
-      newShelf: matchBoth[2].trim(),
-      isStore: true,
-      isNewOnly: false,
-      hasBoth: true,
-    };
-  }
-
-  // 신창고 전용: e.g. "*W-05 (신창고)" 또는 "*W-05"
-  if (loc.startsWith("*") || loc.includes("신창고")) {
-    const cleanNew = loc.replace(/^\*/, "").replace(/\(신창고\)/, "").trim();
-    return {
-      category: "NEW_ONLY",
-      label: loc,
-      storeShelf: null,
-      newShelf: cleanNew,
-      isStore: false,
-      isNewOnly: true,
-      hasBoth: false,
-    };
-  }
-
-  // 매장창고 단독: e.g. "A-01-02"
-  return {
-    category: "STORE",
-    label: loc,
-    storeShelf: loc,
-    newShelf: null,
-    isStore: true,
-    isNewOnly: false,
-    hasBoth: false,
-  };
-}
-
-/**
- * Natural ascending sort for shelf / regal numbers (A-1, A-2, A-10, B-1, ...)
- */
-export function compareRegalAscending(a, b) {
-  const infoA = a.whInfo || parseWarehouseInfo(a.binLocation);
-  const infoB = b.whInfo || parseWarehouseInfo(b.binLocation);
-
-  const shelfA = (infoA.storeShelf || infoA.newShelf || a.binLocation || "").trim();
-  const shelfB = (infoB.storeShelf || infoB.newShelf || b.binLocation || "").trim();
-
-  if (!shelfA && !shelfB) return 0;
-  if (!shelfA) return 1;
-  if (!shelfB) return -1;
-
-  return shelfA.localeCompare(shelfB, undefined, { numeric: true, sensitivity: "base" });
-}
 
 /**
  * Overall sorting by warehouse priority: STORE items first -> NEW_ONLY items -> NO_BIN
@@ -369,6 +299,28 @@ export default function PickListPage() {
   }, [warehouseTab, items, storeItems, newOnlyItems, noBinItems]);
 
   const handlePrint = () => {
+    const now = new Date();
+    const formattedTime = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    try {
+      const htmlContent = generatePickListPrintHtml({
+        items: displayedItems,
+        formattedTime,
+        warehouseTab,
+        totalOrdersCount,
+      });
+
+      const printWindow = window.open("", "_blank", "width=1200,height=800");
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        return;
+      }
+    } catch (e) {
+      console.warn("Popup print window failed, falling back to window.print():", e);
+    }
+
     window.print();
   };
 
@@ -388,7 +340,7 @@ export default function PickListPage() {
       { method: "post" }
     );
 
-    window.print();
+    handlePrint();
   };
 
   // Reusable Table Section Component for each Warehouse Category
@@ -520,12 +472,61 @@ export default function PickListPage() {
         {/* 인쇄 전용 스타일 */}
         <style>{`
           @media print {
-            button, .no-print, nav, header { display: none !important; }
-            body { background: #fff !important; color: #000 !important; margin: 0 !important; padding: 0 !important; }
-            @page { size: A4 landscape; margin: 8mm 6mm; }
-            table { width: 100% !important; border-collapse: collapse !important; }
-            th { background: #0f172a !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 6px 8px !important; font-size: 11px !important; }
-            td { border-bottom: 1px solid #cbd5e1 !important; padding: 6px 8px !important; font-size: 11px !important; }
+            html, body, #app, .Polaris-Frame, .Polaris-Frame__Main, .Polaris-Frame__Content, .Polaris-Page, .Polaris-Page__Content, .Polaris-Box, .Polaris-BlockStack, .Polaris-Card, .Polaris-ShadowBevel {
+              overflow: visible !important;
+              height: auto !important;
+              min-height: auto !important;
+              max-height: none !important;
+              position: static !important;
+              display: block !important;
+              background: #fff !important;
+              color: #000 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            .Polaris-Page-Header, .Polaris-Banner, nav, header, button, .no-print {
+              display: none !important;
+            }
+            @page {
+              size: A4 landscape;
+              margin: 8mm 6mm;
+            }
+            table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              page-break-inside: auto !important;
+              break-inside: auto !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            thead {
+              display: table-header-group !important;
+            }
+            tfoot {
+              display: table-footer-group !important;
+            }
+            th {
+              background: #0f172a !important;
+              color: #fff !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              padding: 6px 8px !important;
+              font-size: 11px !important;
+            }
+            td {
+              border-bottom: 1px solid #cbd5e1 !important;
+              padding: 6px 8px !important;
+              font-size: 11px !important;
+            }
+            .Polaris-Card {
+              box-shadow: none !important;
+              border: 1px solid #cbd5e1 !important;
+              page-break-inside: auto !important;
+              break-inside: auto !important;
+              margin-bottom: 14px !important;
+            }
           }
         `}</style>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import {
   Page,
@@ -12,6 +12,7 @@ import {
   Badge,
   Thumbnail,
   Button,
+  ButtonGroup,
   Banner,
   Box,
   Icon,
@@ -375,6 +376,9 @@ export default function Inspect() {
   const [searchParams] = useSearchParams();
   const [hasAutoFetched, setHasAutoFetched] = useState(false);
 
+  // Item filter tab state: "ALL" | "REMAINING" | "COMPLETED" | "ISSUES"
+  const [itemTab, setItemTab] = useState("ALL");
+
   // Exception / Issue modal states
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [activeIssueItemId, setActiveIssueItemId] = useState(null);
@@ -448,10 +452,104 @@ export default function Inspect() {
       }
 
       setBarcode("");
-      setTimeout(() => barcodeRef.current?.focus(), 100);
+      setTimeout(() => barcodeRef.current?.focus(), 80);
     },
     [currentOrder]
   );
+
+  // Initial autofocus and global keydown for order search when no order is loaded
+  useEffect(() => {
+    if (!currentOrder) {
+      setTimeout(() => orderSearchRef.current?.focus(), 150);
+
+      const handleSearchGlobalKeyDown = (e) => {
+        const activeEl = document.activeElement;
+        const isInputFocused =
+          activeEl &&
+          (activeEl.tagName === "INPUT" ||
+            activeEl.tagName === "TEXTAREA" ||
+            activeEl.isContentEditable);
+
+        if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          orderSearchRef.current?.focus();
+        }
+      };
+
+      window.addEventListener("keydown", handleSearchGlobalKeyDown);
+      return () => window.removeEventListener("keydown", handleSearchGlobalKeyDown);
+    }
+  }, [currentOrder]);
+
+  // Global Barcode Scanner / Keydown Listener for loaded order
+  useEffect(() => {
+    if (!currentOrder || cameraModalOpen || issueModalOpen || editingBarcodeId) {
+      return;
+    }
+
+    let scanBuffer = "";
+    let lastKeyTime = 0;
+
+    const handleGlobalKeyDown = (e) => {
+      const activeEl = document.activeElement;
+      const isInputFocused =
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable);
+
+      // If barcode input is already focused, let normal input handle it
+      if (activeEl === barcodeRef.current) {
+        return;
+      }
+
+      // If typing in another input (like substitute search), don't interfere
+      if (isInputFocused && activeEl !== barcodeRef.current) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      lastKeyTime = currentTime;
+
+      // Handle Enter (Scanner commit)
+      if (e.key === "Enter") {
+        const rawToProcess =
+          scanBuffer.trim() ||
+          barcodeRef.current?.value?.trim() ||
+          barcode.trim();
+
+        if (rawToProcess) {
+          e.preventDefault();
+          processBarcode(rawToProcess);
+          scanBuffer = "";
+          setBarcode("");
+        } else if (barcodeRef.current) {
+          barcodeRef.current.focus();
+        }
+        return;
+      }
+
+      // Handle printable characters (scanner wedge or keyboard input)
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        scanBuffer += e.key;
+
+        // Automatically bring focus back to the barcode input
+        if (barcodeRef.current) {
+          barcodeRef.current.focus();
+        }
+
+        setTimeout(() => {
+          if (Date.now() - lastKeyTime > 350) {
+            scanBuffer = "";
+          }
+        }, 400);
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode, barcode]);
 
   // Camera scanner lifecycle
   useEffect(() => {
@@ -505,6 +603,7 @@ export default function Inspect() {
       setCurrentOrder(order);
       setLogs([]);
       setBarcode("");
+      setItemTab("ALL");
       setMessage({ type: "success", text: `${order.name} 주문 정보를 성공적으로 불러왔습니다.` });
       playSuccessBeep();
       setTimeout(() => barcodeRef.current?.focus(), 150);
@@ -522,6 +621,8 @@ export default function Inspect() {
       setCurrentOrder(null);
       setLogs([]);
       setOrderName("");
+      setItemTab("ALL");
+      setTimeout(() => orderSearchRef.current?.focus(), 150);
     } else if (saveFetcher.data?.error) {
       setMessage({ type: "error", text: saveFetcher.data.error });
       playErrorBuzz();
@@ -646,6 +747,7 @@ export default function Inspect() {
     setCurrentOrder({ ...currentOrder, items: updatedItems });
     playSuccessBeep();
     setMessage({ type: "success", text: "모든 상품의 검수 수량을 완료 처리했습니다." });
+    setTimeout(() => barcodeRef.current?.focus(), 80);
   };
 
   const handleSave = () => {
@@ -670,6 +772,12 @@ export default function Inspect() {
   const totalInspectedCount = currentOrder
     ? currentOrder.items.reduce((sum, it) => sum + it.inspectedQuantity, 0)
     : 0;
+  const remainingCount = currentOrder
+    ? currentOrder.items.filter((it) => it.inspectedQuantity < it.orderedQuantity && !it.issueType).length
+    : 0;
+  const completedCount = currentOrder
+    ? currentOrder.items.filter((it) => it.inspectedQuantity === it.orderedQuantity && !it.issueType).length
+    : 0;
   const issueCount = currentOrder
     ? currentOrder.items.filter((it) => it.issueType !== null).length
     : 0;
@@ -677,7 +785,25 @@ export default function Inspect() {
     ? Math.min(100, Math.round((totalInspectedCount / totalOrderedCount) * 100))
     : 0;
 
-  const rows = (currentOrder?.items || []).map((item) => {
+  const displayedItems = useMemo(() => {
+    if (!currentOrder?.items) return [];
+    if (itemTab === "REMAINING") {
+      return currentOrder.items.filter(
+        (it) => it.inspectedQuantity < it.orderedQuantity && !it.issueType
+      );
+    }
+    if (itemTab === "COMPLETED") {
+      return currentOrder.items.filter(
+        (it) => it.inspectedQuantity === it.orderedQuantity && !it.issueType
+      );
+    }
+    if (itemTab === "ISSUES") {
+      return currentOrder.items.filter((it) => it.issueType !== null);
+    }
+    return currentOrder.items;
+  }, [currentOrder, itemTab]);
+
+  const rows = displayedItems.map((item) => {
     const isHighlighted = item.id === highlightedRowId;
     const isCompleted = item.inspectedQuantity === item.orderedQuantity;
 
@@ -975,13 +1101,83 @@ export default function Inspect() {
               </BlockStack>
             </Card>
 
+            {/* 품목 필터 탭 바 (전체 / 진행중 / 완료 / 예외) */}
+            <Card padding="300">
+              <InlineStack align="space-between" blockAlign="center" wrap>
+                <ButtonGroup segmented>
+                  <Button
+                    pressed={itemTab === "ALL"}
+                    onClick={() => {
+                      setItemTab("ALL");
+                      setTimeout(() => barcodeRef.current?.focus(), 80);
+                    }}
+                  >
+                    {`전체 (${currentOrder.items.length})`}
+                  </Button>
+                  <Button
+                    pressed={itemTab === "REMAINING"}
+                    onClick={() => {
+                      setItemTab("REMAINING");
+                      setTimeout(() => barcodeRef.current?.focus(), 80);
+                    }}
+                  >
+                    {`진행중 / 남은 상품 (${remainingCount})`}
+                  </Button>
+                  <Button
+                    pressed={itemTab === "COMPLETED"}
+                    onClick={() => {
+                      setItemTab("COMPLETED");
+                      setTimeout(() => barcodeRef.current?.focus(), 80);
+                    }}
+                  >
+                    {`검수 완료 (${completedCount})`}
+                  </Button>
+                  {issueCount > 0 && (
+                    <Button
+                      pressed={itemTab === "ISSUES"}
+                      onClick={() => {
+                        setItemTab("ISSUES");
+                        setTimeout(() => barcodeRef.current?.focus(), 80);
+                      }}
+                    >
+                      {`예외 처리 (${issueCount})`}
+                    </Button>
+                  )}
+                </ButtonGroup>
+
+                <Text variant="bodySm" tone="subdued">
+                  {itemTab === "REMAINING"
+                    ? `아직 검수되지 않은 남은 품목 ${remainingCount}개를 표시하고 있습니다.`
+                    : itemTab === "COMPLETED"
+                    ? `검수 완료된 품목 ${completedCount}개를 표시하고 있습니다.`
+                    : itemTab === "ISSUES"
+                    ? `예외 처리(환불/적립/대체)된 품목 ${issueCount}개를 표시하고 있습니다.`
+                    : `전체 ${currentOrder.items.length}개 품목을 표시하고 있습니다.`}
+                </Text>
+              </InlineStack>
+            </Card>
+
             {/* 품목 데이터 테이블 */}
             <Card padding="0">
-              <DataTable
-                columnContentTypes={["text", "text", "text", "text", "text"]}
-                headings={["상품", "상품 정보 및 예외", "바코드", "검수 수량", "상태"]}
-                rows={rows}
-              />
+              {displayedItems.length > 0 ? (
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text"]}
+                  headings={["상품", "상품 정보 및 예외", "바코드", "검수 수량", "상태"]}
+                  rows={rows}
+                />
+              ) : (
+                <Box padding="600" textAlign="center">
+                  <Text variant="bodyMd" tone="subdued">
+                    {itemTab === "REMAINING"
+                      ? "모든 품목의 검수가 완료되었습니다."
+                      : itemTab === "COMPLETED"
+                      ? "아직 완료된 품목이 없습니다."
+                      : itemTab === "ISSUES"
+                      ? "예외 처리된 품목이 없습니다."
+                      : "표시할 품목이 없습니다."}
+                  </Text>
+                </Box>
+              )}
             </Card>
 
             {/* 하단 고정 액션 바 */}
