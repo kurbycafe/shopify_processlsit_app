@@ -788,10 +788,10 @@ export default function OrderPrintDetailPage() {
           {order.isCustomerHold && (
             <div className="cancellation-warning-banner">
               <div className="cancellation-warning-title">
-                ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT / AUSLIEFERUNG STOPPEN"}
+                ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT "}
               </div>
               <div className="cancellation-warning-desc">
-                고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다. 상품 패킹 및 출고를 즉시 중단하고 어드민 검토를 완료하세요.
+                고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다.
               </div>
             </div>
           )}
