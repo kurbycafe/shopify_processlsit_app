@@ -264,24 +264,6 @@ export const loader = async ({ request, params }) => {
             displayFinancialStatus
             cancelledAt
             cancelReason
-            returns(first: 5) {
-              edges {
-                node {
-                  id
-                  status
-                  name
-                }
-              }
-            }
-            fulfillmentOrders(first: 5) {
-              edges {
-                node {
-                  id
-                  status
-                  requestStatus
-                }
-              }
-            }
             events(first: 5, query: "action:requested_edit_requested") {
               edges {
                 node {
@@ -524,17 +506,14 @@ export const loader = async ({ request, params }) => {
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
-      const fulfillmentOrdersList = (node.fulfillmentOrders?.edges || []).map(e => e.node);
-      const returnsList = (node.returns?.edges || []).map(e => e.node);
       const cancelEventsList = (node.events?.edges || []).map(e => e.node);
 
       const hasCancellationRequest =
-        fulfillmentOrdersList.some(fo => fo.requestStatus === "CANCELLATION_REQUESTED") ||
         cancelEventsList.length > 0 ||
         Boolean(node.cancelledAt);
 
-      const hasReturnRequest = returnsList.some(ret => ret.status === "REQUESTED");
-      const isCustomerHold = hasCancellationRequest || hasReturnRequest;
+      const hasReturnRequest = false;
+      const isCustomerHold = hasCancellationRequest;
 
       const isB2B = checkIsB2B(node.shippingAddress);
 
