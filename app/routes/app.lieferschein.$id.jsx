@@ -225,6 +225,34 @@ export const loader = async ({ request, params }) => {
             note
             displayFinancialStatus
             cancelledAt
+            cancelReason
+            returns(first: 5) {
+              edges {
+                node {
+                  id
+                  status
+                  name
+                }
+              }
+            }
+            fulfillmentOrders(first: 5) {
+              edges {
+                node {
+                  id
+                  status
+                  requestStatus
+                }
+              }
+            }
+            events(first: 5, query: "action:requested_edit_requested") {
+              edges {
+                node {
+                  id
+                  message
+                  createdAt
+                }
+              }
+            }
             customAttributes {
               key
               value
@@ -457,6 +485,18 @@ export const loader = async ({ request, params }) => {
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
+      const fulfillmentOrdersList = (node.fulfillmentOrders?.edges || []).map(e => e.node);
+      const returnsList = (node.returns?.edges || []).map(e => e.node);
+      const cancelEventsList = (node.events?.edges || []).map(e => e.node);
+
+      const hasCancellationRequest =
+        fulfillmentOrdersList.some(fo => fo.requestStatus === "CANCELLATION_REQUESTED") ||
+        cancelEventsList.length > 0 ||
+        Boolean(node.cancelledAt);
+
+      const hasReturnRequest = returnsList.some(ret => ret.status === "REQUESTED");
+      const isCustomerHold = hasCancellationRequest || hasReturnRequest;
+
       const isB2B = checkIsB2B(node.shippingAddress);
 
       const dbRecord = await prisma.inspectionRecord.findUnique({
@@ -492,6 +532,10 @@ export const loader = async ({ request, params }) => {
         hasChilled,
         hasFrozen,
         isB2B,
+        hasCancellationRequest,
+        hasReturnRequest,
+        isCustomerHold,
+        cancelReason: node.cancelReason || null,
         totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
         subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
         totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
@@ -762,10 +806,26 @@ export default function OrderPrintDetailPage() {
       slips.push(
         <div key={`lieferschein-slip-${order.id}`} className="packing-slip lieferschein-slip">
 
+          {order.isCustomerHold && (
+            <div className="cancellation-warning-banner">
+              <div className="cancellation-warning-title">
+                ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT / AUSLIEFERUNG STOPPEN"}
+              </div>
+              <div className="cancellation-warning-desc">
+                고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다. 상품 패킹 및 출고를 즉시 중단하고 어드민 검토를 완료하세요.
+              </div>
+            </div>
+          )}
+
           <div className="header">
             <div className="header-left">
               <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
                 <div className="document-title" style={{ margin: 0 }}>Lieferschein</div>
+                {order.isCustomerHold && (
+                  <div className="stamp-cancellation-alert">
+                    {order.hasReturnRequest ? "RÜCKGABE" : "STORNIERUNG"}
+                  </div>
+                )}
                 {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
                   <div style={{
                     border: "4px double #dc2626",
@@ -1101,10 +1161,25 @@ export default function OrderPrintDetailPage() {
 
       slips.push(
         <div key={`rechnung-slip-${order.id}`} className="packing-slip rechnung-slip">
+          {order.isCustomerHold && (
+            <div className="cancellation-warning-banner">
+              <div className="cancellation-warning-title">
+                ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT"}
+              </div>
+              <div className="cancellation-warning-desc">
+                고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다. (어드민 검토 필요)
+              </div>
+            </div>
+          )}
           <div className="header">
             <div className="header-left">
               <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
                 <div className="document-title" style={{ margin: 0 }}>Rechnung</div>
+                {order.isCustomerHold && (
+                  <div className="stamp-cancellation-alert">
+                    {order.hasReturnRequest ? "RÜCKGABE" : "STORNIERUNG"}
+                  </div>
+                )}
                 {order.isB2B && (
                   <div style={{
                     border: "4px double #1e293b",

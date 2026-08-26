@@ -147,6 +147,34 @@ export const loader = async ({ request }) => {
               note
               displayFinancialStatus
               cancelledAt
+              cancelReason
+              returns(first: 5) {
+                edges {
+                  node {
+                    id
+                    status
+                    name
+                  }
+                }
+              }
+              fulfillmentOrders(first: 5) {
+                edges {
+                  node {
+                    id
+                    status
+                    requestStatus
+                  }
+                }
+              }
+              events(first: 5, query: "action:requested_edit_requested") {
+                edges {
+                  node {
+                    id
+                    message
+                    createdAt
+                  }
+                }
+              }
               displayFulfillmentStatus
               paymentGatewayNames
               customer {
@@ -318,6 +346,18 @@ export const loader = async ({ request }) => {
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
+      const fulfillmentOrdersList = (node.fulfillmentOrders?.edges || []).map(e => e.node);
+      const returnsList = (node.returns?.edges || []).map(e => e.node);
+      const cancelEventsList = (node.events?.edges || []).map(e => e.node);
+
+      const hasCancellationRequest =
+        fulfillmentOrdersList.some(fo => fo.requestStatus === "CANCELLATION_REQUESTED") ||
+        cancelEventsList.length > 0 ||
+        Boolean(node.cancelledAt);
+
+      const hasReturnRequest = returnsList.some(ret => ret.status === "REQUESTED");
+      const isCustomerHold = hasCancellationRequest || hasReturnRequest;
+
       const isB2B = checkIsB2B(node.shippingAddress);
 
       return {
@@ -343,6 +383,10 @@ export const loader = async ({ request }) => {
         hasChilled,
         hasFrozen,
         isB2B,
+        hasCancellationRequest,
+        hasReturnRequest,
+        isCustomerHold,
+        cancelReason: node.cancelReason || null,
         totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
         subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
         totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
@@ -624,6 +668,13 @@ export default function AdditionalPage() {
   const handleBulkPrint = () => {
     if (selectedOrderIds.length === 0) return;
 
+    const holdOrders = orders.filter(o => selectedOrderIds.includes(o.id) && o.isCustomerHold);
+    if (holdOrders.length > 0) {
+      const names = holdOrders.map(o => o.name).join(", ");
+      const confirmed = window.confirm(`[주의] 선택한 주문 중 고객 취소/반품 요청건(${names})이 포함되어 있습니다.\n\n계속 인쇄하시겠습니까?`);
+      if (!confirmed) return;
+    }
+
     // Open printing detailed page in a new window/tab
     const numericIds = selectedOrderIds.map(id => id.split("/").pop());
     const tokens = selectedOrderIds.map(id => {
@@ -859,16 +910,33 @@ export default function AdditionalPage() {
                       />
                     </td>
                     <td className="order-name">
-                      <Link
-                        to={`/app/lieferschein/${order.id.split('/').pop()}`}
-                        style={{
-                          color: "#008060",
-                          textDecoration: "underline",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {order.name}
-                      </Link>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <Link
+                          to={`/app/lieferschein/${order.id.split('/').pop()}`}
+                          style={{
+                            color: order.isCustomerHold ? "#dc2626" : "#008060",
+                            textDecoration: "underline",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          {order.name}
+                        </Link>
+                        {order.isCustomerHold && (
+                          <span style={{
+                            fontSize: "11px",
+                            background: "#fee2e2",
+                            color: "#b91c1c",
+                            border: "1px solid #f87171",
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            fontWeight: "bold",
+                            display: "inline-block",
+                            width: "fit-content"
+                          }}>
+                            {order.hasReturnRequest ? "반품 요청" : "취소 요청"}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <div style={{ fontWeight: "500" }}>{order.shippingAddress?.name || order.billingAddress?.name || "-"}</div>
