@@ -1,11 +1,13 @@
-import { Outlet, useLoaderData, useRouteError } from "react-router";
+import { useEffect } from "react";
+import { Outlet, useLoaderData, useFetcher, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
 import { ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
+import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
 
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
 
   try {
@@ -14,11 +16,29 @@ export const loader = async ({ request }) => {
     console.error("[App Loader] Webhook check failed:", err.message);
   }
 
+  try {
+    await checkAndAlertCustomerRequests(admin, session?.shop);
+  } catch (err) {
+    console.error("[App Loader] Customer request check failed:", err.message);
+  }
+
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
 
 export default function App() {
   const { apiKey } = useLoaderData();
+  const checkFetcher = useFetcher();
+
+  useEffect(() => {
+    // Background polling every 25 seconds to catch real-time customer cancellations
+    const interval = setInterval(() => {
+      if (checkFetcher.state === "idle") {
+        checkFetcher.load("/api/check-cancellations");
+      }
+    }, 25000);
+
+    return () => clearInterval(interval);
+  }, [checkFetcher]);
 
   return (
     <AppProvider embedded apiKey={apiKey}>

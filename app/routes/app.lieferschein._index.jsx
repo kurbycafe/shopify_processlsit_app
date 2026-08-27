@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { authenticate, generatePrintToken } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
+import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
 import styles from "../styles/app.lieferschein.css?url";
 import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination } from "@shopify/polaris";
 
@@ -98,6 +99,9 @@ export const loader = async ({ request }) => {
     const { admin, session } = await authenticate.admin(request);
     const url = new URL(request.url);
     const queryParam = url.searchParams.get("query") || "";
+
+    // 실시간 고객 취소/청약철회 요청 감지 및 즉시 알림 메일 발송
+    checkAndAlertCustomerRequests(admin, session.shop).catch(() => {});
 
     let shopifyQuery = "fulfillment_status:unfulfilled status:open";
     if (queryParam) {

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
+import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
 import styles from "../styles/app.lieferschein.css?url";
 import {
   Page,
@@ -241,9 +242,11 @@ export const action = async ({ request, params }) => {
 };
 
 export const loader = async ({ request, params }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const rawIds = params.id.split(",");
   const orderGids = rawIds.map(id => `gid://shopify/Order/${id.trim()}`);
+
+  checkAndAlertCustomerRequests(admin, session?.shop).catch(() => {});
 
   try {
     const response = await admin.graphql(`
