@@ -479,6 +479,12 @@ export async function sendCancellationAlertEmail({
   shopDomain,
 }) {
   const config = getEmailConfig();
+  if (!config.isConfigured) {
+    throw new Error(
+      "이메일 서비스 설정이 완료되지 않았습니다. Vercel 환경변수에 BREVO_API_KEY 및 SMTP_FROM_EMAIL(또는 SMTP_USER)이 설정되어 있는지 확인해 주세요."
+    );
+  }
+
   const recipients = ["service@dawayo.de", "ceo@dawayo.de", "kgt@dawayo.de"];
 
   const htmlContent = buildCancellationAlertEmailHtml({
@@ -495,17 +501,16 @@ export async function sendCancellationAlertEmail({
 
   const subject = `[Dawayo 긴급 알림] 주문 취소 / EU 청약철회 요청 - ${orderName}`;
 
-  const results = await Promise.allSettled(
-    recipients.map((rEmail) =>
-      sendBrevoMail({
-        sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
-        to: [{ email: rEmail.trim().toLowerCase() }],
-        subject: subject,
-        htmlContent: htmlContent,
-      })
-    )
+  const sendPromises = recipients.map((rEmail) =>
+    sendBrevoMail({
+      sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
+      to: [{ email: rEmail.trim().toLowerCase() }],
+      subject: subject,
+      htmlContent: htmlContent,
+    })
   );
 
+  const results = await Promise.all(sendPromises);
   return results;
 }
 

@@ -54,6 +54,7 @@ export const loader = async ({ request }) => {
       email: {
         status: emailConnected ? "CONNECTED" : "NOT_CONFIGURED",
         label: emailConnected ? "연결됨" : "환경변수 미설정",
+        senderEmail: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "미설정",
       },
       db: { status: "CONNECTED", label: "PostgreSQL 연결됨" },
     },
@@ -124,7 +125,7 @@ export const action = async ({ request }) => {
         quantity: e.node.quantity,
       }));
 
-      await sendCancellationAlertEmail({
+      const sendResults = await sendCancellationAlertEmail({
         orderName,
         customerEmail,
         customerName,
@@ -136,9 +137,11 @@ export const action = async ({ request }) => {
         shopDomain: session.shop,
       });
 
+      const messageIds = (sendResults || []).map((r) => r.value?.messageId || "성공").join(", ");
+
       return {
         success: true,
-        message: `${orderName} 주문의 취소/철회 알림 메일이 service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de 로 정상 발송되었습니다.`,
+        message: `${orderName} 주문 알림 메일이 service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de 로 정상 발송되었습니다. (Brevo ID: ${messageIds})`,
       };
     } catch (err) {
       console.error("Test email send error:", err);
@@ -384,6 +387,14 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
                     <Text variant="bodySm" tone="subdued">
                       주문번호를 입력하여 service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de 로 알림 메일을 즉시 테스트 발송합니다.
                     </Text>
+                    <InlineStack gap="300" wrap>
+                      <Text variant="bodySm" tone="subdued">
+                        발신 계정: <strong>{servicesStatus.email.senderEmail}</strong>
+                      </Text>
+                      <Text variant="bodySm" tone="subdued">
+                        상태: <strong>{servicesStatus.email.label}</strong>
+                      </Text>
+                    </InlineStack>
                     <InlineStack gap="200" blockAlign="center">
                       <div style={{ flex: 1 }}>
                         <TextField
@@ -408,7 +419,9 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
                       <Banner tone="success">{testFetcher.data.message}</Banner>
                     )}
                     {testFetcher.data?.error && (
-                      <Banner tone="critical">발송 실패: {testFetcher.data.error}</Banner>
+                      <Banner tone="critical">
+                        <p><strong>발송 실패:</strong> {testFetcher.data.error}</p>
+                      </Banner>
                     )}
                   </BlockStack>
                 </Box>
