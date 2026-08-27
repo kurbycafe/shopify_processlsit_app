@@ -346,3 +346,162 @@ export async function sendPickListEmailWithPdf({ toEmails = [], mailTitle, base6
 
   return await sendBrevoMail(payload);
 }
+
+/**
+ * Builds HTML template for Cancellation / EU Right of Withdrawal Alert email
+ */
+export function buildCancellationAlertEmailHtml({
+  orderName,
+  customerEmail,
+  customerName,
+  cancelReason,
+  cancelledAt,
+  totalAmount,
+  currency = "EUR",
+  items = [],
+  shopDomain,
+}) {
+  const adminOrderUrl = shopDomain
+    ? `https://admin.shopify.com/store/${shopDomain.replace(".myshopify.com", "")}/orders`
+    : "https://admin.shopify.com";
+
+  const dateStr = cancelledAt
+    ? new Date(cancelledAt).toLocaleString("de-DE", { timeZone: "Europe/Berlin" })
+    : new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin" });
+
+  const itemRows = (items || [])
+    .map(
+      (item) => `
+    <tr style="border-bottom: 1px solid #e2e8f0;">
+      <td style="padding: 8px 12px; font-size: 13px;"><strong>${escapeHtml(item.title || item.name || "-")}</strong></td>
+      <td style="padding: 8px 12px; font-size: 13px; text-align: center;">${item.quantity || 1}</td>
+    </tr>
+  `
+    )
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px; }
+    .box { max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .hdr { background: #dc2626; color: #ffffff; padding: 20px 24px; font-size: 18px; font-weight: bold; }
+    .content { padding: 24px; }
+    .alert-banner { background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 4px; padding: 14px; margin-bottom: 20px; color: #991b1b; font-size: 14px; font-weight: bold; }
+    .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .info-table td { padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+    .info-table .lbl { width: 140px; color: #64748b; font-weight: 600; background: #f8fafc; }
+    .items-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+    .items-table th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 12px; color: #475569; }
+    .cta-btn { display: inline-block; background: #dc2626; color: #ffffff !important; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; font-size: 14px; margin-top: 10px; }
+    .footer { background: #f1f5f9; padding: 16px 24px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="hdr">[Dawayo] 주문 취소 / EU 청약철회(Widerruf) 알림</div>
+    <div class="content">
+      <div class="alert-banner">
+        ACHTUNG: 주문 취소 및 출고 보류 필요 (EU 청약철회/고객 요청)
+      </div>
+      <p style="font-size: 14px; line-height: 1.5; margin-top: 0;">
+        아래 주문에 대해 고객의 취소 또는 EU 소비자보호법(Widerrufsrecht)에 따른 철회 요청이 접수되었습니다.<br>
+        <strong>창고 출고(피킹/패킹)를 즉시 보류</strong>하고 쇼피파이 어드민에서 상태를 확인해 주세요.
+      </p>
+
+      <table class="info-table">
+        <tr>
+          <td class="lbl">주문번호 (Order)</td>
+          <td><strong>${escapeHtml(orderName)}</strong></td>
+        </tr>
+        <tr>
+          <td class="lbl">고객명 (Customer)</td>
+          <td>${escapeHtml(customerName || "-")}</td>
+        </tr>
+        <tr>
+          <td class="lbl">고객 이메일</td>
+          <td>${escapeHtml(customerEmail || "-")}</td>
+        </tr>
+        <tr>
+          <td class="lbl">요청/취소 일시</td>
+          <td>${escapeHtml(dateStr)} (독일 시간)</td>
+        </tr>
+        ${cancelReason ? `<tr><td class="lbl">취소 사유 (Reason)</td><td style="color:#dc2626; font-weight:bold;">${escapeHtml(cancelReason)}</td></tr>` : ""}
+        ${totalAmount ? `<tr><td class="lbl">결제 금액</td><td>${escapeHtml(totalAmount)} ${escapeHtml(currency)}</td></tr>` : ""}
+      </table>
+
+      ${itemRows ? `
+      <div style="font-weight: bold; font-size: 13px; margin-top: 16px;">주문 품목 리스트:</div>
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th>상품명</th>
+            <th style="text-align: center; width: 60px;">수량</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRows}
+        </tbody>
+      </table>
+      ` : ""}
+
+      <div style="text-align: center; margin-top: 24px;">
+        <a href="${adminOrderUrl}" class="cta-btn" target="_blank" rel="noopener noreferrer">
+          쇼피파이 어드민에서 주문 확인하기
+        </a>
+      </div>
+    </div>
+    <div class="footer">
+      수신처: service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de<br>
+      Dawayo Operations WMS 자동 알림 시스템
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Sends Cancellation / EU Right of Withdrawal Alert email to internal teams
+ */
+export async function sendCancellationAlertEmail({
+  orderName,
+  customerEmail,
+  customerName,
+  cancelReason,
+  cancelledAt,
+  totalAmount,
+  currency = "EUR",
+  items = [],
+  shopDomain,
+}) {
+  const config = getEmailConfig();
+  const recipients = ["service@dawayo.de", "ceo@dawayo.de", "kgt@dawayo.de"];
+
+  const htmlContent = buildCancellationAlertEmailHtml({
+    orderName,
+    customerEmail,
+    customerName,
+    cancelReason,
+    cancelledAt,
+    totalAmount,
+    currency,
+    items,
+    shopDomain,
+  });
+
+  const subject = `[Dawayo 긴급 알림] 주문 취소 / EU 청약철회 요청 - ${orderName}`;
+
+  const payload = {
+    sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
+    to: recipients.map((email) => ({ email })),
+    subject: subject,
+    htmlContent: htmlContent,
+  };
+
+  return await sendBrevoMail(payload);
+}
+

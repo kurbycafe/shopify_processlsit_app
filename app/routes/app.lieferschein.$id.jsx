@@ -2,6 +2,7 @@ import { useLoaderData, useFetcher, useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { sendCancellationAlertEmail } from "../utils/emailService.js";
 import styles from "../styles/app.lieferschein.css?url";
 import {
   Page,
@@ -202,6 +203,38 @@ export const action = async ({ request, params }) => {
     }
 
     return jsonResponse({ success: true });
+  }
+
+  if (intent === "send_cancellation_email") {
+    const orderName = formData.get("orderName") || "N/A";
+    const customerEmail = formData.get("customerEmail") || "";
+    const customerName = formData.get("customerName") || "";
+    const cancelReason = formData.get("cancelReason") || "EU 청약철회(Widerruf) / 고객 요청 취소";
+    const totalAmount = formData.get("totalAmount") || "";
+    const currency = formData.get("currency") || "EUR";
+    const itemsJson = formData.get("items") || "[]";
+    let items = [];
+    try {
+      items = JSON.parse(itemsJson);
+    } catch (_) {}
+
+    try {
+      await sendCancellationAlertEmail({
+        orderName,
+        customerEmail,
+        customerName,
+        cancelReason,
+        cancelledAt: new Date(),
+        totalAmount,
+        currency,
+        items,
+        shopDomain: "dawayo.myshopify.com",
+      });
+      return jsonResponse({ success: true, emailSent: true, orderName });
+    } catch (err) {
+      console.error("Failed to send cancellation alert email:", err);
+      return jsonResponse({ success: false, error: err.message }, { status: 500 });
+    }
   }
 
   return null;
@@ -590,9 +623,37 @@ const translatePaymentGateway = (gateways) => {
 export default function OrderPrintDetailPage() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
+  const emailFetcher = useFetcher();
   const navigate = useNavigate();
 
   const [orders, setOrders] = useState(loaderData?.orders || []);
+  const [emailSentMap, setEmailSentMap] = useState({});
+
+  const handleSendCancellationEmail = (targetOrder) => {
+    const confirmed = window.confirm(`[이메일 발송] ${targetOrder.name} 주문의 취소/철회 알림 메일을 담당자(service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de)에게 발송하시겠습니까?`);
+    if (!confirmed) return;
+
+    emailFetcher.submit(
+      {
+        intent: "send_cancellation_email",
+        orderName: targetOrder.name,
+        customerEmail: targetOrder.email || "",
+        customerName: targetOrder.shippingAddress?.name || targetOrder.billingAddress?.name || "",
+        cancelReason: targetOrder.cancelReason || "EU 청약철회(Widerruf) / 고객 요청 취소",
+        totalAmount: targetOrder.totalPrice || "",
+        currency: targetOrder.currencyCode || "EUR",
+        items: JSON.stringify((targetOrder.items || []).map((i) => ({ title: i.title, quantity: i.quantity }))),
+      },
+      { method: "POST" }
+    );
+  };
+
+  useEffect(() => {
+    if (emailFetcher.data?.emailSent && emailFetcher.data?.orderName) {
+      setEmailSentMap((prev) => ({ ...prev, [emailFetcher.data.orderName]: true }));
+    }
+  }, [emailFetcher.data]);
+
   const [docMode, setDocMode] = useState("LIEFERSCHEIN"); // LIEFERSCHEIN | RECHNUNG | BOTH
   const [showImages, setShowImages] = useState(true);
   const [showBarcodes, setShowBarcodes] = useState(true);
@@ -787,11 +848,33 @@ export default function OrderPrintDetailPage() {
 
           {order.isCustomerHold && (
             <div className="cancellation-warning-banner">
-              <div className="cancellation-warning-title">
-                ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT "}
-              </div>
-              <div className="cancellation-warning-desc">
-                고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다.
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "8px" }}>
+                <div>
+                  <div className="cancellation-warning-title">
+                    ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT"}
+                  </div>
+                  <div className="cancellation-warning-desc">
+                    고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다. (알림 수신처: service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de)
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="no-print"
+                  onClick={() => handleSendCancellationEmail(order)}
+                  disabled={emailFetcher.state === "submitting" || emailSentMap[order.name]}
+                  style={{
+                    backgroundColor: emailSentMap[order.name] ? "#166534" : "#dc2626",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "4px",
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: emailFetcher.state === "submitting" || emailSentMap[order.name] ? "default" : "pointer",
+                  }}
+                >
+                  {emailSentMap[order.name] ? "알림 메일 발송 완료" : emailFetcher.state === "submitting" ? "발송 중..." : "취소 알림 메일 발송"}
+                </button>
               </div>
             </div>
           )}
