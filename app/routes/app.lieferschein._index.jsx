@@ -149,7 +149,7 @@ export const loader = async ({ request }) => {
               displayFinancialStatus
               cancelledAt
               cancelReason
-              events(first: 5, query: "action:requested_edit_requested") {
+              events(first: 10) {
                 edges {
                   node {
                     id
@@ -330,10 +330,26 @@ export const loader = async ({ request }) => {
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
       const cancelEventsList = (node.events?.edges || []).map(e => e.node);
+      const hasCancellationEvent = cancelEventsList.some(e => {
+        const msg = String(e.message || "").toLowerCase();
+        return (
+          msg.includes("cancel") ||
+          msg.includes("stornier") ||
+          msg.includes("widerruf") ||
+          msg.includes("return") ||
+          msg.includes("rückgabe") ||
+          msg.includes("edit") ||
+          msg.includes("request") ||
+          msg.includes("취소") ||
+          msg.includes("반품") ||
+          msg.includes("철회")
+        );
+      });
 
       const hasCancellationRequest =
-        cancelEventsList.length > 0 ||
-        Boolean(node.cancelledAt);
+        hasCancellationEvent ||
+        Boolean(node.cancelledAt) ||
+        Boolean(node.cancelReason);
 
       const hasReturnRequest = false;
       const isCustomerHold = hasCancellationRequest;

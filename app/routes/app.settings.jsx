@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useFetcher } from "react-router";
 import {
   Page,
   Layout,
@@ -23,7 +23,7 @@ import {
 } from "@shopify/polaris-icons";
 import { authenticate, apiVersion } from "../shopify.server";
 import { isOdooConfigured } from "../services/odooClient.server.js";
-import { isEmailServiceConfigured } from "../utils/emailService.js";
+import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -70,6 +70,85 @@ export const loader = async ({ request }) => {
   };
 };
 
+export const action = async ({ request }) => {
+  const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "test_send_cancel_email") {
+    const rawNum = String(formData.get("orderNumber") || "18071").trim();
+    const cleanNum = rawNum.replace(/^#/, "");
+
+    try {
+      const orderRes = await admin.graphql(
+        `#graphql
+        query getOrderForTest($query: String!) {
+          orders(first: 1, query: $query) {
+            edges {
+              node {
+                id
+                name
+                email
+                cancelledAt
+                cancelReason
+                totalPriceSet { shopMoney { amount currencyCode } }
+                shippingAddress { name }
+                billingAddress { name }
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      title
+                      quantity
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { variables: { query: `name:#${cleanNum} OR name:${cleanNum}` } }
+      );
+
+      const orderJson = await orderRes.json();
+      const orderNode = orderJson.data?.orders?.edges?.[0]?.node;
+
+      const orderName = orderNode?.name || `#${cleanNum}`;
+      const customerEmail = orderNode?.email || "customer@dawayo.de";
+      const customerName = orderNode?.shippingAddress?.name || orderNode?.billingAddress?.name || "고객";
+      const cancelReason = orderNode?.cancelReason || "EU 청약철회(Widerruf) / 고객 취소 요청";
+      const cancelledAt = orderNode?.cancelledAt ? new Date(orderNode.cancelledAt) : new Date();
+      const totalAmount = orderNode?.totalPriceSet?.shopMoney?.amount || "0.00";
+      const currency = orderNode?.totalPriceSet?.shopMoney?.currencyCode || "EUR";
+      const items = (orderNode?.lineItems?.edges || []).map((e) => ({
+        title: e.node.title,
+        quantity: e.node.quantity,
+      }));
+
+      await sendCancellationAlertEmail({
+        orderName,
+        customerEmail,
+        customerName,
+        cancelReason,
+        cancelledAt,
+        totalAmount,
+        currency,
+        items: items.length > 0 ? items : [{ title: "테스트 주문 상품", quantity: 1 }],
+        shopDomain: session.shop,
+      });
+
+      return {
+        success: true,
+        message: `${orderName} 주문의 취소/철회 알림 메일이 service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de 로 정상 발송되었습니다.`,
+      };
+    } catch (err) {
+      console.error("Test email send error:", err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  return null;
+};
+
 export default function Settings() {
   const {
     appUrl,
@@ -85,6 +164,15 @@ export default function Settings() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [copiedField, setCopiedField] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [testOrderNumber, setTestOrderNumber] = useState("18071");
+  const testFetcher = useFetcher();
+
+  const handleSendTestEmail = () => {
+    testFetcher.submit(
+      { intent: "test_send_cancel_email", orderNumber: testOrderNumber },
+      { method: "POST" }
+    );
+  };
 
   const handleCopy = (text, label) => {
     navigator.clipboard.writeText(text);
@@ -284,6 +372,46 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
                     </BlockStack>
                   </Box>
                 </div>
+
+                <Divider />
+
+                {/* 이메일 발송 테스트 박스 */}
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <BlockStack gap="300">
+                    <Text variant="headingSm" as="h3" fontWeight="bold">
+                      취소 / EU 청약철회 알림 메일 테스트 발송
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      주문번호를 입력하여 service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de 로 알림 메일을 즉시 테스트 발송합니다.
+                    </Text>
+                    <InlineStack gap="200" blockAlign="center">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="주문번호"
+                          labelHidden
+                          value={testOrderNumber}
+                          onChange={setTestOrderNumber}
+                          placeholder="예: 18071"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <Button
+                        variant="primary"
+                        tone="critical"
+                        loading={testFetcher.state === "submitting"}
+                        onClick={handleSendTestEmail}
+                      >
+                        테스트 메일 발송
+                      </Button>
+                    </InlineStack>
+                    {testFetcher.data?.message && (
+                      <Banner tone="success">{testFetcher.data.message}</Banner>
+                    )}
+                    {testFetcher.data?.error && (
+                      <Banner tone="critical">발송 실패: {testFetcher.data.error}</Banner>
+                    )}
+                  </BlockStack>
+                </Box>
               </BlockStack>
             </Card>
           </Layout.Section>
