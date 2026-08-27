@@ -20,6 +20,10 @@ api_version = "2026-07"
   uri = "/webhooks/orders/cancelled"
   topics = [ "orders/cancelled" ]
 
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/updated"
+  topics = [ "orders/updated" ]
+
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
 name = "Demo Source Info"

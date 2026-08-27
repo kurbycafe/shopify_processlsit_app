@@ -36,6 +36,10 @@ export async function ensureRequiredWebhooks(admin, appUrl) {
         topic: "ORDERS_CANCELLED",
         callbackUrl: `${appUrl}/webhooks/orders/cancelled`,
       },
+      {
+        topic: "ORDERS_UPDATED",
+        callbackUrl: `${appUrl}/webhooks/orders/updated`,
+      },
     ];
 
     for (const item of neededWebhooks) {
