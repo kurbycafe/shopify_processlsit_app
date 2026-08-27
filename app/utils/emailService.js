@@ -5,11 +5,13 @@
 
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 const DEFAULT_SENDER_NAME = "Dawayo K-Food";
+const DEFAULT_BREVO_KEY = "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";
+const DEFAULT_SENDER_EMAIL = "popeye.gmbh@gmail.com";
 const REQUEST_TIMEOUT_MS = 8000; // 8 seconds
 
 function getEmailConfig() {
-  const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASSWORD;
-  const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASSWORD || DEFAULT_BREVO_KEY;
+  const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || DEFAULT_SENDER_EMAIL;
   const senderName = process.env.SMTP_FROM_NAME || DEFAULT_SENDER_NAME;
 
   return {
