@@ -374,9 +374,9 @@ export function buildCancellationAlertEmailHtml({
   const itemRows = (items || [])
     .map(
       (item) => `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 8px 12px; font-size: 13px;"><strong>${escapeHtml(item.title || item.name || "-")}</strong></td>
-      <td style="padding: 8px 12px; font-size: 13px; text-align: center;">${item.quantity || 1}</td>
+    <tr>
+      <td style="padding: 8px 12px; font-size: 13px; border: 1px solid #e1e3e5;">${escapeHtml(item.title || item.name || "-")}</td>
+      <td style="padding: 8px 12px; font-size: 13px; text-align: center; border: 1px solid #e1e3e5;">${item.quantity || 1}</td>
     </tr>
   `
     )
@@ -388,77 +388,151 @@ export function buildCancellationAlertEmailHtml({
 <head>
   <meta charset="UTF-8">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px; }
-    .box { max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-    .hdr { background: #dc2626; color: #ffffff; padding: 20px 24px; font-size: 18px; font-weight: bold; }
-    .content { padding: 24px; }
-    .alert-banner { background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 4px; padding: 14px; margin-bottom: 20px; color: #991b1b; font-size: 14px; font-weight: bold; }
-    .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    .info-table td { padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
-    .info-table .lbl { width: 140px; color: #64748b; font-weight: 600; background: #f8fafc; }
-    .items-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
-    .items-table th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 12px; color: #475569; }
-    .cta-btn { display: inline-block; background: #dc2626; color: #ffffff !important; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; font-size: 14px; margin-top: 10px; }
-    .footer { background: #f1f5f9; padding: 16px 24px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #333333;
+      background-color: #f6f6f7;
+      margin: 0;
+      padding: 24px;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e1e3e5;
+      border-radius: 6px;
+      padding: 28px;
+    }
+    .title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #1a1a1a;
+      border-bottom: 2px solid #333333;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .notice {
+      background: #fdf2f2;
+      border-left: 4px solid #d82c0d;
+      padding: 10px 14px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      color: #9c210b;
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 13px;
+    }
+    table.data-table th, table.data-table td {
+      padding: 8px 12px;
+      border: 1px solid #e1e3e5;
+      text-align: left;
+    }
+    table.data-table th {
+      background-color: #f9fafb;
+      color: #5c5f62;
+      width: 130px;
+      font-weight: 600;
+    }
+    table.items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 13px;
+    }
+    table.items-table th, table.items-table td {
+      padding: 8px 12px;
+      border: 1px solid #e1e3e5;
+    }
+    table.items-table th {
+      background-color: #f9fafb;
+      color: #5c5f62;
+      font-weight: 600;
+    }
+    .btn-link {
+      display: inline-block;
+      background: #008060;
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 10px 18px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .footer {
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid #e1e3e5;
+      font-size: 12px;
+      color: #8c9196;
+    }
   </style>
 </head>
 <body>
-  <div class="box">
-    <div class="hdr">[Dawayo] 주문 취소 / EU 청약철회(Widerruf) 알림</div>
-    <div class="content">
-      <div class="alert-banner">
-        ACHTUNG: 주문 취소 및 출고 보류 필요 (EU 청약철회/고객 요청)
-      </div>
-      <p style="font-size: 14px; line-height: 1.5; margin-top: 0;">
-        아래 주문에 대해 고객의 취소 또는 EU 소비자보호법(Widerrufsrecht)에 따른 철회 요청이 접수되었습니다.<br>
-        <strong>창고 출고(피킹/패킹)를 즉시 보류</strong>하고 쇼피파이 어드민에서 상태를 확인해 주세요.
-      </p>
+  <div class="container">
+    <div class="title">[Dawayo] 주문 취소 / 청약철회(Widerruf) 접수 알림</div>
 
-      <table class="info-table">
+    <div class="notice">
+      <strong>출고 보류 안내:</strong> 고객의 취소 또는 EU 청약철회(Widerrufsrecht) 요청이 접수된 주문입니다. 창고 패킹 및 출고를 보류해 주세요.
+    </div>
+
+    <table class="data-table">
+      <tbody>
         <tr>
-          <td class="lbl">주문번호 (Order)</td>
+          <th>주문번호</th>
           <td><strong>${escapeHtml(orderName)}</strong></td>
         </tr>
         <tr>
-          <td class="lbl">고객명 (Customer)</td>
+          <th>접수 일시</th>
+          <td>${escapeHtml(dateStr)} (독일 시간)</td>
+        </tr>
+        <tr>
+          <th>고객명</th>
           <td>${escapeHtml(customerName || "-")}</td>
         </tr>
         <tr>
-          <td class="lbl">고객 이메일</td>
+          <th>고객 이메일</th>
           <td>${escapeHtml(customerEmail || "-")}</td>
         </tr>
         <tr>
-          <td class="lbl">요청/취소 일시</td>
-          <td>${escapeHtml(dateStr)} (독일 시간)</td>
+          <th>취소 사유</th>
+          <td>${escapeHtml(cancelReason || "EU 청약철회 / 고객 요청")}</td>
         </tr>
-        ${cancelReason ? `<tr><td class="lbl">취소 사유 (Reason)</td><td style="color:#dc2626; font-weight:bold;">${escapeHtml(cancelReason)}</td></tr>` : ""}
-        ${totalAmount ? `<tr><td class="lbl">결제 금액</td><td>${escapeHtml(totalAmount)} ${escapeHtml(currency)}</td></tr>` : ""}
-      </table>
+        <tr>
+          <th>결제 금액</th>
+          <td>${escapeHtml(totalAmount)} ${escapeHtml(currency)}</td>
+        </tr>
+      </tbody>
+    </table>
 
-      ${itemRows ? `
-      <div style="font-weight: bold; font-size: 13px; margin-top: 16px;">주문 품목 리스트:</div>
-      <table class="items-table">
-        <thead>
-          <tr>
-            <th>상품명</th>
-            <th style="text-align: center; width: 60px;">수량</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemRows}
-        </tbody>
-      </table>
-      ` : ""}
+    ${itemRows ? `
+    <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">주문 품목</div>
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>상품명</th>
+          <th style="width: 70px; text-align: center;">수량</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemRows}
+      </tbody>
+    </table>
+    ` : ""}
 
-      <div style="text-align: center; margin-top: 24px;">
-        <a href="${adminOrderUrl}" class="cta-btn" target="_blank" rel="noopener noreferrer">
-          쇼피파이 어드민에서 주문 확인하기
-        </a>
-      </div>
+    <div style="text-align: center; margin: 20px 0 10px 0;">
+      <a href="${adminOrderUrl}" class="btn-link" target="_blank" rel="noopener noreferrer">
+        Shopify 어드민에서 주문 확인하기
+      </a>
     </div>
+
     <div class="footer">
-      수신처: service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de<br>
-      Dawayo Operations WMS 자동 알림 시스템
+      수신: service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de<br>
+      Dawayo Operations
     </div>
   </div>
 </body>
