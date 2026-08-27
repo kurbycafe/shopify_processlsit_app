@@ -531,39 +531,6 @@ export const loader = async ({ request, params }) => {
         where: { orderId: node.id }
       });
 
-      // 📧 고객 취소/청약철회 요청 감지 시 자동 이메일 발송
-      if (isCustomerHold && !dbRecord?.isCancelAlertSent) {
-        try {
-          await sendCancellationAlertEmail({
-            orderName: node.name,
-            customerEmail: node.email || "",
-            customerName: node.shippingAddress?.name || node.billingAddress?.name || "",
-            cancelReason: node.cancelReason || "EU 청약철회(Widerruf) / 고객 요청 취소",
-            cancelledAt: new Date(),
-            totalAmount: node.totalPriceSet?.shopMoney?.amount || "0.00",
-            currency: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
-            items: sortedItems.map((i) => ({ title: i.title, quantity: i.quantity })),
-            shopDomain: "dawayo.myshopify.com",
-          });
-
-          await prisma.inspectionRecord.upsert({
-            where: { orderId: node.id },
-            update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },
-            create: {
-              orderId: node.id,
-              orderName: node.name,
-              shop: "dawayo.myshopify.com",
-              status: "PENDING",
-              isCancelAlertSent: true,
-              cancelAlertSentAt: new Date(),
-            },
-          });
-          console.log(`[Auto-Email Detail] Cancellation alert dispatched for ${node.name}`);
-        } catch (emailErr) {
-          console.error(`[Auto-Email Detail] Failed for ${node.name}:`, emailErr.message);
-        }
-      }
-
       const taxLines = (node.taxLines || []).map((tl) => ({
         title: tl.title,
         ratePercent: (tl.rate * 100).toFixed(0),

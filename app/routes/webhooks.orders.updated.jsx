@@ -2,6 +2,8 @@ import { authenticate, unauthenticated } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
 
+const MAX_RECENCY_MS = 15 * 60 * 1000; // 15 minutes
+
 export const action = async ({ request }) => {
   const { topic, shop, payload } = await authenticate.webhook(request);
 
@@ -27,7 +29,16 @@ export const action = async ({ request }) => {
     // 2. Check if the order is cancelled directly in payload
     const isCancelled = Boolean(payload.cancelled_at);
 
-    // 3. If not cancelled directly, check order timeline events via admin GraphQL
+    // 3. If cancelled, check recency
+    if (isCancelled && payload.cancelled_at) {
+      const cancelAge = Date.now() - new Date(payload.cancelled_at).getTime();
+      if (cancelAge > MAX_RECENCY_MS) {
+        console.log(`[Webhook ${topic}] Skipping old cancellation for ${orderName} (${Math.round(cancelAge / 60000)}m old)`);
+        return new Response(null, { status: 200 });
+      }
+    }
+
+    // 4. If not cancelled directly, check order timeline events via admin GraphQL
     let hasCustomerRequest = false;
     let cancelReason = payload.cancel_reason || "EU 청약철회(Widerruf) / 고객 요청 취소";
 
@@ -46,6 +57,7 @@ export const action = async ({ request }) => {
                 edges {
                   node {
                     message
+                    createdAt
                   }
                 }
               }
@@ -58,13 +70,16 @@ export const action = async ({ request }) => {
         const orderNode = eventJson.data?.order;
 
         if (orderNode?.cancelledAt) {
-          hasCustomerRequest = true;
-          cancelReason = orderNode.cancelReason || cancelReason;
+          const cancelAge = Date.now() - new Date(orderNode.cancelledAt).getTime();
+          if (cancelAge <= MAX_RECENCY_MS) {
+            hasCustomerRequest = true;
+            cancelReason = orderNode.cancelReason || cancelReason;
+          }
         } else {
           const eventsList = (orderNode?.events?.edges || []).map((e) => e.node);
-          const matched = eventsList.some((e) => {
+          const recentMatchedEvent = eventsList.find((e) => {
             const msg = String(e.message || "").toLowerCase();
-            return (
+            const isKeywordMatch =
               msg.includes("cancel") ||
               msg.includes("stornier") ||
               msg.includes("widerruf") ||
@@ -74,10 +89,15 @@ export const action = async ({ request }) => {
               msg.includes("request") ||
               msg.includes("취소") ||
               msg.includes("반품") ||
-              msg.includes("철회")
-            );
+              msg.includes("철회");
+
+            if (!isKeywordMatch) return false;
+
+            const eventAge = e.createdAt ? Date.now() - new Date(e.createdAt).getTime() : 0;
+            return eventAge <= MAX_RECENCY_MS;
           });
-          if (matched) {
+
+          if (recentMatchedEvent) {
             hasCustomerRequest = true;
           }
         }
