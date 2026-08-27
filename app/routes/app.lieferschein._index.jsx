@@ -2,6 +2,7 @@ import { useLoaderData, useFetcher, useNavigate, Link, useSearchParams } from "r
 import { useState, useEffect, useMemo } from "react";
 import { authenticate, generatePrintToken } from "../shopify.server";
 import prisma from "../db.server";
+import { sendCancellationAlertEmail } from "../utils/emailService.js";
 import styles from "../styles/app.lieferschein.css?url";
 import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination } from "@shopify/polaris";
 
@@ -396,8 +397,49 @@ export const loader = async ({ request }) => {
     const orderIds = ordersWithCombinedInfo.map((o) => o.id);
     const printedRecords = await prisma.inspectionRecord.findMany({
       where: { orderId: { in: orderIds } },
-      select: { orderId: true, isLieferscheinPrinted: true, lieferscheinPrintedAt: true, isPickListPrinted: true }
+      select: { orderId: true, isLieferscheinPrinted: true, lieferscheinPrintedAt: true, isPickListPrinted: true, isCancelAlertSent: true }
     });
+
+    // 📧 고객 취소/청약철회 요청(customer_request:"return,edit") 자동 이메일 발송
+    const unsentHoldOrders = ordersWithCombinedInfo.filter(
+      (o) => o.isCustomerHold && !printedRecords.some((r) => r.orderId === o.id && r.isCancelAlertSent)
+    );
+
+    if (unsentHoldOrders.length > 0) {
+      Promise.allSettled(
+        unsentHoldOrders.map(async (order) => {
+          try {
+            await sendCancellationAlertEmail({
+              orderName: order.name,
+              customerEmail: order.email || "",
+              customerName: order.shippingAddress?.name || order.billingAddress?.name || "",
+              cancelReason: order.cancelReason || "EU 청약철회(Widerruf) / 고객 요청 취소",
+              cancelledAt: new Date(),
+              totalAmount: order.totalPrice || "",
+              currency: order.currencyCode || "EUR",
+              items: (order.items || []).map((i) => ({ title: i.title, quantity: i.quantity })),
+              shopDomain: session.shop,
+            });
+
+            await prisma.inspectionRecord.upsert({
+              where: { orderId: order.id },
+              update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },
+              create: {
+                orderId: order.id,
+                orderName: order.name,
+                shop: session.shop,
+                status: "PENDING",
+                isCancelAlertSent: true,
+                cancelAlertSentAt: new Date(),
+              },
+            });
+            console.log(`[Auto-Email] Cancellation alert dispatched for ${order.name}`);
+          } catch (emailErr) {
+            console.error(`[Auto-Email] Failed for ${order.name}:`, emailErr.message);
+          }
+        })
+      );
+    }
 
     const ordersWithPrintStatus = ordersWithCombinedInfo.map((order) => {
       const dbRecord = printedRecords.find((r) => r.orderId === order.id);
@@ -419,6 +461,7 @@ export const loader = async ({ request }) => {
         isPrinted: dbRecord ? dbRecord.isLieferscheinPrinted : false,
         printedAt: printedAtStr,
         isPickListPrinted: dbRecord ? dbRecord.isPickListPrinted : false,
+        isCancelAlertSent: dbRecord ? dbRecord.isCancelAlertSent : false,
         printToken: generatePrintToken(order.id, session.shop),
       };
     });

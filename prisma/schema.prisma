@@ -39,6 +39,8 @@ model InspectionRecord {
   isLieferscheinPrinted Boolean   @default(false) // 납품서 출력 여부
   lieferscheinPrintedAt DateTime?                 // 납품서 출력 일시
   isPickListPrinted     Boolean   @default(false) // 피킹 리스트 출력 여부
+  isCancelAlertSent     Boolean   @default(false) // 취소/청약철회 알림 메일 발송 여부
+  cancelAlertSentAt     DateTime?                 // 취소/청약철회 알림 메일 발송 일시
   customShippingAddress Json?                    // 수령인 주소 커스텀 수정본
   customBillingAddress  Json?                    // 영수증 주소 커스텀 수정본
   customVat             String?                  // 커스텀 VAT 등록 번호 (USt-IdNr.)

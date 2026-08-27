@@ -495,13 +495,17 @@ export async function sendCancellationAlertEmail({
 
   const subject = `[Dawayo 긴급 알림] 주문 취소 / EU 청약철회 요청 - ${orderName}`;
 
-  const payload = {
-    sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
-    to: recipients.map((email) => ({ email })),
-    subject: subject,
-    htmlContent: htmlContent,
-  };
+  const results = await Promise.allSettled(
+    recipients.map((rEmail) =>
+      sendBrevoMail({
+        sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
+        to: [{ email: rEmail.trim().toLowerCase() }],
+        subject: subject,
+        htmlContent: htmlContent,
+      })
+    )
+  );
 
-  return await sendBrevoMail(payload);
+  return results;
 }
 
