@@ -2,11 +2,14 @@ import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
+import { ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
+  const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
 
-  // eslint-disable-next-line no-undef
+  ensureRequiredWebhooks(admin, appUrl).catch(() => {});
+
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
 
