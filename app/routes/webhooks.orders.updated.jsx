@@ -26,28 +26,49 @@ export const action = async ({ request }) => {
       return new Response(null, { status: 200 });
     }
 
-    // 2. Check if the order is cancelled directly in payload
-    const isCancelled = Boolean(payload.cancelled_at);
+    let hasCustomerRequest = false;
+    let cancelReason = payload.cancel_reason || "EU 청약철회(Widerruf) / 고객 요청 취소";
+    let detectedCancelledAt = payload.cancelled_at ? new Date(payload.cancelled_at) : new Date();
 
-    // 3. If cancelled, check recency
-    if (isCancelled && payload.cancelled_at) {
+    // 2. Direct Payload Inspection
+    // A. Check cancelled_at
+    if (payload.cancelled_at) {
       const cancelAge = Date.now() - new Date(payload.cancelled_at).getTime();
-      if (cancelAge > MAX_RECENCY_MS) {
-        console.log(`[Webhook ${topic}] Skipping old cancellation for ${orderName} (${Math.round(cancelAge / 60000)}m old)`);
-        return new Response(null, { status: 200 });
+      if (cancelAge <= MAX_RECENCY_MS) {
+        hasCustomerRequest = true;
+        detectedCancelledAt = new Date(payload.cancelled_at);
       }
     }
 
-    // 4. If not cancelled directly, check order timeline events via admin GraphQL
-    let hasCustomerRequest = false;
-    let cancelReason = payload.cancel_reason || "EU 청약철회(Widerruf) / 고객 요청 취소";
-
-    if (isCancelled) {
+    // B. Check order tags (e.g. customer_request:return, customer_request:edit, customer_request:return,edit)
+    const rawTags = String(payload.tags || "").toLowerCase();
+    if (
+      rawTags.includes("customer_request") ||
+      rawTags.includes("return_requested") ||
+      rawTags.includes("edit_requested") ||
+      rawTags.includes("cancellation_requested")
+    ) {
       hasCustomerRequest = true;
-    } else {
-      const { admin } = await unauthenticated.admin(shop);
-      if (admin) {
-        const eventRes = await admin.graphql(
+      cancelReason = "고객 취소/반품/수정 요청 접수 (customer_request)";
+    }
+
+    // 3. If not determined directly from payload, inspect timeline events via GraphQL
+    if (!hasCustomerRequest) {
+      let adminClient = null;
+      try {
+        const adminRes = await unauthenticated.admin(shop);
+        adminClient = adminRes?.admin;
+      } catch (e1) {
+        try {
+          const adminRes2 = await unauthenticated.admin("dawayo.myshopify.com");
+          adminClient = adminRes2?.admin;
+        } catch (e2) {
+          console.warn("[Webhook orders/updated] Admin client lookup failed:", e2.message);
+        }
+      }
+
+      if (adminClient) {
+        const eventRes = await adminClient.graphql(
           `#graphql
           query checkOrderEvents($id: ID!) {
             order(id: $id) {
@@ -73,6 +94,7 @@ export const action = async ({ request }) => {
           const cancelAge = Date.now() - new Date(orderNode.cancelledAt).getTime();
           if (cancelAge <= MAX_RECENCY_MS) {
             hasCustomerRequest = true;
+            detectedCancelledAt = new Date(orderNode.cancelledAt);
             cancelReason = orderNode.cancelReason || cancelReason;
           }
         } else {
@@ -109,7 +131,6 @@ export const action = async ({ request }) => {
       const customer = payload.customer || {};
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ");
       const customerEmail = payload.email || customer.email || "";
-      const cancelledAt = payload.cancelled_at || new Date();
       const totalAmount = payload.total_price || "";
       const currency = payload.currency || "EUR";
       const items = (payload.line_items || []).map((li) => ({
@@ -122,7 +143,7 @@ export const action = async ({ request }) => {
         customerEmail,
         customerName,
         cancelReason,
-        cancelledAt,
+        cancelledAt: detectedCancelledAt,
         totalAmount,
         currency,
         items,

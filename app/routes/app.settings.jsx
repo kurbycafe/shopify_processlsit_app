@@ -24,11 +24,14 @@ import {
 import { authenticate, apiVersion } from "../shopify.server";
 import { isOdooConfigured } from "../services/odooClient.server.js";
 import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
+import { getRegisteredWebhooks, ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
+  await ensureRequiredWebhooks(admin, appUrl);
+  const registeredWebhooks = await getRegisteredWebhooks(admin);
   const apiKey = process.env.SHOPIFY_API_KEY || "";
   const rawSecret = process.env.SHOPIFY_API_SECRET || "";
   const maskedSecret = rawSecret.length > 4 ? `••••••••••••${rawSecret.slice(-4)}` : "미설정";
@@ -45,6 +48,7 @@ export const loader = async ({ request }) => {
     scopes,
     shop,
     apiVersion,
+    registeredWebhooks,
     servicesStatus: {
       shopify: { status: "CONNECTED", label: "연결됨" },
       odoo: {
@@ -75,6 +79,22 @@ export const action = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
+  const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
+
+  if (intent === "force_register_webhooks") {
+    try {
+      const results = await ensureRequiredWebhooks(admin, appUrl);
+      const webhooks = await getRegisteredWebhooks(admin);
+      return {
+        success: true,
+        webhookResults: results,
+        registeredWebhooks: webhooks,
+        message: "웹훅(ORDERS_CANCELLED, ORDERS_UPDATED)이 쇼피파이 스토어에 성공적으로 등록되었습니다.",
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
 
   if (intent === "test_send_cancel_email") {
     const rawNum = String(formData.get("orderNumber") || "18071").trim();
@@ -162,13 +182,20 @@ export default function Settings() {
     apiVersion: currentApiVersion,
     servicesStatus,
     endpoints,
+    registeredWebhooks = [],
   } = useLoaderData();
 
   const [selectedTab, setSelectedTab] = useState(0);
   const [copiedField, setCopiedField] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [testOrderNumber, setTestOrderNumber] = useState("18071");
+
   const testFetcher = useFetcher();
+  const webhookFetcher = useFetcher();
+
+  const handleRegisterWebhooks = () => {
+    webhookFetcher.submit({ intent: "force_register_webhooks" }, { method: "POST" });
+  };
 
   const handleSendTestEmail = () => {
     testFetcher.submit(
@@ -423,6 +450,50 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
                         <p><strong>발송 실패:</strong> {testFetcher.data.error}</p>
                       </Banner>
                     )}
+                  </BlockStack>
+                </Box>
+
+                <Divider />
+
+                {/* 웹훅 등록 상태 확인 */}
+                <Box paddingBlockStart="300">
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <div>
+                        <Text variant="headingSm" as="h3" fontWeight="bold">
+                          실시간 웹훅(Webhook) 등록 상태
+                        </Text>
+                        <Text variant="bodySm" tone="subdued">
+                          고객 취소/청약철회 요청 시 실시간 신호를 수신하는 웹훅입니다.
+                        </Text>
+                      </div>
+                      <Button
+                        size="slim"
+                        loading={webhookFetcher.state === "submitting"}
+                        onClick={handleRegisterWebhooks}
+                      >
+                        웹훅 상태 새로고침 / 강제 등록
+                      </Button>
+                    </InlineStack>
+
+                    {webhookFetcher.data?.message && (
+                      <Banner tone="success">{webhookFetcher.data.message}</Banner>
+                    )}
+
+                    <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                      <Text variant="bodySm" fontWeight="bold">현재 쇼피파이에 등록된 실시간 웹훅:</Text>
+                      {registeredWebhooks.length > 0 ? (
+                        <ul style={{ margin: "6px 0 0 16px", padding: 0, fontSize: "13px" }}>
+                          {registeredWebhooks.map((w, idx) => (
+                            <li key={idx} style={{ marginBottom: "4px" }}>
+                              <strong>{w.topic}</strong> &rarr; {w.callbackUrl}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <Text variant="bodySm" tone="critical">등록된 웹훅이 없습니다. 위 [웹훅 강제 등록] 버튼을 눌러주세요.</Text>
+                      )}
+                    </div>
                   </BlockStack>
                 </Box>
               </BlockStack>

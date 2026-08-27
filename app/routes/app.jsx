@@ -8,7 +8,11 @@ export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
 
-  ensureRequiredWebhooks(admin, appUrl).catch(() => {});
+  try {
+    await ensureRequiredWebhooks(admin, appUrl);
+  } catch (err) {
+    console.error("[App Loader] Webhook check failed:", err.message);
+  }
 
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };

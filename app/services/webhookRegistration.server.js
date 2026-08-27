@@ -3,11 +3,7 @@
  * Automatically ensures necessary webhooks are registered in Shopify Admin
  */
 
-let webhooksChecked = false;
-
-export async function ensureRequiredWebhooks(admin, appUrl) {
-  if (webhooksChecked || !appUrl) return;
-
+export async function getRegisteredWebhooks(admin) {
   try {
     const res = await admin.graphql(
       `#graphql
@@ -29,24 +25,41 @@ export async function ensureRequiredWebhooks(admin, appUrl) {
     );
 
     const json = await res.json();
-    const existing = json.data?.webhookSubscriptions?.edges || [];
+    return (json.data?.webhookSubscriptions?.edges || []).map((e) => ({
+      id: e.node.id,
+      topic: e.node.topic,
+      callbackUrl: e.node.endpoint?.callbackUrl || "",
+    }));
+  } catch (err) {
+    console.error("[Webhook] Failed to get webhooks:", err.message);
+    return [];
+  }
+}
 
-    const neededWebhooks = [
-      {
-        topic: "ORDERS_CANCELLED",
-        callbackUrl: `${appUrl}/webhooks/orders/cancelled`,
-      },
-      {
-        topic: "ORDERS_UPDATED",
-        callbackUrl: `${appUrl}/webhooks/orders/updated`,
-      },
-    ];
+export async function ensureRequiredWebhooks(admin, appUrl) {
+  if (!appUrl) return [];
+
+  const neededWebhooks = [
+    {
+      topic: "ORDERS_CANCELLED",
+      callbackUrl: `${appUrl}/webhooks/orders/cancelled`,
+    },
+    {
+      topic: "ORDERS_UPDATED",
+      callbackUrl: `${appUrl}/webhooks/orders/updated`,
+    },
+  ];
+
+  const results = [];
+
+  try {
+    const existing = await getRegisteredWebhooks(admin);
 
     for (const item of neededWebhooks) {
       const alreadyRegistered = existing.some(
-        (edge) =>
-          edge.node.topic === item.topic &&
-          edge.node.endpoint?.callbackUrl === item.callbackUrl
+        (e) =>
+          e.topic === item.topic &&
+          e.callbackUrl === item.callbackUrl
       );
 
       if (!alreadyRegistered) {
@@ -76,19 +89,23 @@ export async function ensureRequiredWebhooks(admin, appUrl) {
         );
 
         const createJson = await createRes.json();
-        if (createJson.data?.webhookSubscriptionCreate?.userErrors?.length > 0) {
-          console.warn(
-            `[Webhook Auto-Register] Error for ${item.topic}:`,
-            createJson.data.webhookSubscriptionCreate.userErrors
-          );
+        const userErrors = createJson.data?.webhookSubscriptionCreate?.userErrors || [];
+        const createdId = createJson.data?.webhookSubscriptionCreate?.webhookSubscription?.id;
+
+        if (userErrors.length > 0) {
+          console.warn(`[Webhook Auto-Register] Error for ${item.topic}:`, userErrors);
+          results.push({ topic: item.topic, status: "ERROR", error: userErrors[0]?.message });
         } else {
-          console.log(`[Webhook Auto-Register] Successfully registered ${item.topic}`);
+          console.log(`[Webhook Auto-Register] Successfully registered ${item.topic} (${createdId})`);
+          results.push({ topic: item.topic, status: "REGISTERED", id: createdId });
         }
+      } else {
+        results.push({ topic: item.topic, status: "ALREADY_EXISTS" });
       }
     }
-
-    webhooksChecked = true;
   } catch (err) {
     console.error("[Webhook Auto-Register] Failed to verify webhooks:", err.message);
   }
+
+  return results;
 }
