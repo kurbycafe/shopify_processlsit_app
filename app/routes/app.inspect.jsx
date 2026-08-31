@@ -358,6 +358,10 @@ export default function Inspect() {
   const [message, setMessage] = useState(null);
   const barcodeRef = useRef(null);
   const orderSearchRef = useRef(null);
+  const orderScanBufferRef = useRef("");
+  const lastOrderKeyTimeRef = useRef(0);
+  const barcodeScanBufferRef = useRef("");
+  const lastBarcodeKeyTimeRef = useRef(0);
 
   // Barcode manual edit states
   const [editingBarcodeId, setEditingBarcodeId] = useState(null);
@@ -466,9 +470,6 @@ export default function Inspect() {
 
     setTimeout(() => orderSearchRef.current?.focus(), 150);
 
-    let orderBuffer = "";
-    let lastOrderKeyTime = 0;
-
     const handleSearchKeyDown = (e) => {
       const activeEl = document.activeElement;
       const isInputFocused =
@@ -477,42 +478,39 @@ export default function Inspect() {
           activeEl.tagName === "TEXTAREA" ||
           activeEl.isContentEditable);
 
-      const currentTime = Date.now();
-      const timeDelta = currentTime - lastOrderKeyTime;
-      lastOrderKeyTime = currentTime;
+      // If user is focused on an input element, do not intercept normal typing
+      if (isInputFocused) {
+        return;
+      }
 
-      // Handle Enter (Scanner commit)
+      const currentTime = Date.now();
+      const timeDelta = currentTime - lastOrderKeyTimeRef.current;
+      lastOrderKeyTimeRef.current = currentTime;
+
+      // Handle Enter (Scanner commit when focus was outside input)
       if (e.key === "Enter") {
-        const orderToSearch =
-          orderBuffer.trim() ||
-          orderSearchRef.current?.value?.trim() ||
-          orderName.trim();
+        const orderToSearch = orderScanBufferRef.current.trim() || orderName.trim();
 
         if (orderToSearch) {
           e.preventDefault();
           e.stopPropagation();
           fetcher.submit({ intent: "fetch_order", orderName: orderToSearch }, { method: "POST" });
-          orderBuffer = "";
+          orderScanBufferRef.current = "";
           setOrderName(orderToSearch);
+        } else if (orderSearchRef.current) {
+          orderSearchRef.current.focus();
         }
         return;
       }
 
-      // Handle printable characters (scanner or keyboard input)
+      // Handle printable characters (scanner input when focus was outside input)
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (timeDelta > 300) {
-          orderBuffer = e.key;
+        if (timeDelta > 200) {
+          orderScanBufferRef.current = e.key;
         } else {
-          orderBuffer += e.key;
+          orderScanBufferRef.current += e.key;
         }
-
-        // If focus is not already inside the search input, pipe characters into the field
-        if (activeEl !== orderSearchRef.current) {
-          setOrderName(orderBuffer);
-          if (orderSearchRef.current) {
-            orderSearchRef.current.value = orderBuffer;
-          }
-        }
+        setOrderName(orderScanBufferRef.current);
       }
     };
 
@@ -528,41 +526,51 @@ export default function Inspect() {
       return;
     }
 
-    let scanBuffer = "";
-    let lastKeyTime = 0;
-
     const handleGlobalKeyDown = (e) => {
       const activeEl = document.activeElement;
-      // Do not intercept if user is typing in a modal textarea or editing a barcode manually
-      const isOtherInput =
+      const isInputFocused =
         activeEl &&
-        activeEl !== barcodeRef.current &&
-        activeEl.tagName === "TEXTAREA";
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable);
 
-      if (isOtherInput) {
+      // Do not intercept if user is typing in a modal input/textarea or editing a barcode manually
+      if (isInputFocused && activeEl !== barcodeRef.current) {
         return;
       }
 
+      // If user is focused on the barcode input:
+      if (activeEl === barcodeRef.current) {
+        if (e.key === "Enter") {
+          const scannedCode = barcode.trim() || barcodeRef.current?.value?.trim() || "";
+          if (scannedCode) {
+            e.preventDefault();
+            e.stopPropagation();
+            processBarcode(scannedCode);
+            barcodeScanBufferRef.current = "";
+            setBarcode("");
+          }
+        }
+        return;
+      }
+
+      // If focus is outside any input (hands-free scanner)
       const currentTime = Date.now();
-      const timeDelta = currentTime - lastKeyTime;
-      lastKeyTime = currentTime;
+      const timeDelta = currentTime - lastBarcodeKeyTimeRef.current;
+      lastBarcodeKeyTimeRef.current = currentTime;
 
       // Handle Enter (Scanner commit)
       if (e.key === "Enter") {
         const scannedCode =
-          scanBuffer.trim() ||
-          barcodeRef.current?.value?.trim() ||
+          barcodeScanBufferRef.current.trim() ||
           barcode.trim();
 
         if (scannedCode) {
           e.preventDefault();
           e.stopPropagation();
           processBarcode(scannedCode);
-          scanBuffer = "";
+          barcodeScanBufferRef.current = "";
           setBarcode("");
-          if (barcodeRef.current) {
-            barcodeRef.current.value = "";
-          }
         } else if (barcodeRef.current) {
           barcodeRef.current.focus();
         }
@@ -571,20 +579,12 @@ export default function Inspect() {
 
       // Handle printable characters (scanner wedge keystrokes)
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // If burst of keystrokes from scanner or fresh typing sequence
-        if (timeDelta > 250) {
-          scanBuffer = e.key;
+        if (timeDelta > 200) {
+          barcodeScanBufferRef.current = e.key;
         } else {
-          scanBuffer += e.key;
+          barcodeScanBufferRef.current += e.key;
         }
-
-        // Keep UI and input value in sync regardless of cursor position
-        if (activeEl !== barcodeRef.current) {
-          setBarcode(scanBuffer);
-          if (barcodeRef.current) {
-            barcodeRef.current.value = scanBuffer;
-          }
-        }
+        setBarcode(barcodeScanBufferRef.current);
       }
     };
 
@@ -673,9 +673,10 @@ export default function Inspect() {
     }
   }, [saveFetcher.data]);
 
-  const handleSearch = () => {
-    if (!orderName.trim()) return;
-    fetcher.submit({ intent: "fetch_order", orderName }, { method: "POST" });
+  const handleSearch = (searchQuery) => {
+    const query = (typeof searchQuery === "string" ? searchQuery : orderName).trim();
+    if (!query) return;
+    fetcher.submit({ intent: "fetch_order", orderName: query }, { method: "POST" });
   };
 
   const handleCancelActiveOrder = () => {
@@ -1045,6 +1046,8 @@ export default function Inspect() {
                     prefix={<Icon source={SearchIcon} />}
                     inputRef={orderSearchRef}
                     disabled={!!currentOrder}
+                    clearButton
+                    onClearButtonClick={() => setOrderName("")}
                   />
                 </form>
               </div>

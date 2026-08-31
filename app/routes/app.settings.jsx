@@ -25,7 +25,6 @@ import { authenticate, apiVersion } from "../shopify.server";
 import { isOdooConfigured } from "../services/odooClient.server.js";
 import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
 import { getRegisteredWebhooks, ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
-import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -81,25 +80,6 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
-
-  if (intent === "scan_customer_requests") {
-    try {
-      const alerted = await checkAndAlertCustomerRequests(admin, session?.shop);
-      if (alerted.length > 0) {
-        return {
-          success: true,
-          scanMessage: `고객 취소/청약철회 요청이 접수된 주문(${alerted.join(", ")})에 대해 알림 메일을 성공적으로 발송했습니다.`,
-        };
-      } else {
-        return {
-          success: true,
-          scanMessage: "현재 새로 접수된 미발송 고객 취소/청약철회 요청 건이 없습니다 (모두 발송 완료됨).",
-        };
-      }
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  }
 
   if (intent === "force_register_webhooks") {
     try {
@@ -212,11 +192,6 @@ export default function Settings() {
 
   const testFetcher = useFetcher();
   const webhookFetcher = useFetcher();
-  const scanFetcher = useFetcher();
-
-  const handleScanCustomerRequests = () => {
-    scanFetcher.submit({ intent: "scan_customer_requests" }, { method: "POST" });
-  };
 
   const handleRegisterWebhooks = () => {
     webhookFetcher.submit({ intent: "force_register_webhooks" }, { method: "POST" });
@@ -466,17 +441,7 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
                       >
                         테스트 메일 발송
                       </Button>
-                      <Button
-                        variant="secondary"
-                        loading={scanFetcher.state === "submitting"}
-                        onClick={handleScanCustomerRequests}
-                      >
-                        미발송 취소요청 즉시 스캔
-                      </Button>
                     </InlineStack>
-                    {scanFetcher.data?.scanMessage && (
-                      <Banner tone="info">{scanFetcher.data.scanMessage}</Banner>
-                    )}
                     {testFetcher.data?.message && (
                       <Banner tone="success">{testFetcher.data.message}</Banner>
                     )}
