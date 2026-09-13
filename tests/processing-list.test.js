@@ -38,3 +38,11 @@ test('temperature changes skip server reload, but explicit refresh/actions and o
  assert.equal(shouldRevalidate({ ...args, nextUrl: args.currentUrl }), true);
  assert.equal(shouldRevalidate({ ...args, nextUrl: new URL('https://test/app/pick-list?tempFilter=DRY_ONLY&refresh=1') }), true);
 });
+test('warehouse helpers handle numbers, nulls and missing shelves without throwing', async () => {
+  const { compareRegalAscending, parseWarehouseInfo } = await import('../app/utils/warehouseHelpers.js');
+  assert.doesNotThrow(() => parseWarehouseInfo(null));
+  assert.doesNotThrow(() => parseWarehouseInfo(123));
+  assert.doesNotThrow(() => parseWarehouseInfo(undefined));
+  assert.doesNotThrow(() => compareRegalAscending({ binLocation: 104 }, { binLocation: 'B-01' }));
+  assert.doesNotThrow(() => compareRegalAscending(null, { binLocation: null }));
+});

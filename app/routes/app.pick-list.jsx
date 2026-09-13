@@ -31,7 +31,15 @@ export { parseWarehouseInfo, compareRegalAscending };
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  return loadProcessingList({ admin, fetchBins: skus => fetchOdooBinLocations(skus, { strict: true }) });
+  const url = new URL(request.url);
+  const tempFilter = url.searchParams.get("tempFilter") === "DRY_ONLY" ? "DRY_ONLY" : "ALL";
+  const result = await loadProcessingList({ admin, fetchBins: skus => fetchOdooBinLocations(skus, { strict: true }) });
+  const activeView = result?.views?.[tempFilter] || result?.views?.ALL || {};
+  return {
+    ...result,
+    ...activeView,
+    tempFilter,
+  };
 };
 
 // Temperature is a view of the same snapshot, not a reason to reload Shopify/Odoo.
@@ -91,13 +99,24 @@ export const action = async ({ request }) => {
 };
 
 export default function PickListPage() {
-  const { views, fetchedAt } = useLoaderData();
+  const loaderData = useLoaderData() || {};
   const actionData = useActionData();
   const submit = useSubmit();
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tempFilter = searchParams.get('tempFilter') === 'DRY_ONLY' ? 'DRY_ONLY' : 'ALL';
-  const { items, ordersList, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty } = views[tempFilter];
+  const tempFilter = searchParams.get('tempFilter') === 'DRY_ONLY' ? 'DRY_ONLY' : (loaderData.tempFilter === 'DRY_ONLY' ? 'DRY_ONLY' : 'ALL');
+
+  // Support both new multi-view shape { views: { ALL, DRY_ONLY } } and flat { items, ordersList, ... }
+  const currentView = loaderData.views?.[tempFilter]
+    || (tempFilter === (loaderData.tempFilter || 'ALL') && Array.isArray(loaderData.items) ? loaderData : null)
+    || loaderData.views?.ALL
+    || (Array.isArray(loaderData.items) ? loaderData : null)
+    || {};
+
+  const items = Array.isArray(currentView.items) ? currentView.items : [];
+  const ordersList = Array.isArray(currentView.ordersList) ? currentView.ordersList : [];
+  const totalOrdersCount = currentView.totalOrdersCount ?? ordersList.length;
+  const fetchedAt = loaderData.fetchedAt || new Date().toISOString();
 
   // Warehouse Tabs: "ALL" | "STORE" | "NEW_ONLY" | "NO_BIN"
   const [warehouseTab, setWarehouseTab] = useState("ALL");
@@ -109,7 +128,8 @@ export default function PickListPage() {
     const newOnly = [];
     const noBin = [];
 
-    items.forEach((item) => {
+    (items || []).forEach((item) => {
+      if (!item) return;
       const cat = item.whInfo?.category || "NO_BIN";
       if (cat === "STORE") {
         store.push(item);
@@ -127,29 +147,29 @@ export default function PickListPage() {
     return { storeItems: store, newOnlyItems: newOnly, noBinItems: noBin };
   }, [items]);
 
-  const storeQty = useMemo(() => storeItems.reduce((sum, i) => sum + i.orderedQty, 0), [storeItems]);
-  const newOnlyQty = useMemo(() => newOnlyItems.reduce((sum, i) => sum + i.orderedQty, 0), [newOnlyItems]);
-  const noBinQty = useMemo(() => noBinItems.reduce((sum, i) => sum + i.orderedQty, 0), [noBinItems]);
+  const storeQty = useMemo(() => (storeItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0), [storeItems]);
+  const newOnlyQty = useMemo(() => (newOnlyItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0), [newOnlyItems]);
+  const noBinQty = useMemo(() => (noBinItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0), [noBinItems]);
 
   // Items to display based on selected warehouse tab and sub-location filter
   const displayedItems = useMemo(() => {
-    let base = items;
-    if (warehouseTab === "STORE") base = storeItems;
-    else if (warehouseTab === "NEW_ONLY") base = newOnlyItems;
-    else if (warehouseTab === "NO_BIN") base = noBinItems;
+    let base = items || [];
+    if (warehouseTab === "STORE") base = storeItems || [];
+    else if (warehouseTab === "NEW_ONLY") base = newOnlyItems || [];
+    else if (warehouseTab === "NO_BIN") base = noBinItems || [];
 
     if (selectedLocation === "ALL") return base;
-    return base.filter((i) => i.binLocation === selectedLocation);
+    return base.filter((i) => i && i.binLocation === selectedLocation);
   }, [warehouseTab, items, storeItems, newOnlyItems, noBinItems, selectedLocation]);
 
   // Unique location list for dropdown within the active warehouse view
   const uniqueLocations = useMemo(() => {
-    let base = items;
-    if (warehouseTab === "STORE") base = storeItems;
-    else if (warehouseTab === "NEW_ONLY") base = newOnlyItems;
-    else if (warehouseTab === "NO_BIN") base = noBinItems;
+    let base = items || [];
+    if (warehouseTab === "STORE") base = storeItems || [];
+    else if (warehouseTab === "NEW_ONLY") base = newOnlyItems || [];
+    else if (warehouseTab === "NO_BIN") base = noBinItems || [];
 
-    const locSet = new Set(base.map((i) => i.binLocation));
+    const locSet = new Set((base || []).map((i) => i?.binLocation).filter(Boolean));
     return Array.from(locSet);
   }, [warehouseTab, items, storeItems, newOnlyItems, noBinItems]);
 
@@ -199,7 +219,7 @@ export default function PickListPage() {
   };
 
   // Reusable Table Section Component for each Warehouse Category
-  const renderWarehouseTableSection = (title, categoryBadge, itemList, totalQty, headerBg, isStoreCategory) => {
+  const renderWarehouseTableSection = (title, categoryBadge, itemList, totalQty, headerBg) => {
     if (!itemList || itemList.length === 0) return null;
 
     return (
@@ -233,7 +253,9 @@ export default function PickListPage() {
           </thead>
           <tbody>
             {itemList.map((item, idx) => {
+              if (!item) return null;
               const itemWh = item.whInfo || parseWarehouseInfo(item.binLocation);
+              const orderNums = Array.isArray(item.orderNumbers) ? item.orderNumbers : [];
 
               return (
                 <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
@@ -259,7 +281,7 @@ export default function PickListPage() {
                         )}
 
                         <Text variant="bodySm" fontWeight="bold">
-                          {itemWh.storeShelf || itemWh.newShelf || item.binLocation}
+                          {itemWh.storeShelf || itemWh.newShelf || item.binLocation || "위치 미지정"}
                         </Text>
                       </InlineStack>
 
@@ -279,10 +301,10 @@ export default function PickListPage() {
                     <div style={{ fontSize: "11px", color: "#94a3b8" }}>{item.barcode}</div>
                   </td>
                   <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: "bold", fontSize: "15px" }}>
-                    {`${item.orderedQty} 개`}
+                    {`${item.orderedQty ?? 0} 개`}
                   </td>
                   <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                    {item.inventoryQty !== null ? (
+                    {typeof item.inventoryQty === "number" ? (
                       <Text tone={item.inventoryQty < 5 ? "critical" : item.inventoryQty < 10 ? "warning" : undefined}>
                         {`${item.inventoryQty} 개`}
                       </Text>
@@ -291,8 +313,8 @@ export default function PickListPage() {
                     )}
                   </td>
                   <td style={{ padding: "10px 12px", fontSize: "11px", color: "#64748b" }}>
-                    {item.orderNumbers.slice(0, 3).join(", ")}
-                    {item.orderNumbers.length > 3 && ` 외 ${item.orderNumbers.length - 3}건`}
+                    {orderNums.slice(0, 3).join(", ")}
+                    {orderNums.length > 3 && ` 외 ${orderNums.length - 3}건`}
                   </td>
                 </tr>
               );

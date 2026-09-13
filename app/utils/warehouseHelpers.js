@@ -2,7 +2,7 @@
  * Parses bin location string into warehouse category and individual shelf locations
  */
 export function parseWarehouseInfo(binLocation = "") {
-  const loc = (binLocation || "").trim();
+  const loc = String(binLocation || "").trim();
   if (!loc || loc === "위치 미정" || loc === "위치 미지정" || loc === "조회중") {
     return {
       category: "NO_BIN",
@@ -59,11 +59,15 @@ export function parseWarehouseInfo(binLocation = "") {
  * Natural ascending sort for shelf / regal numbers
  */
 export function compareRegalAscending(a, b) {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+
   const infoA = a.whInfo || parseWarehouseInfo(a.binLocation);
   const infoB = b.whInfo || parseWarehouseInfo(b.binLocation);
 
-  const shelfA = infoA.storeShelf || infoA.newShelf || a.binLocation || "ZZZ";
-  const shelfB = infoB.storeShelf || infoB.newShelf || b.binLocation || "ZZZ";
+  const shelfA = String(infoA?.storeShelf || infoA?.newShelf || a.binLocation || "ZZZ");
+  const shelfB = String(infoB?.storeShelf || infoB?.newShelf || b.binLocation || "ZZZ");
 
   return shelfA.localeCompare(shelfB, undefined, { numeric: true, sensitivity: "base" });
 }
