@@ -1,0 +1,22 @@
+/* Shared operational surfaces. Keep colors aligned with Shopify Polaris. */
+.ops-metric { height: 100%; border: 1px solid var(--p-color-border); border-radius: var(--p-border-radius-300); background: var(--p-color-bg-surface); padding: 20px; }
+.ops-metric[role="button"] { cursor: pointer; }
+.ops-metric[role="button"]:hover { border-color: var(--p-color-border-hover); background: var(--p-color-bg-surface-hover); }
+.ops-metric:focus-visible { outline: 3px solid var(--p-color-border-focus); outline-offset: 3px; }
+.ops-metric[data-tone="warning"] { border-inline-start: 4px solid var(--p-color-border-warning); }
+.ops-metric[data-tone="critical"] { border-inline-start: 4px solid var(--p-color-border-critical); }
+.ops-metric[data-tone="primary"] { border-inline-start: 4px solid var(--p-color-border-success); }
+.ops-metric[data-active="true"] { outline: 2px solid var(--p-color-border-focus); }
+.ops-filter-search { width: min(300px, 100%); min-width: 0; }
+.ops-work-input { flex: 1 1 260px; min-width: 0; }
+.ops-action-footer { position: sticky; bottom: 16px; z-index: 10; margin-top: 8px; }
+.ops-scan-zone { padding: 16px; border-radius: var(--p-border-radius-200); background: var(--p-color-bg-surface-secondary); }
+.ops-work-summary { display: flex; gap: 24px; flex-wrap: wrap; }
+.ops-update-details > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
+.ops-update-details > summary:focus-visible { outline: 2px solid var(--p-color-border-focus); }
+@media (max-width: 600px) {
+  .ops-action-footer { position: static; }
+  .ops-metric { padding: 16px; }
+  .ops-work-summary { gap: 16px; }
+}
+@media print { .ops-action-footer { position: static; } }

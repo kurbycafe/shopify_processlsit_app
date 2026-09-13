@@ -1,0 +1,17 @@
+.git
+.vercel
+.shopify
+.agents
+.cursor
+.gemini
+.env*
+node_modules
+build
+scratch
+tests
+docs
+build_error.txt
+build_out.txt
+picklist_dump2.txt
+test.json
+*.apk

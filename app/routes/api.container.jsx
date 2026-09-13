@@ -1,3 +1,4 @@
+import { operationalIdentity } from "../services/operationalApi.server.js";
 import prisma from "../db.server.js";
 import {
   getUpcomingContainers,
@@ -40,17 +41,6 @@ function getCorsHeaders(request) {
   };
 }
 
-function resolveShop(request, explicitShop = null) {
-  const url = new URL(request.url);
-  const rawShop =
-    explicitShop ||
-    request.headers.get("x-shop-domain") ||
-    url.searchParams.get("shop") ||
-    "dawayo.de";
-
-  return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim();
-}
-
 // GET: Retrieve container shipments and item details from DB & Odoo
 export const loader = async ({ request }) => {
   const headers = getCorsHeaders(request);
@@ -58,9 +48,13 @@ export const loader = async ({ request }) => {
     return new Response(null, { status: 204, headers });
   }
 
+  const identity = operationalIdentity(request, "containers:read");
+  if (identity instanceof Response) return identity;
+  const shop = identity.shop;
+  if (shop !== process.env.MOBILE_API_ODOO_SHOP) return Response.json({ success: false, error: { code: "FORBIDDEN", message: "Shop not configured for Odoo." } }, { status: 403, headers });
+
   try {
     const url = new URL(request.url);
-    const shop = resolveShop(request);
     const containerRef = (
       url.searchParams.get("containerRef") ||
       url.searchParams.get("po") ||
@@ -238,9 +232,13 @@ export const action = async ({ request }) => {
     );
   }
 
+  const identity = operationalIdentity(request, "containers:write");
+  if (identity instanceof Response) return identity;
+  const shop = identity.shop;
+  if (shop !== process.env.MOBILE_API_ODOO_SHOP) return Response.json({ success: false, error: { code: "FORBIDDEN", message: "Shop not configured for Odoo." } }, { status: 403, headers });
+
   try {
     const body = await request.json();
-    const shop = resolveShop(request, body.shop);
     const {
       containerRef,
       actionType = "sync",

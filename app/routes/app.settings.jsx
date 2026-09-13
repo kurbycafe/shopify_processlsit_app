@@ -221,12 +221,12 @@ export default function Settings() {
 
   const curlInspectionExample = `// 1. 검수 내역 목록 및 검색 조회 (GET)
 curl -X GET "${endpoints.inspectionHistoryApi}?query=%231001&status=SUCCESS&limit=20" \\
-  -H "X-Shop-Domain: ${shop}"
+  -H "Authorization: Bearer <integration-token>"
 
 // 2. 검수 내역 저장 및 업서트 (POST)
 curl -X POST "${endpoints.inspectionHistoryApi}" \\
   -H "Content-Type: application/json" \\
-  -H "X-Shop-Domain: ${shop}" \\
+  -H "Authorization: Bearer <integration-token>" \\
   -d '{
     "orderId": "gid://shopify/Order/12345",
     "orderName": "#1001",
@@ -245,12 +245,12 @@ curl -X POST "${endpoints.inspectionHistoryApi}" \\
   }'`;
 
   const curlContainerExample = `// 1. 컨테이너 및 발주 일정 조회 (GET)
-curl -X GET "${endpoints.containerApi}?shop=${shop}"
+curl -X GET "${endpoints.containerApi}" -H "Authorization: Bearer <integration-token>"
 
 // 2. Odoo 컨테이너 데이터 자동 동기화 (POST)
 curl -X POST "${endpoints.containerApi}" \\
   -H "Content-Type: application/json" \\
-  -H "X-Shop-Domain: ${shop}" \\
+  -H "Authorization: Bearer <integration-token>" \\
   -d '{
     "containerRef": "PO00412",
     "actionType": "sync",

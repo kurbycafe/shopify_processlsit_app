@@ -6,6 +6,10 @@ import { authenticate } from "../shopify.server";
 import { ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
 import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
 
+import operationsStyles from "../styles/operations.css?url";
+
+export const links = () => [{ rel: "stylesheet", href: operationsStyles }];
+
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
@@ -45,7 +49,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">대시보드</s-link>
         <s-link href="/app/inspect">주문 검수</s-link>
-        <s-link href="/app/pick-list">피킹 리스트</s-link>
+        <s-link href="/app/pick-list">처리중 리스트</s-link>
         <s-link href="/app/lieferschein">납품서(Lieferschein)</s-link>
         <s-link href="/app/inspection-history">검수 내역</s-link>
         <s-link href="/app/back-in-stock">재입고 수요 관리</s-link>

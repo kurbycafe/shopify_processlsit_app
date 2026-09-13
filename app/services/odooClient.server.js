@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { readOdooRestock } from "./odooRestock.js";
 
 // ============================================================================
 // Odoo ERP Central Client (Environment Variables with Dawayo Defaults)
@@ -6,13 +7,12 @@ import dayjs from "dayjs";
 const DEFAULT_ODOO_URL = "https://popeye.odoo.com/jsonrpc";
 const DEFAULT_ODOO_DB = "dawayoerp-popeye-odoo1-live-28006356";
 const DEFAULT_ODOO_USER = "dawayo.odoo@gmail.com";
-const DEFAULT_ODOO_API_KEY = "1838f10637250d6314ac9c8c1b4a1afa62026c34";
 
 function getOdooConfig() {
   const url = process.env.ODOO_URL || DEFAULT_ODOO_URL;
   const db = process.env.ODOO_DB || DEFAULT_ODOO_DB;
   const user = process.env.ODOO_USER || DEFAULT_ODOO_USER;
-  const apiKey = process.env.ODOO_API_KEY || DEFAULT_ODOO_API_KEY;
+  const apiKey = process.env.ODOO_API_KEY;
 
   const isConfigured = Boolean(url && db && user && apiKey);
   return { url, db, user, apiKey, isConfigured };
@@ -134,111 +134,41 @@ export async function getOdooUid() {
 /**
  * Queries incoming container moves for a specific SKU from Odoo ERP
  */
-export async function getEtaBySku(sku) {
-  if (!sku || typeof sku !== "string") return null;
-  const cleanSku = sku.trim();
-  if (!cleanSku) return null;
+const etaRequests = new Map();
+export async function getRestockDetailsBySku(sku) {
+  const key = typeof sku === "string" ? sku.trim() : "";
+  if (!key) return { estimatedDate: null, updatedAt: null, scheduleStatus: "NOT_PLANNED" };
+  const cached = skuEtaCache.get(key);
+  if (cached && Date.now() - cached.cachedAt < ETA_CACHE_TTL_MS) return cached.data;
+  if (etaRequests.has(key)) return etaRequests.get(key);
+  const pending = (async () => {
+    const config = getOdooConfig();
+    if (!config.isConfigured) throw new Error("ODOO_NOT_CONFIGURED");
+    const uid = await getOdooUid();
+    if (!uid) throw new Error("ODOO_AUTH_UNAVAILABLE");
+    const rpc = async (model, method, args, kwargs) => {
+      const response = await fetchWithTimeout(config.url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createJsonRpcPayload("object", "execute_kw", [config.db, uid, config.apiKey, model, method, args, kwargs])),
+      }, 5000);
+      if (!response.ok) throw new Error("ODOO_UNAVAILABLE");
+      const payload = await response.json();
+      if (payload.error || payload.result === undefined) throw new Error("ODOO_QUERY_FAILED");
+      return payload.result;
+    };
+    const data = await readOdooRestock({ rpc, sku: key, today: dayjs().format("YYYY-MM-DD") });
+    safeSetCache(skuEtaCache, key, { data, cachedAt: Date.now() });
+    return data;
+  })().finally(() => etaRequests.delete(key));
+  etaRequests.set(key, pending);
+  return pending;
+}
 
-  const config = getOdooConfig();
-  if (!config.isConfigured) return null;
-
-  // Check In-memory Cache
-  const now = Date.now();
-  const cached = skuEtaCache.get(cleanSku);
-  if (cached && now - cached.cachedAt < ETA_CACHE_TTL_MS) {
-    return cached.etaDate;
-  }
-
-  const uid = await getOdooUid();
-  if (!uid) return null;
-
-  try {
-    // 1. Find Product ID by default_code (SKU)
-    const prodRes = await fetchWithTimeout(
-      config.url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          createJsonRpcPayload("object", "execute_kw", [
-            config.db,
-            uid,
-            config.apiKey,
-            "product.product",
-            "search_read",
-            [[["default_code", "=", cleanSku]]],
-            { fields: ["id", "display_name"], limit: 1 },
-          ])
-        ),
-      },
-      5000
-    );
-
-    const prodJson = await prodRes.json();
-    if (prodJson.error || !prodJson.result || prodJson.result.length === 0) {
-      safeSetCache(skuEtaCache, cleanSku, { etaDate: null, cachedAt: now });
-      return null;
-    }
-
-    const odooProductId = prodJson.result[0].id;
-
-    // 2. Query incoming stock moves
-    const moveRes = await fetchWithTimeout(
-      config.url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          createJsonRpcPayload("object", "execute_kw", [
-            config.db,
-            uid,
-            config.apiKey,
-            "stock.move",
-            "search_read",
-            [
-              [
-                ["product_id", "=", odooProductId],
-                ["picking_type_id.code", "=", "incoming"],
-                ["state", "in", ["assigned", "confirmed", "waiting"]],
-              ],
-            ],
-            {
-              fields: ["id", "date", "date_deadline", "state"],
-              order: "date asc, id asc",
-              limit: 5,
-            },
-          ])
-        ),
-      },
-      5000
-    );
-
-    const moveJson = await moveRes.json();
-    const moves = moveJson?.result || [];
-
-    if (moves.length === 0) {
-      safeSetCache(skuEtaCache, cleanSku, { etaDate: null, cachedAt: now });
-      return null;
-    }
-
-    // Filter moves with future or present dates
-    const today = dayjs().startOf("day");
-    let bestMove = moves.find((m) => {
-      const d = m.date_deadline || m.date;
-      return d && dayjs(d).isAfter(today.subtract(1, "day"));
-    });
-
-    if (!bestMove) {
-      bestMove = moves[0];
-    }
-
-    const rawDate = bestMove.date_deadline || bestMove.date;
-    const formattedEta = rawDate ? dayjs(rawDate).format("YYYY-MM-DD") : null;
-
-    safeSetCache(skuEtaCache, cleanSku, { etaDate: formattedEta, cachedAt: now });
-    return formattedEta;
-  } catch (err) {
-    console.warn(`Odoo ETA query warning for SKU [${cleanSku}]:`, err.message);
+export async function getEtaBySku(sku, { strict = false } = {}) {
+  try { return (await getRestockDetailsBySku(sku)).estimatedDate; }
+  catch (error) {
+    if (strict) throw error;
+    console.warn("Odoo ETA query unavailable");
     return null;
   }
 }
@@ -267,7 +197,7 @@ export async function getUpcomingContainers() {
             "stock.picking",
             "search_read",
             [[
-              ["state", "!=", "cancel"],
+              ["state", "in", ["assigned", "confirmed", "waiting"]],
               "|",
               ["picking_type_id.code", "=", "incoming"],
               ["name", "like", "/IN/"],
@@ -275,8 +205,8 @@ export async function getUpcomingContainers() {
             ]],
             {
               fields: ["id", "name", "origin", "scheduled_date", "state", "partner_id"],
-              order: "origin desc, id desc",
-              limit: 8,
+              order: "scheduled_date asc, id asc",
+              limit: 50,
             },
           ])
         ),
@@ -375,7 +305,7 @@ export async function getContainerItemsByPo(containerRef) {
 /**
  * Full container & product detail fetch from Odoo ERP for catalog / receiving
  */
-export async function fetchOdooContainerProducts(containerRef) {
+export async function fetchOdooContainerProducts(containerRef, { exact = false } = {}) {
   if (!containerRef || typeof containerRef !== "string" || !containerRef.trim()) {
     throw new Error("컨테이너(PO) 번호가 제공되지 않았습니다.");
   }
@@ -406,7 +336,7 @@ export async function fetchOdooContainerProducts(containerRef) {
             config.apiKey,
             "purchase.order",
             "search_read",
-            [[["name", "ilike", cleanRef]]],
+            [[["name", exact ? "=" : "ilike", cleanRef]]],
             { fields: ["id", "name", "order_line", "partner_id", "date_planned", "state"], limit: 1 },
           ])
         ),
@@ -415,6 +345,7 @@ export async function fetchOdooContainerProducts(containerRef) {
     );
 
     const posJson = await posRes.json();
+    if (posJson.error) throw new Error("Odoo purchase order query failed.");
     const pos = posJson?.result || [];
     if (pos.length === 0) {
       throw new Error(`컨테이너(주문) '${cleanRef}'에 해당하는 Odoo PO를 찾을 수 없습니다.`);
@@ -451,6 +382,7 @@ export async function fetchOdooContainerProducts(containerRef) {
     );
 
     const linesJson = await linesRes.json();
+    if (linesJson.error) throw new Error("Odoo purchase order lines query failed.");
     const lines = linesJson?.result || [];
 
     // 3. 제품 상세 (SKU, 바코드) 조회
@@ -481,6 +413,7 @@ export async function fetchOdooContainerProducts(containerRef) {
       );
 
       const prodJson = await prodRes.json();
+      if (prodJson.error) throw new Error("Odoo product query failed.");
       const products = prodJson?.result || [];
       products.forEach((p) => {
         productMap[p.id] = p;

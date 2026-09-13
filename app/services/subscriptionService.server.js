@@ -69,8 +69,11 @@ export async function createSubscription({
     resolvedEta = etaRes.etaDate;
   }
 
+  return prisma.$transaction(async (tx) => {
+    const key = `${cleanShop}:${String(variantId).split('/').pop()}:${cleanEmail || cleanPhone}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
   // Idempotency: Check if active or pending subscription already exists
-  const existing = await prisma.backInStockSubscription.findFirst({
+  const existing = await tx.backInStockSubscription.findFirst({
     where: {
       shop: cleanShop,
       variantId: String(variantId),
@@ -88,7 +91,7 @@ export async function createSubscription({
   }
 
   // Create new subscription
-  const subscription = await prisma.backInStockSubscription.create({
+  const subscription = await tx.backInStockSubscription.create({
     data: {
       shop: cleanShop,
       productId: String(productId || ""),
@@ -110,6 +113,7 @@ export async function createSubscription({
     alreadySubscribed: false,
     message: "재입고 알림 신청이 성공적으로 완료되었습니다.",
   };
+  });
 }
 
 /**

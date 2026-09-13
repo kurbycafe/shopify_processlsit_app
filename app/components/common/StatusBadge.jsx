@@ -7,10 +7,14 @@ export default function StatusBadge({ status, size = "medium" }) {
   const norm = String(status || "").toUpperCase();
 
   switch (norm) {
+    case "SCHEDULED": return <Badge tone="attention" size={size}>입고 예정</Badge>;
+    case "IN_TRANSIT": return <Badge tone="info" size={size}>운송 중</Badge>;
+    case "ARRIVED": return <Badge tone="attention" size={size}>창고 도착</Badge>;
+    case "RECEIVED": return <Badge tone="success" size={size}>입고 완료</Badge>;
     case "SUCCESS":
+      return <Badge tone="success" size={size}>검수 완료</Badge>;
     case "COMPLETED":
     case "CONFIRMED":
-    case "RECEIVED":
     case "DONE":
       return <Badge tone="success" size={size}>완료</Badge>;
 
@@ -34,11 +38,9 @@ export default function StatusBadge({ status, size = "medium" }) {
       return <Badge tone="info" size={size}>대체상품</Badge>;
 
     case "PENDING":
-    case "SCHEDULED":
       return <Badge tone="attention" size={size}>대기중</Badge>;
 
     case "PROCESSING":
-    case "IN_TRANSIT":
       return <Badge tone="info" size={size}>처리중</Badge>;
 
     case "NOTIFIED":

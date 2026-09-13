@@ -1022,7 +1022,7 @@ export default function Inspect() {
 
   return (
     <Page
-      title="주문 검수 (Scan-to-Verify)"
+      title="주문 검수"
       subtitle={inspectorName ? `검수자: ${inspectorName}` : undefined}
       backAction={{ content: "대시보드", url: "/app" }}
     >
@@ -1030,8 +1030,8 @@ export default function Inspect() {
         {/* 주문 검색 바 */}
         <Card>
           <BlockStack gap="300">
-            <InlineStack gap="300" align="start" blockAlign="end">
-              <div style={{ flex: 1 }}>
+            <InlineStack gap="300" align="start" blockAlign="end" wrap>
+              <div className="ops-work-input">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1115,15 +1115,19 @@ export default function Inspect() {
                   <ProgressBar progress={progressPercent} tone={progressPercent === 100 ? "success" : "highlight"} />
                 </BlockStack>
 
+                <div className="ops-work-summary">
+                  <BlockStack gap="100"><Text as="p" tone="subdued">남은 수량</Text><Text as="p" variant="headingLg">{Math.max(0, totalOrderedCount - totalInspectedCount)}개</Text></BlockStack>
+                  <BlockStack gap="100"><Text as="p" tone="subdued">확인할 예외</Text><Text as="p" variant="headingLg" tone={issueCount ? "critical" : undefined}>{issueCount}개 품목</Text></BlockStack>
+                </div>
                 {/* 바코드 스캔 입력 */}
-                <form
+                <form className="ops-scan-zone"
                   onSubmit={(e) => {
                     e.preventDefault();
                     processBarcode(barcode);
                   }}
                 >
-                  <InlineStack gap="200" align="start" blockAlign="end">
-                    <div style={{ flex: 1 }}>
+                  <InlineStack gap="200" align="start" blockAlign="end" wrap>
+                    <div className="ops-work-input">
                       <TextField
                         label="상품 바코드 또는 SKU 스캔"
                         value={barcode}
@@ -1134,17 +1138,19 @@ export default function Inspect() {
                         placeholder="바코드 스캐너를 찍거나 SKU를 입력하세요"
                       />
                     </div>
-                    <Button onClick={() => processBarcode(barcode)} disabled={!barcode.trim()}>
-                      확인
+                    <Button variant="primary" onClick={() => processBarcode(barcode)} disabled={!barcode.trim()}>
+                      스캔 확인
                     </Button>
                     <Button onClick={() => setCameraModalOpen(true)}>
                       카메라 스캔
                     </Button>
-                    <Button onClick={handleCompleteAll}>
-                      전체 일괄 완료
-                    </Button>
+
                   </InlineStack>
                 </form>
+                <InlineStack align="space-between" blockAlign="center" gap="200" wrap>
+                  <Text as="p" tone="subdued">스캔 후 Enter를 누르면 수량이 반영됩니다.</Text>
+                  <Button variant="plain" onClick={handleCompleteAll}>전체 일괄 완료</Button>
+                </InlineStack>
               </BlockStack>
             </Card>
 
@@ -1228,6 +1234,7 @@ export default function Inspect() {
             </Card>
 
             {/* 하단 고정 액션 바 */}
+            <div className="ops-action-footer">
             <Box
               padding="300"
               background="bg-surface"
@@ -1236,7 +1243,7 @@ export default function Inspect() {
               borderColor="border"
               shadow="200"
             >
-              <InlineStack align="space-between" blockAlign="center">
+              <InlineStack align="space-between" blockAlign="center" wrap gap="300">
                 <Text variant="bodyMd" fontWeight="semibold">
                   총 {currentOrder.items.length}개 품목 ({totalInspectedCount}/{totalOrderedCount}개 검수 완료)
                 </Text>
@@ -1253,6 +1260,7 @@ export default function Inspect() {
                 </InlineStack>
               </InlineStack>
             </Box>
+            </div>
           </BlockStack>
         )}
       </BlockStack>
@@ -1324,7 +1332,7 @@ export default function Inspect() {
                   대체 상품 검색
                 </Text>
                 <InlineStack gap="200" blockAlign="end">
-                  <div style={{ flex: 1 }}>
+                  <div className="ops-work-input">
                     <TextField
                       label="상품명, SKU 또는 바코드"
                       value={substituteQuery}

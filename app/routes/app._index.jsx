@@ -205,8 +205,8 @@ export default function Dashboard() {
 
   return (
     <Page
-      title="WMS 물류 운영 종합 상황실 (Operations Center)"
-      subtitle="실시간 주문 출고, 검수 완료, 입고 일정 및 재입고 수요 현황을 모니터링합니다."
+      title="물류 운영 대시보드"
+      subtitle="처리중 주문부터 검수와 입고까지, 필요한 작업을 바로 시작하세요."
     >
       <BlockStack gap="500">
         {/* 1. 최상단: 4대 핵심 운영 메트릭 카드 */}
@@ -217,41 +217,21 @@ export default function Dashboard() {
           pendingBackInStockCount={pendingBackInStockCount}
         />
 
-        {/* 2. 긴급/우선 작업 알림 배너 */}
-        {unfulfilledCount > 0 && (
-          <Card>
-            <InlineStack align="space-between" blockAlign="center" wrap>
-              <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" fontWeight="bold">
-                  출고 대기 미처리 주문 {unfulfilledCount}건이 있습니다.
-                </Text>
-                <Text variant="bodySm" tone="subdued">
-                  피킹 리스트를 인쇄하여 창고 피킹 동선에 맞춰 검수 및 포장을 진행해 주세요.
-                </Text>
-              </BlockStack>
-
-              <InlineStack gap="200">
-                <Button onClick={() => navigate("/app/pick-list")}>
-                  피킹 리스트 열기
-                </Button>
-                <Button variant="primary" onClick={() => navigate("/app/inspect")}>
-                  주문 검수 시작
-                </Button>
-              </InlineStack>
+        <Card>
+          <InlineStack align="space-between" blockAlign="center" wrap gap="400">
+            <BlockStack gap="100">
+              <Text variant="headingMd" as="h2">작업 바로가기</Text>
+              <Text as="p" tone="subdued">처리중 리스트에서 상품을 준비한 뒤 주문별로 검수하세요.</Text>
+            </BlockStack>
+            <InlineStack gap="200" wrap>
+              <Button onClick={() => navigate("/app/pick-list")}>처리중 리스트</Button>
+              <Button variant="primary" onClick={() => navigate("/app/inspect")}>주문 검수 시작</Button>
+              <Button onClick={() => navigate("/app/inspection-history")}>검수 내역 확인</Button>
             </InlineStack>
-          </Card>
-        )}
+          </InlineStack>
+        </Card>
 
         <Layout>
-          {/* 3. 컨테이너 입고 일정 & 2개월 달력 (Full Width) */}
-          <Layout.Section>
-            <ContainerScheduleCard
-              upcomingContainers={upcomingContainers}
-              calendarMonths={calendarMonths}
-              onSelectContainer={handleSelectContainer}
-            />
-          </Layout.Section>
-
           {/* 4. 최근 검수 활동 (좌측) */}
           <Layout.Section variant="oneHalf">
             <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
@@ -260,6 +240,15 @@ export default function Dashboard() {
           {/* 5. 최근 7일간 검수 생산성 차트 (우측) */}
           <Layout.Section variant="oneHalf">
             <ProductivityChartCard chartData={chartData} />
+          </Layout.Section>
+
+          {/* 3. 컨테이너 입고 일정 & 2개월 달력 (Full Width) */}
+          <Layout.Section>
+            <ContainerScheduleCard
+              upcomingContainers={upcomingContainers}
+              calendarMonths={calendarMonths}
+              onSelectContainer={handleSelectContainer}
+            />
           </Layout.Section>
 
           {/* 6. 최하단: 시스템 및 연동 상태 내역 */}

@@ -212,7 +212,7 @@ export const action = async ({ request }) => {
     try {
       const pdfBuffer = await generatePickListPdfBuffer(items, techTime);
       const base64Pdf = pdfBuffer.toString("base64");
-      const mailTitle = `${clientTime} 기준 처리중 피킹 리스트`;
+      const mailTitle = `${clientTime} 기준 처리중 리스트`;
 
       await sendPickListEmailWithPdf({
         mailTitle,
@@ -220,7 +220,7 @@ export const action = async ({ request }) => {
         techTime,
       });
 
-      return { success: true, message: "피킹 리스트 PDF가 물류 이메일로 발송되었습니다." };
+      return { success: true, message: "처리중 리스트 PDF가 물류 이메일로 발송되었습니다." };
     } catch (err) {
       console.error("PDF dispatch failed:", err.message);
       return { success: false, error: `이메일 발송 실패: ${err.message}` };
@@ -450,8 +450,8 @@ export default function PickListPage() {
 
   return (
     <Page
-      title="피킹 및 처리중 리스트 (Pick List)"
-      subtitle="매장창고와 신창고 구역별로 레갈번호 오름차순 정렬된 피킹 리스트를 제공합니다."
+      title="처리중 리스트"
+      subtitle="매장창고와 신창고 구역별로 레갈번호 오름차순 정렬된 처리중 리스트를 제공합니다."
       backAction={{ content: "대시보드", url: "/app" }}
       primaryAction={{
         content: "PDF 인쇄 및 이메일 전송",
@@ -656,7 +656,7 @@ export default function PickListPage() {
             {/* 전체 뷰 또는 매장창고 탭 선택 시: 매장창고 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "STORE") && (
               renderWarehouseTableSection(
-                "매장창고 피킹 리스트 (STORE WAREHOUSE)",
+                "매장창고 처리중 리스트 (STORE WAREHOUSE)",
                 <Badge tone="info">매장창고</Badge>,
                 selectedLocation === "ALL" ? storeItems : storeItems.filter((i) => i.binLocation === selectedLocation),
                 selectedLocation === "ALL" ? storeQty : storeItems.filter((i) => i.binLocation === selectedLocation).reduce((sum, i) => sum + i.orderedQty, 0),
@@ -668,7 +668,7 @@ export default function PickListPage() {
             {/* 전체 뷰 또는 신창고 탭 선택 시: 신창고 전용 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "NEW_ONLY") && (
               renderWarehouseTableSection(
-                "신창고 전용 피킹 리스트 (NEW / MAIN WAREHOUSE)",
+                "신창고 전용 처리중 리스트 (NEW / MAIN WAREHOUSE)",
                 <Badge tone="attention">신창고 전용</Badge>,
                 selectedLocation === "ALL" ? newOnlyItems : newOnlyItems.filter((i) => i.binLocation === selectedLocation),
                 selectedLocation === "ALL" ? newOnlyQty : newOnlyItems.filter((i) => i.binLocation === selectedLocation).reduce((sum, i) => sum + i.orderedQty, 0),
@@ -680,7 +680,7 @@ export default function PickListPage() {
             {/* 전체 뷰 또는 위치 미지정 탭 선택 시: 위치 미지정 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "NO_BIN") && noBinItems.length > 0 && (
               renderWarehouseTableSection(
-                "위치 미지정 피킹 리스트 (UNASSIGNED LOCATION)",
+                "위치 미지정 처리중 리스트 (UNASSIGNED LOCATION)",
                 <Badge tone="warning">위치 미지정</Badge>,
                 selectedLocation === "ALL" ? noBinItems : noBinItems.filter((i) => i.binLocation === selectedLocation),
                 selectedLocation === "ALL" ? noBinQty : noBinItems.filter((i) => i.binLocation === selectedLocation).reduce((sum, i) => sum + i.orderedQty, 0),

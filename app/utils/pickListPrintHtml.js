@@ -101,7 +101,7 @@ export function generatePickListPrintHtml({
   let sectionsHtml = "";
   if (warehouseTab === "ALL" || warehouseTab === "STORE") {
     sectionsHtml += renderSectionHtml(
-      "1. 매장창고 피킹 리스트 (STORE WAREHOUSE)",
+      "1. 매장창고 처리중 리스트 (STORE WAREHOUSE)",
       "매장창고",
       "#dbeafe",
       "#1d4ed8",
@@ -111,7 +111,7 @@ export function generatePickListPrintHtml({
   }
   if (warehouseTab === "ALL" || warehouseTab === "NEW_ONLY") {
     sectionsHtml += renderSectionHtml(
-      "2. 신창고 전용 피킹 리스트 (NEW / MAIN WAREHOUSE)",
+      "2. 신창고 전용 처리중 리스트 (NEW / MAIN WAREHOUSE)",
       "신창고 전용",
       "#cffafe",
       "#0e7490",
@@ -121,7 +121,7 @@ export function generatePickListPrintHtml({
   }
   if (warehouseTab === "ALL" || warehouseTab === "NO_BIN") {
     sectionsHtml += renderSectionHtml(
-      "3. 위치 미지정 피킹 리스트 (UNASSIGNED LOCATION)",
+      "3. 위치 미지정 처리중 리스트 (UNASSIGNED LOCATION)",
       "위치 미지정",
       "#fef3c7",
       "#b45309",
@@ -135,7 +135,7 @@ export function generatePickListPrintHtml({
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>피킹 및 처리중 리스트 (Pick List) - ${formattedTime}</title>
+  <title>처리중 리스트 - ${formattedTime}</title>
   <style>
     @page {
       size: A4 landscape;

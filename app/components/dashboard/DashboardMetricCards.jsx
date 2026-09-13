@@ -23,17 +23,17 @@ export function DashboardMetricCards({
       }}
     >
       <MetricCard
-        title="출고 대기 미처리 주문"
+        title="처리중 주문"
         value={`${unfulfilledCount.toLocaleString()} 건`}
-        subtitle="피킹 및 검수 대상"
-        badgeText="피킹 리스트"
+        subtitle="상품 준비 및 검수 대상"
+        badgeText="처리중 리스트"
         badgeTone="warning"
         variant={unfulfilledCount > 0 ? "warning" : "secondary"}
         onClick={() => navigate("/app/pick-list")}
       />
 
       <MetricCard
-        title="오늘 Lieferschein 출력"
+        title="오늘 납품서 출력"
         value={`${todayPrintedCount.toLocaleString()} 건`}
         subtitle="납품서 인쇄 완료"
         badgeText="납품서 목록"
@@ -44,7 +44,7 @@ export function DashboardMetricCards({
       <MetricCard
         title="이번 주 검수 완료"
         value={`${thisWeekFulfilledCount.toLocaleString()} 건`}
-        subtitle="정상 출고 완료"
+        subtitle="검수 성공 기록"
         badgeText="검수 이력"
         badgeTone="success"
         variant="primary"
@@ -52,9 +52,9 @@ export function DashboardMetricCards({
       />
 
       <MetricCard
-        title="재입고 알림 대기 수요"
-        value={`${pendingBackInStockCount.toLocaleString()} 명`}
-        subtitle="입고 시 자동 발송"
+        title="재입고 알림 대기"
+        value={`${pendingBackInStockCount.toLocaleString()} 건`}
+        subtitle="알림 신청 기준"
         badgeText="수요 관리"
         badgeTone="info"
         onClick={() => navigate("/app/back-in-stock")}

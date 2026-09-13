@@ -5,6 +5,7 @@ import {
   TextField,
   Button,
   Tag,
+  Icon,
   Text,
 } from "@shopify/polaris";
 import { SearchIcon } from "@shopify/polaris-icons";
@@ -26,9 +27,11 @@ export default function CommonFilterBar({
       <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center" wrap>
           <InlineStack gap="200" blockAlign="center" wrap>
-            <div style={{ width: "300px" }}>
+            <div className="ops-filter-search">
               <TextField
-                prefix={<SearchIcon />}
+                label={searchPlaceholder}
+                labelHidden
+                prefix={<Icon source={SearchIcon} />}
                 placeholder={searchPlaceholder}
                 value={searchQuery}
                 onChange={onChangeSearch}
@@ -58,7 +61,7 @@ export default function CommonFilterBar({
               return (
                 <Button
                   key={preset.id}
-                  size="micro"
+                  size="slim"
                   pressed={isSelected}
                   onClick={() => onSelectPreset(preset.id)}
                 >
@@ -82,7 +85,7 @@ export default function CommonFilterBar({
             ))}
             {onClearAll && (
               <Button
-                size="micro"
+                size="slim"
                 variant="plain"
                 tone="critical"
                 onClick={onClearAll}

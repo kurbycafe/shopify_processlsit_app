@@ -2,7 +2,7 @@
   "name": "process-list",
   "private": true,
   "scripts": {
-    "vercel-build": "prisma generate && react-router build",
+    "vercel-build": "prisma generate && node scripts/prepare-customer-schema.js && react-router build",
     "build": "prisma generate && react-router build",
     "postinstall": "prisma generate",
     "dev": "shopify app dev",

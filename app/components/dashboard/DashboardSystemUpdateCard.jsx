@@ -6,12 +6,14 @@ import { Card, BlockStack, InlineStack, Text, Badge, Divider } from "@shopify/po
 export function DashboardSystemUpdateCard() {
   return (
     <Card>
-      <BlockStack gap="400">
+      <details className="ops-update-details">
+        <summary>이전 업데이트 내역 보기 · 2026-08-07</summary>
+        <BlockStack gap="400">
         <InlineStack align="space-between" blockAlign="center">
           <Text variant="headingMd" as="h2">
             시스템 업데이트 내역
           </Text>
-          <Badge tone="info">v1.3.0 최신버전</Badge>
+          <Badge>v1.3.0 기록</Badge>
         </InlineStack>
 
         <Divider />
@@ -64,6 +66,7 @@ export function DashboardSystemUpdateCard() {
           </ul>
         </BlockStack>
       </BlockStack>
+      </details>
     </Card>
   );
 }

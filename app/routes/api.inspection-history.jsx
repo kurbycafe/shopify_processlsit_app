@@ -1,3 +1,5 @@
+import { operationalIdentity } from "../services/operationalApi.server.js";
+import { MobileApiError } from "../services/mobileApi.server.js";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import dayjs from "dayjs";
 
@@ -34,17 +36,6 @@ function getCorsHeaders(request) {
   };
 }
 
-function resolveShop(request, explicitShop = null) {
-  const url = new URL(request.url);
-  const rawShop =
-    explicitShop ||
-    request.headers.get("x-shop-domain") ||
-    url.searchParams.get("shop") ||
-    "dawayo.de";
-
-  return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim();
-}
-
 // GET: 검수 내역 조회 API
 export const loader = async ({ request }) => {
   const corsHeaders = getCorsHeaders(request);
@@ -52,10 +43,13 @@ export const loader = async ({ request }) => {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  const identity = operationalIdentity(request, "inspections:read");
+  if (identity instanceof Response) return identity;
+  const shop = identity.shop;
+
   try {
     await ensureDatabaseSchema();
     const url = new URL(request.url);
-    const shop = resolveShop(request);
     const orderId = url.searchParams.get("orderId");
     const orderName = url.searchParams.get("orderName");
     const query = (url.searchParams.get("query") || "").trim();
@@ -66,13 +60,7 @@ export const loader = async ({ request }) => {
     const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1);
     const skip = (page - 1) * limit;
 
-    const whereClause = {
-      OR: [
-        { shop },
-        { shop: shop.replace(".myshopify.com", "") },
-        { shop: "dawayo.de" },
-      ],
-    };
+    const whereClause = { shop };
 
     if (orderId) {
       whereClause.orderId = { contains: orderId, mode: "insensitive" };
@@ -170,9 +158,11 @@ export const action = async ({ request }) => {
   }
 
   if (request.method === "POST" || request.method === "PUT") {
+    const identity = operationalIdentity(request, "inspections:write");
+    if (identity instanceof Response) return identity;
+    const shop = identity.shop;
     try {
       const data = await request.json();
-      const shop = resolveShop(request, data.shop);
       const {
         orderId,
         orderName,
@@ -220,6 +210,7 @@ export const action = async ({ request }) => {
           where: { orderId },
         });
 
+        if (existing && existing.shop !== shop) throw new MobileApiError(404, "ORDER_NOT_FOUND", "Order not found.");
         if (existing) {
           await tx.inspectionItem.deleteMany({
             where: { inspectionRecordId: existing.id },
@@ -304,6 +295,7 @@ export const action = async ({ request }) => {
         { headers: corsHeaders }
       );
     } catch (error) {
+      if (error instanceof MobileApiError) return Response.json({ success: false, error: { code: error.code, message: error.message } }, { status: error.status, headers: corsHeaders });
       console.error("[API] 검수 내역 저장 오류:", error);
       return Response.json(
         {

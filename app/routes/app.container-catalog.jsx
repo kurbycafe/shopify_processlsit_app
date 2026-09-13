@@ -18,6 +18,7 @@ import {
   Divider,
   Checkbox,
   Grid,
+  Modal,
 } from "@shopify/polaris";
 import {
   SearchIcon,
@@ -31,6 +32,7 @@ import {
   isOdooConfigured,
 } from "../services/odooClient.server.js";
 import { notifySubscribersForContainer } from "../services/subscriptionService.server.js";
+import { changeContainerStatus } from "../services/containerStatus.server.js";
 import StatusBadge from "../components/common/StatusBadge";
 import AppEmptyState from "../components/common/AppEmptyState";
 
@@ -156,9 +158,12 @@ export const action = async ({ request }) => {
         };
       });
 
+      let savedStatus = null;
       // 4. Safe sync into local Prisma database
       try {
         await prisma.$transaction(async (tx) => {
+          const lockKey = `${shop}:${poName || containerRef}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
           const container = await tx.container.upsert({
             where: {
               shop_containerRef: {
@@ -181,6 +186,10 @@ export const action = async ({ request }) => {
             },
           });
 
+          savedStatus = container.status;
+          const receivedItems = await tx.containerItem.count({ where: { containerId: container.id, receivedQty: { gt: 0 } } });
+          // Reopening a PO must never erase warehouse receipt quantities.
+          if (container.status === "RECEIVED" || receivedItems > 0) return;
           await tx.containerItem.deleteMany({
             where: { containerId: container.id },
           });
@@ -203,7 +212,7 @@ export const action = async ({ request }) => {
         console.warn("DB Container auto-sync notice:", dbSyncErr.message);
       }
 
-      return { poName, partnerId, scheduledDate, items: matchedItems };
+      return { poName, partnerId, scheduledDate, items: matchedItems, status: savedStatus, syncWarning: savedStatus ? null : "조회는 완료되었지만 입고 기록 저장에 실패했습니다. 다시 조회해 주세요." };
     } catch (err) {
       return { error: `불러오기 실패: ${err.message}` };
     }
@@ -214,42 +223,9 @@ export const action = async ({ request }) => {
     const status = String(formData.get("status") || "SCHEDULED");
 
     try {
-      const now = new Date();
-      const updatedContainer = await prisma.container.update({
-        where: {
-          shop_containerRef: {
-            shop,
-            containerRef,
-          },
-        },
-        data: {
-          status,
-          receivedAt: status === "RECEIVED" ? now : undefined,
-        },
-        include: { items: true },
-      });
-
-      let notificationMsg = "";
-      if (status === "RECEIVED" && updatedContainer.items?.length > 0) {
-        const notifResult = await notifySubscribersForContainer({
-          shop,
-          containerRef,
-          receivedAt: now,
-          items: updatedContainer.items,
-        });
-
-        if (notifResult.totalNotified > 0) {
-          const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-          notificationMsg = ` (대기 고객 ${notifResult.totalNotified}명에게 재입고 알림 발송 완료 - PO: ${containerRef}, 발송일: ${dateStr})`;
-        }
-      }
-
-      return {
-        success: true,
-        message: `컨테이너 [${containerRef}] 상태가 [${status}]로 변경되었습니다.${notificationMsg}`,
-      };
-    } catch (e) {
-      return { error: `상태 변경 실패: ${e.message}` };
+      return await changeContainerStatus({ db: prisma, shop, containerRef, status, notify: notifySubscribersForContainer });
+    } catch {
+      return { error: '상태를 저장하지 못했습니다. 다시 조회한 후 시도해 주세요.' };
     }
   }
 
@@ -260,6 +236,7 @@ export default function ContainerCatalog() {
   const { upcomingOdoo, odooAvailable } = useLoaderData();
   const fetcher = useFetcher();
   const statusFetcher = useFetcher();
+  const [pendingStatus, setPendingStatus] = useState(null);
   const [searchParams] = useSearchParams();
   const [containerRef, setContainerRef] = useState("");
   const [hasAutoFetched, setHasAutoFetched] = useState(false);
@@ -280,6 +257,8 @@ export default function ContainerCatalog() {
   const items = useMemo(() => data.items || [], [data.items]);
   const poName = data.poName || "";
   const partnerId = data.partnerId || "";
+  const currentStatus = statusFetcher.data?.containerRef === poName && statusFetcher.data?.success ? statusFetcher.data.status : data.status;
+  const statusBusy = statusFetcher.state !== 'idle';
 
   // Auto-fetch from URL param
   useEffect(() => {
@@ -554,7 +533,8 @@ export default function ContainerCatalog() {
   };
 
   const handleStatusChange = (newStatus) => {
-    if (!poName) return;
+    if (!poName || statusBusy) return;
+    setPendingStatus(null);
     statusFetcher.submit(
       { intent: "update_status", containerRef: poName, status: newStatus },
       { method: "POST" }
@@ -632,6 +612,7 @@ export default function ContainerCatalog() {
                 </Banner>
               )}
 
+              {(statusFetcher.data?.error || statusFetcher.data?.warning || data.syncWarning) && <Banner tone="warning"><p>{statusFetcher.data?.error || statusFetcher.data?.warning || data.syncWarning}</p></Banner>}
               {statusFetcher.data?.message && (
                 <Banner tone="success">
                   <p>{statusFetcher.data.message}</p>
@@ -707,7 +688,7 @@ export default function ContainerCatalog() {
                       <Text variant="headingMd" as="h2">
                         {poName}
                       </Text>
-                      <StatusBadge status="SCHEDULED" />
+                      {currentStatus ? <StatusBadge status={currentStatus} /> : <Badge tone="attention">저장 상태 확인 필요</Badge>}
                     </InlineStack>
                     <Text variant="bodySm" tone="subdued">
                       공급처: {partnerId || "미지정"} | Shopify 매칭: {matchedCount}/{totalSKUs}종
@@ -715,10 +696,10 @@ export default function ContainerCatalog() {
                   </BlockStack>
 
                   <InlineStack gap="200">
-                    <Button onClick={() => handleStatusChange("ARRIVED")}>
+                    <Button disabled={statusBusy || !currentStatus || currentStatus === "ARRIVED" || currentStatus === "RECEIVED"} onClick={() => setPendingStatus("ARRIVED")}>
                       도착(ARRIVED) 처리
                     </Button>
-                    <Button variant="primary" tone="success" onClick={() => handleStatusChange("RECEIVED")}>
+                    <Button variant="primary" tone="success" disabled={statusBusy || !currentStatus || currentStatus === "RECEIVED"} onClick={() => setPendingStatus("RECEIVED")}>
                       입고 완료(RECEIVED)
                     </Button>
                   </InlineStack>
@@ -900,6 +881,11 @@ export default function ContainerCatalog() {
           </Layout.Section>
         )}
       </Layout>
+      <Modal open={Boolean(pendingStatus)} onClose={() => setPendingStatus(null)} title="입고 상태 변경 확인"
+        primaryAction={{ content: '상태 변경', onAction: () => handleStatusChange(pendingStatus), loading: statusBusy }}
+        secondaryActions={[{ content: '취소', onAction: () => setPendingStatus(null) }]}>
+        <Modal.Section><p>{poName}의 상태를 {pendingStatus}로 변경합니다. 입고 완료 처리 시 재입고 알림이 발송될 수 있습니다.</p></Modal.Section>
+      </Modal>
     </Page>
   );
 }
