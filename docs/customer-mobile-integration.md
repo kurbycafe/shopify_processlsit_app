@@ -104,3 +104,7 @@ Shopify references: [Customer Account API](https://shopify.dev/docs/api/customer
 ```
 
 Content-Type: application/json. 성공 응답의 data는 `{ "accepted": true }`이다. 고객·Admin·Odoo 키를 보내지 않는다. 서버가 고정된 shop에서 공개 상품 정보를 조회하여 기존 BackInStockSubscription에 저장한다. SKU, 상품 제목, shop을 클라이언트가 지정할 수 없다. 이메일은 URL 파라미터에 포함하지 않는다. 신청 완료는 서버 저장 성공을 뜻하며 이메일 발송 완료를 뜻하지 않는다. 기존 신청 여부는 외부에 공개하지 않는다. POST 이외의 요청은 405이며 OPTIONS는 CORS 사전 요청용이다.
+
+## 설정 화면에서 연결 정보 복사 (2026-09-14)
+
+Processlist → 시스템 연동 설정 → **모바일 앱 연결 · 고객용 REST API**에서 기본 주소, `.env` 설정, 고객 주문 조회 예제를 복사한다. 기존 dawayo-mobile-app의 기본 주소는 `https://process-list-beryl.vercel.app`이며 변경하지 않았다. 아래쪽 직원용 검수/컨테이너 API는 서버 간 통합용으로 고객 모바일에서 사용하지 않는다. 설정 표시와 실제 고객 로그인 성공 여부는 별개이며, 401 응답은 고객 로그인 또는 토큰 갱신이 필요함을 뜻한다.

@@ -1,3 +1,4 @@
+import MobileConnectionCard from "../components/settings/MobileConnectionCard";
 import { useState } from "react";
 import { useLoaderData, useFetcher } from "react-router";
 import {
@@ -30,7 +31,6 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
 
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
-  await ensureRequiredWebhooks(admin, appUrl);
   const registeredWebhooks = await getRegisteredWebhooks(admin);
   const apiKey = process.env.SHOPIFY_API_KEY || "";
   const rawSecret = process.env.SHOPIFY_API_SECRET || "";
@@ -43,6 +43,11 @@ export const loader = async ({ request }) => {
 
   return {
     appUrl,
+    mobileConnection: {
+      baseUrl: new URL(appUrl).origin,
+      configured: process.env.CUSTOMER_API_SHOP === shop && Boolean(process.env.CUSTOMER_ACCOUNT_API_URL),
+      nativeOriginsReady: ['capacitor://localhost', 'https://localhost'].every(origin => (process.env.CUSTOMER_API_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).includes(origin)),
+    },
     apiKey,
     maskedSecret,
     scopes,
@@ -174,6 +179,7 @@ export const action = async ({ request }) => {
 
 export default function Settings() {
   const {
+    mobileConnection,
     appUrl,
     apiKey,
     maskedSecret,
@@ -212,8 +218,8 @@ export default function Settings() {
   };
 
   const codeTabs = [
-    { id: "inspection-api", content: "검수 내역 API (/api/inspection-history)" },
-    { id: "container-api", content: "컨테이너 연동 API (/api/container)" },
+    { id: "inspection-api", content: "직원용 검수 API (/api/inspection-history)" },
+    { id: "container-api", content: "직원용 컨테이너 API (/api/container)" },
     { id: "back-in-stock-api", content: "재입고 신청 API (/api/back-in-stock/subscribe)" },
     { id: "storefront-notice-api", content: "공지 팝업 API (/api/storefront-notice)" },
     { id: "print-api", content: "납품서 외부 출력 규격" },
@@ -304,6 +310,7 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
         </Banner>
 
         <Layout>
+          <Layout.Section><MobileConnectionCard {...mobileConnection} /></Layout.Section>
           {/* 1. 서비스 연결 상태 카드 */}
           <Layout.Section>
             <Card>

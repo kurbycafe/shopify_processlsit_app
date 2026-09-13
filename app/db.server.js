@@ -1,3 +1,4 @@
+import { schemaIsReady, readSchemaCatalog } from "./services/schemaReadiness.js";
 import { PrismaClient } from "@prisma/client";
 
 function validateDatabaseUrl() {
@@ -35,6 +36,9 @@ export async function ensureDatabaseSchema() {
 
   schemaEnsuredPromise = (async () => {
     try {
+      // An existing schema needs one read instead of dozens of DDL round trips.
+      const catalog = await readSchemaCatalog(prisma);
+      if (schemaIsReady(catalog)) return;
       // 1. BackInStockSubscription Table and Columns
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "BackInStockSubscription" (
@@ -143,7 +147,9 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_variantId_idx" ON "InspectionItem"("variantId");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_sku_idx" ON "InspectionItem"("sku");`);
     } catch (err) {
+      schemaEnsuredPromise = null;
       console.warn("[DB Auto-Schema Notice]:", err.message);
+      throw err;
     }
   })();
 

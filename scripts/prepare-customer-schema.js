@@ -1,9 +1,11 @@
 // Repair missing tables already defined in schema.prisma. This is deliberately
 // additive: never use db push/reset against the existing production database.
+import { schemaIsReady, readSchemaCatalog } from "../app/services/schemaReadiness.js";
 import { PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 try {
+  console.log("Runtime schema fast path ready:", schemaIsReady(await readSchemaCatalog(db)));
   await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(72190318)`;
     await tx.$executeRaw`CREATE TABLE IF NOT EXISTS "Container" (

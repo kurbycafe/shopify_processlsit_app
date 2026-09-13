@@ -46,20 +46,17 @@ export async function checkAndAlertCustomerRequests(admin, shop) {
     const orders = (json.data?.orders?.edges || []).map((e) => e.node);
 
     const alerted = [];
+    const existingRecords = orders.length ? await prisma.inspectionRecord.findMany({
+      where: { shop, orderId: { in: orders.map(order => order.id) } },
+      select: { orderId: true, isCancelAlertSent: true },
+    }) : [];
+    const sentIds = new Set(existingRecords.filter(record => record.isCancelAlertSent).map(record => record.orderId));
 
     for (const order of orders) {
       const orderGid = order.id;
       const orderName = order.name;
 
-      // 1. Check local DB if already alerted
-      const existing = await prisma.inspectionRecord.findUnique({
-        where: { orderId: orderGid },
-        select: { isCancelAlertSent: true },
-      });
-
-      if (existing?.isCancelAlertSent) {
-        continue;
-      }
+      if (sentIds.has(orderGid)) continue;
 
       // 2. Extract customer & item details
       const customerName = order.shippingAddress?.name || order.billingAddress?.name || "고객";

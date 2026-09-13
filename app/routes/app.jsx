@@ -1,30 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Outlet, useLoaderData, useFetcher, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
-import { ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
-import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
 
 import operationsStyles from "../styles/operations.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: operationsStyles }];
 
 export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
-  const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
-
-  try {
-    await ensureRequiredWebhooks(admin, appUrl);
-  } catch (err) {
-    console.error("[App Loader] Webhook check failed:", err.message);
-  }
-
-  try {
-    await checkAndAlertCustomerRequests(admin, session?.shop);
-  } catch (err) {
-    console.error("[App Loader] Customer request check failed:", err.message);
-  }
+  await authenticate.admin(request);
 
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
@@ -33,16 +18,27 @@ export default function App() {
   const { apiKey } = useLoaderData();
   const checkFetcher = useFetcher();
 
+  const checkRef = useRef(checkFetcher);
+  checkRef.current = checkFetcher;
   useEffect(() => {
-    // Background polling every 25 seconds to catch real-time customer cancellations
-    const interval = setInterval(() => {
-      if (checkFetcher.state === "idle") {
-        checkFetcher.load("/api/check-cancellations");
-      }
-    }, 25000);
-
-    return () => clearInterval(interval);
-  }, [checkFetcher]);
+    let lastStarted = 0;
+    const poll = () => {
+      if (document.visibilityState === 'hidden' || !navigator.onLine || checkRef.current.state !== 'idle') return;
+      if (Date.now() - lastStarted < 25000) return;
+      lastStarted = Date.now();
+      checkRef.current.load('/api/check-cancellations');
+    };
+    // Keep maintenance in a separate awaited HTTP request, not the page loader.
+    poll();
+    const interval = setInterval(poll, 25000);
+    document.addEventListener('visibilitychange', poll);
+    window.addEventListener('online', poll);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', poll);
+      window.removeEventListener('online', poll);
+    };
+  }, []);
 
   return (
     <AppProvider embedded apiKey={apiKey}>

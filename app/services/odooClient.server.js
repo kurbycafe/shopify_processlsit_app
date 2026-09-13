@@ -451,14 +451,15 @@ export async function fetchOdooContainerProducts(containerRef, { exact = false }
 /**
  * Fetches multiple SKU warehouse bin locations in a single batch query
  */
-export async function fetchOdooBinLocations(skus = []) {
+export async function fetchOdooBinLocations(skus = [], { strict = false } = {}) {
   if (!Array.isArray(skus) || skus.length === 0) return {};
 
-  const cleanSkus = skus.map((s) => String(s || "").trim()).filter(Boolean);
+  const cleanSkus = [...new Set(skus.map((s) => String(s || "").trim()).filter(Boolean))];
   if (cleanSkus.length === 0) return {};
 
   const config = getOdooConfig();
   if (!config.isConfigured) {
+    if (strict) throw new Error("Odoo 위치 조회 설정이 필요합니다.");
     const fallback = {};
     cleanSkus.forEach((s) => { fallback[s] = "위치 미지정"; });
     return fallback;
@@ -483,6 +484,7 @@ export async function fetchOdooBinLocations(skus = []) {
 
   const uid = await getOdooUid();
   if (!uid) {
+    if (strict) throw new Error("Odoo 위치 인증에 실패했습니다. 다시 시도해 주세요.");
     missingSkus.forEach((sku) => {
       resultMap[sku] = "위치 미지정";
     });
@@ -524,7 +526,8 @@ export async function fetchOdooBinLocations(skus = []) {
     );
 
     const searchData = await searchResponse.json();
-    const quants = searchData.result || [];
+    if (!searchResponse.ok || searchData.error || !Array.isArray(searchData.result)) throw new Error("Odoo 위치 조회에 실패했습니다.");
+    const quants = searchData.result;
 
     const rawDataMap = {};
     missingSkus.forEach((sku) => {
@@ -592,6 +595,7 @@ export async function fetchOdooBinLocations(skus = []) {
 
     return resultMap;
   } catch (err) {
+    if (strict) throw new Error("창고 위치를 확인하지 못했습니다. 다시 시도해 주세요.");
     console.warn("Odoo bin location batch fetch warning:", err.message);
     missingSkus.forEach((sku) => {
       resultMap[sku] = "위치 미지정";

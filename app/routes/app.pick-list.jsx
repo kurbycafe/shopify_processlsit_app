@@ -1,5 +1,6 @@
+import { loadProcessingList } from "../services/pickListData.server.js";
 import { useMemo, useState } from "react";
-import { useLoaderData, useActionData, useSubmit, useSearchParams } from "react-router";
+import { useLoaderData, useActionData, useSubmit, useSearchParams, useRevalidator } from "react-router";
 import {
   Page,
   Card,
@@ -28,154 +29,13 @@ import MetricCard from "../components/common/MetricCard";
 
 export { parseWarehouseInfo, compareRegalAscending };
 
-// ========================================================
-// GraphQL Query with Cursor Pagination
-// ========================================================
-const UNFULFILLED_ORDERS_QUERY = `#graphql
-  query UnfulfilledOrders($first: Int!, $after: String) {
-    orders(first: $first, after: $after, query: "status:open fulfillment_status:unfulfilled") {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        id
-        name
-        displayFinancialStatus
-        cancelledAt
-        shippingAddress {
-          name
-          company
-        }
-        lineItems(first: 250) { 
-          nodes {
-            quantity
-            name
-            variant { 
-              id
-              sku
-              barcode
-              inventoryQuantity 
-              product { 
-                title 
-                producttype: metafield(namespace: "custom", key: "producttype") { value }
-              } 
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-/**
- * Overall sorting by warehouse priority: STORE items first -> NEW_ONLY items -> NO_BIN
- */
-function sortBinLocations(a, b) {
-  const infoA = a.whInfo || parseWarehouseInfo(a.binLocation);
-  const infoB = b.whInfo || parseWarehouseInfo(b.binLocation);
-
-  const priority = { STORE: 1, NEW_ONLY: 2, NO_BIN: 3 };
-  if (priority[infoA.category] !== priority[infoB.category]) {
-    return priority[infoA.category] - priority[infoB.category];
-  }
-
-  return compareRegalAscending(a, b);
-}
-
-async function loadPickListData(admin, tempFilter = "ALL") {
-  const itemMap = new Map();
-  let hasNextPage = true;
-  let after = null;
-  const filteredOrders = [];
-
-  while (hasNextPage) {
-    const response = await admin.graphql(UNFULFILLED_ORDERS_QUERY, { variables: { first: 100, after } });
-    const payload = await response.json();
-    const orders = payload?.data?.orders?.nodes ?? [];
-
-    for (const order of orders) {
-      if (order.cancelledAt) continue;
-      filteredOrders.push(order);
-    }
-    hasNextPage = Boolean(payload?.data?.orders?.pageInfo?.hasNextPage);
-    after = payload?.data?.orders?.pageInfo?.endCursor || null;
-  }
-
-  // Filter orders based on temperature (DRY vs ALL)
-  const finalOrders = [];
-  for (const order of filteredOrders) {
-    const items = order.lineItems?.nodes ?? [];
-    const isDryOnly = items.every((item) => {
-      const pType = (item.variant?.product?.producttype?.value || "t").trim().toLowerCase();
-      return pType === "t" || pType === "";
-    });
-
-    if (tempFilter === "DRY_ONLY") {
-      if (isDryOnly) {
-        finalOrders.push(order);
-      }
-    } else {
-      finalOrders.push(order);
-    }
-  }
-
-  // Aggregate items across selected orders
-  for (const order of finalOrders) {
-    const orderNumber = order.name;
-    for (const lineItem of order?.lineItems?.nodes ?? []) {
-      const variant = lineItem.variant;
-      const sku = variant?.sku || "-";
-      const productName = variant?.product?.title || lineItem.name || "알 수 없는 상품";
-      const key = variant?.id || `${productName}__${sku}`;
-
-      if (!itemMap.has(key)) {
-        itemMap.set(key, {
-          productName,
-          sku,
-          barcode: variant?.barcode || "-",
-          orderedQty: 0,
-          inventoryQty: typeof variant?.inventoryQuantity === "number" ? variant.inventoryQuantity : null,
-          binLocation: "조회중",
-          orderNumbers: new Set(),
-        });
-      }
-      const current = itemMap.get(key);
-      current.orderedQty += lineItem.quantity || 0;
-      current.orderNumbers.add(orderNumber);
-    }
-  }
-
-  const allSkus = Array.from(itemMap.values()).map((i) => i.sku).filter((sku) => sku !== "-");
-  const odooBins = await fetchOdooBinLocations(allSkus);
-
-  const items = Array.from(itemMap.values())
-    .map((item) => {
-      const binLocation = odooBins[item.sku] || "위치 미지정";
-      const whInfo = parseWarehouseInfo(binLocation);
-
-      return {
-        ...item,
-        binLocation,
-        whInfo,
-        orderNumbers: Array.from(item.orderNumbers).sort(),
-      };
-    })
-    .sort(sortBinLocations);
-
-  return {
-    items,
-    ordersList: finalOrders.map((o) => ({ id: o.id, name: o.name })),
-    totalOrdersCount: finalOrders.length,
-    totalUnfulfilledProducts: items.length,
-    totalOrderedQty: items.reduce((sum, i) => sum + i.orderedQty, 0),
-    tempFilter,
-  };
-}
-
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  const urlObj = new URL(request.url);
-  const tempFilter = urlObj.searchParams.get("tempFilter") || "ALL";
-  return await loadPickListData(admin, tempFilter);
+  return loadProcessingList({ admin, fetchBins: skus => fetchOdooBinLocations(skus, { strict: true }) });
 };
+
+// Temperature is a view of the same snapshot, not a reason to reload Shopify/Odoo.
+export { shouldRevalidate } from "../utils/processingListNavigation.js";
 
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -231,18 +91,13 @@ export const action = async ({ request }) => {
 };
 
 export default function PickListPage() {
-  const {
-    items,
-    ordersList,
-    totalOrdersCount,
-    totalUnfulfilledProducts,
-    totalOrderedQty,
-    tempFilter,
-  } = useLoaderData();
-
+  const { views, fetchedAt } = useLoaderData();
   const actionData = useActionData();
   const submit = useSubmit();
+  const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
+  const tempFilter = searchParams.get('tempFilter') === 'DRY_ONLY' ? 'DRY_ONLY' : 'ALL';
+  const { items, ordersList, totalOrdersCount, totalUnfulfilledProducts, totalOrderedQty } = views[tempFilter];
 
   // Warehouse Tabs: "ALL" | "STORE" | "NEW_ONLY" | "NO_BIN"
   const [warehouseTab, setWarehouseTab] = useState("ALL");
@@ -460,6 +315,7 @@ export default function PickListPage() {
         onAction: handlePrintAndEmail,
       }}
       secondaryActions={[
+        { content: "최신 주문 새로고침", onAction: () => revalidator.revalidate(), loading: revalidator.state !== "idle" },
         {
           content: "단순 인쇄 (A4 가로)",
           icon: PrintIcon,
@@ -469,6 +325,7 @@ export default function PickListPage() {
       ]}
     >
       <BlockStack gap="400">
+        <Text as="p" tone="subdued">조회 시각: {new Date(fetchedAt).toLocaleString("ko-KR", { timeZone: "Europe/Berlin" })} (베를린) · 온도 필터는 현재 조회 결과에 즉시 적용됩니다.</Text>
         {/* 인쇄 전용 스타일 */}
         <style>{`
           @media print {
@@ -700,4 +557,7 @@ export default function PickListPage() {
       </BlockStack>
     </Page>
   );
+}
+export function ErrorBoundary() {
+  return <Page title="처리중 리스트" backAction={{ content: '대시보드', url: '/app' }}><Banner tone="critical" title="주문 또는 창고 위치를 불러오지 못했습니다."><p>조회가 완료되지 않아 불완전한 목록은 표시하지 않습니다. 잠시 후 다시 시도해 주세요.</p><Button onClick={() => window.location.reload()}>다시 불러오기</Button></Banner></Page>;
 }

@@ -1,3 +1,4 @@
+import { getDashboardData } from "../services/dashboardData.server.js";
 import { useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import {
@@ -43,119 +44,7 @@ export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // 1. Unfulfilled orders count
-  let unfulfilledCount = 0;
-  try {
-    const unfulfilledQuery = `#graphql
-      query getUnfulfilledCount {
-        ordersCount(query: "fulfillment_status:unfulfilled") {
-          count
-        }
-      }
-    `;
-    const response = await admin.graphql(unfulfilledQuery);
-    const json = await response.json();
-    unfulfilledCount = json.data?.ordersCount?.count || 0;
-  } catch (err) {
-    console.error("Failed to fetch unfulfilled orders count:", err.message);
-  }
-
-  // 2. Timezone-aware date calculations (Europe/Berlin default)
-  const { start: todayStart, end: todayEnd } = getTodayRange();
-  const { start: startOfWeek, end: endOfWeek } = getThisWeekRange();
-
-  // 3. Today printed delivery notes
-  const todayPrintedCount = await prisma.inspectionRecord.count({
-    where: {
-      shop,
-      isLieferscheinPrinted: true,
-      updatedAt: {
-        gte: todayStart,
-        lte: todayEnd,
-      },
-    },
-  });
-
-  // 4. This week fulfilled & inspected count
-  const thisWeekFulfilledCount = await prisma.inspectionRecord.count({
-    where: {
-      shop,
-      status: "SUCCESS",
-      OR: [
-        { completedAt: { gte: startOfWeek, lte: endOfWeek } },
-        { updatedAt: { gte: startOfWeek, lte: endOfWeek } },
-        { createdAt: { gte: startOfWeek, lte: endOfWeek } },
-      ],
-    },
-  });
-
-  // 5. Back in stock pending requests count
-  const pendingBackInStockCount = await prisma.backInStockSubscription.count({
-    where: {
-      shop,
-      status: "PENDING",
-    },
-  });
-
-  // 6. Recent QC & Inspection logs
-  const recentLogs = await prisma.inspectionRecord.findMany({
-    where: { shop },
-    orderBy: { createdAt: "desc" },
-    take: 6,
-    include: {
-      items: true,
-    },
-  });
-
-  // 7. Optimized single query for 7-day productivity metrics (N+1 eliminated)
-  const chartDays = getPastDaysRange(7);
-  const chartRangeStart = chartDays[0].start;
-  const chartRangeEnd = chartDays[chartDays.length - 1].end;
-
-  const past7DayRecords = await prisma.inspectionRecord.findMany({
-    where: {
-      shop,
-      createdAt: {
-        gte: chartRangeStart,
-        lte: chartRangeEnd,
-      },
-    },
-    select: {
-      status: true,
-      createdAt: true,
-    },
-  });
-
-  const chartData = chartDays.map((dayObj) => {
-    const dayRecords = past7DayRecords.filter(
-      (r) => r.createdAt >= dayObj.start && r.createdAt <= dayObj.end
-    );
-
-    return {
-      dateLabel: dayObj.dateLabel,
-      totalCount: dayRecords.length,
-      successCount: dayRecords.filter((r) => r.status === "SUCCESS").length,
-      partialCount: dayRecords.filter((r) => r.status === "PARTIAL").length,
-      issueCount: dayRecords.filter(
-        (r) => r.status === "ISSUE_REPORTED" || r.status === "FAILED"
-      ).length,
-    };
-  });
-
-  // 8. Odoo incoming container schedule & calendar
-  const upcomingContainers = await getUpcomingContainers();
-  const calendarMonths = getCalendarMonths();
-
-  return {
-    unfulfilledCount,
-    todayPrintedCount,
-    thisWeekFulfilledCount,
-    pendingBackInStockCount,
-    recentLogs,
-    upcomingContainers,
-    calendarMonths,
-    chartData,
-  };
+  return getDashboardData({ admin, shop, db: prisma, getUpcomingContainers, getTodayRange, getThisWeekRange, getPastDaysRange, getCalendarMonths });
 };
 
 export const action = async ({ request }) => {

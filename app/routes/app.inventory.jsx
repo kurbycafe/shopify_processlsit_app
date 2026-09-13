@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback } from "react";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import * as XLSX from "xlsx";
 import {
   Page,
   Card,
@@ -382,6 +381,7 @@ export default function InventoryReportPage() {
   const [stockFilter, setStockFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [exporting, setExporting] = useState(false);
   const [statusBanner, setStatusBanner] = useState(null);
 
   const filteredItems = useMemo(() => {
@@ -407,12 +407,16 @@ export default function InventoryReportPage() {
     return { totalVariants, totalStock, totalValuation };
   }, [filteredItems]);
 
-  const handleExportXLSX = useCallback(() => {
+  const handleExportXLSX = useCallback(async () => {
+    if (exporting) return;
     if (filteredItems.length === 0) {
       setStatusBanner({ tone: "warning", message: "선택한 조건에 해당하는 재고 데이터가 없습니다." });
       return;
     }
 
+    setExporting(true);
+    try {
+    const XLSX = await import("xlsx");
     const dataToExport = filteredItems.map((item, idx) => ({
       "번호": idx + 1,
       "SKU": item.sku,
@@ -429,7 +433,9 @@ export default function InventoryReportPage() {
 
     const fileName = `Inventory_Report_${selectedMonth}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     XLSX.writeFile(workbook, fileName);
-  }, [filteredItems, selectedMonth]);
+    } catch { setStatusBanner({ tone: "critical", message: "엑셀 파일 생성에 실패했습니다. 다시 시도해 주세요." }); }
+    finally { setExporting(false); }
+  }, [filteredItems, selectedMonth, exporting]);
 
   const handleGeneratePDF = useCallback(() => {
     if (filteredItems.length === 0) {
@@ -534,6 +540,7 @@ export default function InventoryReportPage() {
               <Button
                 size="large"
                 onClick={handleExportXLSX}
+                loading={exporting}
                 disabled={filteredItems.length === 0}
               >
                 엑셀 파일로 내보내기 (.xlsx)
