@@ -1,5 +1,5 @@
 import { loadProcessingList } from "../services/pickListData.server.js";
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useLoaderData, useActionData, useSubmit, useSearchParams, useRevalidator } from "react-router";
 import {
   Page,
@@ -19,11 +19,9 @@ import {
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { generatePickListPdfBuffer } from "../utils/pickListPrint";
 import { generatePickListPrintHtml } from "../utils/pickListPrintHtml";
 import { parseWarehouseInfo, compareRegalAscending } from "../utils/warehouseHelpers.js";
 import { fetchOdooBinLocations } from "../services/odooClient.server.js";
-import { sendPickListEmailWithPdf } from "../utils/emailService.js";
 import AppEmptyState from "../components/common/AppEmptyState";
 import MetricCard from "../components/common/MetricCard";
 
@@ -78,6 +76,10 @@ export const action = async ({ request }) => {
 
     // 2. Generate PDF and dispatch via Brevo HTTP API
     try {
+      const [{ generatePickListPdfBuffer }, { sendPickListEmailWithPdf }] = await Promise.all([
+        import("../utils/pickListPrint.js"),
+        import("../utils/emailService.js"),
+      ]);
       const pdfBuffer = await generatePickListPdfBuffer(items, techTime);
       const base64Pdf = pdfBuffer.toString("base64");
       const mailTitle = `${clientTime} 기준 처리중 리스트`;
@@ -97,6 +99,136 @@ export const action = async ({ request }) => {
 
   return null;
 };
+
+const PickListTableRow = memo(function PickListTableRow({ item }) {
+  if (!item) return null;
+  const itemWh = item.whInfo || parseWarehouseInfo(item.binLocation);
+  const orderNums = Array.isArray(item.orderNumbers) ? item.orderNumbers : [];
+  const orderCount = orderNums.length;
+  const orderSummary =
+    orderCount > 3
+      ? `${orderNums.slice(0, 3).join(", ")} 외 ${orderCount - 3}건`
+      : orderNums.join(", ");
+  const invQty = item.inventoryQty;
+  const invTone =
+    typeof invQty === "number"
+      ? invQty < 5
+        ? "critical"
+        : invQty < 10
+        ? "warning"
+        : undefined
+      : undefined;
+
+  const cellBg = itemWh.isNewOnly
+    ? "#ecfeff"
+    : itemWh.category === "NO_BIN"
+    ? "#fffbeb"
+    : "#eff6ff";
+
+  return (
+    <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+      {/* 창고 위치 및 레갈 번호 셀 (오름차순) */}
+      <td style={{ padding: "10px 12px", backgroundColor: cellBg }}>
+        <BlockStack gap="050">
+          <InlineStack gap="100" blockAlign="center">
+            {itemWh.isNewOnly ? (
+              <Badge tone="attention">신창고</Badge>
+            ) : itemWh.category === "NO_BIN" ? (
+              <Badge tone="warning">미지정</Badge>
+            ) : (
+              <Badge tone="info">매장</Badge>
+            )}
+
+            <Text variant="bodySm" fontWeight="bold">
+              {itemWh.storeShelf || itemWh.newShelf || item.binLocation || "위치 미지정"}
+            </Text>
+          </InlineStack>
+
+          {itemWh.hasBoth && itemWh.newShelf && (
+            <Text variant="bodyXs" tone="subdued">
+              {`(신창고: ${itemWh.newShelf})`}
+            </Text>
+          )}
+        </BlockStack>
+      </td>
+
+      <td style={{ padding: "10px 12px", fontWeight: "bold" }}>
+        {item.productName}
+      </td>
+
+      <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#475569" }}>
+        <div>{item.sku}</div>
+        <div style={{ fontSize: "11px", color: "#94a3b8" }}>{item.barcode}</div>
+      </td>
+
+      <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: "bold", fontSize: "15px" }}>
+        {`${item.orderedQty ?? 0} 개`}
+      </td>
+
+      <td style={{ padding: "10px 12px", textAlign: "right" }}>
+        {typeof invQty === "number" ? (
+          <Text tone={invTone}>
+            {`${invQty} 개`}
+          </Text>
+        ) : (
+          "-"
+        )}
+      </td>
+
+      <td style={{ padding: "10px 12px", fontSize: "11px", color: "#64748b" }}>
+        {orderSummary}
+      </td>
+    </tr>
+  );
+});
+
+const WarehouseTableSection = memo(function WarehouseTableSection({
+  title,
+  categoryBadge,
+  itemList,
+  totalQty,
+  headerBg,
+}) {
+  if (!itemList || itemList.length === 0) return null;
+
+  return (
+    <Card padding="0">
+      <Box padding="300" background={headerBg}>
+        <InlineStack align="space-between" blockAlign="center">
+          <InlineStack gap="200" blockAlign="center">
+            {categoryBadge}
+            <Text variant="headingSm" as="h3" fontWeight="bold">
+              {title}
+            </Text>
+            <Badge tone="subdued">{`${itemList.length}종 품목`}</Badge>
+          </InlineStack>
+
+          <Text variant="bodySm" fontWeight="semibold">
+            {`피킹 수량: 총 ${totalQty.toLocaleString()} 개 (레갈번호 오름차순 정렬)`}
+          </Text>
+        </InlineStack>
+      </Box>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+        <thead>
+          <tr style={{ borderBottom: "1px solid #cbd5e1", backgroundColor: "#f8fafc", textAlign: "left" }}>
+            <th style={{ padding: "10px 12px", width: "22%" }}>창고 위치 (레갈 번호)</th>
+            <th style={{ padding: "10px 12px", width: "32%" }}>상품명</th>
+            <th style={{ padding: "10px 12px", width: "16%" }}>SKU / 바코드</th>
+            <th style={{ padding: "10px 12px", width: "10%", textAlign: "right" }}>피킹 수량</th>
+            <th style={{ padding: "10px 12px", width: "10%", textAlign: "right" }}>현재 재고</th>
+            <th style={{ padding: "10px 12px", width: "10%" }}>관련 주문</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itemList.map((item, idx) => (
+            <PickListTableRow key={item?.key || item?.sku || idx} item={item} />
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+});
 
 export default function PickListPage() {
   const loaderData = useLoaderData() || {};
@@ -122,8 +254,20 @@ export default function PickListPage() {
   const [warehouseTab, setWarehouseTab] = useState("ALL");
   const [selectedLocation, setSelectedLocation] = useState("ALL");
 
-  // Segregate and sort each warehouse category in ascending Regal order
+  // Segregate and sort each warehouse category in ascending Regal order (server pre-computed when available)
   const { storeItems, newOnlyItems, noBinItems } = useMemo(() => {
+    if (
+      Array.isArray(currentView.storeItems) &&
+      Array.isArray(currentView.newOnlyItems) &&
+      Array.isArray(currentView.noBinItems)
+    ) {
+      return {
+        storeItems: currentView.storeItems,
+        newOnlyItems: currentView.newOnlyItems,
+        noBinItems: currentView.noBinItems,
+      };
+    }
+
     const store = [];
     const newOnly = [];
     const noBin = [];
@@ -145,35 +289,95 @@ export default function PickListPage() {
     noBin.sort(compareRegalAscending);
 
     return { storeItems: store, newOnlyItems: newOnly, noBinItems: noBin };
-  }, [items]);
+  }, [currentView.storeItems, currentView.newOnlyItems, currentView.noBinItems, items]);
 
-  const storeQty = useMemo(() => (storeItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0), [storeItems]);
-  const newOnlyQty = useMemo(() => (newOnlyItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0), [newOnlyItems]);
-  const noBinQty = useMemo(() => (noBinItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0), [noBinItems]);
+  const storeQty = useMemo(() => {
+    if (typeof currentView.storeQty === "number") return currentView.storeQty;
+    return (storeItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+  }, [currentView.storeQty, storeItems]);
 
-  // Items to display based on selected warehouse tab and sub-location filter
-  const displayedItems = useMemo(() => {
-    let base = items || [];
-    if (warehouseTab === "STORE") base = storeItems || [];
-    else if (warehouseTab === "NEW_ONLY") base = newOnlyItems || [];
-    else if (warehouseTab === "NO_BIN") base = noBinItems || [];
+  const newOnlyQty = useMemo(() => {
+    if (typeof currentView.newOnlyQty === "number") return currentView.newOnlyQty;
+    return (newOnlyItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+  }, [currentView.newOnlyQty, newOnlyItems]);
 
-    if (selectedLocation === "ALL") return base;
-    return base.filter((i) => i && i.binLocation === selectedLocation);
-  }, [warehouseTab, items, storeItems, newOnlyItems, noBinItems, selectedLocation]);
+  const noBinQty = useMemo(() => {
+    if (typeof currentView.noBinQty === "number") return currentView.noBinQty;
+    return (noBinItems || []).reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+  }, [currentView.noBinQty, noBinItems]);
+
+  // Tab-selected base items
+  const activeBaseItems = useMemo(() => {
+    if (warehouseTab === "STORE") return storeItems;
+    if (warehouseTab === "NEW_ONLY") return newOnlyItems;
+    if (warehouseTab === "NO_BIN") return noBinItems;
+    return items;
+  }, [warehouseTab, items, storeItems, newOnlyItems, noBinItems]);
 
   // Unique location list for dropdown within the active warehouse view
   const uniqueLocations = useMemo(() => {
-    let base = items || [];
-    if (warehouseTab === "STORE") base = storeItems || [];
-    else if (warehouseTab === "NEW_ONLY") base = newOnlyItems || [];
-    else if (warehouseTab === "NO_BIN") base = noBinItems || [];
-
-    const locSet = new Set((base || []).map((i) => i?.binLocation).filter(Boolean));
+    const locSet = new Set((activeBaseItems || []).map((i) => i?.binLocation).filter(Boolean));
     return Array.from(locSet);
-  }, [warehouseTab, items, storeItems, newOnlyItems, noBinItems]);
+  }, [activeBaseItems]);
 
-  const handlePrint = () => {
+  // Stable location options for Select
+  const locationOptions = useMemo(() => {
+    return [
+      { label: `전체 구역 (${uniqueLocations.length})`, value: "ALL" },
+      ...uniqueLocations.map((loc) => ({ label: loc, value: loc })),
+    ];
+  }, [uniqueLocations]);
+
+  // Filtered lists and quantities for each warehouse category
+  const {
+    filteredStore,
+    filteredStoreQty,
+    filteredNewOnly,
+    filteredNewOnlyQty,
+    filteredNoBin,
+    filteredNoBinQty,
+  } = useMemo(() => {
+    if (selectedLocation === "ALL") {
+      return {
+        filteredStore: storeItems,
+        filteredStoreQty: storeQty,
+        filteredNewOnly: newOnlyItems,
+        filteredNewOnlyQty: newOnlyQty,
+        filteredNoBin: noBinItems,
+        filteredNoBinQty: noBinQty,
+      };
+    }
+
+    const fStore = storeItems.filter((i) => i?.binLocation === selectedLocation);
+    const fStoreQty = fStore.reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+
+    const fNew = newOnlyItems.filter((i) => i?.binLocation === selectedLocation);
+    const fNewQty = fNew.reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+
+    const fNoBin = noBinItems.filter((i) => i?.binLocation === selectedLocation);
+    const fNoBinQty = fNoBin.reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+
+    return {
+      filteredStore: fStore,
+      filteredStoreQty: fStoreQty,
+      filteredNewOnly: fNew,
+      filteredNewOnlyQty: fNewQty,
+      filteredNoBin: fNoBin,
+      filteredNoBinQty: fNoBinQty,
+    };
+  }, [selectedLocation, storeItems, storeQty, newOnlyItems, newOnlyQty, noBinItems, noBinQty]);
+
+  // Items to display based on selected warehouse tab and sub-location filter
+  const displayedItems = useMemo(() => {
+    if (warehouseTab === "STORE") return filteredStore;
+    if (warehouseTab === "NEW_ONLY") return filteredNewOnly;
+    if (warehouseTab === "NO_BIN") return filteredNoBin;
+
+    if (selectedLocation === "ALL") return items;
+    return items.filter((i) => i && i.binLocation === selectedLocation);
+  }, [warehouseTab, selectedLocation, items, filteredStore, filteredNewOnly, filteredNoBin]);
+
+  const handlePrint = useCallback(() => {
     const now = new Date();
     const formattedTime = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
@@ -197,9 +401,9 @@ export default function PickListPage() {
     }
 
     window.print();
-  };
+  }, [displayedItems, warehouseTab, totalOrdersCount]);
 
-  const handlePrintAndEmail = () => {
+  const handlePrintAndEmail = useCallback(() => {
     const now = new Date();
     const formattedTime = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const techTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -216,114 +420,36 @@ export default function PickListPage() {
     );
 
     handlePrint();
-  };
+  }, [displayedItems, ordersList, submit, handlePrint]);
 
-  // Reusable Table Section Component for each Warehouse Category
-  const renderWarehouseTableSection = (title, categoryBadge, itemList, totalQty, headerBg) => {
-    if (!itemList || itemList.length === 0) return null;
+  const handleSelectTabAll = useCallback(() => {
+    setWarehouseTab("ALL");
+    setSelectedLocation("ALL");
+  }, []);
 
-    return (
-      <Card padding="0">
-        <Box padding="300" background={headerBg}>
-          <InlineStack align="space-between" blockAlign="center">
-            <InlineStack gap="200" blockAlign="center">
-              {categoryBadge}
-              <Text variant="headingSm" as="h3" fontWeight="bold">
-                {title}
-              </Text>
-              <Badge tone="subdued">{`${itemList.length}종 품목`}</Badge>
-            </InlineStack>
+  const handleSelectTabStore = useCallback(() => {
+    setWarehouseTab("STORE");
+    setSelectedLocation("ALL");
+  }, []);
 
-            <Text variant="bodySm" fontWeight="semibold">
-              {`피킹 수량: 총 ${totalQty.toLocaleString()} 개 (레갈번호 오름차순 정렬)`}
-            </Text>
-          </InlineStack>
-        </Box>
+  const handleSelectTabNew = useCallback(() => {
+    setWarehouseTab("NEW_ONLY");
+    setSelectedLocation("ALL");
+  }, []);
 
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #cbd5e1", backgroundColor: "#f8fafc", textAlign: "left" }}>
-              <th style={{ padding: "10px 12px", width: "22%" }}>창고 위치 (레갈 번호)</th>
-              <th style={{ padding: "10px 12px", width: "32%" }}>상품명</th>
-              <th style={{ padding: "10px 12px", width: "16%" }}>SKU / 바코드</th>
-              <th style={{ padding: "10px 12px", width: "10%", textAlign: "right" }}>피킹 수량</th>
-              <th style={{ padding: "10px 12px", width: "10%", textAlign: "right" }}>현재 재고</th>
-              <th style={{ padding: "10px 12px", width: "10%" }}>관련 주문</th>
-            </tr>
-          </thead>
-          <tbody>
-            {itemList.map((item, idx) => {
-              if (!item) return null;
-              const itemWh = item.whInfo || parseWarehouseInfo(item.binLocation);
-              const orderNums = Array.isArray(item.orderNumbers) ? item.orderNumbers : [];
+  const handleSelectTabNoBin = useCallback(() => {
+    setWarehouseTab("NO_BIN");
+    setSelectedLocation("ALL");
+  }, []);
 
-              return (
-                <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  {/* 창고 위치 및 레갈 번호 셀 (오름차순) */}
-                  <td
-                    style={{
-                      padding: "10px 12px",
-                      backgroundColor: itemWh.isNewOnly
-                        ? "#ecfeff"
-                        : itemWh.category === "NO_BIN"
-                        ? "#fffbeb"
-                        : "#eff6ff",
-                    }}
-                  >
-                    <BlockStack gap="050">
-                      <InlineStack gap="100" blockAlign="center">
-                        {itemWh.isNewOnly ? (
-                          <Badge tone="attention">신창고</Badge>
-                        ) : itemWh.category === "NO_BIN" ? (
-                          <Badge tone="warning">미지정</Badge>
-                        ) : (
-                          <Badge tone="info">매장</Badge>
-                        )}
+  const handleTempFilterChange = useCallback((val) => {
+    searchParams.set("tempFilter", val);
+    setSearchParams(searchParams);
+  }, [searchParams, setSearchParams]);
 
-                        <Text variant="bodySm" fontWeight="bold">
-                          {itemWh.storeShelf || itemWh.newShelf || item.binLocation || "위치 미지정"}
-                        </Text>
-                      </InlineStack>
-
-                      {itemWh.hasBoth && itemWh.newShelf && (
-                        <Text variant="bodyXs" tone="subdued">
-                          {`(신창고: ${itemWh.newShelf})`}
-                        </Text>
-                      )}
-                    </BlockStack>
-                  </td>
-
-                  <td style={{ padding: "10px 12px", fontWeight: "bold" }}>
-                    {item.productName}
-                  </td>
-                  <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#475569" }}>
-                    <div>{item.sku}</div>
-                    <div style={{ fontSize: "11px", color: "#94a3b8" }}>{item.barcode}</div>
-                  </td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: "bold", fontSize: "15px" }}>
-                    {`${item.orderedQty ?? 0} 개`}
-                  </td>
-                  <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                    {typeof item.inventoryQty === "number" ? (
-                      <Text tone={item.inventoryQty < 5 ? "critical" : item.inventoryQty < 10 ? "warning" : undefined}>
-                        {`${item.inventoryQty} 개`}
-                      </Text>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  <td style={{ padding: "10px 12px", fontSize: "11px", color: "#64748b" }}>
-                    {orderNums.slice(0, 3).join(", ")}
-                    {orderNums.length > 3 && ` 외 ${orderNums.length - 3}건`}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
-    );
-  };
+  const handleRevalidate = useCallback(() => {
+    revalidator.revalidate();
+  }, [revalidator]);
 
   return (
     <Page
@@ -337,7 +463,7 @@ export default function PickListPage() {
         onAction: handlePrintAndEmail,
       }}
       secondaryActions={[
-        { content: "최신 주문 새로고침", onAction: () => revalidator.revalidate(), loading: revalidator.state !== "idle" },
+        { content: "최신 주문 새로고침", onAction: handleRevalidate, loading: revalidator.state !== "idle" },
         {
           content: "단순 인쇄 (A4 가로)",
           icon: PrintIcon,
@@ -455,38 +581,26 @@ export default function PickListPage() {
               <ButtonGroup segmented>
                 <Button
                   pressed={warehouseTab === "ALL"}
-                  onClick={() => {
-                    setWarehouseTab("ALL");
-                    setSelectedLocation("ALL");
-                  }}
+                  onClick={handleSelectTabAll}
                 >
                   {`전체 목록 (${items.length}종)`}
                 </Button>
                 <Button
                   pressed={warehouseTab === "STORE"}
-                  onClick={() => {
-                    setWarehouseTab("STORE");
-                    setSelectedLocation("ALL");
-                  }}
+                  onClick={handleSelectTabStore}
                 >
                   {`매장창고 피킹 (STORE) [${storeItems.length}종 / ${storeQty}개]`}
                 </Button>
                 <Button
                   pressed={warehouseTab === "NEW_ONLY"}
-                  onClick={() => {
-                    setWarehouseTab("NEW_ONLY");
-                    setSelectedLocation("ALL");
-                  }}
+                  onClick={handleSelectTabNew}
                 >
                   {`신창고 전용 피킹 (NEW WH) [${newOnlyItems.length}종 / ${newOnlyQty}개]`}
                 </Button>
                 {noBinItems.length > 0 && (
                   <Button
                     pressed={warehouseTab === "NO_BIN"}
-                    onClick={() => {
-                      setWarehouseTab("NO_BIN");
-                      setSelectedLocation("ALL");
-                    }}
+                    onClick={handleSelectTabNoBin}
                   >
                     {`위치 미지정 [${noBinItems.length}종]`}
                   </Button>
@@ -502,20 +616,14 @@ export default function PickListPage() {
                     { label: "상온 단독만", value: "DRY_ONLY" },
                   ]}
                   value={tempFilter}
-                  onChange={(val) => {
-                    searchParams.set("tempFilter", val);
-                    setSearchParams(searchParams);
-                  }}
+                  onChange={handleTempFilterChange}
                 />
 
                 {uniqueLocations.length > 1 && (
                   <Select
                     label="구역 필터"
                     labelInline
-                    options={[
-                      { label: `전체 구역 (${uniqueLocations.length})`, value: "ALL" },
-                      ...uniqueLocations.map((loc) => ({ label: loc, value: loc })),
-                    ]}
+                    options={locationOptions}
                     value={selectedLocation}
                     onChange={setSelectedLocation}
                   />
@@ -534,38 +642,35 @@ export default function PickListPage() {
           <BlockStack gap="400">
             {/* 전체 뷰 또는 매장창고 탭 선택 시: 매장창고 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "STORE") && (
-              renderWarehouseTableSection(
-                "매장창고 처리중 리스트 (STORE WAREHOUSE)",
-                <Badge tone="info">매장창고</Badge>,
-                selectedLocation === "ALL" ? storeItems : storeItems.filter((i) => i.binLocation === selectedLocation),
-                selectedLocation === "ALL" ? storeQty : storeItems.filter((i) => i.binLocation === selectedLocation).reduce((sum, i) => sum + i.orderedQty, 0),
-                "bg-surface-secondary",
-                true
-              )
+              <WarehouseTableSection
+                title="매장창고 처리중 리스트 (STORE WAREHOUSE)"
+                categoryBadge={<Badge tone="info">매장창고</Badge>}
+                itemList={filteredStore}
+                totalQty={filteredStoreQty}
+                headerBg="bg-surface-secondary"
+              />
             )}
 
             {/* 전체 뷰 또는 신창고 탭 선택 시: 신창고 전용 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "NEW_ONLY") && (
-              renderWarehouseTableSection(
-                "신창고 전용 처리중 리스트 (NEW / MAIN WAREHOUSE)",
-                <Badge tone="attention">신창고 전용</Badge>,
-                selectedLocation === "ALL" ? newOnlyItems : newOnlyItems.filter((i) => i.binLocation === selectedLocation),
-                selectedLocation === "ALL" ? newOnlyQty : newOnlyItems.filter((i) => i.binLocation === selectedLocation).reduce((sum, i) => sum + i.orderedQty, 0),
-                "bg-surface-caution-subdued",
-                false
-              )
+              <WarehouseTableSection
+                title="신창고 전용 처리중 리스트 (NEW / MAIN WAREHOUSE)"
+                categoryBadge={<Badge tone="attention">신창고 전용</Badge>}
+                itemList={filteredNewOnly}
+                totalQty={filteredNewOnlyQty}
+                headerBg="bg-surface-caution-subdued"
+              />
             )}
 
             {/* 전체 뷰 또는 위치 미지정 탭 선택 시: 위치 미지정 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "NO_BIN") && noBinItems.length > 0 && (
-              renderWarehouseTableSection(
-                "위치 미지정 처리중 리스트 (UNASSIGNED LOCATION)",
-                <Badge tone="warning">위치 미지정</Badge>,
-                selectedLocation === "ALL" ? noBinItems : noBinItems.filter((i) => i.binLocation === selectedLocation),
-                selectedLocation === "ALL" ? noBinQty : noBinItems.filter((i) => i.binLocation === selectedLocation).reduce((sum, i) => sum + i.orderedQty, 0),
-                "bg-surface-warning-subdued",
-                false
-              )
+              <WarehouseTableSection
+                title="위치 미지정 처리중 리스트 (UNASSIGNED LOCATION)"
+                categoryBadge={<Badge tone="warning">위치 미지정</Badge>}
+                itemList={filteredNoBin}
+                totalQty={filteredNoBinQty}
+                headerBg="bg-surface-warning-subdued"
+              />
             )}
           </BlockStack>
         ) : (
@@ -580,6 +685,7 @@ export default function PickListPage() {
     </Page>
   );
 }
+
 export function ErrorBoundary() {
   return <Page title="처리중 리스트" backAction={{ content: '대시보드', url: '/app' }}><Banner tone="critical" title="주문 또는 창고 위치를 불러오지 못했습니다."><p>조회가 완료되지 않아 불완전한 목록은 표시하지 않습니다. 잠시 후 다시 시도해 주세요.</p><Button onClick={() => window.location.reload()}>다시 불러오기</Button></Banner></Page>;
 }

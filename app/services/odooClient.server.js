@@ -28,7 +28,7 @@ let cachedSession = {
   expiresAt: 0,
 };
 
-const MAX_CACHE_ENTRIES = 500;
+const MAX_CACHE_ENTRIES = 2000;
 const skuEtaCache = new Map(); // SKU -> { etaDate: string, cachedAt: number }
 const binLocationCache = new Map(); // SKU -> { bin: string, cachedAt: number }
 const ETA_CACHE_TTL_MS = 15 * 60 * 1000; // 15 Minutes
