@@ -3,7 +3,6 @@ import {
   BlockStack,
   InlineStack,
   Text,
-  Badge,
   InlineGrid,
   Box,
   Icon,

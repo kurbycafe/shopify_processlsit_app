@@ -11,7 +11,6 @@ import {
   FormLayout,
   Tag,
   Text,
-  Badge,
 } from "@shopify/polaris";
 import {
   SearchIcon,

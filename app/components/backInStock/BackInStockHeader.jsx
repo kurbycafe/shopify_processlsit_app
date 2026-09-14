@@ -55,7 +55,7 @@ export default function BackInStockHeader({
             loading={isScanning}
             onClick={onScanAndNotify}
           >
-            실시간 재고 스캔 &amp; 입고 상품 자동 발송
+            실시간 재고 스캔 & 입고 상품 자동 발송
           </Button>
         </InlineStack>
       </InlineStack>

@@ -258,6 +258,7 @@ export async function notifyPendingSubscribersForVariant({
         where: { id: sub.id },
         data: {
           status: "NOTIFIED",
+          sku: sub.sku || sku || undefined,
           poNumber: subPo,
           restockedAt: resolvedRestockedAt,
           notifiedAt: nowDispatchDate,
@@ -275,6 +276,7 @@ export async function notifyPendingSubscribersForVariant({
         where: { id: sub.id },
         data: {
           status: "FAILED",
+          sku: sub.sku || sku || undefined,
           poNumber: subPo,
           notificationAttempts: { increment: 1 },
           lastNotificationAt: new Date(),

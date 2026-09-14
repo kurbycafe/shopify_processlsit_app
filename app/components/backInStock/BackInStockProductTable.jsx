@@ -326,7 +326,7 @@ export default function BackInStockProductTable({
                         icon={SendIcon}
                         loading={isNotifying}
                         disabled={item.pendingCount === 0}
-                        onClick={() => onNotifyVariant(item.variantId)}
+                        onClick={() => onNotifyVariant(item.variantId, item.sku, item.productTitle)}
                       >
                         일괄 발송
                       </Button>

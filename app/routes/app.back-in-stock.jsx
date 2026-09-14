@@ -32,7 +32,7 @@ import BackInStockDetailDrawer from "../components/backInStock/BackInStockDetail
 import BackInStockEmailPreviewModal from "../components/backInStock/BackInStockEmailPreviewModal";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
   await ensureDatabaseSchema();
@@ -53,8 +53,20 @@ export const loader = async ({ request }) => {
 
   // If requesting detail drawer subscribers
   if (drawerVariantId) {
+    const rawVariantId = drawerVariantId.replace("gid://shopify/ProductVariant/", "");
+    const gidVariantId = drawerVariantId.startsWith("gid://")
+      ? drawerVariantId
+      : `gid://shopify/ProductVariant/${drawerVariantId}`;
+
     const drawerSubscribers = await safeFindSubscribers(
-      { shop, variantId: drawerVariantId },
+      {
+        shop,
+        OR: [
+          { variantId: drawerVariantId },
+          { variantId: rawVariantId },
+          { variantId: gidVariantId },
+        ],
+      },
       { createdAt: "desc" }
     );
     return Response.json({ drawerSubscribers });
@@ -75,7 +87,7 @@ export const loader = async ({ request }) => {
 
   // Group by variant to get product-level aggregates
   const allVariantGroups = await prisma.backInStockSubscription.groupBy({
-    by: ["variantId", "productId", "productTitle", "variantTitle", "etaDate"],
+    by: ["variantId"],
     where: { shop },
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
@@ -87,7 +99,11 @@ export const loader = async ({ request }) => {
     where: { shop, status: "PENDING" },
     _count: { id: true },
   });
-  const pendingMap = new Map(pendingVariantGroups.map((g) => [g.variantId, g._count.id]));
+  const pendingMap = new Map();
+  pendingVariantGroups.forEach((g) => {
+    const rawId = g.variantId.replace("gid://shopify/ProductVariant/", "");
+    pendingMap.set(rawId, (pendingMap.get(rawId) || 0) + g._count.id);
+  });
 
   // Calculate notified count per variant (Sent)
   const notifiedVariantGroups = await prisma.backInStockSubscription.groupBy({
@@ -95,7 +111,11 @@ export const loader = async ({ request }) => {
     where: { shop, status: "NOTIFIED" },
     _count: { id: true },
   });
-  const notifiedMap = new Map(notifiedVariantGroups.map((g) => [g.variantId, g._count.id]));
+  const notifiedMap = new Map();
+  notifiedVariantGroups.forEach((g) => {
+    const rawId = g.variantId.replace("gid://shopify/ProductVariant/", "");
+    notifiedMap.set(rawId, (notifiedMap.get(rawId) || 0) + g._count.id);
+  });
 
   let highDemandProductsCount = 0;
   let arrivingSoonCount = 0;
@@ -112,29 +132,57 @@ export const loader = async ({ request }) => {
       distinct: ["variantId"],
       select: {
         variantId: true,
+        productId: true,
+        productTitle: true,
+        variantTitle: true,
         sku: true,
         poNumber: true,
+        etaDate: true,
         notifiedAt: true,
         restockedAt: true,
       },
     });
-    metaMap = new Map(latestSubscriptions.map((s) => [s.variantId, s]));
+    latestSubscriptions.forEach((s) => {
+      const rawId = s.variantId.replace("gid://shopify/ProductVariant/", "");
+      if (!metaMap.has(rawId)) {
+        metaMap.set(rawId, s);
+      }
+      metaMap.set(s.variantId, s);
+    });
   } catch (e) {
     console.warn("Subscription metadata fetch warning:", e.message);
   }
 
-  const productAggregates = allVariantGroups.map((g) => {
-    const totalCount = g._count.id;
-    const pendingCount = pendingMap.get(g.variantId) || 0;
-    const notifiedCount = notifiedMap.get(g.variantId) || 0;
-    const etaStage = getEtaStageInfo(g.etaDate);
+  // Consolidate variant groups by canonical raw variant ID
+  const consolidatedMap = new Map();
+  allVariantGroups.forEach((g) => {
+    const rawId = g.variantId.replace("gid://shopify/ProductVariant/", "");
+    const existing = consolidatedMap.get(rawId) || {
+      rawId,
+      variantId: g.variantId.startsWith("gid://") ? g.variantId : `gid://shopify/ProductVariant/${g.variantId}`,
+      totalCount: 0,
+    };
+    existing.totalCount += g._count.id;
+    if (g.variantId.startsWith("gid://")) {
+      existing.variantId = g.variantId;
+    }
+    consolidatedMap.set(rawId, existing);
+  });
+
+  const productAggregates = Array.from(consolidatedMap.values()).map((item) => {
+    const meta = metaMap.get(item.rawId) || {};
+    const totalCount = item.totalCount;
+    const pendingCount = pendingMap.get(item.rawId) || 0;
+    const notifiedCount = notifiedMap.get(item.rawId) || 0;
+    const etaDate = meta.etaDate || null;
+    const etaStage = getEtaStageInfo(etaDate);
     const demand = getDemandLevel(pendingCount > 0 ? pendingCount : totalCount);
-    const meta = metaMap.get(g.variantId) || {};
 
     const isPending = pendingCount > 0;
 
     if (isPending) {
-      if (demand.level === "HIGH" || demand.level === "VERY_HIGH") {
+      const isHighOrVeryHigh = demand.level === "HIGH" || demand.level === "VERY_HIGH";
+      if (isHighOrVeryHigh) {
         highDemandProductsCount++;
       }
       if (etaStage.stage === "ARRIVING_SOON" || etaStage.stage === "TODAY") {
@@ -146,22 +194,23 @@ export const loader = async ({ request }) => {
       if (etaStage.stage === "UNKNOWN") {
         etaUnknownCount++;
       }
-      if ((demand.level === "HIGH" && etaStage.stage === "UNKNOWN") || etaStage.stage === "OVERDUE") {
+      if ((isHighOrVeryHigh && etaStage.stage === "UNKNOWN") || etaStage.stage === "OVERDUE") {
         needsAttentionCount++;
       }
     }
 
     return {
-      variantId: g.variantId,
-      productId: g.productId,
-      productTitle: g.productTitle,
-      variantTitle: g.variantTitle,
+      variantId: item.variantId,
+      productId: meta.productId || "",
+      productTitle: meta.productTitle || "상품",
+      variantTitle: meta.variantTitle || "",
       sku: meta.sku || "",
+      imageUrl: null,
       poNumber: meta.poNumber || null,
       notifiedAt: meta.notifiedAt ? meta.notifiedAt.toISOString() : null,
       restockedAt: meta.restockedAt ? meta.restockedAt.toISOString() : null,
-      etaDate: g.etaDate,
-      etaSource: g.etaDate ? "ODOO" : "NONE",
+      etaDate: etaDate,
+      etaSource: etaDate ? "ODOO" : "NONE",
       subscriberCount: totalCount,
       pendingCount: pendingCount,
       notifiedCount: notifiedCount,
@@ -193,12 +242,14 @@ export const loader = async ({ request }) => {
   if (viewMode === "products") {
     // Filter product aggregates
     let filtered = productAggregates.filter((p) => {
-      // Search
+      // Search: checks productTitle, variantTitle, sku, poNumber
       if (search) {
         const q = search.toLowerCase();
         const matches =
           (p.productTitle && p.productTitle.toLowerCase().includes(q)) ||
-          (p.variantTitle && p.variantTitle.toLowerCase().includes(q));
+          (p.variantTitle && p.variantTitle.toLowerCase().includes(q)) ||
+          (p.sku && p.sku.toLowerCase().includes(q)) ||
+          (p.poNumber && p.poNumber.toLowerCase().includes(q));
         if (!matches) return false;
       }
 
@@ -212,8 +263,14 @@ export const loader = async ({ request }) => {
       // ETA Filter
       if (etaFilter !== "ALL" && p.etaStage !== etaFilter) return false;
 
-      // Demand Filter
-      if (demandFilter !== "ALL" && p.demandLevel !== demandFilter) return false;
+      // Demand Filter (HIGH matches >= 20, VERY_HIGH matches >= 50)
+      if (demandFilter === "VERY_HIGH") {
+        if (p.demandLevel !== "VERY_HIGH") return false;
+      } else if (demandFilter === "HIGH") {
+        if (p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH") return false;
+      } else if (demandFilter !== "ALL") {
+        if (p.demandLevel !== demandFilter) return false;
+      }
 
       // KPI Filter Drilldowns
       if (kpiFilter === "PENDING") {
@@ -223,12 +280,14 @@ export const loader = async ({ request }) => {
         if (p.notifiedCount === 0) return false;
       }
       if (kpiFilter === "NEEDS_ATTENTION") {
-        const isAttn = (p.demandLevel === "HIGH" && p.etaStage === "UNKNOWN") || p.etaStage === "OVERDUE";
+        const isAttn =
+          ((p.demandLevel === "HIGH" || p.demandLevel === "VERY_HIGH") && p.etaStage === "UNKNOWN") ||
+          p.etaStage === "OVERDUE";
         if (!isAttn) return false;
       }
       if (kpiFilter === "HIGH_DEMAND" && p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH") return false;
       if (kpiFilter === "ARRIVING_SOON" && p.etaStage !== "ARRIVING_SOON" && p.etaStage !== "TODAY") return false;
-      if (kpiFilter === "ETA_OVERDUE" && p.etaStage !== "OVERDUE") return false;
+      if (kpiFilter === "ETA_OVERDUE" && p.etaStage !== "OVERDUE" && p.etaStage !== "UNKNOWN") return false;
       if (kpiFilter === "ETA_UNKNOWN" && p.etaStage !== "UNKNOWN") return false;
 
       return true;
@@ -249,6 +308,8 @@ export const loader = async ({ request }) => {
         { variantTitle: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
         { phone: { contains: search, mode: "insensitive" } },
+        { sku: { contains: search, mode: "insensitive" } },
+        { poNumber: { contains: search, mode: "insensitive" } },
       ];
     }
 
@@ -281,6 +342,144 @@ export const loader = async ({ request }) => {
       limit,
       (page - 1) * limit
     );
+  }
+
+  // --- 4. Fetch Real SKUs and Product Details from Shopify ---
+  if (viewMode === "products" && paginatedProducts.length > 0) {
+    try {
+      const gids = paginatedProducts.map((p) =>
+        p.variantId.startsWith("gid://") ? p.variantId : `gid://shopify/ProductVariant/${p.variantId}`
+      );
+
+      const queryRes = await admin.graphql(
+        `#graphql
+        query getVariantDetails($ids: [ID!]!) {
+          nodes(ids: $ids) {
+            ... on ProductVariant {
+              id
+              sku
+              image {
+                url
+              }
+              product {
+                title
+                featuredImage {
+                  url
+                }
+              }
+            }
+          }
+        }`,
+        { variables: { ids: gids } }
+      );
+
+      const json = await queryRes.json();
+      if (json.data && json.data.nodes) {
+        const detailsMap = new Map();
+        json.data.nodes.forEach((node) => {
+          if (node && node.id) {
+            const rawId = node.id.split("/").pop();
+            const details = {
+              sku: node.sku,
+              imageUrl: node.image?.url || node.product?.featuredImage?.url || null,
+              productTitle: node.product?.title || null,
+            };
+            detailsMap.set(node.id, details);
+            detailsMap.set(rawId, details);
+          }
+        });
+
+        const missingSkuVariantUpdates = [];
+
+        paginatedProducts = paginatedProducts.map((p) => {
+          const rawId = p.variantId.replace("gid://shopify/ProductVariant/", "");
+          const details = detailsMap.get(rawId) || detailsMap.get(p.variantId);
+          if (details) {
+            if (details.sku) {
+              p.sku = details.sku;
+            }
+            if (details.imageUrl) {
+              p.imageUrl = details.imageUrl;
+            }
+            if ((!p.productTitle || p.productTitle === "상품") && details.productTitle) {
+              p.productTitle = details.productTitle;
+            }
+          }
+          if (p.sku && !metaMap.get(rawId)?.sku) {
+            missingSkuVariantUpdates.push({ rawId, sku: p.sku });
+          }
+          return p;
+        });
+
+        // Background cache backfill to database for missing SKUs
+        if (missingSkuVariantUpdates.length > 0) {
+          Promise.all(
+            missingSkuVariantUpdates.map(({ rawId, sku }) =>
+              prisma.backInStockSubscription.updateMany({
+                where: {
+                  shop,
+                  sku: null,
+                  OR: [
+                    { variantId: rawId },
+                    { variantId: `gid://shopify/ProductVariant/${rawId}` },
+                  ],
+                },
+                data: { sku },
+              })
+            )
+          ).catch((e) => console.warn("Background SKU update error:", e.message));
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch real SKUs and images from Shopify", e.message);
+    }
+  } else if (viewMode === "subscribers" && paginatedSubscribers.length > 0) {
+    const needLookup = paginatedSubscribers.filter((s) => !s.sku && s.variantId);
+    if (needLookup.length > 0) {
+      try {
+        const gids = Array.from(
+          new Set(
+            needLookup.map((s) =>
+              s.variantId.startsWith("gid://") ? s.variantId : `gid://shopify/ProductVariant/${s.variantId}`
+            )
+          )
+        );
+        const queryRes = await admin.graphql(
+          `#graphql
+          query getSubscriberVariantSkus($ids: [ID!]!) {
+            nodes(ids: $ids) {
+              ... on ProductVariant {
+                id
+                sku
+              }
+            }
+          }`,
+          { variables: { ids: gids } }
+        );
+        const json = await queryRes.json();
+        if (json.data?.nodes) {
+          const skuMap = new Map();
+          json.data.nodes.forEach((node) => {
+            if (node?.id) {
+              const rawId = node.id.split("/").pop();
+              skuMap.set(node.id, node.sku);
+              skuMap.set(rawId, node.sku);
+            }
+          });
+          paginatedSubscribers = paginatedSubscribers.map((s) => {
+            if (!s.sku && s.variantId) {
+              const rawId = s.variantId.replace("gid://shopify/ProductVariant/", "");
+              if (skuMap.has(rawId) && skuMap.get(rawId)) {
+                s.sku = skuMap.get(rawId);
+              }
+            }
+            return s;
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to fetch subscriber SKUs from Shopify", e.message);
+      }
+    }
   }
 
   const totalPages = Math.ceil(totalCount / limit);
@@ -394,11 +593,15 @@ export const action = async ({ request }) => {
   // 3. 특정 품목(Variant) 대기자 전체 일괄 발송
   if (intent === "notify_variant") {
     const variantId = String(formData.get("variantId") || "");
+    const sku = formData.get("sku") || null;
+    const productTitle = formData.get("productTitle") || null;
     const now = new Date();
 
     const result = await notifyPendingSubscribersForVariant({
       shop,
       variantId,
+      sku,
+      productTitle,
       dispatchDate: now,
     });
 
@@ -533,8 +736,28 @@ export const action = async ({ request }) => {
       return Response.json({ success: false, error: "조회할 SKU 정보가 없습니다." }, { status: 400 });
     }
 
+    const cleanVariantId = String(variantId);
+    const rawVariantId = cleanVariantId.replace("gid://shopify/ProductVariant/", "");
+    const gidVariantId = cleanVariantId.startsWith("gid://")
+      ? cleanVariantId
+      : `gid://shopify/ProductVariant/${cleanVariantId}`;
+
     const etaDate = await getEtaBySku(sku);
     if (!etaDate) {
+      // Also backfill sku if it was missing in DB
+      await prisma.backInStockSubscription.updateMany({
+        where: {
+          shop,
+          sku: null,
+          OR: [
+            { variantId: cleanVariantId },
+            { variantId: rawVariantId },
+            { variantId: gidVariantId },
+          ],
+        },
+        data: { sku: String(sku).trim() },
+      });
+
       return Response.json({
         success: true,
         message: `Odoo 전표 조회 완료: SKU [${sku}]에 입고 예정인 컨테이너가 없습니다.`,
@@ -542,8 +765,15 @@ export const action = async ({ request }) => {
     }
 
     await prisma.backInStockSubscription.updateMany({
-      where: { shop, variantId: String(variantId) },
-      data: { etaDate },
+      where: {
+        shop,
+        OR: [
+          { variantId: cleanVariantId },
+          { variantId: rawVariantId },
+          { variantId: gidVariantId },
+        ],
+      },
+      data: { etaDate, sku: String(sku).trim() },
     });
 
     return Response.json({
@@ -576,55 +806,59 @@ export const action = async ({ request }) => {
     const gids = Array.from(variantIdMap.keys());
     let totalNotified = 0;
     let inStockCount = 0;
+    const now = new Date();
 
     try {
-      const queryRes = await admin.graphql(
-        `#graphql
-        query getStockLevels($ids: [ID!]!) {
-          nodes(ids: $ids) {
-            ... on ProductVariant {
-              id
-              title
-              sku
-              inventoryQuantity
-              availableForSale
-              product {
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < gids.length; i += CHUNK_SIZE) {
+        const chunk = gids.slice(i, i + CHUNK_SIZE);
+        const queryRes = await admin.graphql(
+          `#graphql
+          query getStockLevels($ids: [ID!]!) {
+            nodes(ids: $ids) {
+              ... on ProductVariant {
                 id
                 title
-                handle
+                sku
+                inventoryQuantity
+                availableForSale
+                product {
+                  id
+                  title
+                  handle
+                }
               }
             }
+          }`,
+          { variables: { ids: chunk } }
+        );
+
+        const json = await queryRes.json();
+        const nodes = json.data?.nodes || [];
+
+        for (const variant of nodes) {
+          if (!variant) continue;
+          const isAvailable =
+            variant.availableForSale === true ||
+            (variant.inventoryQuantity && variant.inventoryQuantity > 0);
+
+          if (isAvailable) {
+            inStockCount++;
+            const productHandle = variant.product?.handle || "";
+            const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
+
+            const res = await notifyPendingSubscribersForVariant({
+              shop,
+              variantId: variant.id,
+              productTitle: variant.product?.title || "상품",
+              variantTitle: variant.title,
+              productUrl,
+              sku: variant.sku || null,
+              dispatchDate: now,
+            });
+
+            totalNotified += res.sent;
           }
-        }`,
-        { variables: { ids: gids } }
-      );
-
-      const json = await queryRes.json();
-      const nodes = json.data?.nodes || [];
-      const now = new Date();
-
-      for (const variant of nodes) {
-        if (!variant) continue;
-        const isAvailable =
-          variant.availableForSale === true ||
-          (variant.inventoryQuantity && variant.inventoryQuantity > 0);
-
-        if (isAvailable) {
-          inStockCount++;
-          const productHandle = variant.product?.handle || "";
-          const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
-
-          const res = await notifyPendingSubscribersForVariant({
-            shop,
-            variantId: variant.id,
-            productTitle: variant.product?.title || "상품",
-            variantTitle: variant.title,
-            productUrl,
-            sku: variant.sku || null,
-            dispatchDate: now,
-          });
-
-          totalNotified += res.sent;
         }
       }
 
@@ -729,6 +963,7 @@ export default function BackInStockDashboard() {
   // Load drawer subscribers when drawer opens
   const handleOpenDrawer = (item) => {
     setActiveDrawerProduct(item);
+    setDrawerSubscribers([]);
     setDrawerOpen(true);
     drawerFetcher.load(`/app/back-in-stock?drawerVariantId=${encodeURIComponent(item.variantId)}`);
   };
@@ -801,10 +1036,68 @@ export default function BackInStockDashboard() {
     setSearchParams(new URLSearchParams());
   };
 
-  // Export CSV
-  const handleExportCsv = () => {
-    const exportUrl = `/app/back-in-stock?exportCsv=true`;
-    window.open(exportUrl, "_blank");
+  // Export CSV (Direct blob download to prevent iframe popup blocks)
+  const handleExportCsv = async (selectedIds = null) => {
+    try {
+      if (viewMode === "products" && selectedIds && selectedIds.length > 0) {
+        const target = products.filter((p) => selectedIds.includes(p.variantId));
+        const csvContent =
+          "\uFEFF" +
+          [
+            [
+              "Variant ID",
+              "Product Title",
+              "Variant Title",
+              "SKU",
+              "Waiting Subscribers",
+              "ETA Date",
+              "Odoo PO",
+              "Status",
+            ].join(","),
+            ...target.map((p) =>
+              [
+                `"${p.variantId}"`,
+                `"${(p.productTitle || "").replace(/"/g, '""')}"`,
+                `"${(p.variantTitle || "").replace(/"/g, '""')}"`,
+                `"${p.sku || ""}"`,
+                p.subscriberCount,
+                `"${p.etaDate || ""}"`,
+                `"${p.poNumber || ""}"`,
+                `"${p.pendingCount > 0 ? "대기중" : "발송완료"}"`,
+              ].join(",")
+            ),
+          ].join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute(
+          "download",
+          `back_in_stock_selected_${dayjs().format("YYYYMMDD_HHmm")}.csv`
+        );
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
+      const res = await fetch(`/app/back-in-stock?exportCsv=true`);
+      if (!res.ok) throw new Error("CSV 다운로드 실패");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute(
+        "download",
+        `back_in_stock_subscriptions_${dayjs().format("YYYYMMDD_HHmm")}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (e) {
+      console.error("Export CSV error:", e);
+      window.open(`/app/back-in-stock?exportCsv=true`, "_blank");
+    }
   };
 
   // Sync Odoo ETA action
@@ -818,11 +1111,13 @@ export default function BackInStockDashboard() {
   };
 
   // Notify Variant action
-  const handleNotifyVariant = (variantId) => {
+  const handleNotifyVariant = (variantId, sku = null, productTitle = null) => {
     setNotifyingVariantId(variantId);
     const fd = new FormData();
     fd.append("intent", "notify_variant");
     fd.append("variantId", variantId);
+    if (sku) fd.append("sku", sku);
+    if (productTitle) fd.append("productTitle", productTitle);
     fetcher.submit(fd, { method: "post" });
   };
 
@@ -874,7 +1169,8 @@ export default function BackInStockDashboard() {
 
   // Batch export action
   const handleBatchExport = () => {
-    handleExportCsv();
+    const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
+    handleExportCsv(ids);
   };
 
   // Scan & Auto-send
@@ -890,15 +1186,21 @@ export default function BackInStockDashboard() {
     setPreviewModalOpen(true);
   };
 
-  // Reset spinners on fetcher completion
+  // Reset spinners on fetcher completion and reload drawer if open
   useEffect(() => {
     if (fetcher.state === "idle") {
       setSyncingVariantId(null);
       setNotifyingVariantId(null);
       setNotifyingSubId(null);
       setCancellingSubId(null);
+
+      if (drawerOpen && activeDrawerProduct?.variantId) {
+        drawerFetcher.load(
+          `/app/back-in-stock?drawerVariantId=${encodeURIComponent(activeDrawerProduct.variantId)}`
+        );
+      }
     }
-  }, [fetcher.state]);
+  }, [fetcher.state, drawerOpen, activeDrawerProduct, drawerFetcher]);
 
   const selectedCount =
     viewMode === "products" ? selectedVariantIds.length : selectedSubscriberIds.length;
@@ -1049,6 +1351,7 @@ export default function BackInStockDashboard() {
           onOpenEmailPreview={handleOpenEmailPreview}
           isSyncing={syncingVariantId === activeDrawerProduct?.variantId}
           isNotifying={notifyingVariantId === activeDrawerProduct?.variantId}
+          isLoadingSubscribers={drawerFetcher.state === "loading"}
         />
 
         {/* Bilingual Email Preview Modal */}

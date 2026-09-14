@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Modal,
   BlockStack,
@@ -7,10 +6,10 @@ import {
   Badge,
   Button,
   Box,
-  Divider,
   DataTable,
   Card,
   Banner,
+  SkeletonBodyText,
 } from "@shopify/polaris";
 import {
   SendIcon,
@@ -32,6 +31,7 @@ export default function BackInStockDetailDrawer({
   onOpenEmailPreview,
   isSyncing,
   isNotifying,
+  isLoadingSubscribers = false,
 }) {
   if (!productItem) return null;
 
@@ -90,7 +90,7 @@ export default function BackInStockDetailDrawer({
         icon: SendIcon,
         loading: isNotifying,
         disabled: productItem.pendingCount === 0,
-        onAction: () => onNotifyVariant(productItem.variantId),
+        onAction: () => onNotifyVariant(productItem.variantId, productItem.sku, productItem.productTitle),
       }}
       secondaryActions={[
         {
@@ -172,7 +172,7 @@ export default function BackInStockDetailDrawer({
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
                 <Text variant="headingSm" as="h4">
-                  Odoo ERP 컨테이너 입고 및 발주 정보 (PO &amp; ETA)
+                  Odoo ERP 컨테이너 입고 및 발주 정보 (PO & ETA)
                 </Text>
                 <Button
                   size="slim"
@@ -286,7 +286,11 @@ export default function BackInStockDetailDrawer({
                 </Text>
               </InlineStack>
 
-              {subscribers.length > 0 ? (
+              {isLoadingSubscribers ? (
+                <Box padding="300">
+                  <SkeletonBodyText lines={4} />
+                </Box>
+              ) : subscribers.length > 0 ? (
                 <DataTable
                   columnContentTypes={["text", "text", "text", "text", "text", "text"]}
                   headings={["신청일시", "고객 이메일", "채널", "입고 PO", "상태 / 발송일시", "액션"]}
