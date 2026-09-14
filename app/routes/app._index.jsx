@@ -1,5 +1,5 @@
 import { getDashboardData } from "../services/dashboardData.server.js";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import {
   Page,
@@ -82,6 +82,15 @@ export default function Dashboard() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [activeContainerModal, setActiveContainerModal] = useState(false);
   const [modalContainerRef, setModalContainerRef] = useState("");
+  const [showUpdateNotice, setShowUpdateNotice] = useState(false);
+
+  useEffect(() => {
+    const hasSeenUpdate = localStorage.getItem("dawayo_admin_update_v1.4.0_notice");
+    if (!hasSeenUpdate) {
+      setShowUpdateNotice(true);
+      localStorage.setItem("dawayo_admin_update_v1.4.0_notice", "true");
+    }
+  }, []);
 
   const handleSelectContainer = (containerRef) => {
     setModalContainerRef(containerRef);
@@ -391,6 +400,49 @@ export default function Dashboard() {
               )}
             </BlockStack>
           )}
+        </Modal.Section>
+      </Modal>
+
+      {/* 9월 14일 시스템 업데이트 일회성 팝업 */}
+      <Modal
+        open={showUpdateNotice}
+        onClose={() => setShowUpdateNotice(false)}
+        title="🎉 9월 14일 시스템 업데이트 안내 (v1.4.0)"
+        primaryAction={{
+          content: "확인",
+          onAction: () => setShowUpdateNotice(false),
+        }}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text as="p">관리자 페이지 및 시스템에 새로운 기능이 추가되었습니다.</Text>
+            <ul
+              style={{
+                paddingLeft: "20px",
+                margin: 0,
+                fontSize: "13.5px",
+                lineHeight: "1.8",
+                color: "#334155",
+              }}
+            >
+              <li>
+                <strong>고객 모바일 앱 연동 API:</strong> 주문 내역 조회, 재주문, 배송지 및 프로필 관리, 재입고 알림 전용 API 신설
+              </li>
+              <li>
+                <strong>주문 취소/변경 실시간 알림:</strong> 고객 취소 및 요청(반품/수정) 실시간 감지 및 담당자 자동 이메일 통보
+              </li>
+              <li>
+                <strong>대시보드 동선 및 속도 최적화:</strong> 작업 바로가기(피킹/검수) 신설, 병렬 데이터 로딩 및 엑셀 모듈 분리로 속도 개선
+              </li>
+              <li>
+                <strong>피킹 리스트 및 검수 개선:</strong> 피킹 리스트 인쇄 서식 개편, 바코드 스캔 검수 및 이력 추적 안정화
+              </li>
+              <li>
+                <strong>컨테이너 입고 관리 안정화:</strong> 동시 처리 방지 락 적용 및 기입고 완료 품목 수량 보존
+              </li>
+            </ul>
+            <Text as="p" tone="subdued">상세 내역은 대시보드 하단의 &apos;시스템 업데이트 내역&apos; 카드를 참고해 주세요.</Text>
+          </BlockStack>
         </Modal.Section>
       </Modal>
     </Page>

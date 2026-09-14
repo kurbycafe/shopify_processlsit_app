@@ -18,9 +18,9 @@ export function authenticateMobile(request, scope, env = process.env) {
     if (!Array.isArray(clients) || clients.length === 0) throw new Error();
     for (const client of clients) {
       if (!client || typeof client.id !== "string" || !client.id ||
-          !/^[a-f0-9]{64}$/.test(client.tokenHash) ||
-          !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(client.shop) ||
-          !Array.isArray(client.scopes) || !Number.isFinite(Date.parse(client.expiresAt))) throw new Error();
+        !/^[a-f0-9]{64}$/.test(client.tokenHash) ||
+        !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(client.shop) ||
+        !Array.isArray(client.scopes) || !Number.isFinite(Date.parse(client.expiresAt))) throw new Error();
     }
   } catch {
     fail(503, "API_NOT_CONFIGURED", "Mobile API credentials are not configured.");
