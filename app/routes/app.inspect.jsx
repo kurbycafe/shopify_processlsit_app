@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import {
   Page,
-  Layout,
   Card,
   TextField,
   BlockStack,
@@ -16,7 +15,6 @@ import {
   Banner,
   Box,
   Icon,
-  Divider,
   Modal,
   ChoiceList,
   ResourceList,
@@ -37,54 +35,9 @@ import {
 } from "../utils/audioFeedback.js";
 import { isBarcodeOrSkuMatch } from "../utils/barcodeHelpers.js";
 import StatusBadge from "../components/common/StatusBadge";
+import { getInspectorName } from "../services/inspectorService.server.js";
 
 export { isBarcodeOrSkuMatch };
-
-async function getInspectorName(admin, session) {
-  if (session.firstName || session.lastName) {
-    return `${session.firstName || ""} ${session.lastName || ""}`.trim();
-  }
-
-  try {
-    const staffResponse = await admin.graphql(
-      `#graphql
-      query {
-        currentStaffMember {
-          firstName
-          lastName
-        }
-      }`
-    );
-    const staffJson = await staffResponse.json();
-    if (staffJson.data?.currentStaffMember) {
-      const { firstName, lastName } = staffJson.data.currentStaffMember;
-      if (firstName || lastName) {
-        return `${firstName || ""} ${lastName || ""}`.trim();
-      }
-    }
-  } catch (e) {
-    // Ignore error
-  }
-
-  try {
-    const shopResponse = await admin.graphql(
-      `#graphql
-      query {
-        shop {
-          shopOwner
-        }
-      }`
-    );
-    const shopJson = await shopResponse.json();
-    if (shopJson.data?.shop?.shopOwner) {
-      return shopJson.data.shop.shopOwner;
-    }
-  } catch (e) {
-    // Ignore error
-  }
-
-  return "작업자";
-}
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -347,7 +300,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Inspect() {
-  const { inspectorName, shop } = useLoaderData();
+  const { inspectorName, shop: _shop } = useLoaderData();
   const fetcher = useFetcher();
   const searchFetcher = useFetcher();
   const saveFetcher = useFetcher();
@@ -370,6 +323,46 @@ export default function Inspect() {
   // Camera scanner states
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
 
+  // Inspector identity and workstation override states
+  const [currentInspector, setCurrentInspector] = useState(inspectorName || "");
+  const [isInspectorModalOpen, setIsInspectorModalOpen] = useState(false);
+  const [customInspectorInput, setCustomInspectorInput] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dawayo_inspector_name");
+      if (saved && saved.trim()) {
+        setCurrentInspector(saved.trim());
+      } else if (inspectorName) {
+        setCurrentInspector(inspectorName);
+      }
+    }
+  }, [inspectorName]);
+
+  const handleOpenInspectorModal = () => {
+    setCustomInspectorInput(currentInspector || inspectorName || "");
+    setIsInspectorModalOpen(true);
+  };
+
+  const handleSaveCustomInspector = () => {
+    const trimmed = customInspectorInput.trim();
+    if (trimmed) {
+      setCurrentInspector(trimmed);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("dawayo_inspector_name", trimmed);
+      }
+    }
+    setIsInspectorModalOpen(false);
+  };
+
+  const handleResetToShopifyAdmin = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("dawayo_inspector_name");
+    }
+    setCurrentInspector(inspectorName || "");
+    setIsInspectorModalOpen(false);
+  };
+
   // Dynamic script loading for html5-qrcode
   useEffect(() => {
     if (typeof window !== "undefined" && !window.Html5Qrcode) {
@@ -380,7 +373,7 @@ export default function Inspect() {
     }
   }, []);
 
-  const [logs, setLogs] = useState([]);
+  const [_logs, setLogs] = useState([]);
   const [highlightedRowId, setHighlightedRowId] = useState(null);
   const [searchParams] = useSearchParams();
   const [hasAutoFetched, setHasAutoFetched] = useState(false);
@@ -803,7 +796,7 @@ export default function Inspect() {
         orderId: currentOrder.id,
         orderName: currentOrder.name,
         items: JSON.stringify(currentOrder.items),
-        inspectorName: inspectorName || "",
+        inspectorName: currentInspector || inspectorName || "",
         orderEmail: currentOrder.email || "",
       },
       { method: "POST" }
@@ -1023,7 +1016,25 @@ export default function Inspect() {
   return (
     <Page
       title="주문 검수"
-      subtitle={inspectorName ? `검수자: ${inspectorName}` : undefined}
+      titleMetadata={
+        <InlineStack gap="200" align="center">
+          <Badge tone="info">
+            {`검수자: ${currentInspector || inspectorName || "관리자"}`}
+          </Badge>
+          <Button
+            variant="plain"
+            size="micro"
+            onClick={handleOpenInspectorModal}
+          >
+            검수자 변경
+          </Button>
+        </InlineStack>
+      }
+      subtitle={
+        currentInspector && inspectorName && currentInspector !== inspectorName
+          ? `쇼피파이 기본 계정: ${inspectorName} (작업대 지정 검수자로 검수 중)`
+          : undefined
+      }
       backAction={{ content: "대시보드", url: "/app" }}
     >
       <BlockStack gap="400">
@@ -1264,6 +1275,45 @@ export default function Inspect() {
           </BlockStack>
         )}
       </BlockStack>
+
+      {/* 검수자 변경 모달 */}
+      <Modal
+        open={isInspectorModalOpen}
+        onClose={() => setIsInspectorModalOpen(false)}
+        title="검수 담당자 변경"
+        primaryAction={{
+          content: "저장",
+          onAction: handleSaveCustomInspector,
+        }}
+        secondaryActions={[
+          {
+            content: "쇼피파이 관리자 계정으로 복원",
+            onAction: handleResetToShopifyAdmin,
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text as="p" tone="subdued">
+              현재 기기(작업대)에서 검수를 진행하는 담당자 이름을 설정할 수 있습니다. 저장 시 이 브라우저에 유지되며, 검수 완료 시 이 이름으로 기록됩니다.
+            </Text>
+            {inspectorName && (
+              <Banner tone="info">
+                <Text as="p">
+                  현재 로그인된 쇼피파이 기본 계정: <strong>{inspectorName}</strong>
+                </Text>
+              </Banner>
+            )}
+            <TextField
+              label="검수 담당자명"
+              value={customInspectorInput}
+              onChange={setCustomInspectorInput}
+              autoComplete="off"
+              helpText="예: 홍길동, 패킹1팀 작업자"
+            />
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
 
       {/* 카메라 바코드 스캔 모달 */}
       <Modal
