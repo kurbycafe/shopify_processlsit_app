@@ -1,8 +1,5 @@
 import dayjs from "dayjs";
 
-/**
- * Calculates demand level based on waiting subscriber count
- */
 export function getDemandLevel(waitingCount) {
   const count = Number(waitingCount) || 0;
   if (count >= 50) {
@@ -17,9 +14,6 @@ export function getDemandLevel(waitingCount) {
   return { level: "LOW", label: "낮음", tone: "subdued", badge: "LOW DEMAND" };
 }
 
-/**
- * Calculates ETA status stage and human-friendly relative label
- */
 export function getEtaStageInfo(etaDateStr) {
   if (!etaDateStr || etaDateStr === "미정" || etaDateStr === "UNKNOWN") {
     return {
@@ -76,7 +70,6 @@ export function getEtaStageInfo(etaDateStr) {
     };
   }
 
-  // diffDays < 0 (Overdue)
   return {
     stage: "OVERDUE",
     label: "입고 지연",
@@ -86,9 +79,6 @@ export function getEtaStageInfo(etaDateStr) {
   };
 }
 
-/**
- * Masks sensitive customer personal data for UI display
- */
 export function maskEmail(email) {
   if (!email || typeof email !== "string" || !email.includes("@")) return "-";
   const [user, domain] = email.split("@");
@@ -105,9 +95,6 @@ export function maskPhone(phone) {
   return `${clean.slice(0, 3)} *** ${clean.slice(-3)}`;
 }
 
-/**
- * Generates CSV string for exporting Back-in-stock subscriptions
- */
 export function exportSubscriptionsToCsv(rows) {
   const headers = [
     "ID",

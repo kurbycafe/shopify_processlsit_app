@@ -26,7 +26,6 @@ export default function RecipeIngredientsCommerce({
   const [productQuery, setProductQuery] = useState("");
   const [targetIngredientId, setTargetIngredientId] = useState(null);
 
-  // Add new blank ingredient
   const handleAddIngredient = () => {
     const newId = `ing_${Date.now()}`;
     onChangeIngredients([
@@ -45,25 +44,21 @@ export default function RecipeIngredientsCommerce({
     ]);
   };
 
-  // Remove ingredient
   const handleRemoveIngredient = (id) => {
     onChangeIngredients(ingredients.filter((i) => i.id !== id));
   };
 
-  // Update ingredient field
   const handleUpdateIngredient = (id, field, value) => {
     onChangeIngredients(
       ingredients.map((i) => (i.id === id ? { ...i, [field]: value } : i))
     );
   };
 
-  // Search Shopify products
   const handleSearch = () => {
     if (!productQuery.trim()) return;
     onSearchShopifyProducts(productQuery);
   };
 
-  // Bind product variant to recipe
   const handleAddProductVariant = (product, variant, ingredientId = null) => {
     const exists = selectedProducts.find((p) => p.variantId === variant.id);
     if (exists) return;
@@ -89,12 +84,10 @@ export default function RecipeIngredientsCommerce({
     onChangeProducts([...selectedProducts, newProd]);
   };
 
-  // Remove product from recipe
   const handleRemoveProduct = (variantId) => {
     onChangeProducts(selectedProducts.filter((p) => p.variantId !== variantId));
   };
 
-  // Toggle essential / alternative tier
   const handleToggleTier = (variantId) => {
     onChangeProducts(
       selectedProducts.map((p) => {
@@ -107,7 +100,6 @@ export default function RecipeIngredientsCommerce({
     );
   };
 
-  // Change required quantity
   const handleChangeQty = (variantId, qty) => {
     const num = Math.max(1, parseInt(qty) || 1);
     onChangeProducts(
@@ -130,7 +122,6 @@ export default function RecipeIngredientsCommerce({
           </Button>
         </InlineStack>
 
-        {/* 1. Defined Recipe Ingredients List */}
         <BlockStack gap="200">
           <Text as="h3" variant="headingSm" fontWeight="bold">1. 레시피 조리 재료 목록 (필요량)</Text>
           
@@ -218,7 +209,6 @@ export default function RecipeIngredientsCommerce({
 
         <Divider />
 
-        {/* 2. Bound Shopify Products */}
         <BlockStack gap="200">
           <InlineStack align="space-between" blockAlign="center">
             <Text as="h3" variant="headingSm" fontWeight="bold">
@@ -268,7 +258,6 @@ export default function RecipeIngredientsCommerce({
                         </div>
                       </InlineStack>
 
-                      {/* Controls: Tier toggle, default qty, remove */}
                       <InlineStack gap="200" blockAlign="center">
                         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                           <Text as="span" variant="bodyXs" tone="subdued">구매수량:</Text>
@@ -304,7 +293,6 @@ export default function RecipeIngredientsCommerce({
 
         <Divider />
 
-        {/* 3. Shopify Product Live Search */}
         <BlockStack gap="200">
           <Text as="h3" variant="headingSm" fontWeight="bold">3. 상점 인벤토리 검색 및 수동 매칭</Text>
           <InlineStack gap="200">

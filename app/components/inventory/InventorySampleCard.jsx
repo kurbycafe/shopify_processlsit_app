@@ -1,10 +1,5 @@
 import { Card, BlockStack, InlineStack, Text, Banner } from "@shopify/polaris";
 
-/**
- * Real-time Shopify Tax Engine sample verification debug card
- * @param {object} props
- * @param {object} props.sampleDebug Sample debug data returned from loader
- */
 export function InventorySampleCard({ sampleDebug }) {
   if (!sampleDebug) return null;
 

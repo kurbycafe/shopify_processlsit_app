@@ -1,8 +1,5 @@
 import { Card, BlockStack, InlineStack, Text, Badge, Divider } from "@shopify/polaris";
 
-/**
- * 시스템 업데이트 내역 단일 안내 카드 (하단 배치용)
- */
 export function DashboardSystemUpdateCard() {
   return (
     <Card>

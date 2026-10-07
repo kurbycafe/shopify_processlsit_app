@@ -2,9 +2,6 @@ import { Card, BlockStack, Text, InlineStack, Badge, Divider } from "@shopify/po
 import { Link, useNavigate } from "react-router";
 import dayjs from "dayjs";
 
-/**
- * 최근 검수 활동 리스트 카드 컴포넌트
- */
 export function RecentActivityCard({ recentLogs, onSelectLog }) {
   const navigate = useNavigate();
 

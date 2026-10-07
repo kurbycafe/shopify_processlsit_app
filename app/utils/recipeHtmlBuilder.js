@@ -1,8 +1,3 @@
-/**
- * Recipe HTML & Storefront Widget Generator
- * Generates SEO-optimized Article HTML with interactive bundle purchasing widget.
- */
-
 export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   const {
     activeLocale = "de", // "de", "en", or "ko"
@@ -47,7 +42,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
     .filter(Boolean)
     .join("");
 
-  // Metadata badges
   const prepTime = recipe.prepTimeMinutes || 10;
   const cookTime = recipe.cookTimeMinutes || 15;
   const totalTime = prepTime + cookTime;
@@ -77,7 +71,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   const spiceLabels = ["Mild / Nicht scharf", "Leicht pikant", "Mittel scharf", "Sehr scharf", "Extrem scharf"];
   const spiceText = spiceLabels[spiceLevel] || "Mittel scharf";
 
-  // Products and Ingredients list
   const products = Array.isArray(recipe.products) ? recipe.products : [];
 
   let productsCardsHtml = "";
@@ -132,7 +125,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
     `;
   });
 
-  // Schema.org structured JSON-LD for Google SEO
   const jsonLd = {
     "@context": "https://schema.org/",
     "@type": "Recipe",
@@ -321,7 +313,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
       if (minusBtn) minusBtn.addEventListener('click', () => updateServings(currentServings - 1));
       if (plusBtn) plusBtn.addEventListener('click', () => updateServings(currentServings + 1));
 
-      // Quantity buttons on individual items
       widget.querySelectorAll('.recipe-prod-card').forEach(card => {
         const minus = card.querySelector('.recipe-qty-btn-minus');
         const plus = card.querySelector('.recipe-qty-btn-plus');
@@ -355,7 +346,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
         }
       });
 
-      // Bundle tabs handler
       if (tabComplete && tabEssential) {
         tabComplete.addEventListener('click', () => {
           tabComplete.style.background = '#008060';
@@ -391,7 +381,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
         });
       }
 
-      // Add to cart AJAX
       if (addBtn) {
         addBtn.addEventListener('click', function() {
           const originalText = addBtn.innerHTML;
@@ -452,7 +441,6 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
         });
       }
 
-      // Initial calculation
       recalculate();
     })();
   </script>

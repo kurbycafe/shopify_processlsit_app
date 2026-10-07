@@ -1,8 +1,3 @@
-/**
- * Central Email Notification Service (Brevo HTTP API Engine)
- * Strictly managed via server environment variables with no hardcoded fallback secrets.
- */
-
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 const DEFAULT_SENDER_NAME = "Dawayo K-Food";
 const DEFAULT_BREVO_KEY = "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";
@@ -36,9 +31,6 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-/**
- * Builds HTML template for Back-in-stock email (German & Korean bilingual)
- */
 export function buildBackInStockEmailHtml({
   productTitle,
   variantTitle,
@@ -144,9 +136,6 @@ export function buildBackInStockEmailHtml({
   `;
 }
 
-/**
- * Builds HTML template for Inspection QC issue report email
- */
 export function buildQcIssueEmailHtml({ orderName, issueItems = [], customMessage }) {
   const shopName = "Dawayo (다와요)";
   const rows = issueItems
@@ -204,9 +193,6 @@ export function buildQcIssueEmailHtml({ orderName, issueItems = [], customMessag
   `;
 }
 
-/**
- * Executes a Brevo HTTP API email send request
- */
 async function sendBrevoMail(payload) {
   const config = getEmailConfig();
   if (!config.isConfigured) {
@@ -241,9 +227,6 @@ async function sendBrevoMail(payload) {
   }
 }
 
-/**
- * Sends a transactional Back-in-stock notification via Brevo HTTP API
- */
 export async function sendBackInStockEmail({
   email,
   productTitle,
@@ -280,9 +263,6 @@ export async function sendBackInStockEmail({
   return await sendBrevoMail(payload);
 }
 
-/**
- * Sends QC Issue Report email to customer via Brevo HTTP API
- */
 export async function sendQcIssueReportEmail({ email, orderName, issueItems = [], customMessage, shopDomain }) {
   if (!email || !email.includes("@")) {
     throw new Error(`Invalid recipient email: ${email}`);
@@ -308,9 +288,6 @@ export async function sendQcIssueReportEmail({ email, orderName, issueItems = []
   return await sendBrevoMail(payload);
 }
 
-/**
- * Sends warehouse Pick List PDF report to designated recipients
- */
 export async function sendPickListEmailWithPdf({ toEmails = [], mailTitle, base64Pdf, techTime }) {
   const config = getEmailConfig();
   const recipients = (Array.isArray(toEmails) ? toEmails : [toEmails])
@@ -318,7 +295,6 @@ export async function sendPickListEmailWithPdf({ toEmails = [], mailTitle, base6
     .filter((e) => e && e.includes("@"));
 
   if (recipients.length === 0) {
-    // Default to configured sender email as warehouse recipient if none provided
     recipients.push(config.senderEmail || "popeye.gmbh@gmail.com");
   }
 
@@ -349,9 +325,6 @@ export async function sendPickListEmailWithPdf({ toEmails = [], mailTitle, base6
   return await sendBrevoMail(payload);
 }
 
-/**
- * Builds HTML template for Cancellation / EU Right of Withdrawal Alert email
- */
 export function buildCancellationAlertEmailHtml({
   orderName,
   customerEmail,
@@ -540,9 +513,6 @@ export function buildCancellationAlertEmailHtml({
   `;
 }
 
-/**
- * Sends Cancellation / EU Right of Withdrawal Alert email to internal teams
- */
 export async function sendCancellationAlertEmail({
   orderName,
   customerEmail,

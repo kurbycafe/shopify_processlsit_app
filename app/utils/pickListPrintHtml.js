@@ -1,8 +1,5 @@
 import { parseWarehouseInfo, compareRegalAscending } from "./warehouseHelpers.js";
 
-/**
- * Generates standalone, full-bleed A4 Landscape HTML for guaranteed multi-page printing without iframe cutoff
- */
 export function generatePickListPrintHtml({
   items = [],
   formattedTime = "",

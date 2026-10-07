@@ -2,9 +2,6 @@ import { Card, BlockStack, Text, InlineStack, Badge, Divider, Box } from "@shopi
 import { Link, useNavigate } from "react-router";
 import dayjs from "dayjs";
 
-/**
- * 컨테이너 입고 일정 및 2개월 달력 뷰 카드 컴포넌트
- */
 export function ContainerScheduleCard({
   upcomingContainers = [],
   calendarMonths = [],
@@ -28,7 +25,6 @@ export function ContainerScheduleCard({
         </InlineStack>
 
         <div className="container-dashboard-layout">
-          {/* 왼쪽: 입고 일정 테이블 */}
           <div className="container-table-section">
             {hasContainers ? (
               <div style={{ overflowX: "auto" }}>
@@ -121,7 +117,6 @@ export function ContainerScheduleCard({
             )}
           </div>
 
-          {/* 오른쪽: 이번달 & 다음달 2개 달력 */}
           <div className="container-calendar-section">
             <div className="double-calendar-container">
               {calendarMonths.map((monthData, idx) => (
@@ -222,7 +217,6 @@ export function ContainerScheduleCard({
               ))}
             </div>
 
-            {/* 하단 상태 범례 */}
             <div className="calendar-legend-bar">
               <span className="legend-item"><span className="legend-dot state-done"></span>입고 완료</span>
               <span className="legend-item"><span className="legend-dot state-assigned"></span>입고 준비</span>

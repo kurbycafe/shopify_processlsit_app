@@ -1,4 +1,3 @@
-// Category and Occasion metadata for Recipe Presets
 export const RECIPE_CATEGORIES = [
   { id: "ALL", labelKo: "전체 카테고리", labelDe: "Alle Kategorien", labelEn: "All Categories" },
   { id: "STREET_FOOD", labelKo: "길거리 음식 (Street Food)", labelDe: "Streetfood", labelEn: "Street Food" },
@@ -36,7 +35,6 @@ export const SPICE_LEVELS = [
 ];
 
 export const RECIPE_PRESETS = [
-  // --- STREET FOOD ---
   {
     id: "tteokbokki",
     category: "STREET_FOOD",
@@ -216,7 +214,6 @@ export const RECIPE_PRESETS = [
     ]
   },
 
-  // --- MAIN DISH ---
   {
     id: "bulgogi",
     category: "MAIN_DISH",
@@ -386,7 +383,6 @@ export const RECIPE_PRESETS = [
     ]
   },
 
-  // --- SOUP & STEW ---
   {
     id: "kimchijjigae",
     category: "SOUP_STEW",
@@ -556,7 +552,6 @@ export const RECIPE_PRESETS = [
     ]
   },
 
-  // --- RICE & NOODLES ---
   {
     id: "bibimbap",
     category: "RICE_NOODLES",
@@ -723,7 +718,6 @@ export const RECIPE_PRESETS = [
     ]
   },
 
-  // --- SIDE DISH ---
   {
     id: "gamjajorim",
     category: "SIDE_DISH",

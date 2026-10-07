@@ -1,8 +1,3 @@
-/**
- * Web Audio API Sound Synthesizer for Warehouse & Inspection Operations
- * Generates instant acoustic feedback with zero external audio file dependencies.
- */
-
 let audioCtx = null;
 
 function getAudioContext() {
@@ -19,9 +14,6 @@ function getAudioContext() {
   return audioCtx;
 }
 
-/**
- * High-pitch dual chime for successful barcode scan & matching
- */
 export function playSuccessBeep() {
   try {
     const ctx = getAudioContext();
@@ -31,8 +23,8 @@ export function playSuccessBeep() {
     const gain = ctx.createGain();
 
     osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-    osc.frequency.setValueAtTime(1760, ctx.currentTime + 0.08); // A6
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1760, ctx.currentTime + 0.08);
 
     gain.gain.setValueAtTime(0.15, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
@@ -42,14 +34,9 @@ export function playSuccessBeep() {
 
     osc.start();
     osc.stop(ctx.currentTime + 0.22);
-  } catch (e) {
-    // Gracefully ignore audio synthesis errors
-  }
+  } catch (e) {}
 }
 
-/**
- * Low buzzer tone for unrecognised barcode or validation error
- */
 export function playErrorBuzz() {
   try {
     const ctx = getAudioContext();
@@ -59,7 +46,7 @@ export function playErrorBuzz() {
     const gain = ctx.createGain();
 
     osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(220, ctx.currentTime); // A3
+    osc.frequency.setValueAtTime(220, ctx.currentTime);
     osc.frequency.setValueAtTime(160, ctx.currentTime + 0.1);
 
     gain.gain.setValueAtTime(0.2, ctx.currentTime);
@@ -70,14 +57,9 @@ export function playErrorBuzz() {
 
     osc.start();
     osc.stop(ctx.currentTime + 0.3);
-  } catch (e) {
-    // Gracefully ignore
-  }
+  } catch (e) {}
 }
 
-/**
- * Alert warning tone for exception items
- */
 export function playWarningBeep() {
   try {
     const ctx = getAudioContext();
@@ -87,8 +69,8 @@ export function playWarningBeep() {
     const gain = ctx.createGain();
 
     osc.type = "triangle";
-    osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
-    osc.frequency.setValueAtTime(587.33, ctx.currentTime + 0.08); // D5
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime + 0.08);
 
     gain.gain.setValueAtTime(0.15, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
@@ -98,7 +80,5 @@ export function playWarningBeep() {
 
     osc.start();
     osc.stop(ctx.currentTime + 0.25);
-  } catch (e) {
-    // Gracefully ignore
-  }
+  } catch (e) {}
 }

@@ -106,7 +106,6 @@ export default function BackInStockDetailDrawer({
     >
       <Modal.Section>
         <BlockStack gap="400">
-          {/* Header Info Box */}
           <Card padding="400">
             <InlineStack align="space-between" blockAlign="center" wrap>
               <InlineStack gap="300" blockAlign="center">
@@ -167,7 +166,6 @@ export default function BackInStockDetailDrawer({
             </InlineStack>
           </Card>
 
-          {/* Odoo ERP ETA & Restock Section */}
           <Card padding="400">
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
@@ -274,7 +272,6 @@ export default function BackInStockDetailDrawer({
             </BlockStack>
           </Card>
 
-          {/* Subscriber Table */}
           <Card padding="400">
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">

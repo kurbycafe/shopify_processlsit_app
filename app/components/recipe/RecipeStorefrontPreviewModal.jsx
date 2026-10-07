@@ -80,7 +80,6 @@ export default function RecipeStorefrontPreviewModal({ open, onClose, recipe }) 
             </InlineStack>
           </InlineStack>
 
-          {/* Preview Viewport Container */}
           <Box
             background="bg-surface-secondary"
             padding="400"

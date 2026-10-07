@@ -143,7 +143,6 @@ export default function RecipeMetadataSettings({
           </Box>
         )}
 
-        {/* Dietary Flags Toggles */}
         <BlockStack gap="200">
           <Text as="h4" variant="headingXs">식이요법 & 알레르기 배지 (Dietary Flags)</Text>
           <InlineStack gap="200" wrap>

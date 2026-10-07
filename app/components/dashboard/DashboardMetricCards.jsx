@@ -3,9 +3,6 @@ import { PrintIcon, CheckCircleIcon, ClockIcon, AlertTriangleIcon } from "@shopi
 import { useNavigate } from "react-router";
 import MetricCard from "../common/MetricCard";
 
-/**
- * Operations Command Center 4-column KPI Metric Grid
- */
 export function DashboardMetricCards({
   todayPrintedCount = 0,
   thisWeekFulfilledCount = 0,

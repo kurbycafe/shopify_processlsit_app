@@ -1,8 +1,5 @@
 const warehouseInfoCache = new Map();
 
-/**
- * Parses bin location string into warehouse category and individual shelf locations
- */
 export function parseWarehouseInfo(binLocation = "") {
   const loc = String(binLocation || "").trim();
   if (warehouseInfoCache.has(loc)) {
@@ -21,7 +18,6 @@ export function parseWarehouseInfo(binLocation = "") {
       hasBoth: false,
     };
   } else {
-    // 매장창고 + 신창고 결합: e.g. "A-01-02 (신창고: B-04)"
     const matchBoth = loc.match(/^(.*?)\s*\(신창고:\s*(.*?)\)$/);
     if (matchBoth) {
       result = {
@@ -34,7 +30,6 @@ export function parseWarehouseInfo(binLocation = "") {
         hasBoth: true,
       };
     } else if (loc.startsWith("*") || loc.includes("신창고")) {
-      // 신창고 전용: e.g. "*W-05 (신창고)" 또는 "*W-05"
       const cleanNew = loc.replace(/^\*/, "").replace(/\(신창고\)/, "").trim();
       result = {
         category: "NEW_ONLY",
@@ -46,7 +41,6 @@ export function parseWarehouseInfo(binLocation = "") {
         hasBoth: false,
       };
     } else {
-      // 기본값: 매장창고 레갈 위치 (e.g. "B-03-01")
       result = {
         category: "STORE",
         label: loc,
@@ -65,9 +59,6 @@ export function parseWarehouseInfo(binLocation = "") {
   return result;
 }
 
-/**
- * Natural ascending sort for shelf / regal numbers
- */
 export function compareRegalAscending(a, b) {
   if (!a && !b) return 0;
   if (!a) return 1;

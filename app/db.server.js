@@ -27,19 +27,13 @@ const prisma = global.prismaGlobal ?? new PrismaClient();
 
 let schemaEnsuredPromise = null;
 
-/**
- * Ensures required database tables and columns exist in PostgreSQL
- * Prevents P2022 column missing errors in serverless production environments
- */
 export async function ensureDatabaseSchema() {
   if (schemaEnsuredPromise) return schemaEnsuredPromise;
 
   schemaEnsuredPromise = (async () => {
     try {
-      // An existing schema needs one read instead of dozens of DDL round trips.
       const catalog = await readSchemaCatalog(prisma);
       if (schemaIsReady(catalog)) return;
-      // 1. BackInStockSubscription Table and Columns
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "BackInStockSubscription" (
           "id" TEXT NOT NULL PRIMARY KEY,
@@ -75,13 +69,8 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "lastNotificationError" TEXT;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "lastNotificationAt" TIMESTAMP(3);`);
 
-      // Indexes
-      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_idx" ON "BackInStockSubscription"("shop");`);
-      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_variantId_idx" ON "BackInStockSubscription"("variantId");`);
-      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_status_idx" ON "BackInStockSubscription"("status");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_poNumber_idx" ON "BackInStockSubscription"("poNumber");`);
 
-      // 2. InspectionRecord Table and Columns
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "InspectionRecord" (
           "id" TEXT NOT NULL PRIMARY KEY,
@@ -119,7 +108,6 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_status_idx" ON "InspectionRecord"("shop", "status");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_createdAt_idx" ON "InspectionRecord"("shop", "createdAt");`);
 
-      // 3. InspectionItem Table and Columns
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "InspectionItem" (
           "id" TEXT NOT NULL PRIMARY KEY,
@@ -156,9 +144,6 @@ export async function ensureDatabaseSchema() {
   return schemaEnsuredPromise;
 }
 
-/**
- * Resilient query for BackInStockSubscription with auto-schema retry
- */
 export async function safeFindSubscribers(whereClause, orderBy = { createdAt: "desc" }, limit = null, skip = null) {
   await ensureDatabaseSchema();
   try {
@@ -183,9 +168,6 @@ export async function safeFindSubscribers(whereClause, orderBy = { createdAt: "d
   }
 }
 
-/**
- * Resilient queries for InspectionRecord with auto-schema retry
- */
 export async function safeFindInspectionRecords(whereClause, orderBy = { createdAt: "desc" }, limit = null, skip = null) {
   await ensureDatabaseSchema();
   try {

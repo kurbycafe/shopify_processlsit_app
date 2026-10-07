@@ -23,15 +23,12 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
   const activeCategory = RECIPE_CATEGORIES[selectedCategoryTab]?.id || "ALL";
 
   const filteredPresets = RECIPE_PRESETS.filter((preset) => {
-    // Category match
     if (activeCategory !== "ALL" && preset.category !== activeCategory) {
       return false;
     }
-    // Occasion match
     if (selectedOccasion !== "ALL" && preset.occasion !== selectedOccasion) {
       return false;
     }
-    // Search query match
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const koTitle = preset.translations.ko?.title?.toLowerCase() || "";
@@ -64,7 +61,6 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
             한국어/독일어/영어 3개 국어 설명과 필수 식재료 키워드가 자동으로 완성됩니다.
           </Text>
 
-          {/* Search and Occasion filter */}
           <InlineGrid columns={{ xs: 1, md: "2fr 1fr" }} gap="300">
             <TextField
               label="레시피 / 식재료 키워드 검색"
@@ -102,12 +98,10 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
             </div>
           </InlineGrid>
 
-          {/* Category Tabs */}
           <Tabs tabs={categoryTabs} selected={selectedCategoryTab} onSelect={setSelectedCategoryTab} />
 
           <Divider />
 
-          {/* Preset Cards Grid */}
           {filteredPresets.length === 0 ? (
             <Box padding="600" textAlign="center">
               <Text as="p" tone="subdued">일치하는 프리셋이 없습니다. 다른 카테고리나 검색어를 선택해 보세요.</Text>

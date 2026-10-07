@@ -1,8 +1,5 @@
 import { Badge } from "@shopify/polaris";
 
-/**
- * Standardized Operations Status Badge Component
- */
 export default function StatusBadge({ status, size = "medium" }) {
   const norm = String(status || "").toUpperCase();
 

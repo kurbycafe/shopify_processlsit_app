@@ -141,7 +141,6 @@ export default function BackInStockProductTable({
                     transition: "background-color 0.15s ease",
                   }}
                 >
-                  {/* Checkbox */}
                   <td style={{ padding: "10px 14px" }}>
                     <input
                       type="checkbox"
@@ -151,7 +150,6 @@ export default function BackInStockProductTable({
                     />
                   </td>
 
-                  {/* Product & Variant */}
                   <td style={{ padding: "10px 12px" }}>
                     <InlineStack gap="300" blockAlign="center">
                       {item.imageUrl ? (
@@ -198,7 +196,6 @@ export default function BackInStockProductTable({
                     </InlineStack>
                   </td>
 
-                  {/* SKU */}
                   <td style={{ padding: "10px 12px" }}>
                     {item.sku ? (
                       <InlineStack gap="100" blockAlign="center">
@@ -223,7 +220,6 @@ export default function BackInStockProductTable({
                     )}
                   </td>
 
-                  {/* Waiting Demand */}
                   <td style={{ padding: "10px 12px" }}>
                     <BlockStack gap="050">
                       <InlineStack gap="100" blockAlign="baseline">
@@ -240,7 +236,6 @@ export default function BackInStockProductTable({
                     </BlockStack>
                   </td>
 
-                  {/* ETA & 입고/발송 정보 */}
                   <td style={{ padding: "10px 12px" }}>
                     {item.pendingCount === 0 && item.notifiedCount > 0 ? (
                       <BlockStack gap="050">
@@ -286,7 +281,6 @@ export default function BackInStockProductTable({
                     )}
                   </td>
 
-                  {/* Status */}
                   <td style={{ padding: "10px 12px" }}>
                     {item.pendingCount > 0 && item.notifiedCount === 0 && (
                       <Badge tone="warning">전송 대기 ({item.pendingCount}명)</Badge>
@@ -302,7 +296,6 @@ export default function BackInStockProductTable({
                     )}
                   </td>
 
-                  {/* Actions */}
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
                     <InlineStack align="end" gap="150">
                       <Button

@@ -1,5 +1,3 @@
-// Single source of truth for Shopify API version and defaults
-
 export const SHOPIFY_ADMIN_API_VERSION = "2025-01";
 export const SHOPIFY_WEBHOOK_API_VERSION = "2026-07";
 
@@ -10,9 +8,9 @@ export const DEFAULT_STORE_ZIP = "40231";
 export const DEFAULT_STORE_ADDRESS1 = "Musterstraße 1";
 
 export const GERMAN_TAX_RATES = {
-  REDUCED: 7,    // Reduced VAT rate for food/groceries
-  STANDARD: 19,  // Standard VAT rate for general merchandise/beverages
-  ZERO: 0,       // Non-taxable items
+  REDUCED: 7,
+  STANDARD: 19,
+  ZERO: 0,
 };
 
 export const DEFAULT_CURRENCY = "EUR";

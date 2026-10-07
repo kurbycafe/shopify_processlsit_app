@@ -5,7 +5,6 @@ export default function RecipeDashboardHeader({ recipes = [] }) {
   const publishedCount = recipes.filter((r) => r.published).length;
   const draftCount = totalCount - publishedCount;
   
-  // Count recipes that have out of stock products or no matched products
   const attentionCount = recipes.filter((r) => {
     const prods = r.products || [];
     if (prods.length === 0) return true;

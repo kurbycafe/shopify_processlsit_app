@@ -1,15 +1,6 @@
 import { formatCurrency } from "./formatters";
 import { DEFAULT_CURRENCY } from "../constants/shopify";
 
-/**
- * Generate A4 HTML content for Monthly Inventory Valuation Report print / PDF
- * @param {object} params
- * @param {Array} params.items Filtered inventory items
- * @param {string} params.selectedMonth Selected YYYY-MM
- * @param {string} params.shopName Shop name
- * @param {string} params.currencyCode Currency code
- * @returns {string} Complete HTML string
- */
 export function generateInventoryReportHTML({ items = [], selectedMonth, shopName = "Shopify Store", currencyCode = DEFAULT_CURRENCY }) {
   const reportTimestamp = new Date().toLocaleString("ko-KR", {
     year: "numeric",

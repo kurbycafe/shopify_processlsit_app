@@ -52,7 +52,6 @@ export default function BackInStockControlBar({
     { id: "RECENT_7D", label: "최근 7일 신청" },
   ];
 
-  // Active filter tags calculation
   const activeTags = [];
   if (statusFilter && statusFilter !== "ALL") {
     activeTags.push({
@@ -129,7 +128,6 @@ export default function BackInStockControlBar({
   return (
     <Card padding="300">
       <BlockStack gap="300">
-        {/* Row 1: View Mode Tabs + Universal Search + Filter Popover */}
         <InlineStack align="space-between" blockAlign="center" wrap>
           <ButtonGroup segmented>
             <Button
@@ -147,7 +145,6 @@ export default function BackInStockControlBar({
           </ButtonGroup>
 
           <InlineStack gap="200" blockAlign="center" wrap>
-            {/* 전송 상태 퀵 세그먼트 버튼 (전체 / 전송 대기 / 전송 완료) */}
             <ButtonGroup segmented>
               <Button
                 pressed={statusFilter === "ALL"}
@@ -259,7 +256,6 @@ export default function BackInStockControlBar({
           </InlineStack>
         </InlineStack>
 
-        {/* Row 2: Quick Filter Presets */}
         <InlineStack gap="150" blockAlign="center" wrap>
           <Text variant="bodyXs" fontWeight="semibold" tone="subdued">
             빠른 필터:
@@ -279,7 +275,6 @@ export default function BackInStockControlBar({
           })}
         </InlineStack>
 
-        {/* Row 3: Active Filter Chips */}
         {activeTags.length > 0 && (
           <InlineStack gap="150" blockAlign="center" wrap>
             <Text variant="bodyXs" tone="subdued">

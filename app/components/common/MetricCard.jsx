@@ -1,8 +1,5 @@
 import { BlockStack, InlineStack, Text, Badge } from "@shopify/polaris";
 
-/**
- * Three-tier visual weight Metric Card for Operations Dashboards & KPI Grids
- */
 export default function MetricCard({
   title,
   value,

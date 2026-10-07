@@ -1,8 +1,5 @@
 import { Box, BlockStack, Spinner, Text } from "@shopify/polaris";
 
-/**
- * Standardized Loading State Component
- */
 export default function AppLoadingState({ message = "데이터를 불러오는 중입니다..." }) {
   return (
     <Box padding="800">

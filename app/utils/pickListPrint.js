@@ -1,18 +1,12 @@
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { parseWarehouseInfo, compareRegalAscending } from "./warehouseHelpers.js";
 
-/**
- * Generate Landscape A4 Picking List PDF Buffer separated by Store & New Warehouse
- * @param {Array} items List of aggregated picking items
- * @param {string} techTime Timestamp for picking list
- * @returns {Promise<Buffer>} PDF Buffer
- */
 export async function generatePickListPdfBuffer(items = [], techTime = "") {
   const pdfDoc = await PDFDocument.create();
   const HelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const Helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  const pageWidth = 842; // A4 Landscape
+  const pageWidth = 842;
   const pageHeight = 595;
 
   let page = pdfDoc.addPage([pageWidth, pageHeight]);
@@ -26,7 +20,6 @@ export async function generatePickListPdfBuffer(items = [], techTime = "") {
     orders: 720,
   };
 
-  // Split into categories and sort ascending by Regal number
   const storeItems = [];
   const newOnlyItems = [];
   const noBinItems = [];
@@ -145,7 +138,6 @@ export async function generatePickListPdfBuffer(items = [], techTime = "") {
         .join("")
         .trim();
 
-      // Regal location text color: Dark blue for Store, Dark Cyan for New
       const locColor = isStoreSection ? rgb(0.1, 0.3, 0.85) : rgb(0.03, 0.5, 0.6);
 
       page.drawText(cleanLocation.substring(0, 26), {
@@ -195,7 +187,6 @@ export async function generatePickListPdfBuffer(items = [], techTime = "") {
     });
   };
 
-  // Section 1: STORE WAREHOUSE
   if (storeItems.length > 0) {
     const storeQty = storeItems.reduce((sum, i) => sum + i.orderedQty, 0);
     drawSectionBanner("1. [ STORE WAREHOUSE / STORE PICKING ]", storeItems.length, storeQty, rgb(0.9, 0.94, 1.0), rgb(0.08, 0.25, 0.7));
@@ -203,7 +194,6 @@ export async function generatePickListPdfBuffer(items = [], techTime = "") {
     currentY -= 6;
   }
 
-  // Section 2: NEW WAREHOUSE ONLY
   if (newOnlyItems.length > 0) {
     const newQty = newOnlyItems.reduce((sum, i) => sum + i.orderedQty, 0);
     drawSectionBanner("2. [ NEW WAREHOUSE / MAIN WH PICKING ]", newOnlyItems.length, newQty, rgb(0.88, 0.98, 0.99), rgb(0.04, 0.45, 0.5));
@@ -211,7 +201,6 @@ export async function generatePickListPdfBuffer(items = [], techTime = "") {
     currentY -= 6;
   }
 
-  // Section 3: UNASSIGNED LOCATION
   if (noBinItems.length > 0) {
     const noBinQty = noBinItems.reduce((sum, i) => sum + i.orderedQty, 0);
     drawSectionBanner("3. [ UNASSIGNED LOCATION / NO BIN ]", noBinItems.length, noBinQty, rgb(1.0, 0.97, 0.88), rgb(0.7, 0.4, 0.05));

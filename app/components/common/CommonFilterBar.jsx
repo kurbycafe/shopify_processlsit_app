@@ -50,7 +50,6 @@ export default function CommonFilterBar({
           )}
         </InlineStack>
 
-        {/* Presets */}
         {presets && presets.length > 0 && (
           <InlineStack gap="150" blockAlign="center" wrap>
             <Text variant="bodyXs" fontWeight="semibold" tone="subdued">
@@ -72,7 +71,6 @@ export default function CommonFilterBar({
           </InlineStack>
         )}
 
-        {/* Active Tag Chips */}
         {activeTags && activeTags.length > 0 && (
           <InlineStack gap="150" blockAlign="center" wrap>
             <Text variant="bodyXs" tone="subdued">

@@ -1,8 +1,5 @@
 import { Modal, Text, BlockStack, Banner } from "@shopify/polaris";
 
-/**
- * Standardized Context-Rich Confirmation Modal
- */
 export default function ConfirmModal({
   open,
   title,

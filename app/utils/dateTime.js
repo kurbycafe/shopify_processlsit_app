@@ -7,16 +7,10 @@ dayjs.extend(timezone);
 
 export const DEFAULT_TIMEZONE = "Europe/Berlin";
 
-/**
- * Returns current dayjs instance pinned to the target timezone (Europe/Berlin default)
- */
 export function getLocalNow(tz = DEFAULT_TIMEZONE) {
   return dayjs().tz(tz);
 }
 
-/**
- * Returns start and end Date objects for today in the target timezone
- */
 export function getTodayRange(tz = DEFAULT_TIMEZONE) {
   const localNow = getLocalNow(tz);
   return {
@@ -26,12 +20,9 @@ export function getTodayRange(tz = DEFAULT_TIMEZONE) {
   };
 }
 
-/**
- * Returns Monday 00:00:00 to Sunday 23:59:59 range for the current week
- */
 export function getThisWeekRange(tz = DEFAULT_TIMEZONE) {
   const localNow = getLocalNow(tz);
-  const dayOfWeek = localNow.day(); // 0(Sun), 1(Mon), ..., 6(Sat)
+  const dayOfWeek = localNow.day();
   const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
   const startOfWeek = localNow.subtract(daysFromMonday, "day").startOf("day");
   const endOfWeek = startOfWeek.add(6, "day").endOf("day");
@@ -44,9 +35,6 @@ export function getThisWeekRange(tz = DEFAULT_TIMEZONE) {
   };
 }
 
-/**
- * Generates an array of past N days with start/end Date bounds for charting
- */
 export function getPastDaysRange(daysCount = 7, tz = DEFAULT_TIMEZONE) {
   const localNow = getLocalNow(tz);
   const days = [];
@@ -64,9 +52,6 @@ export function getPastDaysRange(daysCount = 7, tz = DEFAULT_TIMEZONE) {
   return days;
 }
 
-/**
- * Formats a given date to German local format: DD.MM.YYYY HH:mm
- */
 export function formatLocalGermanDateTime(date, tz = DEFAULT_TIMEZONE) {
   if (!date) return "-";
   return dayjs(date).tz(tz).format("DD.MM.YYYY HH:mm");

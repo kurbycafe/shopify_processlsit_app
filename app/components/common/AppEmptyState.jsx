@@ -1,8 +1,5 @@
 import { Box, BlockStack, Text, Button } from "@shopify/polaris";
 
-/**
- * Standardized Empty State Component for lists, tables, and search views
- */
 export default function AppEmptyState({
   title = "데이터가 없습니다",
   description = "조건에 부합하는 항목이 없거나 아직 등록된 내역이 없습니다.",

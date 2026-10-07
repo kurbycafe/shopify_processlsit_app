@@ -1,10 +1,6 @@
 import { Card, BlockStack, Text } from "@shopify/polaris";
 
-/**
- * 최근 7일간 검수 생산성 및 일별 처리 현황 SVG 차트 컴포넌트
- */
 export function ProductivityChartCard({ chartData }) {
-  // 실제 검수 건수의 최댓값을 구하여 Y축 절대 스케일링 적용 (최소 스케일 5)
   const maxTotal = Math.max(5, ...chartData.map((d) => d.totalCount || 0));
 
   return (
@@ -20,7 +16,6 @@ export function ProductivityChartCard({ chartData }) {
               viewBox="0 0 800 240"
               style={{ width: "100%", minWidth: "600px", height: "auto" }}
             >
-              {/* Y축 가이드선 */}
               {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
                 const y = 20 + 170 * (1 - ratio);
                 const countValue = Math.round(maxTotal * ratio);
@@ -34,10 +29,8 @@ export function ProductivityChartCard({ chartData }) {
                 );
               })}
 
-              {/* X축 기준선 */}
               <line x1="50" y1="190" x2="770" y2="190" stroke="#cbd5e1" strokeWidth="1.5" />
 
-              {/* 일별 스택 바 그래프 */}
               {chartData.map((day, dIdx) => {
                 const x = 85 + dIdx * 96;
                 const total = day.totalCount;
@@ -94,7 +87,6 @@ export function ProductivityChartCard({ chartData }) {
                           />
                         )}
 
-                        {/* 툴팁 정보 */}
                         <g className="chart-tooltip">
                           <rect
                             x={x - 40}
@@ -139,7 +131,6 @@ export function ProductivityChartCard({ chartData }) {
                       <circle cx={x + 18} cy="190" r="3" fill="#e2e8f0" />
                     )}
 
-                    {/* X축 날짜 텍스트 */}
                     <text
                       x={x + 18}
                       y="208"
@@ -151,7 +142,6 @@ export function ProductivityChartCard({ chartData }) {
                       {day.dateLabel}
                     </text>
 
-                    {/* 일별 총 건수 표시 */}
                     <text
                       x={x + 18}
                       y="224"
@@ -168,7 +158,6 @@ export function ProductivityChartCard({ chartData }) {
             </svg>
           </div>
 
-          {/* 범례 (Legend) */}
           <div
             style={{
               display: "flex",

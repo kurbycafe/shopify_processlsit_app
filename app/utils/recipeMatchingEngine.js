@@ -1,10 +1,3 @@
-/**
- * Recipe Ingredient to Shopify Product Matching Engine
- */
-
-/**
- * Normalizes text for matching: lowercases, removes special characters, and trims.
- */
 function normalizeText(text) {
   if (!text) return "";
   return String(text)
@@ -14,10 +7,6 @@ function normalizeText(text) {
     .trim();
 }
 
-/**
- * Calculates match score between ingredient keywords and a Shopify product/variant.
- * Returns a score between 0.0 and 1.0.
- */
 export function calculateMatchScore(ingredient, product, variant) {
   const keywords = [
     ingredient.nameKo,
@@ -39,13 +28,11 @@ export function calculateMatchScore(ingredient, product, variant) {
   for (const kw of keywords) {
     if (!kw) continue;
 
-    // 1. Exact full keyword match in product title (95% - 100%)
     if (productTitle === kw) {
       highestScore = Math.max(highestScore, 0.98);
       continue;
     }
 
-    // 2. Keyword contained as substring in product title (80% - 92%)
     if (productTitle.includes(kw)) {
       const ratio = kw.length / productTitle.length;
       const score = 0.82 + Math.min(0.13, ratio * 0.15);
@@ -53,7 +40,6 @@ export function calculateMatchScore(ingredient, product, variant) {
       continue;
     }
 
-    // 3. Token-level overlap (e.g. multi-word keywords)
     const kwTokens = kw.split(" ").filter((t) => t.length > 1);
     const prodTokens = `${productTitle} ${variantTitle} ${vendor} ${tags} ${productType}`.split(" ").filter((t) => t.length > 1);
 
@@ -69,18 +55,14 @@ export function calculateMatchScore(ingredient, product, variant) {
     }
   }
 
-  // Boost score slightly if in stock
   const isAvailable = variant.availableForSale !== false;
   if (!isAvailable && highestScore > 0) {
-    highestScore = highestScore * 0.85; // slight penalty for out of stock
+    highestScore = highestScore * 0.85;
   }
 
   return Math.min(1.0, Math.max(0.0, parseFloat(highestScore.toFixed(2))));
 }
 
-/**
- * Categorizes confidence score into tiers.
- */
 export function getConfidenceBadgeTone(score) {
   if (score >= 0.85) return { tone: "success", label: "Exact Match" };
   if (score >= 0.70) return { tone: "info", label: "High Match" };
@@ -88,10 +70,6 @@ export function getConfidenceBadgeTone(score) {
   return { tone: "subdued", label: "Low Match" };
 }
 
-/**
- * Auto-matches ingredients with available Shopify products.
- * Returns updated ingredient list with primary and alternative candidates.
- */
 export function autoMatchIngredientsWithProducts(ingredients, products) {
   return ingredients.map((ing) => {
     const candidates = [];
@@ -120,7 +98,6 @@ export function autoMatchIngredientsWithProducts(ingredients, products) {
       }
     }
 
-    // Sort descending by score
     candidates.sort((a, b) => b.confidenceScore - a.confidenceScore);
 
     const bestCandidate = candidates[0] || null;
@@ -128,7 +105,7 @@ export function autoMatchIngredientsWithProducts(ingredients, products) {
     return {
       ...ing,
       matchedProduct: bestCandidate,
-      candidateMatches: candidates.slice(0, 5) // top 5
+      candidateMatches: candidates.slice(0, 5)
     };
   });
 }

@@ -129,7 +129,6 @@ export default function BackInStockSubscriberTable({
                     transition: "background-color 0.15s ease",
                   }}
                 >
-                  {/* Checkbox */}
                   <td style={{ padding: "10px 14px" }}>
                     <input
                       type="checkbox"
@@ -139,14 +138,12 @@ export default function BackInStockSubscriberTable({
                     />
                   </td>
 
-                  {/* Date */}
                   <td style={{ padding: "10px 12px" }}>
                     <Text variant="bodyXs" tone="subdued">
                       {dayjs(sub.createdAt).format("YYYY-MM-DD HH:mm")}
                     </Text>
                   </td>
 
-                  {/* Product & Variant */}
                   <td style={{ padding: "10px 12px" }}>
                     <BlockStack gap="050">
                       <Text variant="bodySm" fontWeight="semibold" truncate>
@@ -160,14 +157,12 @@ export default function BackInStockSubscriberTable({
                     </BlockStack>
                   </td>
 
-                  {/* SKU */}
                   <td style={{ padding: "10px 12px" }}>
                     <Text variant="bodyXs" tone="subdued">
                       {sub.sku || "-"}
                     </Text>
                   </td>
 
-                  {/* Odoo PO */}
                   <td style={{ padding: "10px 12px" }}>
                     {sub.poNumber ? (
                       <Badge tone="info" size="small">{sub.poNumber}</Badge>
@@ -176,7 +171,6 @@ export default function BackInStockSubscriberTable({
                     )}
                   </td>
 
-                  {/* Customer (Privacy Masked + Copy) */}
                   <td style={{ padding: "10px 12px" }}>
                     <BlockStack gap="050">
                       <InlineStack gap="100" blockAlign="center">
@@ -202,7 +196,6 @@ export default function BackInStockSubscriberTable({
                     </BlockStack>
                   </td>
 
-                  {/* Channel */}
                   <td style={{ padding: "10px 12px" }}>
                     {sub.channel === "PUSH" ? (
                       <Badge tone="interactive">웹 푸시</Badge>
@@ -213,7 +206,6 @@ export default function BackInStockSubscriberTable({
                     )}
                   </td>
 
-                  {/* Status */}
                   <td style={{ padding: "10px 12px" }}>
                     {sub.status === "PENDING" ? (
                       <Badge tone="warning">대기 중</Badge>
@@ -224,7 +216,6 @@ export default function BackInStockSubscriberTable({
                     )}
                   </td>
 
-                  {/* Actions / Sent Date */}
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
                     {sub.status === "PENDING" ? (
                       <InlineStack align="end" gap="150">
