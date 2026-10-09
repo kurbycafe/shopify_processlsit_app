@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
-import { checkAndAlertCustomerRequests } from "../services/cancellationAlertService.server.js";
+import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import styles from "../styles/app.lieferschein.css?url";
 import {
   Page,
@@ -246,8 +246,6 @@ export const loader = async ({ request, params }) => {
   const rawIds = params.id.split(",");
   const orderGids = rawIds.map(id => `gid://shopify/Order/${id.trim()}`);
 
-  checkAndAlertCustomerRequests(admin, session?.shop).catch(() => {});
-
   try {
     const response = await admin.graphql(`
       #graphql
@@ -262,6 +260,8 @@ export const loader = async ({ request, params }) => {
             displayFinancialStatus
             cancelledAt
             cancelReason
+            returnStatus
+            tags
             events(first: 10) {
               edges {
                 node {
@@ -503,30 +503,18 @@ export const loader = async ({ request, params }) => {
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
-      const cancelEventsList = (node.events?.edges || []).map(e => e.node);
-      const hasCancellationEvent = cancelEventsList.some(e => {
-        const msg = String(e.message || "").toLowerCase();
-        return (
-          msg.includes("cancel") ||
-          msg.includes("stornier") ||
-          msg.includes("widerruf") ||
-          msg.includes("return") ||
-          msg.includes("rückgabe") ||
-          msg.includes("edit") ||
-          msg.includes("request") ||
-          msg.includes("취소") ||
-          msg.includes("반품") ||
-          msg.includes("철회")
-        );
+      const cancelEventsList = (node.events?.edges || []).map((e) => e.node);
+      const detection = detectOrderCancellationStatus({
+        cancelledAt: node.cancelledAt,
+        cancelReason: node.cancelReason,
+        returnStatus: node.returnStatus,
+        tags: node.tags,
+        events: cancelEventsList,
       });
 
-      const hasCancellationRequest =
-        hasCancellationEvent ||
-        Boolean(node.cancelledAt) ||
-        Boolean(node.cancelReason);
-
-      const hasReturnRequest = false;
-      const isCustomerHold = hasCancellationRequest;
+      const hasCancellationRequest = detection.hasCancellationRequest;
+      const hasReturnRequest = detection.hasReturnRequest;
+      const isCustomerHold = detection.isCustomerHold;
 
       const isB2B = checkIsB2B(node.shippingAddress);
 
@@ -566,7 +554,7 @@ export const loader = async ({ request, params }) => {
         hasCancellationRequest,
         hasReturnRequest,
         isCustomerHold,
-        cancelReason: node.cancelReason || null,
+        cancelReason: detection.cancelReason || node.cancelReason || null,
         totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
         subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
         totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",

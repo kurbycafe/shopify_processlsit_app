@@ -1,21 +1,33 @@
-import prisma from "../db.server";
+import prisma from "../db.server.js";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
+import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 
 /**
- * Checks for active customer requests (customer_request:return,edit) on open orders
+ * Checks recently updated open orders for legitimate customer cancellation/return requests
  * and dispatches alert emails for any unnotified orders.
+ * Strictly ignores normal orders and benign events (credit card payments, carrier requests).
  */
 export async function checkAndAlertCustomerRequests(admin, shop) {
   try {
     const res = await admin.graphql(
       `#graphql
       query getPendingCustomerRequests {
-        orders(first: 25, query: "status:open (customer_request:return OR customer_request:edit OR customer_request:return,edit)") {
+        orders(
+          first: 30,
+          query: "status:open (tag:customer_request* OR tag:return_requested OR tag:cancellation_requested OR tag:cancel_requested OR return_status:RETURN_REQUESTED)",
+          sortKey: UPDATED_AT,
+          reverse: true
+        ) {
           edges {
             node {
               id
               name
               createdAt
+              updatedAt
+              cancelledAt
+              cancelReason
+              returnStatus
+              tags
               email
               totalPriceSet { shopMoney { amount currencyCode } }
               shippingAddress { name }
@@ -46,17 +58,36 @@ export async function checkAndAlertCustomerRequests(admin, shop) {
     const orders = (json.data?.orders?.edges || []).map((e) => e.node);
 
     const alerted = [];
-    const existingRecords = orders.length ? await prisma.inspectionRecord.findMany({
-      where: { shop, orderId: { in: orders.map(order => order.id) } },
-      select: { orderId: true, isCancelAlertSent: true },
-    }) : [];
-    const sentIds = new Set(existingRecords.filter(record => record.isCancelAlertSent).map(record => record.orderId));
+    const existingRecords = orders.length
+      ? await prisma.inspectionRecord.findMany({
+          where: { shop, orderId: { in: orders.map((order) => order.id) } },
+          select: { orderId: true, isCancelAlertSent: true },
+        })
+      : [];
+    const sentIds = new Set(
+      existingRecords.filter((record) => record.isCancelAlertSent).map((record) => record.orderId)
+    );
 
     for (const order of orders) {
       const orderGid = order.id;
       const orderName = order.name;
 
       if (sentIds.has(orderGid)) continue;
+
+      // 1. Strict validation: Verify this order is actually on customer hold / cancellation request
+      const eventsList = (order.events?.edges || []).map((e) => e.node);
+      const detection = detectOrderCancellationStatus({
+        cancelledAt: order.cancelledAt,
+        cancelReason: order.cancelReason,
+        returnStatus: order.returnStatus,
+        tags: order.tags,
+        events: eventsList,
+      });
+
+      if (!detection.isCustomerHold) {
+        // Never alert on normal orders
+        continue;
+      }
 
       // 2. Extract customer & item details
       const customerName = order.shippingAddress?.name || order.billingAddress?.name || "고객";
@@ -68,38 +99,24 @@ export async function checkAndAlertCustomerRequests(admin, shop) {
         quantity: e.node.quantity,
       }));
 
-      // 3. Extract cancel reason from events if available
-      let cancelReason = "고객 취소/청약철회 요청 접수 (EU Widerrufsrecht / customer_request)";
-      const matchedEvent = (order.events?.edges || []).find((e) => {
-        const msg = String(e.node.message || "").toLowerCase();
-        return (
-          msg.includes("cancel") ||
-          msg.includes("stornier") ||
-          msg.includes("widerruf") ||
-          msg.includes("return") ||
-          msg.includes("edit") ||
-          msg.includes("request") ||
-          msg.includes("취소")
-        );
-      });
-      if (matchedEvent?.node?.message) {
-        cancelReason = matchedEvent.node.message;
-      }
+      const cancelReason =
+        detection.cancelReason ||
+        "고객 취소/청약철회 요청 접수 (EU Widerrufsrecht / customer_request)";
 
-      // 4. Send email
+      // 3. Send email alert
       await sendCancellationAlertEmail({
         orderName,
         customerEmail,
         customerName,
         cancelReason,
-        cancelledAt: new Date(),
+        cancelledAt: order.cancelledAt ? new Date(order.cancelledAt) : new Date(),
         totalAmount,
         currency,
         items: items.length > 0 ? items : [{ title: "주문 상품", quantity: 1 }],
         shopDomain: shop || "dawayo.de",
       });
 
-      // 5. Update DB to prevent duplicate alerts
+      // 4. Update DB to prevent duplicate alerts
       await prisma.inspectionRecord.upsert({
         where: { orderId: orderGid },
         update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },

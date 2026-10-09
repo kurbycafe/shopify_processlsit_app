@@ -105,6 +105,13 @@ export const action = async ({ request }) => {
     const rawNum = String(formData.get("orderNumber") || "18071").trim();
     const cleanNum = rawNum.replace(/^#/, "");
 
+    if (!isEmailServiceConfigured()) {
+      return {
+        success: false,
+        error: "이메일 서비스 설정이 완료되지 않았습니다. Vercel 환경변수에 BREVO_API_KEY(또는 SMTP_PASSWORD) 및 SMTP_FROM_EMAIL(또는 SMTP_USER)이 설정되어 있는지 확인해 주세요.",
+      };
+    }
+
     try {
       const orderRes = await admin.graphql(
         `#graphql

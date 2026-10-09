@@ -1,6 +1,7 @@
 import { authenticate, unauthenticated } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
+import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 
 const MAX_RECENCY_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -26,34 +27,17 @@ export const action = async ({ request }) => {
       return new Response(null, { status: 200 });
     }
 
-    let hasCustomerRequest = false;
-    let cancelReason = payload.cancel_reason || "EU 청약철회(Widerruf) / 고객 요청 취소";
-    let detectedCancelledAt = payload.cancelled_at ? new Date(payload.cancelled_at) : new Date();
+    // 2. Direct Payload Inspection with strict cancellation detector
+    let detection = detectOrderCancellationStatus({
+      cancelledAt: payload.cancelled_at,
+      cancelReason: payload.cancel_reason,
+      returnStatus: payload.return_status,
+      tags: payload.tags,
+      maxRecencyMs: MAX_RECENCY_MS,
+    });
 
-    // 2. Direct Payload Inspection
-    // A. Check cancelled_at
-    if (payload.cancelled_at) {
-      const cancelAge = Date.now() - new Date(payload.cancelled_at).getTime();
-      if (cancelAge <= MAX_RECENCY_MS) {
-        hasCustomerRequest = true;
-        detectedCancelledAt = new Date(payload.cancelled_at);
-      }
-    }
-
-    // B. Check order tags (e.g. customer_request:return, customer_request:edit, customer_request:return,edit)
-    const rawTags = String(payload.tags || "").toLowerCase();
-    if (
-      rawTags.includes("customer_request") ||
-      rawTags.includes("return_requested") ||
-      rawTags.includes("edit_requested") ||
-      rawTags.includes("cancellation_requested")
-    ) {
-      hasCustomerRequest = true;
-      cancelReason = "고객 취소/반품/수정 요청 접수 (customer_request)";
-    }
-
-    // 3. If not determined directly from payload, inspect timeline events via GraphQL
-    if (!hasCustomerRequest) {
+    // 3. If not determined directly from payload, inspect order & timeline events via GraphQL
+    if (!detection.isCustomerHold) {
       let adminClient = null;
       try {
         const adminRes = await unauthenticated.admin(shop);
@@ -74,6 +58,8 @@ export const action = async ({ request }) => {
             order(id: $id) {
               cancelledAt
               cancelReason
+              returnStatus
+              tags
               events(first: 10) {
                 edges {
                   node {
@@ -90,44 +76,22 @@ export const action = async ({ request }) => {
         const eventJson = await eventRes.json();
         const orderNode = eventJson.data?.order;
 
-        if (orderNode?.cancelledAt) {
-          const cancelAge = Date.now() - new Date(orderNode.cancelledAt).getTime();
-          if (cancelAge <= MAX_RECENCY_MS) {
-            hasCustomerRequest = true;
-            detectedCancelledAt = new Date(orderNode.cancelledAt);
-            cancelReason = orderNode.cancelReason || cancelReason;
-          }
-        } else {
-          const eventsList = (orderNode?.events?.edges || []).map((e) => e.node);
-          const recentMatchedEvent = eventsList.find((e) => {
-            const msg = String(e.message || "").toLowerCase();
-            const isKeywordMatch =
-              msg.includes("cancel") ||
-              msg.includes("stornier") ||
-              msg.includes("widerruf") ||
-              msg.includes("return") ||
-              msg.includes("rückgabe") ||
-              msg.includes("edit") ||
-              msg.includes("request") ||
-              msg.includes("취소") ||
-              msg.includes("반품") ||
-              msg.includes("철회");
-
-            if (!isKeywordMatch) return false;
-
-            const eventAge = e.createdAt ? Date.now() - new Date(e.createdAt).getTime() : 0;
-            return eventAge <= MAX_RECENCY_MS;
+        if (orderNode) {
+          const eventsList = (orderNode.events?.edges || []).map((e) => e.node);
+          detection = detectOrderCancellationStatus({
+            cancelledAt: orderNode.cancelledAt,
+            cancelReason: orderNode.cancelReason,
+            returnStatus: orderNode.returnStatus,
+            tags: orderNode.tags,
+            events: eventsList,
+            maxRecencyMs: MAX_RECENCY_MS,
           });
-
-          if (recentMatchedEvent) {
-            hasCustomerRequest = true;
-          }
         }
       }
     }
 
-    // 4. If cancellation or customer request detected, dispatch email
-    if (hasCustomerRequest) {
+    // 4. If cancellation or customer hold confirmed, dispatch email alert
+    if (detection.isCustomerHold) {
       const customer = payload.customer || {};
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ");
       const customerEmail = payload.email || customer.email || "";
@@ -137,6 +101,11 @@ export const action = async ({ request }) => {
         title: li.title || li.name,
         quantity: li.quantity,
       }));
+      const cancelReason =
+        detection.cancelReason || payload.cancel_reason || "EU 청약철회(Widerruf) / 고객 요청 취소";
+      const detectedCancelledAt = payload.cancelled_at
+        ? new Date(payload.cancelled_at)
+        : new Date();
 
       await sendCancellationAlertEmail({
         orderName,

@@ -1,13 +1,11 @@
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 const DEFAULT_SENDER_NAME = "Dawayo K-Food";
-const DEFAULT_BREVO_KEY = "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";
-const DEFAULT_SENDER_EMAIL = "popeye.gmbh@gmail.com";
 const REQUEST_TIMEOUT_MS = 8000; // 8 seconds
 
 function getEmailConfig() {
-  const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASSWORD || DEFAULT_BREVO_KEY;
-  const senderEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || DEFAULT_SENDER_EMAIL;
-  const senderName = process.env.SMTP_FROM_NAME || DEFAULT_SENDER_NAME;
+  const apiKey = (process.env.BREVO_API_KEY || process.env.SMTP_PASSWORD || "").trim();
+  const senderEmail = (process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "").trim();
+  const senderName = (process.env.SMTP_FROM_NAME || DEFAULT_SENDER_NAME).trim();
 
   return {
     apiKey,
@@ -526,9 +524,10 @@ export async function sendCancellationAlertEmail({
 }) {
   const config = getEmailConfig();
   if (!config.isConfigured) {
-    throw new Error(
-      "이메일 서비스 설정이 완료되지 않았습니다. Vercel 환경변수에 BREVO_API_KEY 및 SMTP_FROM_EMAIL(또는 SMTP_USER)이 설정되어 있는지 확인해 주세요."
+    console.warn(
+      "[EmailService] Brevo API Key 또는 발신자 이메일이 설정되지 않아 취소 알림 이메일 발송을 건너뜁니다."
     );
+    return [];
   }
 
   const recipients = ["service@dawayo.de", "ceo@dawayo.de", "kgt@dawayo.de"];
