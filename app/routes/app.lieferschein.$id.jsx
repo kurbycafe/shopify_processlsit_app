@@ -22,6 +22,8 @@ import {
   TextField,
   Box,
   Divider,
+  Banner,
+  Modal,
 } from "@shopify/polaris";
 
 export const links = () => [
@@ -554,11 +556,41 @@ export const loader = async ({ request, params }) => {
       ordersData.push(orderData);
     }
 
+    const loadedGids = new Set(ordersData.map((o) => o.id));
+    const missingRawIds = rawIds.filter((rawId) => !loadedGids.has(`gid://shopify/Order/${rawId}`));
+
+    let missingOrders = [];
+    if (missingRawIds.length > 0) {
+      try {
+        const missingGids = missingRawIds.map((id) => `gid://shopify/Order/${id}`);
+        const dbRecords = await prisma.inspectionRecord.findMany({
+          where: { orderId: { in: missingGids } },
+          select: { orderId: true, orderName: true },
+        });
+        const nameMap = new Map(dbRecords.map((r) => [r.orderId, r.orderName]));
+        missingOrders = missingRawIds.map((id) => {
+          const gid = `gid://shopify/Order/${id}`;
+          return {
+            id,
+            name: nameMap.get(gid) || `#${id}`,
+          };
+        });
+      } catch (dbErr) {
+        console.warn("Failed to lookup missing order names from DB:", dbErr);
+        missingOrders = missingRawIds.map((id) => ({ id, name: `#${id}` }));
+      }
+    }
+
     if (ordersData.length === 0) {
       throw new Error("주문을 찾을 수 없습니다.");
     }
 
-    return jsonResponse({ orders: ordersData, error: null });
+    return jsonResponse({
+      orders: ordersData,
+      requestedCount: rawIds.length,
+      missingOrders,
+      error: null,
+    });
   } catch (err) {
     if (err instanceof Response) throw err;
     console.error("Single Order Loader error:", err);
@@ -615,6 +647,9 @@ export default function OrderPrintDetailPage() {
   const navigate = useNavigate();
 
   const [orders, setOrders] = useState(loaderData?.orders || []);
+  const requestedCount = loaderData?.requestedCount || orders.length;
+  const missingOrders = loaderData?.missingOrders || [];
+  const [isMissingModalOpen, setIsMissingModalOpen] = useState(false);
   const [emailSentMap, setEmailSentMap] = useState({});
 
   const handleSendCancellationEmail = (targetOrder) => {
@@ -839,7 +874,7 @@ export default function OrderPrintDetailPage() {
 
   const handleIssueInvoice = (targetOrder) => handleIssueInvoices([targetOrder || order]);
 
-  const handlePrint = () => {
+  const proceedBrowserPrint = () => {
     if (docMode === "RECHNUNG" || docMode === "BOTH") {
       const missing = orders.filter(o => !o.invoice?.invoiceNumber);
       if (missing.length > 0) {
@@ -849,6 +884,14 @@ export default function OrderPrintDetailPage() {
       }
     }
     triggerBrowserPrint();
+  };
+
+  const handlePrint = () => {
+    if (missingOrders.length > 0) {
+      setIsMissingModalOpen(true);
+      return;
+    }
+    proceedBrowserPrint();
   };
 
   if (loaderData?.error || orders.length === 0) {
@@ -1222,6 +1265,24 @@ export default function OrderPrintDetailPage() {
             disabled: pendingPrint,
           }}
         >
+          {missingOrders.length > 0 && (
+            <Box paddingBlockEnd="400">
+              <Banner
+                title={`요청 ${requestedCount}건 중 ${missingOrders.length}건 누락`}
+                tone="critical"
+              >
+                <BlockStack gap="200">
+                  <Text as="p">
+                    요청 {requestedCount}건 중 {missingOrders.length}건 누락: <strong>{missingOrders.map((mo) => mo.name).join(", ")}</strong> 주문을 불러오지 못했습니다. 확인 후 재시도하세요.
+                  </Text>
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    누락된 {missingOrders.length}건은 이번 인쇄 목록에서 제외되었습니다. 쇼피파이에서 해당 주문 상태(취소/보관 여부)를 확인해 주시기 바랍니다.
+                  </Text>
+                </BlockStack>
+              </Banner>
+            </Box>
+          )}
+
           <Layout>
             {/* 왼쪽: 주소 편집기 */}
             {orders.length === 1 ? (
@@ -1401,6 +1462,66 @@ export default function OrderPrintDetailPage() {
               </BlockStack>
             </Layout.Section>
           </Layout>
+
+          {missingOrders.length > 0 && (
+            <Modal
+              open={isMissingModalOpen}
+              onClose={() => setIsMissingModalOpen(false)}
+              title="누락 주문 안내 및 인쇄 확인"
+              primaryAction={{
+                content: `로드된 ${orders.length}건만 인쇄 진행`,
+                destructive: true,
+                onAction: () => {
+                  setIsMissingModalOpen(false);
+                  proceedBrowserPrint();
+                },
+              }}
+              secondaryActions={[
+                {
+                  content: "인쇄 취소 및 확인",
+                  onAction: () => setIsMissingModalOpen(false),
+                },
+              ]}
+            >
+              <Modal.Section>
+                <BlockStack gap="300">
+                  <Text as="p">
+                    요청하신 <strong>{requestedCount}건</strong> 중 아래 <strong>{missingOrders.length}건</strong>의 주문 데이터를 쇼피파이에서 불러오지 못했습니다:
+                  </Text>
+                  <Box
+                    padding="300"
+                    background="bg-surface-secondary"
+                    borderRadius="200"
+                    borderWidth="025"
+                    borderColor="border-critical"
+                  >
+                    <InlineStack gap="200" wrap>
+                      {missingOrders.map((mo) => (
+                        <span
+                          key={mo.id}
+                          style={{
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            fontSize: "12px",
+                            padding: "2px 8px",
+                            borderRadius: "4px",
+                            background: "#fee2e2",
+                            color: "#991b1b",
+                            border: "1px solid #f87171",
+                          }}
+                        >
+                          {mo.name}
+                        </span>
+                      ))}
+                    </InlineStack>
+                  </Box>
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    누락된 주문을 제외하고, 현재 정상 로드된 <strong>{orders.length}건</strong>만 인쇄를 계속 진행하시겠습니까?
+                  </Text>
+                </BlockStack>
+              </Modal.Section>
+            </Modal>
+          )}
         </Page>
       </div>
 

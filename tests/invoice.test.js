@@ -381,3 +381,19 @@ test("handleIssueInvoiceIntent returns an error result instead of throwing", asy
   assert.ok(res.error);
 });
 
+test("missing orders detection correctly identifies dropped order IDs", () => {
+  const rawIds = ["1001", "1002", "1003", "1004"];
+  const loadedOrders = [
+    { id: "gid://shopify/Order/1001", name: "#1001" },
+    { id: "gid://shopify/Order/1003", name: "#1003" },
+  ];
+  const loadedGids = new Set(loadedOrders.map((o) => o.id));
+  const missingRawIds = rawIds.filter((rawId) => !loadedGids.has(`gid://shopify/Order/${rawId}`));
+
+  assert.deepEqual(missingRawIds, ["1002", "1004"]);
+  assert.equal(rawIds.length, 4);
+  assert.equal(loadedOrders.length, 2);
+  assert.equal(missingRawIds.length, 2);
+});
+
+
