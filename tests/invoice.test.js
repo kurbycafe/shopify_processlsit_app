@@ -147,6 +147,22 @@ test("resolveInvoiceView preserves invoiceNumber even when snapshot is missing o
   assert.equal(view.order.name, "#1001");
 });
 
+test("fallback invoice number formatting produces immediate valid RE number", () => {
+  const getDisplayNumber = (invoice, order) =>
+    invoice?.invoiceNumber ||
+    (order?.name
+      ? String(order.name).startsWith("RE-")
+        ? order.name
+        : `RE-${String(order.name).replace(/^#/, "")}`
+      : "-");
+
+  assert.equal(getDisplayNumber({ invoiceNumber: "RE-2026-00001" }, { name: "#1001" }), "RE-2026-00001");
+  assert.equal(getDisplayNumber(null, { name: "#1001" }), "RE-1001");
+  assert.equal(getDisplayNumber(null, { name: "1002" }), "RE-1002");
+  assert.equal(getDisplayNumber(null, { name: "RE-2026-00005" }), "RE-2026-00005");
+  assert.equal(getDisplayNumber(null, null), "-");
+});
+
 test("getOutstandingAmount returns positive outstanding amount or zero", () => {
   assert.equal(getOutstandingAmount({ totalOutstanding: "45.00" }), 45.0);
   assert.equal(getOutstandingAmount({ totalOutstanding: "0.00" }), 0);

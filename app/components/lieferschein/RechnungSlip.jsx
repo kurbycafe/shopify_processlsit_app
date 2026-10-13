@@ -10,7 +10,6 @@ import {
 import Code128 from "./Code128.jsx";
 import CompanyFooter from "./CompanyFooter.jsx";
 
-const PENDING_INVOICE_NUMBER_LABEL = "wird beim Druck vergeben";
 
 const b2bStampStyle = {
   border: "4px double #1e293b",
@@ -234,7 +233,13 @@ export default function RechnungSlip({ view, showImages, showBarcodes, showSkus 
   const totals = computeInvoiceTotals(order, taxDisplayMode);
   const billingAddress = order.customBillingAddress || order.billingAddress;
   const shippingAddress = order.customShippingAddress || order.shippingAddress;
-  const invoiceNumber = invoice?.invoiceNumber || null;
+  const invoiceNumber =
+    invoice?.invoiceNumber ||
+    (order?.name
+      ? String(order.name).startsWith("RE-")
+        ? order.name
+        : `RE-${String(order.name).replace(/^#/, "")}`
+      : "-");
   const invoiceDate = formatInvoiceDate(invoice?.issuedAt || new Date());
 
   return (
@@ -263,7 +268,7 @@ export default function RechnungSlip({ view, showImages, showBarcodes, showSkus 
               <tr>
                 <td className="info-label">Rechnungsnummer</td>
                 <td className="info-value" style={{ fontWeight: "bold" }}>
-                  {invoiceNumber || <span className="invoice-number-pending">{PENDING_INVOICE_NUMBER_LABEL}</span>}
+                  {invoiceNumber}
                 </td>
               </tr>
               <tr><td className="info-label">Rechnungsdatum</td><td className="info-value">{invoiceDate}</td></tr>

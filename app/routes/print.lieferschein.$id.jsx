@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { unauthenticated, verifyPrintToken } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
-import { handleIssueInvoiceIntent } from "../services/invoiceService.server.js";
+import { handleIssueInvoiceIntent, issueInvoiceForOrder } from "../services/invoiceService.server.js";
 import { pickInvoiceSnapshot, resolveInvoiceView } from "../utils/invoice.js";
 import Code128 from "../components/lieferschein/Code128.jsx";
 import CompanyFooter from "../components/lieferschein/CompanyFooter.jsx";
@@ -480,19 +480,13 @@ export const loader = async ({ request, params }) => {
         }
       }
 
-      const invoice = dbRecord?.invoiceNumber ? {
-        invoiceNumber: dbRecord.invoiceNumber,
-        issuedAt: dbRecord.invoiceIssuedAt,
-        snapshot: dbRecord.invoiceSnapshot,
-      } : null;
-
       const taxLines = (node.taxLines || []).map((tl) => ({
         title: tl.title,
         ratePercent: (tl.rate * 100).toFixed(0),
         amount: tl.priceSet?.shopMoney?.amount || "0.00",
       }));
 
-      ordersData.push({
+      const orderData = {
         id: node.id,
         name: node.name,
         createdAt: node.createdAt ? new Date(node.createdAt).toLocaleDateString("de-DE") : "-",
@@ -531,12 +525,38 @@ export const loader = async ({ request, params }) => {
         customBillingAddress: dbRecord?.customBillingAddress || null,
         customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
         customerId: node.customer?.id || null,
-        invoice,
         taxLines,
         shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
         soldOutAction,
         customAttributes: node.customAttributes || [],
-      });
+      };
+
+      let invoice = dbRecord?.invoiceNumber ? {
+        invoiceNumber: dbRecord.invoiceNumber,
+        issuedAt: dbRecord.invoiceIssuedAt,
+        snapshot: dbRecord.invoiceSnapshot,
+      } : null;
+
+      if (!invoice) {
+        try {
+          const snapshot = pickInvoiceSnapshot({
+            order: orderData,
+            taxDisplayMode: isB2B ? "NET" : "GROSS",
+            taxExemptionNote: "",
+          });
+          invoice = await issueInvoiceForOrder({
+            shop: shop || "dawayo.myshopify.com",
+            orderId: node.id,
+            orderName: node.name,
+            snapshot,
+          });
+        } catch (invoiceErr) {
+          console.error("Auto invoice issuance in print loader failed:", invoiceErr);
+        }
+      }
+
+      orderData.invoice = invoice;
+      ordersData.push(orderData);
     }
 
     if (ordersData.length === 0) {

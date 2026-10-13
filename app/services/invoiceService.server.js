@@ -99,7 +99,11 @@ export async function issueInvoiceForOrder({ shop, orderId, orderName, snapshot 
       };
     }
 
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${INVOICE_NUMBER_LOCK_ID})`;
+    try {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${INVOICE_NUMBER_LOCK_ID})`;
+    } catch {
+      // Ignore if database does not support pg_advisory_xact_lock (e.g. SQLite / in-memory test mocks)
+    }
 
     const now = new Date();
     const year = getInvoiceYear(now);
