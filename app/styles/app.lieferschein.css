@@ -458,29 +458,29 @@
   letter-spacing: 1px;
 }
 
-/* Payment Instructions Box */
+/* Payment Instructions / Bankverbindung */
 .payment-instructions {
   margin-top: 14px;
-  border: 1px solid #0284c7;
-  border-radius: 6px;
-  background-color: #f0f9ff;
-  padding: 10px 14px;
+  border-top: 1.5px solid #111;
+  border-bottom: 1.5px solid #111;
+  padding: 8px 0;
   text-align: left;
+  background: transparent;
 }
 
 .payment-instructions-title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
-  color: #0369a1;
+  color: #111;
   margin-bottom: 4px;
   letter-spacing: 0.5px;
 }
 
 .payment-instructions-text {
-  font-size: 11px;
-  color: #1e293b;
-  margin-bottom: 8px;
+  font-size: 10px;
+  color: #222;
+  margin-bottom: 6px;
   line-height: 1.4;
 }
 
@@ -491,19 +491,24 @@
 }
 
 .payment-instructions-grid td {
-  padding: 2px 6px;
-  color: #334155;
+  padding: 2px 8px 2px 0;
+  color: #222;
+  vertical-align: top;
 }
 
-.payment-instructions-grid td:first-child {
+.payment-instructions-grid td.label {
   font-weight: 700;
+  color: #111;
   width: 110px;
-  color: #0f172a;
+  white-space: nowrap;
 }
 
 .payment-instructions-grid .mono {
-  font-family: monospace;
-  font-size: 11px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #111;
 }
 
 .invoice-number-pending {
@@ -769,7 +774,7 @@
 
 .address-edit-form input:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: #111;
 }
 
 .address-btn {
@@ -781,9 +786,13 @@
 }
 
 .address-btn.save {
-  background: #2665ec;
+  background: #111;
   color: white;
-  border: 1px solid #2563eb;
+  border: 1px solid #111;
+}
+
+.address-btn.save:hover {
+  background: #333;
 }
 
 .address-btn.cancel {

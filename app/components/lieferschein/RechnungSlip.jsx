@@ -12,40 +12,35 @@ import CompanyFooter from "./CompanyFooter.jsx";
 
 
 const b2bStampStyle = {
-  border: "4px double #1e293b",
-  color: "#1e293b",
-  padding: "3px 8px",
-  fontSize: "13px",
-  fontWeight: "900",
+  border: "1.5px solid #111",
+  color: "#111",
+  padding: "2px 8px",
+  fontSize: "11px",
+  fontWeight: "800",
   textTransform: "uppercase",
-  transform: "rotate(1.5deg)",
   display: "inline-block",
   fontFamily: "sans-serif",
-  letterSpacing: "0.5px",
+  letterSpacing: "1px",
 };
 
 const firstPurchaseStyle = {
   textAlign: "center",
-  margin: "8px 0",
-  padding: "8px",
-  border: "2px dashed #b91c1c",
-  borderRadius: "6px",
-  background: "#fff5f5",
-  color: "#b91c1c",
-  fontWeight: "bold",
-  fontSize: "12px",
+  margin: "6px 0",
+  padding: "4px 0",
+  borderTop: "1px solid #e0e0e0",
+  borderBottom: "1px solid #e0e0e0",
+  color: "#333",
+  fontWeight: "600",
+  fontSize: "10px",
 };
 
 const taxNoteStyle = {
-  marginTop: "12px",
-  fontSize: "11px",
-  fontWeight: "bold",
+  marginTop: "10px",
+  fontSize: "10px",
   textAlign: "left",
-  color: "#111",
-  border: "1px solid #e2e8f0",
-  padding: "8px 10px",
-  borderRadius: "4px",
-  backgroundColor: "#f8fafc",
+  color: "#222",
+  borderLeft: "2px solid #111",
+  padding: "4px 8px",
   lineHeight: "1.4",
 };
 
@@ -82,21 +77,38 @@ function PaymentInstructionsBlock({ order }) {
 
   return (
     <div className="payment-instructions">
-      <div className="payment-instructions-title">Bankverbindung ({bank.label})</div>
-      {outstanding > 0 && (
+      <div className="payment-instructions-title">Zahlungsinformationen &amp; Bankverbindung ({bank.label})</div>
+      {outstanding > 0 ? (
         <div className="payment-instructions-text">
-          Bitte überweisen Sie den offenen Betrag von{" "}
+          Bitte überweisen Sie den fälligen Betrag von{" "}
           <strong>{outstanding.toFixed(2)} {order.currencyCode}</strong>{" "}
-          unter Angabe des Verwendungszwecks auf folgendes Konto:
+          unter Angabe des Verwendungszwecks auf folgendes Bankkonto:
+        </div>
+      ) : (
+        <div className="payment-instructions-text">
+          Der Rechnungsbetrag wurde bereits beglichen. Für eventuelle Rückfragen oder Überweisungen:
         </div>
       )}
       <table className="payment-instructions-grid">
         <tbody>
-          <tr><td>Kontoinhaber</td><td>{bank.accountHolder}</td></tr>
-          <tr><td>Bank</td><td>{bank.bankName}</td></tr>
-          <tr><td>IBAN</td><td className="mono">{bank.iban}</td></tr>
-          <tr><td>BIC</td><td className="mono">{bank.bic}</td></tr>
-          <tr><td>Zweck</td><td className="mono"><strong>{reference}</strong></td></tr>
+          <tr>
+            <td className="label">Kontoinhaber:</td>
+            <td>{bank.accountHolder}</td>
+            <td className="label" style={{ width: "70px" }}>IBAN:</td>
+            <td className="mono">{bank.iban}</td>
+          </tr>
+          <tr>
+            <td className="label">Bank:</td>
+            <td>{bank.bankName}</td>
+            <td className="label" style={{ width: "70px" }}>BIC:</td>
+            <td className="mono">{bank.bic}</td>
+          </tr>
+          <tr>
+            <td className="label">Verwendungszweck:</td>
+            <td colSpan={3} className="mono">
+              <strong>{reference}</strong>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
