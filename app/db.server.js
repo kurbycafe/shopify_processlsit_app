@@ -69,6 +69,9 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "lastNotificationError" TEXT;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "lastNotificationAt" TIMESTAMP(3);`);
 
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_idx" ON "BackInStockSubscription"("shop");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_variantId_idx" ON "BackInStockSubscription"("variantId");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_status_idx" ON "BackInStockSubscription"("status");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BackInStockSubscription_poNumber_idx" ON "BackInStockSubscription"("poNumber");`);
 
       await prisma.$executeRawUnsafe(`
@@ -100,6 +103,11 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customShippingAddress" JSONB;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customBillingAddress" JSONB;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customVat" TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceNumber" TEXT;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceYear" INTEGER;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceSequence" INTEGER;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceIssuedAt" TIMESTAMP(3);`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceSnapshot" JSONB;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "startedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP(3);`);
 

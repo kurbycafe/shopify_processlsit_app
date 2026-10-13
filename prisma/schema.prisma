@@ -44,6 +44,11 @@ model InspectionRecord {
   customShippingAddress Json?                    // 수령인 주소 커스텀 수정본
   customBillingAddress  Json?                    // 영수증 주소 커스텀 수정본
   customVat             String?                  // 커스텀 VAT 등록 번호 (USt-IdNr.)
+  invoiceNumber         String?
+  invoiceYear           Int?
+  invoiceSequence       Int?
+  invoiceIssuedAt       DateTime?
+  invoiceSnapshot       Json?
   startedAt             DateTime  @default(now())
   completedAt           DateTime?
   createdAt             DateTime  @default(now())

@@ -4,6 +4,11 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
+import { handleIssueInvoiceIntent } from "../services/invoiceService.server.js";
+import { pickInvoiceSnapshot, resolveInvoiceView } from "../utils/invoice.js";
+import Code128 from "../components/lieferschein/Code128.jsx";
+import CompanyFooter from "../components/lieferschein/CompanyFooter.jsx";
+import RechnungSlip from "../components/lieferschein/RechnungSlip.jsx";
 import styles from "../styles/app.lieferschein.css?url";
 import {
   Page,
@@ -53,83 +58,6 @@ function checkIsB2B(shippingAddress) {
   ];
 
   return b2bPatterns.some(pattern => pattern.test(nameUpper));
-}
-
-// ─── 표준 Code 128B 바코드 엔진 ──────────────────────────────────────
-const CODE128_CHARS = [
-  "11011001100", "11001101100", "11001100110", "10010011000", "10010001100",
-  "10001001100", "10011001000", "10011000100", "10001100100", "11001001000",
-  "11001000100", "11000100100", "10110011100", "10011011100", "10011001110",
-  "10111001100", "10011101100", "10011100110", "11001110010", "11001011100",
-  "11001001110", "11011100100", "11001110100", "11101101110", "11101001100",
-  "11100101100", "11100100110", "11101100100", "11100110100", "11100110010",
-  "11011011000", "11011000110", "11000110110", "10100011000", "10001011000",
-  "10001000110", "10110001000", "10001101000", "10001100010", "11010001000",
-  "11000101000", "11000100010", "10110111000", "10110001110", "10001101110",
-  "10111011000", "10111000110", "10001110110", "11101110110", "11010001110",
-  "11000101110", "11011101000", "11011100010", "11011101110", "11101011000",
-  "11101000110", "11100010110", "11101101000", "11101100010", "11100011010",
-  "11101111010", "11001000010", "11110001010", "10100110000", "10100001100",
-  "10010110000", "10010000110", "10000101100", "10000100110", "10110010000",
-  "10110000100", "10011010000", "10011000010", "10000110100", "10000110010",
-  "11000010010", "11001010000", "11110111010", "11000010100", "10001111010",
-  "10100111100", "10010111100", "10010011110", "10111100100", "10011110100",
-  "10011110010", "11110100100", "11110010100", "11110010010", "11011011110",
-  "11011110110", "11110110110", "10101111000", "10100011110", "10001011110",
-  "10111101000", "10111100010", "11110101000", "11110100010", "10111011110",
-  "10111101110", "11101011110", "11110101110", "11010000100", "11010010000",
-  "11010011100", "11000111010"
-];
-const CODE128_START_B = 104;
-const CODE128_STOP = "1100011101011";
-
-function encodeCode128(text) {
-  let checksum = CODE128_START_B;
-  const bars = [CODE128_CHARS[CODE128_START_B]];
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i) - 32;
-    if (code < 0 || code > 94) continue;
-    checksum += code * (i + 1);
-    bars.push(CODE128_CHARS[code]);
-  }
-  bars.push(CODE128_CHARS[checksum % 103]);
-  bars.push(CODE128_STOP);
-  return bars.join("");
-}
-
-function Code128({ value, height = 36, moduleWidth = 1.1 }) {
-  if (!value) return null;
-  const encoded = encodeCode128(value);
-  const quietZone = 6;
-  const totalWidth = encoded.length * moduleWidth;
-
-  let x = quietZone;
-  const rects = [];
-  for (let i = 0; i < encoded.length; i++) {
-    if (encoded[i] === "1") {
-      let w = 0;
-      while (i < encoded.length && encoded[i] === "1") { w++; i++; }
-      i--;
-      rects.push(<rect key={x} x={x} y={0} width={w * moduleWidth} height={height} fill="#000" />);
-      x += (w * moduleWidth);
-    } else {
-      let w = 0;
-      while (i < encoded.length && encoded[i] === "0") { w++; i++; }
-      i--;
-      x += (w * moduleWidth);
-    }
-  }
-
-  return (
-    <div style={{ display: "block", textAlign: "center" }}>
-      <svg xmlns="http://www.w3.org/2000/svg" width={totalWidth + quietZone * 2} height={height + 12} style={{ margin: "0 auto" }}>
-        {rects}
-        <text x={(totalWidth + quietZone * 2) / 2} y={height + 10} textAnchor="middle" fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#111">
-          {value}
-        </text>
-      </svg>
-    </div>
-  );
 }
 
 export const action = async ({ request, params }) => {
@@ -238,6 +166,16 @@ export const action = async ({ request, params }) => {
     }
   }
 
+  if (intent === "issue_invoice") {
+    const { session } = await authenticate.admin(request);
+    const result = await handleIssueInvoiceIntent({
+      shop: session?.shop || "dawayo.myshopify.com",
+      formData,
+      allowedRawIds: params.id.split(","),
+    });
+    return jsonResponse(result);
+  }
+
   return null;
 };
 
@@ -314,6 +252,7 @@ export const loader = async ({ request, params }) => {
               }
             }
             totalRefundedSet { shopMoney { amount currencyCode } }
+            totalOutstandingSet { shopMoney { amount currencyCode } }
             shippingLines(first: 1) {
               edges {
                 node {
@@ -522,6 +461,12 @@ export const loader = async ({ request, params }) => {
         where: { orderId: node.id }
       });
 
+      const invoice = dbRecord?.invoiceNumber ? {
+        invoiceNumber: dbRecord.invoiceNumber,
+        issuedAt: dbRecord.invoiceIssuedAt,
+        snapshot: dbRecord.invoiceSnapshot,
+      } : null;
+
       const taxLines = (node.taxLines || []).map((tl) => ({
         title: tl.title,
         ratePercent: (tl.rate * 100).toFixed(0),
@@ -561,11 +506,13 @@ export const loader = async ({ request, params }) => {
         totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
         totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
         totalRefunded: node.totalRefundedSet?.shopMoney?.amount || "0.00",
+        totalOutstanding: node.totalOutstandingSet?.shopMoney?.amount || "0.00",
         currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
         customShippingAddress: dbRecord?.customShippingAddress || null,
         customBillingAddress: dbRecord?.customBillingAddress || null,
         customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
         customerId: node.customer?.id || null,
+        invoice,
         taxLines,
         shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
         soldOutAction,
@@ -757,22 +704,6 @@ export default function OrderPrintDetailPage() {
     }));
   };
 
-  if (loaderData?.error || orders.length === 0) {
-    return (
-      <Page title="오류" backAction={{ content: "창 닫기", onAction: () => window.close() }}>
-        <Layout>
-          <Layout.Section>
-            <Card>
-              <Text tone="critical" as="p">
-                {loaderData?.error || "주문 내역을 불러올 수 없습니다."}
-              </Text>
-            </Card>
-          </Layout.Section>
-        </Layout>
-      </Page>
-    );
-  }
-
   const handleSaveAddress = () => {
     if (!order) return;
 
@@ -799,7 +730,16 @@ export default function OrderPrintDetailPage() {
     } : o));
   };
 
-  const handlePrint = () => {
+  const [pendingPrint, setPendingPrint] = useState(false);
+
+  useEffect(() => {
+    const issued = fetcher.data?.success ? fetcher.data.invoices : null;
+    if (issued) {
+      setOrders(prev => prev.map(o => (issued[o.id] ? { ...o, invoice: issued[o.id] } : o)));
+    }
+  }, [fetcher.data]);
+
+  const triggerBrowserPrint = () => {
     const originalTitle = document.title;
     if (orders.length === 1) {
       const o = orders[0];
@@ -825,6 +765,73 @@ export default function OrderPrintDetailPage() {
       document.title = originalTitle;
     }, 50);
   };
+
+  useEffect(() => {
+    if (pendingPrint && orders.length > 0 && orders.every(o => o.invoice?.invoiceNumber)) {
+      setPendingPrint(false);
+      setTimeout(() => {
+        triggerBrowserPrint();
+      }, 50);
+    }
+  }, [pendingPrint, orders]);
+
+  useEffect(() => {
+    if (pendingPrint && fetcher.state === "idle" && fetcher.data && !fetcher.data?.success) {
+      setPendingPrint(false);
+      alert("영수증(Rechnung) 번호 발급 중 오류가 발생했습니다: " + (fetcher.data.error || "알 수 없는 오류"));
+    }
+  }, [pendingPrint, fetcher.state, fetcher.data]);
+
+  const handleIssueInvoices = (targetOrders) => {
+    const targets = (targetOrders || []).filter(Boolean);
+    if (targets.length === 0) return;
+    const entries = targets.map((target) => ({
+      orderId: target.id,
+      orderName: target.name,
+      snapshot: pickInvoiceSnapshot({ order: target, taxDisplayMode, taxExemptionNote }),
+    }));
+
+    fetcher.submit(
+      {
+        intent: "issue_invoice",
+        entries: JSON.stringify(entries),
+      },
+      {
+        method: "POST",
+        action: `/app/lieferschein/${orders.map(o => o.id.split("/").pop()).join(",")}`,
+      }
+    );
+  };
+
+  const handleIssueInvoice = (targetOrder) => handleIssueInvoices([targetOrder || order]);
+
+  const handlePrint = () => {
+    if (docMode === "RECHNUNG" || docMode === "BOTH") {
+      const missing = orders.filter(o => !o.invoice?.invoiceNumber);
+      if (missing.length > 0) {
+        setPendingPrint(true);
+        handleIssueInvoices(missing);
+        return;
+      }
+    }
+    triggerBrowserPrint();
+  };
+
+  if (loaderData?.error || orders.length === 0) {
+    return (
+      <Page title="오류" backAction={{ content: "창 닫기", onAction: () => window.close() }}>
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <Text tone="critical" as="p">
+                {loaderData?.error || "주문 내역을 불러올 수 없습니다."}
+              </Text>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
 
   const slips = [];
 
@@ -1045,7 +1052,7 @@ export default function OrderPrintDetailPage() {
                     )}
                     <td>
                       <div className="product-title">
-                        {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[❄ 냉장] </span>}
+                        {item.isIcePackage && <span style={{ color: "#0284c7", fontWeight: "bold" }}>[냉장] </span>}
                         {item.title}
                       </div>
                       {item.germanTranslation && (
@@ -1146,387 +1153,21 @@ export default function OrderPrintDetailPage() {
                 Vielen Dank für Ihre erste Bestellung!
               </div>
             )}
-            <table className="footer-grid">
-              <tbody>
-                <tr>
-                  <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
-                  <td><span className="footer-label">Email</span>service@dawayo.de</td>
-                  <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
-                  <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
-                </tr>
-              </tbody>
-            </table>
-            <div className="shop-name">dawayo.de</div>
+            <CompanyFooter isB2B={order.isB2B} />
           </div>
         </div>
       );
     }
 
     if (docMode === "RECHNUNG" || docMode === "BOTH") {
-      const processedItems = order.items.map(item => {
-        const qty = item.quantity || 0;
-        const origRate = item.originalTaxRate ?? 7;
-        const currentRate = item.taxRate ?? origRate;
-
-        const unitGross = parseFloat(item.priceDiscounted || item.priceOriginal || 0);
-        const unitNet = unitGross / (1 + origRate / 100);
-
-        const currentUnitGross = unitNet * (1 + currentRate / 100);
-        const currentUnitNet = unitNet;
-
-        const totalGross = currentUnitGross * qty;
-        const totalNet = currentUnitNet * qty;
-        const totalVat = totalGross - totalNet;
-
-        return {
-          ...item,
-          unitNet: currentUnitNet,
-          unitGross: currentUnitGross,
-          totalNet,
-          totalGross,
-          totalVat,
-          currentRate
-        };
-      });
-
-      const totalNetItems = processedItems.reduce((acc, i) => acc + i.totalNet, 0);
-      const totalGrossItems = processedItems.reduce((acc, i) => acc + i.totalGross, 0);
-      const totalOriginalGrossItems = processedItems.reduce((acc, i) => {
-        const origUnitGross = parseFloat(i.priceOriginal || 0);
-        return acc + (origUnitGross * (i.quantity || 1));
-      }, 0);
-
-      const origShippingRate = order.shippingTaxRate ?? 19;
-      const currentShippingRate = order.shippingTaxRate ?? origShippingRate;
-      const shippingGross = parseFloat(order.totalShipping || 0);
-      const shippingNet = shippingGross / (1 + origShippingRate / 100);
-      const currentShippingGross = shippingNet * (1 + currentShippingRate / 100);
-      const currentShippingNet = shippingNet;
-      const shippingVat = currentShippingGross - currentShippingNet;
-
-      const vatBreakdown = {};
-      processedItems.forEach(item => {
-        const rate = item.currentRate;
-        if (rate === 0) return;
-        if (!vatBreakdown[rate]) vatBreakdown[rate] = 0;
-        vatBreakdown[rate] += item.totalVat;
-      });
-      if (shippingVat > 0 && currentShippingRate !== 0) {
-        if (!vatBreakdown[currentShippingRate]) vatBreakdown[currentShippingRate] = 0;
-        vatBreakdown[currentShippingRate] += shippingVat;
-      }
-
-      const grandTotalGross = parseFloat(order.totalPrice || 0);
-      const grandTotalNet = totalNetItems + currentShippingNet;
-
-      const rawSubtotal = parseFloat(order.subtotalPrice || 0);
-      const rawDiscounts = parseFloat(order.totalDiscounts || 0);
-
-      const finalSubtotal = taxDisplayMode === "NET"
-        ? totalNetItems
-        : (totalOriginalGrossItems > rawSubtotal + 0.01 ? totalOriginalGrossItems : rawSubtotal);
-      const finalShipping = taxDisplayMode === "NET" ? currentShippingNet : currentShippingGross;
-      const finalTotal = grandTotalGross;
-
       slips.push(
-        <div key={`rechnung-slip-${order.id}`} className="packing-slip rechnung-slip">
-          {order.isCustomerHold && (
-            <div className="cancellation-warning-banner">
-              <div className="cancellation-warning-title">
-                ACHTUNG: {order.hasReturnRequest ? "RÜCKSENDUNG ANGEFRAGT" : "STORNIERUNG ANGEFRAGT"}
-              </div>
-              <div className="cancellation-warning-desc">
-                고객의 {order.hasReturnRequest ? "반품(청약철회)" : "주문 취소"} 요청이 접수된 주문입니다. (어드민 검토 필요)
-              </div>
-            </div>
-          )}
-          <div className="header">
-            <div className="header-left">
-              <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
-                <div className="document-title" style={{ margin: 0 }}>Rechnung</div>
-                {order.isCustomerHold && (
-                  <div className="stamp-cancellation-alert">
-                    {order.hasReturnRequest ? "RÜCKGABE" : "STORNIERUNG"}
-                  </div>
-                )}
-                {order.isB2B && (
-                  <div style={{
-                    border: "4px double #1e293b",
-                    color: "#1e293b",
-                    padding: "3px 8px",
-                    fontSize: "13px",
-                    fontWeight: "900",
-                    textTransform: "uppercase",
-                    transform: "rotate(1.5deg)",
-                    display: "inline-block",
-                    fontFamily: "sans-serif",
-                    letterSpacing: "0.5px"
-                  }}>
-                    B2B / WHOLESALE
-                  </div>
-                )}
-              </div>
-              <table className="info-grid">
-                <tbody>
-                  <tr><td className="info-label">Bestellnummer</td><td className="info-value">{order.name}</td></tr>
-                  <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
-                  <tr><td className="info-label">Rechnungsdatum</td><td className="info-value">{order.createdAt}</td></tr>
-                  <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
-                  <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
-                  <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
-                  <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div className="header-right" style={{ textAlign: "right", fontSize: "11px", color: "#555", lineHeight: "1.4" }}>
-              <img className="logo" src="https://www.orderprintertemplates.com/api/v1/logos/1198814f74a2758ff45b?v=1778853839" alt="DAWAYO" style={{ marginBottom: "8px" }} />
-              <div><strong>Popeye GmbH</strong></div>
-              <div>Erkrather Straße 343</div>
-              <div>40231 Düsseldorf</div>
-              <div>Deutschland</div>
-              {showBarcodes && (
-                <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
-                  <div className="barcode-title">Order Barcode</div>
-                  <Code128 value={order.name} height={38} moduleWidth={1.2} />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="address-row">
-            <div className="address-box">
-              <div className="section-title">Rechnungsadresse</div>
-              <div className="address-content">
-                <strong>{currentBillingAddress?.name || "-"}</strong><br />
-                {currentBillingAddress?.company && <>{currentBillingAddress.company}<br /></>}
-                {currentBillingAddress?.address1}<br />
-                {currentBillingAddress?.address2 && <>{currentBillingAddress.address2}<br /></>}
-                {currentBillingAddress?.zip} {currentBillingAddress?.city}<br />
-                {currentBillingAddress?.country}
-                {currentBillingAddress?.phone && <><br />Tel: {currentBillingAddress.phone}</>}
-                {order.customVat && (
-                  <div style={{ marginTop: "6px", fontSize: "11px", fontWeight: "bold" }}>
-                    USt-IdNr.: {order.customVat}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="address-box">
-              <div className="section-title">Lieferadresse</div>
-              <div className="address-content">
-                <strong>{currentShippingAddress?.name || "-"}</strong><br />
-                {currentShippingAddress?.company && <>{currentShippingAddress.company}<br /></>}
-                {currentShippingAddress?.address1}<br />
-                {currentShippingAddress?.address2 && <>{currentShippingAddress.address2}<br /></>}
-                {currentShippingAddress?.zip} {currentShippingAddress?.city}<br />
-                {currentShippingAddress?.country}
-                {currentShippingAddress?.phone && <><br />Tel: {currentShippingAddress.phone}</>}
-              </div>
-            </div>
-          </div>
-
-          <table className="order-table">
-            <thead>
-              <tr>
-                {showImages && <th className="order-th-image">Bild</th>}
-                <th>Produkt</th>
-                <th className="order-th-qty" style={{ textAlign: 'center' }}>Menge</th>
-                <th style={{ width: '90px', textAlign: 'right' }}>Einzelpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
-                <th style={{ width: '60px', textAlign: 'center' }}>MwSt.</th>
-                <th style={{ width: '90px', textAlign: 'right' }}>Gesamtpreis ({taxDisplayMode === "NET" ? "Netto" : "Brutto"})</th>
-              </tr>
-            </thead>
-            <tbody>
-              {processedItems.map((item) => {
-                const unitPrice = taxDisplayMode === "NET" ? item.unitNet : item.unitGross;
-                const totalPrice = taxDisplayMode === "NET" ? item.totalNet : item.totalGross;
-
-                const origUnitGross = parseFloat(item.priceOriginal || 0);
-                const origRate = item.originalTaxRate ?? 7;
-                const origUnitNet = origUnitGross / (1 + origRate / 100);
-                const origUnitPrice = taxDisplayMode === "NET" ? origUnitNet : origUnitGross;
-                const origTotalPrice = origUnitPrice * item.quantity;
-
-                const hasDiscount = origUnitPrice > unitPrice + 0.001;
-
-                return (
-                  <tr key={item.id}>
-                    {showImages && (
-                      <td>
-                        {item.imageUrl ? (
-                          <img className="product-image" src={item.imageUrl} alt="" />
-                        ) : (
-                          <div className="product-image-placeholder" />
-                        )}
-                      </td>
-                    )}
-                    <td>
-                      <div className="product-title">{item.title}</div>
-                      {item.germanTranslation && (
-                        <div className="german-title">{item.germanTranslation}</div>
-                      )}
-                      {showSkus && item.sku && <div className="sku">SKU: {item.sku}</div>}
-                      {showSkus && item.expiryDate && <div className="sku">MHD: {item.expiryDate}</div>}
-                      {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
-                    </td>
-                    <td className="qty-cell-rechnung" style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold' }}>
-                      {item.quantity}
-                    </td>
-                    <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace' }}>
-                      {hasDiscount && (
-                        <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px' }}>
-                          {origUnitPrice.toFixed(2)} {order.currencyCode}
-                        </div>
-                      )}
-                      <span style={{ fontWeight: hasDiscount ? 'bold' : 'normal', color: hasDiscount ? '#b91c1c' : 'inherit' }}>
-                        {unitPrice.toFixed(2)} {order.currencyCode}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'center', fontSize: '11px', fontFamily: 'monospace' }}>
-                      {item.currentRate}%
-                    </td>
-                    <td style={{ textAlign: 'right', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                      {hasDiscount && (
-                        <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '10px', fontWeight: 'normal' }}>
-                          {origTotalPrice.toFixed(2)} {order.currencyCode}
-                        </div>
-                      )}
-                      <span style={{ color: hasDiscount ? '#b91c1c' : 'inherit' }}>
-                        {totalPrice.toFixed(2)} {order.currencyCode}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          <div className="invoice-summary-wrapper" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-            <table className="invoice-summary-table" style={{ width: '280px', borderCollapse: 'collapse' }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
-                    {taxDisplayMode === "NET" ? "Zwischensumme (Netto):" : "Zwischensumme (Brutto):"}
-                  </td>
-                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
-                    {finalSubtotal.toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-                {(() => {
-                  const discountVal = rawDiscounts > 0
-                    ? rawDiscounts
-                    : (totalOriginalGrossItems - rawSubtotal > 0.01 ? totalOriginalGrossItems - rawSubtotal : 0);
-
-                  if (taxDisplayMode === "GROSS" && discountVal > 0) {
-                    return (
-                      <tr style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>Rabatt:</td>
-                        <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
-                          -{discountVal.toFixed(2)} {order.currencyCode}
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return null;
-                })()}
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '4px 0', fontSize: '11px', color: '#555' }}>
-                    {taxDisplayMode === "NET" ? "Versandkosten (Netto):" : "Versandkosten:"}
-                  </td>
-                  <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace' }}>
-                    {finalShipping.toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-                {Object.entries(vatBreakdown).map(([rate, amount]) => (
-                  <tr key={rate} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '4px 0', fontSize: '11px', color: '#777', fontStyle: 'italic' }}>
-                      {taxDisplayMode === "NET" ? "zzgl." : "inkl."} {rate}% MwSt.:
-                    </td>
-                    <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#777', fontStyle: 'italic' }}>
-                      {amount.toFixed(2)} {order.currencyCode}
-                    </td>
-                  </tr>
-                ))}
-                <tr style={{ borderTop: '2px solid #111' }}>
-                  <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>
-                    {taxDisplayMode === "NET" ? "Gesamtsumme (Brutto):" : "Gesamtsumme:"}
-                  </td>
-                  <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
-                    {finalTotal.toFixed(2)} {order.currencyCode}
-                  </td>
-                </tr>
-                {parseFloat(order.totalRefunded) > 0 && (
-                  <>
-                    <tr style={{ borderBottom: '1px solid #eee' }}>
-                      <td style={{ padding: '4px 0', fontSize: '11px', color: '#b91c1c', fontWeight: 'bold' }}>Erstattet (Refunded):</td>
-                      <td style={{ padding: '4px 0', fontSize: '11px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c', fontWeight: 'bold' }}>
-                        -{parseFloat(order.totalRefunded).toFixed(2)} {order.currencyCode}
-                      </td>
-                    </tr>
-                    <tr style={{ borderTop: '1px solid #111', borderBottom: '2px double #111' }}>
-                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', color: '#111' }}>Gezahlter Betrag (Net Paid):</td>
-                      <td style={{ padding: '6px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', fontFamily: 'monospace', color: '#111' }}>
-                        {(finalTotal - parseFloat(order.totalRefunded)).toFixed(2)} {order.currencyCode}
-                      </td>
-                    </tr>
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {taxExemptionNote && (
-            <div style={{
-              marginTop: "12px",
-              fontSize: "11px",
-              fontWeight: "bold",
-              textAlign: "left",
-              color: "#111",
-              border: "1px solid #e2e8f0",
-              padding: "8px 10px",
-              borderRadius: "4px",
-              backgroundColor: "#f8fafc",
-              lineHeight: "1.4"
-            }}>
-              Hinweis: {taxExemptionNote}
-            </div>
-          )}
-
-          <div style={{ marginTop: "12px", fontSize: "10px", color: "#555", fontStyle: "italic", textAlign: "left" }}>
-            Das Leistungsdatum entspricht, wenn nicht anders angegeben, dem Rechnungsdatum.
-          </div>
-
-          <div className="footer">
-            <div className="thank-you">Vielen Dank für Ihren Einkauf!</div>
-            {order.isFirstPurchase && (
-              <div style={{
-                textAlign: "center",
-                margin: "8px 0",
-                padding: "8px",
-                border: "2px dashed #b91c1c",
-                borderRadius: "6px",
-                background: "#fff5f5",
-                color: "#b91c1c",
-                fontWeight: "bold",
-                fontSize: "12px"
-              }}>
-                Vielen Dank für Ihre erste Bestellung!
-              </div>
-            )}
-            <table className="footer-grid">
-              <tbody>
-                <tr>
-                  <td><span className="footer-label">Adresse</span>Popeye GmbH, Erkrather Straße 343, 40231 Düsseldorf</td>
-                  <td><span className="footer-label">Email</span>service@dawayo.de</td>
-                  <td><span className="footer-label">Steuer-ID</span>106 5721 6110</td>
-                  <td><span className="footer-label">USt-IdNr.</span>DE320890998</td>
-                </tr>
-              </tbody>
-            </table>
-            <div className="shop-name">dawayo.de</div>
-          </div>
-        </div>
+        <RechnungSlip
+          key={`rechnung-slip-${order.id}`}
+          view={resolveInvoiceView(order, order.invoice, { taxDisplayMode, taxExemptionNote })}
+          showImages={showImages}
+          showBarcodes={showBarcodes}
+          showSkus={showSkus}
+        />
       );
     }
   });
@@ -1541,8 +1182,10 @@ export default function OrderPrintDetailPage() {
             onAction: () => window.close(),
           }}
           primaryAction={{
-            content: "내역서 인쇄하기",
+            content: pendingPrint ? "Rechnung 번호 발급 중..." : "내역서 인쇄하기",
             onAction: handlePrint,
+            loading: pendingPrint,
+            disabled: pendingPrint,
           }}
         >
           <Layout>
@@ -1636,9 +1279,24 @@ export default function OrderPrintDetailPage() {
                           </div>
                         ))}
                       </BlockStack>
-                      <Button onClick={handleSaveAddress} loading={fetcher.state === "submitting"}>
+                      <Button onClick={handleSaveAddress} loading={fetcher.state === "submitting" && fetcher.formData?.get("intent") === "save_address"}>
                         주소 및 설정 저장
                       </Button>
+                      {order.invoice?.invoiceNumber ? (
+                        <Box padding="200" background="bg-surface-success" borderRadius="200">
+                          <Text as="p" tone="success" fontWeight="bold">
+                            Rechnung 발행 완료: {order.invoice.invoiceNumber}
+                          </Text>
+                        </Box>
+                      ) : (
+                        <Button
+                          fullWidth
+                          onClick={() => handleIssueInvoice(order)}
+                          loading={fetcher.state === "submitting" && fetcher.formData?.get("intent") === "issue_invoice"}
+                        >
+                          Rechnung 정식 발행 (일련번호 채번)
+                        </Button>
+                      )}
                     </BlockStack>
                   </Card>
                 </BlockStack>
