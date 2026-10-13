@@ -5,7 +5,7 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import crypto from "crypto";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
-import prisma from "./db.server";
+import prisma from "./db.server.js";
 
 // 사용할 안정적인 API 버전을 정의합니다.
 const CURRENT_API_VERSION = "2025-10";
