@@ -1,7 +1,7 @@
 import { useLoaderData, useFetcher, useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import { handleIssueInvoiceIntent } from "../services/invoiceService.server.js";
@@ -61,6 +61,7 @@ function checkIsB2B(shippingAddress) {
 }
 
 export const action = async ({ request, params }) => {
+  await ensureDatabaseSchema();
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -180,6 +181,7 @@ export const action = async ({ request, params }) => {
 };
 
 export const loader = async ({ request, params }) => {
+  await ensureDatabaseSchema();
   const { admin, session } = await authenticate.admin(request);
   const rawIds = params.id.split(",");
   const orderGids = rawIds.map(id => `gid://shopify/Order/${id.trim()}`);
@@ -457,9 +459,21 @@ export const loader = async ({ request, params }) => {
 
       const isB2B = checkIsB2B(node.shippingAddress);
 
-      const dbRecord = await prisma.inspectionRecord.findUnique({
-        where: { orderId: node.id }
-      });
+      let dbRecord = null;
+      try {
+        dbRecord = await prisma.inspectionRecord.findUnique({
+          where: { orderId: node.id }
+        });
+      } catch (err) {
+        if (err?.code === "P2022" || err?.message?.includes("does not exist")) {
+          await ensureDatabaseSchema();
+          dbRecord = await prisma.inspectionRecord.findUnique({
+            where: { orderId: node.id }
+          });
+        } else {
+          throw err;
+        }
+      }
 
       const invoice = dbRecord?.invoiceNumber ? {
         invoiceNumber: dbRecord.invoiceNumber,

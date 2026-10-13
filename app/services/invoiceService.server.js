@@ -1,59 +1,84 @@
-import prisma from "../db.server.js";
+import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { formatInvoiceNumber, getInvoiceYear } from "../utils/invoice.js";
 
 const INVOICE_NUMBER_LOCK_ID = 72190319;
 
 export async function getInvoiceForOrder(orderId, client = prisma) {
   if (!orderId) return null;
-  const record = await client.inspectionRecord.findUnique({
-    where: { orderId },
-    select: {
-      invoiceNumber: true,
-      invoiceIssuedAt: true,
-      invoiceSnapshot: true,
-    },
-  });
+  if (client === prisma) {
+    try { await ensureDatabaseSchema(); } catch {}
+  }
 
-  if (!record || !record.invoiceNumber) return null;
+  try {
+    const record = await client.inspectionRecord.findUnique({
+      where: { orderId },
+      select: {
+        invoiceNumber: true,
+        invoiceIssuedAt: true,
+        invoiceSnapshot: true,
+      },
+    });
 
-  return {
-    invoiceNumber: record.invoiceNumber,
-    issuedAt: record.invoiceIssuedAt,
-    snapshot: record.invoiceSnapshot,
-  };
+    if (!record || !record.invoiceNumber) return null;
+
+    return {
+      invoiceNumber: record.invoiceNumber,
+      issuedAt: record.invoiceIssuedAt,
+      snapshot: record.invoiceSnapshot,
+    };
+  } catch (err) {
+    if (err?.code === "P2022" || err?.message?.includes("does not exist")) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function getInvoicesForOrders(orderIds, client = prisma) {
   if (!orderIds || orderIds.length === 0) return {};
-  const records = await client.inspectionRecord.findMany({
-    where: {
-      orderId: { in: orderIds },
-      invoiceNumber: { not: null },
-    },
-    select: {
-      orderId: true,
-      invoiceNumber: true,
-      invoiceIssuedAt: true,
-      invoiceSnapshot: true,
-    },
-  });
-
-  const map = {};
-  for (const r of records) {
-    if (r.invoiceNumber) {
-      map[r.orderId] = {
-        invoiceNumber: r.invoiceNumber,
-        issuedAt: r.invoiceIssuedAt,
-        snapshot: r.invoiceSnapshot,
-      };
-    }
+  if (client === prisma) {
+    try { await ensureDatabaseSchema(); } catch {}
   }
-  return map;
+
+  try {
+    const records = await client.inspectionRecord.findMany({
+      where: {
+        orderId: { in: orderIds },
+        invoiceNumber: { not: null },
+      },
+      select: {
+        orderId: true,
+        invoiceNumber: true,
+        invoiceIssuedAt: true,
+        invoiceSnapshot: true,
+      },
+    });
+
+    const map = {};
+    for (const r of records) {
+      if (r.invoiceNumber) {
+        map[r.orderId] = {
+          invoiceNumber: r.invoiceNumber,
+          issuedAt: r.invoiceIssuedAt,
+          snapshot: r.invoiceSnapshot,
+        };
+      }
+    }
+    return map;
+  } catch (err) {
+    if (err?.code === "P2022" || err?.message?.includes("does not exist")) {
+      return {};
+    }
+    throw err;
+  }
 }
 
 export async function issueInvoiceForOrder({ shop, orderId, orderName, snapshot }, client = prisma) {
   if (!orderId || !shop) {
     throw new Error("shop and orderId are required to issue an invoice");
+  }
+  if (client === prisma) {
+    try { await ensureDatabaseSchema(); } catch {}
   }
 
   return await client.$transaction(async (tx) => {

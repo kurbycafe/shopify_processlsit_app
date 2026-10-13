@@ -40,6 +40,40 @@ try {
     await tx.$executeRaw`CREATE INDEX IF NOT EXISTS "Container_scheduledDate_idx" ON "Container"("scheduledDate")`;
     await tx.$executeRaw`CREATE INDEX IF NOT EXISTS "ContainerItem_containerId_idx" ON "ContainerItem"("containerId")`;
     await tx.$executeRaw`CREATE INDEX IF NOT EXISTS "ContainerItem_sku_idx" ON "ContainerItem"("sku")`;
+
+    await tx.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "InspectionRecord" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "orderId" TEXT NOT NULL UNIQUE,
+        "orderName" TEXT NOT NULL,
+        "shop" TEXT NOT NULL,
+        "inspectorName" TEXT,
+        "status" TEXT NOT NULL,
+        "isLieferscheinPrinted" BOOLEAN NOT NULL DEFAULT false,
+        "lieferscheinPrintedAt" TIMESTAMP(3),
+        "isPickListPrinted" BOOLEAN NOT NULL DEFAULT false,
+        "customShippingAddress" JSONB,
+        "customBillingAddress" JSONB,
+        "customVat" TEXT,
+        "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "completedAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "isPickListPrinted" BOOLEAN DEFAULT false;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "isLieferscheinPrinted" BOOLEAN DEFAULT false;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "lieferscheinPrintedAt" TIMESTAMP(3);`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "isCancelAlertSent" BOOLEAN DEFAULT false;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "cancelAlertSentAt" TIMESTAMP(3);`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customShippingAddress" JSONB;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customBillingAddress" JSONB;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customVat" TEXT;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceNumber" TEXT;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceYear" INTEGER;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceSequence" INTEGER;`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceIssuedAt" TIMESTAMP(3);`;
+    await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceSnapshot" JSONB;`;
   }, { timeout: 30000 });
   console.log("Customer restock tables are ready.");
   const inspections = await db.inspectionRecord.groupBy({ by: ["shop", "status"], _count: { _all: true } });

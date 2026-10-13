@@ -1,7 +1,7 @@
 import { useLoaderData, useFetcher, useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import { unauthenticated, verifyPrintToken } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import { handleIssueInvoiceIntent } from "../services/invoiceService.server.js";
 import { pickInvoiceSnapshot, resolveInvoiceView } from "../utils/invoice.js";
@@ -60,6 +60,7 @@ function checkIsB2B(shippingAddress) {
 }
 
 export const action = async ({ request, params }) => {
+  await ensureDatabaseSchema();
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
   const tokensStr = url.searchParams.get("tokens") || "";
@@ -165,6 +166,7 @@ export const action = async ({ request, params }) => {
 };
 
 export const loader = async ({ request, params }) => {
+  await ensureDatabaseSchema();
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
   const tokensStr = url.searchParams.get("tokens") || "";
@@ -462,9 +464,21 @@ export const loader = async ({ request, params }) => {
 
       const isB2B = checkIsB2B(node.shippingAddress);
 
-      const dbRecord = await prisma.inspectionRecord.findUnique({
-        where: { orderId: node.id }
-      });
+      let dbRecord = null;
+      try {
+        dbRecord = await prisma.inspectionRecord.findUnique({
+          where: { orderId: node.id }
+        });
+      } catch (err) {
+        if (err?.code === "P2022" || err?.message?.includes("does not exist")) {
+          await ensureDatabaseSchema();
+          dbRecord = await prisma.inspectionRecord.findUnique({
+            where: { orderId: node.id }
+          });
+        } else {
+          throw err;
+        }
+      }
 
       const invoice = dbRecord?.invoiceNumber ? {
         invoiceNumber: dbRecord.invoiceNumber,
