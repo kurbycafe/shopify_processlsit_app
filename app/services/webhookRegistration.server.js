@@ -48,6 +48,10 @@ export async function ensureRequiredWebhooks(admin, appUrl) {
       topic: "ORDERS_UPDATED",
       callbackUrl: `${appUrl}/webhooks/orders/updated`,
     },
+    {
+      topic: "ORDERS_FULFILLED",
+      callbackUrl: `${appUrl}/webhooks/orders/updated`,
+    },
   ];
 
   const results = [];

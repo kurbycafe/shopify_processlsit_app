@@ -11,12 +11,16 @@ import {
   computeInvoiceTotals,
   translateFinancialStatus,
   translatePaymentGateway,
+  checkIsB2B,
 } from "../app/utils/invoice.js";
 import {
   issueInvoiceForOrder,
   getInvoiceForOrder,
   getInvoicesForOrders,
   handleIssueInvoiceIntent,
+  autoIssueInvoiceOnFulfillment,
+  buildSnapshotFromWebhookPayload,
+  buildSnapshotFromGraphQLNode,
 } from "../app/services/invoiceService.server.js";
 import {
   COMPANY,
@@ -395,5 +399,185 @@ test("missing orders detection correctly identifies dropped order IDs", () => {
   assert.equal(loadedOrders.length, 2);
   assert.equal(missingRawIds.length, 2);
 });
+
+test("checkIsB2B identifies B2B by company field or German company forms", () => {
+  assert.equal(checkIsB2B(null), false);
+  assert.equal(checkIsB2B({}), false);
+  assert.equal(checkIsB2B({ name: "Hong Gildong" }), false);
+  assert.equal(checkIsB2B({ name: "Hong Gildong", company: "Kimchi Market" }), true);
+  assert.equal(checkIsB2B({ name: "Asia Supermarkt GmbH" }), true);
+  assert.equal(checkIsB2B({ name: "Dawayo UG (haftungsbeschraenkt)" }), true);
+  assert.equal(checkIsB2B({ name: "Restaurant Seoul e.K." }), true);
+});
+
+test("issueInvoiceForOrder respects explicit issuedAt parameter", async () => {
+  let createdDate = null;
+  const customDate = new Date("2026-09-12T10:00:00Z");
+
+  const mockClient = {
+    $transaction: async (cb) => {
+      const tx = {
+        inspectionRecord: {
+          findUnique: async () => null,
+          upsert: async (args) => {
+            createdDate = args.create.invoiceIssuedAt;
+            return {
+              invoiceNumber: args.create.invoiceNumber,
+              invoiceIssuedAt: args.create.invoiceIssuedAt,
+              invoiceSnapshot: args.create.invoiceSnapshot,
+            };
+          },
+        },
+        $executeRaw: async () => {},
+        $queryRaw: async () => [{ max_seq: 10 }],
+      };
+      return cb(tx);
+    },
+  };
+
+  const res = await issueInvoiceForOrder(
+    {
+      shop: "test.myshopify.com",
+      orderId: "gid://order/21019",
+      orderName: "21019",
+      snapshot: { items: [] },
+      issuedAt: customDate,
+    },
+    mockClient,
+  );
+
+  assert.equal(res.invoiceNumber, `RE-2026-00011`);
+  assert.equal(createdDate.getTime(), customDate.getTime());
+});
+
+test("buildSnapshotFromWebhookPayload produces valid compliant snapshot", () => {
+  const payload = {
+    id: 12345,
+    name: "27019",
+    created_at: "2026-10-14T12:00:00Z",
+    email: "customer@example.de",
+    financial_status: "paid",
+    total_price: "45.50",
+    subtotal_price: "40.00",
+    total_tax: "2.80",
+    total_shipping_price_set: { shop_money: { amount: "5.50" } },
+    total_discounts: "0.00",
+    shipping_address: { name: "Max Mustermann", company: "Test UG", country_code: "DE" },
+    line_items: [
+      { id: 987, title: "Shin Ramyun", quantity: 5, price: "1.50", sku: "SHIN01" },
+    ],
+  };
+
+  const snapshot = buildSnapshotFromWebhookPayload(payload);
+  assert.ok(snapshot);
+  assert.equal(snapshot.order.name, "27019");
+  assert.equal(snapshot.order.isB2B, true);
+  assert.equal(snapshot.taxDisplayMode, "NET");
+  assert.equal(snapshot.order.items.length, 1);
+  assert.equal(snapshot.order.items[0].sku, "SHIN01");
+});
+
+test("autoIssueInvoiceOnFulfillment ignores unfulfilled, cancelled, or voided orders", async () => {
+  const mockClient = {
+    inspectionRecord: {
+      findUnique: async () => null,
+    },
+  };
+
+  // 1. Unfulfilled
+  const res1 = await autoIssueInvoiceOnFulfillment({
+    shop: "test.myshopify.com",
+    orderGid: "gid://order/1",
+    orderName: "#1",
+    payload: { fulfillment_status: "unfulfilled", cancelled_at: null },
+  }, mockClient);
+  assert.equal(res1, null);
+
+  // 2. Cancelled
+  const res2 = await autoIssueInvoiceOnFulfillment({
+    shop: "test.myshopify.com",
+    orderGid: "gid://order/2",
+    orderName: "#2",
+    payload: { fulfillment_status: "fulfilled", cancelled_at: "2026-10-14" },
+  }, mockClient);
+  assert.equal(res2, null);
+
+  // 3. Voided
+  const res3 = await autoIssueInvoiceOnFulfillment({
+    shop: "test.myshopify.com",
+    orderGid: "gid://order/3",
+    orderName: "#3",
+    payload: { fulfillment_status: "fulfilled", financial_status: "voided" },
+  }, mockClient);
+  assert.equal(res3, null);
+});
+
+test("autoIssueInvoiceOnFulfillment is idempotent if invoice already exists", async () => {
+  const mockClient = {
+    inspectionRecord: {
+      findUnique: async () => ({
+        invoiceNumber: "RE-2026-00055",
+        invoiceIssuedAt: new Date("2026-10-14"),
+        invoiceSnapshot: {},
+      }),
+    },
+  };
+
+  const res = await autoIssueInvoiceOnFulfillment({
+    shop: "test.myshopify.com",
+    orderGid: "gid://order/already-issued",
+    orderName: "#already",
+    payload: { fulfillment_status: "fulfilled" },
+  }, mockClient);
+
+  assert.equal(res.alreadyIssued, true);
+  assert.equal(res.invoiceNumber, "RE-2026-00055");
+});
+
+test("autoIssueInvoiceOnFulfillment issues invoice with fulfillment date on fulfilled order", async () => {
+  let savedInvoice = null;
+  const mockClient = {
+    inspectionRecord: {
+      findUnique: async () => null,
+    },
+    $transaction: async (cb) => {
+      const tx = {
+        inspectionRecord: {
+          findUnique: async () => null,
+          upsert: async (args) => {
+            savedInvoice = args.create;
+            return {
+              invoiceNumber: args.create.invoiceNumber,
+              invoiceIssuedAt: args.create.invoiceIssuedAt,
+              invoiceSnapshot: args.create.invoiceSnapshot,
+            };
+          },
+        },
+        $executeRaw: async () => {},
+        $queryRaw: async () => [{ max_seq: 72 }],
+      };
+      return cb(tx);
+    },
+  };
+
+  const fulfillmentTime = "2026-10-14T14:30:00Z";
+  const res = await autoIssueInvoiceOnFulfillment({
+    shop: "test.myshopify.com",
+    orderGid: "gid://order/new-fulfilled",
+    orderName: "27020",
+    payload: {
+      id: 27020,
+      name: "27020",
+      fulfillment_status: "fulfilled",
+      fulfillments: [{ created_at: fulfillmentTime }],
+      line_items: [{ id: 1, title: "Item", quantity: 1, price: "10.00" }],
+    },
+  }, mockClient);
+
+  assert.equal(res.invoiceNumber, "RE-2026-00073");
+  assert.equal(savedInvoice.invoiceSequence, 73);
+  assert.equal(savedInvoice.invoiceIssuedAt.toISOString(), new Date(fulfillmentTime).toISOString());
+});
+
 
 

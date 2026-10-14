@@ -22,7 +22,7 @@ api_version = "2026-07"
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/orders/updated"
-  topics = [ "orders/updated" ]
+  topics = [ "orders/updated", "orders/fulfilled" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"

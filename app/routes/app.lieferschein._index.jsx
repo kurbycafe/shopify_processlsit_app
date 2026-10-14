@@ -102,8 +102,28 @@ export const loader = async ({ request }) => {
 
     let shopifyQuery = "fulfillment_status:unfulfilled status:open";
     if (queryParam) {
-      // 검색어가 있을 때는 완료/보관된 과거 주문도 모두 나오도록 status:any 추가
-      shopifyQuery = `${queryParam.trim()} status:any`;
+      const cleanQ = queryParam.trim().replace(/^#/, "");
+      let matchedNames = [];
+      if (cleanQ.length >= 3) {
+        try {
+          const dbMatches = await prisma.inspectionRecord.findMany({
+            where: {
+              orderName: { contains: cleanQ },
+            },
+            select: { orderName: true },
+            take: 5,
+          });
+          matchedNames = dbMatches.map((m) => m.orderName).filter((n) => n && n !== cleanQ);
+        } catch (dbErr) {
+          console.warn("InspectionRecord query error:", dbErr);
+        }
+      }
+
+      if (matchedNames.length > 0) {
+        shopifyQuery = `(${cleanQ} OR name:${matchedNames.join(" OR name:")}) status:any`;
+      } else {
+        shopifyQuery = `${queryParam.trim()} status:any`;
+      }
     }
 
     const after = url.searchParams.get("after") || null;
@@ -581,8 +601,8 @@ export default function AdditionalPage() {
       result = result.filter(o => o.items.length >= 15);
     }
 
-    // 3.5 인쇄 상태 필터
-    if (printFilter === "UNPRINTED") {
+    // 3.5 인쇄 상태 필터 (검색어가 입력된 경우 검색 대상이 숨겨지지 않도록 예외 처리)
+    if (printFilter === "UNPRINTED" && !searchQuery.trim()) {
       result = result.filter(o => !o.isPrinted);
     } else if (printFilter === "PRINTED") {
       result = result.filter(o => o.isPrinted);
@@ -618,8 +638,11 @@ export default function AdditionalPage() {
   }, [orders, paymentFilter, regionFilter, complexityFilter, printFilter, sortOrder, searchQuery, tempFilter]);
 
   const selectableOrders = useMemo(() => {
+    if (searchQuery.trim() || printFilter !== "UNPRINTED") {
+      return filteredOrders;
+    }
     return filteredOrders.filter(o => !o.isPrinted);
-  }, [filteredOrders]);
+  }, [filteredOrders, searchQuery, printFilter]);
 
   const isAllSelected = useMemo(() => {
     return selectableOrders.length > 0 && selectableOrders.every(o => selectedOrderIds.includes(o.id));
@@ -886,7 +909,7 @@ export default function AdditionalPage() {
                       <input
                         type="checkbox"
                         checked={selectedOrderIds.includes(order.id)}
-                        disabled={order.isPrinted}
+                        disabled={order.isPrinted && printFilter === "UNPRINTED" && !searchQuery.trim()}
                         onChange={(e) => {
                           if (e.target.checked) {
                             setSelectedOrderIds(prev => [...prev, order.id]);
@@ -894,7 +917,7 @@ export default function AdditionalPage() {
                             setSelectedOrderIds(prev => prev.filter(id => id !== order.id));
                           }
                         }}
-                        style={{ cursor: order.isPrinted ? "not-allowed" : "pointer" }}
+                        style={{ cursor: (order.isPrinted && printFilter === "UNPRINTED" && !searchQuery.trim()) ? "not-allowed" : "pointer" }}
                       />
                     </td>
                     <td className="order-name">

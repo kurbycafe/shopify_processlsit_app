@@ -203,7 +203,7 @@ export function computeInvoiceTotals(order, taxDisplayMode) {
     else if (totalOriginalGrossItems - rawSubtotal > 0.01) discount = totalOriginalGrossItems - rawSubtotal;
   }
 
-  return {
+    return {
     processedItems,
     vatBreakdown,
     finalSubtotal,
@@ -213,3 +213,31 @@ export function computeInvoiceTotals(order, taxDisplayMode) {
     refunded: parseFloat(order.totalRefunded || 0),
   };
 }
+
+export function checkIsB2B(shippingAddress) {
+  if (!shippingAddress) return false;
+
+  const company = (shippingAddress.company || "").trim();
+  const name = (shippingAddress.name || "").trim();
+
+  if (company) return true;
+
+  const nameUpper = name.toUpperCase();
+  const b2bPatterns = [
+    /\bGMBH\b/,
+    /\bUG\b/,
+    /\bAG\b/,
+    /\bGBR\b/,
+    /\bOHG\b/,
+    /\bKG\b/,
+    /\bE\.K\b/,
+    /\bLTD\b/,
+    /\bINC\b/,
+    /\bB\.V\.(?!\w)/,
+    /\bS\.A\.(?!\w)/,
+    /\bS\.A\.R\.L\.(?!\w)/,
+  ];
+
+  return b2bPatterns.some((pattern) => pattern.test(nameUpper));
+}
+
