@@ -105,36 +105,10 @@ export const loader = async ({ request }) => {
       const cleanQ = queryParam.trim().replace(/^#/, "");
       const isDigitsOnly = /^\d+$/.test(cleanQ);
 
-      let matchedNames = [];
-      if (cleanQ.length >= 2) {
-        try {
-          const dbMatches = await prisma.inspectionRecord.findMany({
-            where: {
-              orderName: { contains: cleanQ },
-            },
-            select: { orderName: true },
-            take: 10,
-          });
-          matchedNames = dbMatches
-            .map((m) => m.orderName)
-            .filter((n) => n && n !== cleanQ);
-        } catch (dbErr) {
-          console.warn("InspectionRecord query error:", dbErr);
-        }
-      }
-
       if (isDigitsOnly) {
-        if (matchedNames.length > 0) {
-          shopifyQuery = `(name:${cleanQ} OR name:${matchedNames.join(" OR name:")}) status:any`;
-        } else {
-          shopifyQuery = `name:${cleanQ} status:any`;
-        }
+        shopifyQuery = `(name:${cleanQ} OR name:#${cleanQ}) status:any`;
       } else {
-        if (matchedNames.length > 0) {
-          shopifyQuery = `(${cleanQ} OR name:${matchedNames.join(" OR name:")}) status:any`;
-        } else {
-          shopifyQuery = `${queryParam.trim()} status:any`;
-        }
+        shopifyQuery = `${queryParam.trim()} status:any`;
       }
     }
 
@@ -632,11 +606,21 @@ export default function AdditionalPage() {
     // 3.8 검색 텍스트 필터
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      result = result.filter(o =>
-        o.name.toLowerCase().includes(q) ||
-        o.email.toLowerCase().includes(q) ||
-        (o.shippingAddress?.name && o.shippingAddress.name.toLowerCase().includes(q))
-      );
+      const cleanQ = q.replace(/^#/, "");
+      const isDigitsOnly = /^\d+$/.test(cleanQ);
+
+      result = result.filter(o => {
+        const orderNameClean = o.name.toLowerCase().replace(/^#/, "");
+        if (isDigitsOnly) {
+          return orderNameClean === cleanQ;
+        }
+        return (
+          orderNameClean === cleanQ ||
+          o.name.toLowerCase().includes(q) ||
+          o.email.toLowerCase().includes(q) ||
+          (o.shippingAddress?.name && o.shippingAddress.name.toLowerCase().includes(q))
+        );
+      });
     }
 
     // 4. 정렬 로직
@@ -650,11 +634,8 @@ export default function AdditionalPage() {
   }, [orders, paymentFilter, regionFilter, complexityFilter, printFilter, sortOrder, searchQuery, tempFilter]);
 
   const selectableOrders = useMemo(() => {
-    if (searchQuery.trim() || printFilter !== "UNPRINTED") {
-      return filteredOrders;
-    }
-    return filteredOrders.filter(o => !o.isPrinted);
-  }, [filteredOrders, searchQuery, printFilter]);
+    return filteredOrders;
+  }, [filteredOrders]);
 
   const isAllSelected = useMemo(() => {
     return selectableOrders.length > 0 && selectableOrders.every(o => selectedOrderIds.includes(o.id));
@@ -880,19 +861,22 @@ export default function AdditionalPage() {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ width: "40px", textAlign: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={isAllSelected}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedOrderIds(selectableOrders.map(o => o.id));
-                    } else {
-                      setSelectedOrderIds([]);
-                    }
-                  }}
-                  style={{ cursor: "pointer" }}
-                />
+              <th style={{ width: "56px", textAlign: "center" }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", justifyContent: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedOrderIds(selectableOrders.map(o => o.id));
+                      } else {
+                        setSelectedOrderIds([]);
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: "11px", color: "#64748b" }}>선택</span>
+                </div>
               </th>
               <th>주문 번호</th>
               <th>고객명</th>
@@ -921,7 +905,6 @@ export default function AdditionalPage() {
                       <input
                         type="checkbox"
                         checked={selectedOrderIds.includes(order.id)}
-                        disabled={order.isPrinted && printFilter === "UNPRINTED" && !searchQuery.trim()}
                         onChange={(e) => {
                           if (e.target.checked) {
                             setSelectedOrderIds(prev => [...prev, order.id]);
@@ -929,7 +912,7 @@ export default function AdditionalPage() {
                             setSelectedOrderIds(prev => prev.filter(id => id !== order.id));
                           }
                         }}
-                        style={{ cursor: (order.isPrinted && printFilter === "UNPRINTED" && !searchQuery.trim()) ? "not-allowed" : "pointer" }}
+                        style={{ cursor: "pointer" }}
                       />
                     </td>
                     <td className="order-name">
