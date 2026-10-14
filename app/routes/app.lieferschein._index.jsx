@@ -103,26 +103,38 @@ export const loader = async ({ request }) => {
     let shopifyQuery = "fulfillment_status:unfulfilled status:open";
     if (queryParam) {
       const cleanQ = queryParam.trim().replace(/^#/, "");
+      const isDigitsOnly = /^\d+$/.test(cleanQ);
+
       let matchedNames = [];
-      if (cleanQ.length >= 3) {
+      if (cleanQ.length >= 2) {
         try {
           const dbMatches = await prisma.inspectionRecord.findMany({
             where: {
               orderName: { contains: cleanQ },
             },
             select: { orderName: true },
-            take: 5,
+            take: 10,
           });
-          matchedNames = dbMatches.map((m) => m.orderName).filter((n) => n && n !== cleanQ);
+          matchedNames = dbMatches
+            .map((m) => m.orderName)
+            .filter((n) => n && n !== cleanQ);
         } catch (dbErr) {
           console.warn("InspectionRecord query error:", dbErr);
         }
       }
 
-      if (matchedNames.length > 0) {
-        shopifyQuery = `(${cleanQ} OR name:${matchedNames.join(" OR name:")}) status:any`;
+      if (isDigitsOnly) {
+        if (matchedNames.length > 0) {
+          shopifyQuery = `(name:${cleanQ} OR name:${matchedNames.join(" OR name:")}) status:any`;
+        } else {
+          shopifyQuery = `name:${cleanQ} status:any`;
+        }
       } else {
-        shopifyQuery = `${queryParam.trim()} status:any`;
+        if (matchedNames.length > 0) {
+          shopifyQuery = `(${cleanQ} OR name:${matchedNames.join(" OR name:")}) status:any`;
+        } else {
+          shopifyQuery = `${queryParam.trim()} status:any`;
+        }
       }
     }
 
