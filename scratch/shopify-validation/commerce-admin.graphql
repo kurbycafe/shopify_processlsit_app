@@ -1,0 +1,202 @@
+
+  query getOrderForInvoice($id: ID!) {
+    order(id: $id) {
+      id
+      name
+      createdAt
+      taxesIncluded
+      email
+      note
+      displayFinancialStatus
+      cancelledAt
+      cancelReason
+      paymentGatewayNames
+      customer {
+        id
+        numberOfOrders
+        vat: metafield(namespace: "custom", key: "vat") {
+          value
+        }
+      }
+      taxLines {
+        title
+        rate
+        priceSet { shopMoney { amount currencyCode } }
+      }
+      totalPriceSet { shopMoney { amount currencyCode } }
+      subtotalPriceSet { shopMoney { amount currencyCode } }
+      totalTaxSet { shopMoney { amount currencyCode } }
+      totalShippingPriceSet { shopMoney { amount currencyCode } }
+      totalDiscountsSet { shopMoney { amount currencyCode } }
+      totalRefundedSet { shopMoney { amount currencyCode } }
+      totalOutstandingSet { shopMoney { amount currencyCode } }
+      shippingLines(first: 10) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id
+            title
+            taxLines { rate priceSet { shopMoney { amount currencyCode } } }
+          }
+        }
+      }
+      billingAddress {
+        name company address1 address2 zip city country phone countryCode
+      }
+      shippingAddress {
+        name company address1 address2 zip city country phone countryCode
+      }
+      lineItems(first: 50) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id
+            title
+            sku
+            variantTitle
+            quantity
+            originalUnitPriceSet { shopMoney { amount currencyCode } }
+            discountedUnitPriceSet { shopMoney { amount currencyCode } }
+            originalTotalSet { shopMoney { amount currencyCode } }
+            discountedTotalSet { shopMoney { amount currencyCode } }
+            taxable
+            taxLines {
+              title
+              rate
+              priceSet { shopMoney { amount currencyCode } }
+            }
+            variant {
+              id
+              title
+              sku
+              barcode
+              product {
+                germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+
+  query completeOrderLineItems($id: ID!, $after: String!) {
+    order(id: $id) {
+      id
+      lineItems(first: 25, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id title quantity taxable sku variantTitle
+            originalUnitPriceSet { shopMoney { amount currencyCode } }
+            discountedUnitPriceSet { shopMoney { amount currencyCode } }
+            originalTotalSet { shopMoney { amount currencyCode } }
+            discountedTotalSet { shopMoney { amount currencyCode } }
+            discountAllocations { allocatedAmountSet { shopMoney { amount currencyCode } } }
+            taxLines { title rate priceSet { shopMoney { amount currencyCode } } }
+            variant {
+              id title sku barcode price compareAtPrice
+              inventoryItem { measurement { weight { value unit } } }
+              image { url }
+              product {
+                featuredImage { url }
+                germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                position: metafield(namespace: "custom", key: "position") { value }
+                producttype: metafield(namespace: "custom", key: "producttype") { value }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+
+  query completeOrderShippingLines($id: ID!, $after: String!) {
+    order(id: $id) {
+      id
+      shippingLines(first: 50, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { id title taxLines { rate priceSet { shopMoney { amount currencyCode } } } } }
+      }
+    }
+  }
+
+
+      query getPendingCustomerRequests {
+        orders(
+          first: 30,
+          query: "status:open (tag:customer_request* OR tag:return_requested OR tag:cancellation_requested OR tag:cancel_requested OR return_status:RETURN_REQUESTED)",
+          sortKey: UPDATED_AT,
+          reverse: true
+        ) {
+          edges {
+            node {
+              id
+              name
+              createdAt
+              updatedAt
+              cancelledAt
+              cancelReason
+              returnStatus
+              tags
+              email
+              totalPriceSet { shopMoney { amount currencyCode } }
+              shippingAddress { name }
+              billingAddress { name }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    title
+                    quantity
+                  }
+                }
+              }
+              events(first: 10) {
+                edges {
+                  node {
+                    message
+                    createdAt
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+          query checkOrderEvents($id: ID!) {
+            order(id: $id) {
+              cancelledAt
+              cancelReason
+              returnStatus
+              tags
+              events(first: 10) {
+                edges {
+                  node {
+                    message
+                    createdAt
+                  }
+                }
+              }
+            }
+          }
+
+        query getVariantByInventoryItem($id: ID!) {
+          inventoryItem(id: $id) {
+            id
+            variant {
+              id
+              title
+              sku
+              product {
+                id
+                title
+                handle
+              }
+            }
+          }
+        }

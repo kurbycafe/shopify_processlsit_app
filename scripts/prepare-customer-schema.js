@@ -1,3 +1,4 @@
+import { ensureCustomerRequestSchema } from "../app/services/customerSchema.js";
 // Repair missing tables already defined in schema.prisma. This is deliberately
 // additive: never use db push/reset against the existing production database.
 import { schemaIsReady, readSchemaCatalog } from "../app/services/schemaReadiness.js";
@@ -74,6 +75,7 @@ try {
     await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceSequence" INTEGER;`;
     await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceIssuedAt" TIMESTAMP(3);`;
     await tx.$executeRaw`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceSnapshot" JSONB;`;
+    await ensureCustomerRequestSchema(tx);
   }, { timeout: 30000 });
   console.log("Customer restock tables are ready.");
   const inspections = await db.inspectionRecord.groupBy({ by: ["shop", "status"], _count: { _all: true } });

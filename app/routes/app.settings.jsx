@@ -16,7 +16,6 @@ import {
   Divider,
   Tabs,
   Toast,
-  Icon,
 } from "@shopify/polaris";
 import {
   ClipboardIcon,

@@ -1,8 +1,9 @@
-import { formatCurrency } from "./formatters";
-import { DEFAULT_CURRENCY } from "../constants/shopify";
+import { formatCurrency } from "./formatters.js";
+import { escapeHtml } from "./htmlSafety.js";
+import { DEFAULT_CURRENCY } from "../constants/shopify.js";
 
-export function generateInventoryReportHTML({ items = [], selectedMonth, shopName = "Shopify Store", currencyCode = DEFAULT_CURRENCY }) {
-  const reportTimestamp = new Date().toLocaleString("ko-KR", {
+export function generateInventoryReportHTML({ items = [], fetchedAt, shopName = "Shopify Store", currencyCode = DEFAULT_CURRENCY }) {
+  const reportTimestamp = new Date(fetchedAt || Date.now()).toLocaleString("ko-KR", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -19,11 +20,11 @@ export function generateInventoryReportHTML({ items = [], selectedMonth, shopNam
       (item, index) => `
     <tr>
       <td style="text-align: center; color: #555;">${index + 1}</td>
-      <td style="font-family: monospace; font-weight: 600;">${item.sku || "-"}</td>
-      <td style="font-weight: 500;">${item.fullName || item.title || "-"}</td>
+      <td style="font-family: monospace; font-weight: 600;">${escapeHtml(item.sku || "-")}</td>
+      <td style="font-weight: 500;">${escapeHtml(item.fullName || item.title || "-")}</td>
       <td style="text-align: right;">${formatCurrency(item.price || 0, currencyCode)}</td>
       <td style="text-align: center;">
-        <span class="tax-badge tax-${item.taxRate || 0}">${item.taxRate || 0}%</span>
+        <span class="tax-badge tax-${item.taxRate == null ? "unknown" : Number(item.taxRate)}">${item.taxRate == null ? "미확인" : `${Number(item.taxRate)}%`}</span>
       </td>
       <td style="text-align: right; font-weight: 600; color: ${(item.inventoryQuantity || 0) < 0 ? "#d32f2f" : "#111"};">
         ${(item.inventoryQuantity || 0).toLocaleString()}
@@ -39,7 +40,7 @@ export function generateInventoryReportHTML({ items = [], selectedMonth, shopNam
     <html lang="ko">
     <head>
       <meta charset="UTF-8">
-      <title>월별 인벤토리 보고서 - ${selectedMonth}</title>
+      <title>현재 재고 보고서 - ${escapeHtml(reportTimestamp)}</title>
       <style>
         @page {
           size: A4 portrait;
@@ -175,16 +176,17 @@ export function generateInventoryReportHTML({ items = [], selectedMonth, shopNam
     <body>
       <div class="header-container">
         <div class="title-area">
-          <h1>월별 인벤토리 평가 보고서</h1>
-          <p>Monthly Inventory Valuation Report (${selectedMonth})</p>
+          <h1>현재 재고 보고서</h1>
+          <p>Current Inventory — 판매 가격 기준</p>
         </div>
         <div class="meta-area">
-          <div><strong>상호명:</strong> ${shopName}</div>
-          <div><strong>보고서 추출 일시:</strong> ${reportTimestamp}</div>
-          <div><strong>화폐 단위:</strong> ${currencyCode}</div>
+          <div><strong>상호명:</strong> ${escapeHtml(shopName)}</div>
+          <div><strong>보고서 추출 일시:</strong> ${escapeHtml(reportTimestamp)}</div>
+          <div><strong>화폐 단위:</strong> ${escapeHtml(currencyCode)}</div>
         </div>
       </div>
 
+      <p>조회 시점의 현재 재고입니다. 과거 월말 재고나 원가 평가 자료가 아닙니다. 세율 미확인 값은 임의로 채우지 않았습니다.</p>
       <div class="kpi-container">
         <div class="kpi-card">
           <div class="kpi-title">총 상품(옵션) 품목 수</div>

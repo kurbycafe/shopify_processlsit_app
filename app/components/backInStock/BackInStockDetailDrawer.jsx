@@ -17,7 +17,7 @@ import {
   ViewIcon,
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
-import { getDemandLevel, getEtaStageInfo, maskEmail } from "../../utils/backInStockHelpers";
+import { getDemandLevel, getEtaStageInfo, maskEmail, getSubscriptionStatusInfo } from "../../utils/backInStockHelpers";
 
 export default function BackInStockDetailDrawer({
   open,
@@ -51,18 +51,11 @@ export default function BackInStockDetailDrawer({
     ) : (
       <Text variant="bodyXs" tone="subdued" key={`po-${sub.id}`}>-</Text>
     ),
-    sub.status === "PENDING" ? (
-      <Badge tone="warning" key={`st-${sub.id}`}>대기 중</Badge>
-    ) : sub.status === "NOTIFIED" ? (
-      <BlockStack gap="050" key={`st-${sub.id}`}>
-        <Badge tone="success">발송 완료</Badge>
-        <Text variant="bodyXs" tone="subdued">
-          {sub.notifiedAt ? dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm") : "-"}
-        </Text>
-      </BlockStack>
-    ) : (
-      <Badge tone="critical" key={`st-${sub.id}`}>취소됨</Badge>
-    ),
+    <BlockStack gap="050" key={`st-${sub.id}`}>
+      <Badge tone={getSubscriptionStatusInfo(sub.status).tone}>{getSubscriptionStatusInfo(sub.status).label}</Badge>
+      {getSubscriptionStatusInfo(sub.status).explanation && <Text variant="bodyXs" tone="subdued">{getSubscriptionStatusInfo(sub.status).explanation}</Text>}
+      {sub.notifiedAt && <Text variant="bodyXs" tone="subdued">{dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm")}</Text>}
+    </BlockStack>,
     sub.status === "PENDING" ? (
       <InlineStack gap="100" key={`act-${sub.id}`}>
         <Button size="micro" onClick={() => onNotifySingle(sub.id)}>

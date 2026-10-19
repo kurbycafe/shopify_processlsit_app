@@ -16,6 +16,7 @@ import {
   SearchIcon,
   FilterIcon,
 } from "@shopify/polaris-icons";
+import { getSubscriptionStatusInfo } from "../../utils/backInStockHelpers";
 
 export default function BackInStockControlBar({
   viewMode,
@@ -56,7 +57,7 @@ export default function BackInStockControlBar({
   if (statusFilter && statusFilter !== "ALL") {
     activeTags.push({
       key: "status",
-      label: `상태: ${statusFilter === "PENDING" || statusFilter === "UNSENT" ? "전송 대기 (미전송)" : statusFilter === "NOTIFIED" || statusFilter === "SENT" ? "전송 완료" : "신청 취소"}`,
+      label: `상태: ${statusFilter === "UNSENT" ? "대기 중" : statusFilter === "SENT" ? "발송 완료" : getSubscriptionStatusInfo(statusFilter).label}`,
       onRemove: () => onChangeStatusFilter("ALL"),
     });
   }
@@ -192,10 +193,13 @@ export default function BackInStockControlBar({
                 <Select
                   label="전송 상태 (Delivery Status)"
                   options={[
-                    { label: "전체 (대기 + 발송완료)", value: "ALL" },
+                    { label: "전체 상태", value: "ALL" },
                     { label: "전송 대기 / 미전송 (PENDING)", value: "PENDING" },
                     { label: "전송 완료 (NOTIFIED)", value: "NOTIFIED" },
                     { label: "신청 취소 (CANCELLED)", value: "CANCELLED" },
+                    { label: "발송됨 · 기록 확인 필요", value: "DELIVERED_UNCONFIRMED" },
+                    { label: "발송 중", value: "PROCESSING" },
+                    { label: "발송 실패", value: "FAILED" },
                   ]}
                   value={statusFilter}
                   onChange={onChangeStatusFilter}

@@ -1,8 +1,8 @@
-import { useLoaderData, useFetcher, useNavigate, Link, useSearchParams } from "react-router";
+import { useLoaderData, useFetcher, Link, useSearchParams } from "react-router";
 import { useState, useEffect, useMemo } from "react";
 import { authenticate, generatePrintToken } from "../shopify.server";
 import prisma from "../db.server";
-import { sendCancellationAlertEmail } from "../utils/emailService.js";
+
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import styles from "../styles/app.lieferschein.css?url";
 import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination } from "@shopify/polaris";
@@ -99,14 +99,18 @@ export const loader = async ({ request }) => {
     const { admin, session } = await authenticate.admin(request);
     const url = new URL(request.url);
     const queryParam = url.searchParams.get("query") || "";
+    const orderType = url.searchParams.get("orderType") || "ORDERS";
+    const isDraftMode = orderType === "DRAFT_ORDERS";
 
-    let shopifyQuery = "fulfillment_status:unfulfilled status:open";
+    let shopifyQuery = isDraftMode ? "status:open" : "fulfillment_status:unfulfilled status:open";
     if (queryParam) {
       const cleanQ = queryParam.trim().replace(/^#/, "");
       const isDigitsOnly = /^\d+$/.test(cleanQ);
 
       if (isDigitsOnly) {
-        shopifyQuery = `(name:${cleanQ} OR name:#${cleanQ}) status:any`;
+        shopifyQuery = isDraftMode
+          ? `(name:${cleanQ} OR name:#${cleanQ} OR name:D${cleanQ} OR name:#D${cleanQ}) status:any`
+          : `(name:${cleanQ} OR name:#${cleanQ}) status:any`;
       } else {
         shopifyQuery = `${queryParam.trim()} status:any`;
       }
@@ -128,98 +132,91 @@ export const loader = async ({ request }) => {
       variables.after = after;
     }
 
-    const response = await admin.graphql(`
-      #graphql
-      query getDawayoDetailedOrders($first: Int, $last: Int, $after: String, $before: String, $query: String) {
-        orders(
-          first: $first,
-          last: $last,
-          after: $after,
-          before: $before,
-          query: $query,
-          sortKey: CREATED_AT,
-          reverse: true
-        ) {
-          pageInfo {
-            hasNextPage
-            hasPreviousPage
-            endCursor
-            startCursor
-          }
-          edges {
-            node {
-              id
-              name
-              createdAt
-              email
-              note
-              displayFinancialStatus
-              cancelledAt
-              cancelReason
-              returnStatus
-              tags
-              events(first: 10) {
-                edges {
-                  node {
-                    id
-                    message
-                    createdAt
-                  }
+    const response = isDraftMode
+      ? await admin.graphql(`
+        #graphql
+        query getDawayoDetailedDraftOrders($first: Int, $last: Int, $after: String, $before: String, $query: String) {
+          draftOrders(
+            first: $first,
+            last: $last,
+            after: $after,
+            before: $before,
+            query: $query,
+            sortKey: UPDATED_AT,
+            reverse: true
+          ) {
+            pageInfo {
+              hasNextPage
+              hasPreviousPage
+              endCursor
+              startCursor
+            }
+            edges {
+              node {
+                id
+                name
+                createdAt
+                email
+                note: note2
+                status
+                tags
+                customer {
+                  numberOfOrders
                 }
-              }
-              displayFulfillmentStatus
-              paymentGatewayNames
-              customer {
-                numberOfOrders
-              }
-              totalPriceSet { shopMoney { amount currencyCode } }
-              subtotalPriceSet { shopMoney { amount currencyCode } }
-              totalTaxSet { shopMoney { amount currencyCode } }
-              totalShippingPriceSet { shopMoney { amount currencyCode } }
-              totalDiscountsSet { shopMoney { amount currencyCode } }
-              shippingLines(first: 1) {
-                edges {
-                  node {
-                    title
-                  }
+                totalPriceSet { shopMoney { amount currencyCode } }
+                subtotalPriceSet { shopMoney { amount currencyCode } }
+                totalTaxSet { shopMoney { amount currencyCode } }
+                totalShippingPriceSet { shopMoney { amount currencyCode } }
+                shippingLine {
+                  title
                 }
-              }
-              billingAddress {
-                name company address1 address2 zip city country phone countryCode
-              }
-              shippingAddress {
-                name company address1 address2 zip city country phone countryCode
-              }
-              lineItems(first: 50) {
-                edges {
-                  node {
-                    id
-                    title
-                    quantity
-                    originalUnitPriceSet { shopMoney { amount currencyCode } }
-                    discountedUnitPriceSet { shopMoney { amount currencyCode } }
-                    originalTotalSet { shopMoney { amount currencyCode } }
-                    discountedTotalSet { shopMoney { amount currencyCode } }
-                    variant {
+                billingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                shippingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                lineItems(first: 50) {
+                  edges {
+                    node {
                       id
                       title
+                      name
                       sku
-                      barcode
-                      inventoryItem {
-                        measurement {
-                          weight {
-                            value
-                            unit
+                      quantity
+                      originalUnitPriceSet { shopMoney { amount currencyCode } }
+                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                      originalTotalSet { shopMoney { amount currencyCode } }
+                      discountedTotalSet { shopMoney { amount currencyCode } }
+                      appliedDiscount {
+                        title
+                        description
+                        value
+                        valueType
+                        amountSet { shopMoney { amount currencyCode } }
+                      }
+                      weight { value unit }
+                      variant {
+                        id
+                        title
+                        sku
+                        barcode
+                        inventoryItem {
+                          measurement {
+                            weight {
+                              value
+                              unit
+                            }
                           }
                         }
-                      }
-                      image { url src } 
-                      product {
-                        featuredImage { url src } 
-                        germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                        expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                        position: metafield(namespace: "custom", key: "position") { value }
-                        producttype: metafield(namespace: "custom", key: "producttype") { value }
+                        image { url src } 
+                        product {
+                          featuredImage { url src } 
+                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                          position: metafield(namespace: "custom", key: "position") { value }
+                          producttype: metafield(namespace: "custom", key: "producttype") { value }
+                        }
                       }
                     }
                   }
@@ -228,22 +225,125 @@ export const loader = async ({ request }) => {
             }
           }
         }
-      }
-    `, {
-      variables
-    });
+      `, {
+        variables
+      })
+      : await admin.graphql(`
+        #graphql
+        query getDawayoDetailedOrders($first: Int, $last: Int, $after: String, $before: String, $query: String) {
+          orders(
+            first: $first,
+            last: $last,
+            after: $after,
+            before: $before,
+            query: $query,
+            sortKey: CREATED_AT,
+            reverse: true
+          ) {
+            pageInfo {
+              hasNextPage
+              hasPreviousPage
+              endCursor
+              startCursor
+            }
+            edges {
+              node {
+                id
+                name
+                createdAt
+                email
+                note
+                displayFinancialStatus
+                cancelledAt
+                cancelReason
+                returnStatus
+                tags
+                events(first: 10) {
+                  edges {
+                    node {
+                      id
+                      message
+                      createdAt
+                    }
+                  }
+                }
+                displayFulfillmentStatus
+                paymentGatewayNames
+                customer {
+                  numberOfOrders
+                }
+                totalPriceSet { shopMoney { amount currencyCode } }
+                subtotalPriceSet { shopMoney { amount currencyCode } }
+                totalTaxSet { shopMoney { amount currencyCode } }
+                totalShippingPriceSet { shopMoney { amount currencyCode } }
+                totalDiscountsSet { shopMoney { amount currencyCode } }
+                shippingLines(first: 1) {
+                  edges {
+                    node {
+                      title
+                    }
+                  }
+                }
+                billingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                shippingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      id
+                      title
+                      quantity
+                      originalUnitPriceSet { shopMoney { amount currencyCode } }
+                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                      originalTotalSet { shopMoney { amount currencyCode } }
+                      discountedTotalSet { shopMoney { amount currencyCode } }
+                      variant {
+                        id
+                        title
+                        sku
+                        barcode
+                        inventoryItem {
+                          measurement {
+                            weight {
+                              value
+                              unit
+                            }
+                          }
+                        }
+                        image { url src } 
+                        product {
+                          featuredImage { url src } 
+                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                          position: metafield(namespace: "custom", key: "position") { value }
+                          producttype: metafield(namespace: "custom", key: "producttype") { value }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `, {
+        variables
+      });
 
     const responseJson = await response.json();
 
     if (responseJson?.errors?.length > 0) {
       const errMsg = responseJson.errors.map((e) => e.message).join(", ");
       console.error("GraphQL errors:", errMsg);
-      return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}` });
+      return jsonResponse({ orders: [], error: `GraphQL 오류: ${errMsg}`, orderType });
     }
 
-    const connection = responseJson?.data?.orders;
+    const connection = isDraftMode ? responseJson?.data?.draftOrders : responseJson?.data?.orders;
     if (!connection) {
-      return jsonResponse({ orders: [], pageInfo: { hasNextPage: false, hasPreviousPage: false }, error: null });
+      return jsonResponse({ orders: [], pageInfo: { hasNextPage: false, hasPreviousPage: false }, error: null, orderType });
     }
 
     const allEdges = connection.edges || [];
@@ -256,6 +356,10 @@ export const loader = async ({ request }) => {
 
     const validEdges = allEdges.filter((edge) => {
       const node = edge.node;
+      if (isDraftMode) {
+        if (!queryParam && node.status === "COMPLETED") return false;
+        return true;
+      }
       // 검색어가 있을 때는 취소/환불건도 포함하여 보여줌 (과거 주문 조회용)
       if (!queryParam) {
         if (node.cancelledAt) return false;
@@ -267,7 +371,7 @@ export const loader = async ({ request }) => {
 
     const orders = validEdges.map((edge) => {
       const node = edge.node;
-      const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
+      const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || node.shippingLine?.title || "Standard Delivery";
 
       const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
         const item = itemEdge.node;
@@ -285,10 +389,11 @@ export const loader = async ({ request }) => {
         else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
         else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
 
-        const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
+        const itemTitle = (item.title || item.name || "").replace(" - Default Title", "");
+        const titleKey = itemTitle.replace(/["']/g, "").trim().toUpperCase();
 
-        const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
-        const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? "GRAMS";
+        const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? item.weight?.value ?? 0;
+        const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? item.weight?.unit ?? "GRAMS";
         let grams = 0;
         if (weightUnit === "GRAMS") grams = weightValue;
         else if (weightUnit === "KILOGRAMS") grams = weightValue * 1000;
@@ -297,18 +402,18 @@ export const loader = async ({ request }) => {
 
         const variantGid = variant?.id || "";
         const isIcePackage = variantGid.endsWith("/54301230268745");
-        const imageUrl = variant?.image?.url || variant?.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
+        const imageUrl = variant?.image?.url || variant?.image?.src || item.image?.url || item.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
 
         const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
-        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || "0.00";
+        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || priceOriginal;
         const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
-        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || "0.00";
+        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || totalOriginal;
 
         return {
           id: item.id,
-          title: (item.title || "").replace(" - Default Title", ""),
+          title: itemTitle,
           quantity: item.quantity || 0,
-          sku: variant?.sku || "",
+          sku: item.sku || variant?.sku || "",
           weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
           gramsTotal: grams * (item.quantity || 0),
           barcode: variant?.barcode || "",
@@ -338,14 +443,20 @@ export const loader = async ({ request }) => {
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 
-      const cancelEventsList = (node.events?.edges || []).map((e) => e.node);
-      const detection = detectOrderCancellationStatus({
-        cancelledAt: node.cancelledAt,
-        cancelReason: node.cancelReason,
-        returnStatus: node.returnStatus,
-        tags: node.tags,
-        events: cancelEventsList,
-      });
+      const detection = isDraftMode
+        ? {
+            hasCancellationRequest: false,
+            hasReturnRequest: false,
+            isCustomerHold: false,
+            cancelReason: null,
+          }
+        : detectOrderCancellationStatus({
+            cancelledAt: node.cancelledAt,
+            cancelReason: node.cancelReason,
+            returnStatus: node.returnStatus,
+            tags: node.tags,
+            events: (node.events?.edges || []).map((e) => e.node),
+          });
 
       const hasCancellationRequest = detection.hasCancellationRequest;
       const hasReturnRequest = detection.hasReturnRequest;
@@ -355,6 +466,8 @@ export const loader = async ({ request }) => {
 
       return {
         id: node.id,
+        isDraft: isDraftMode,
+        draftStatus: node.status || null,
         name: node.name,
         createdAt: node.createdAt ? new Date(node.createdAt).toLocaleDateString("de-DE") : "-",
         createdTime: node.createdAt
@@ -362,7 +475,7 @@ export const loader = async ({ request }) => {
           : "-",
         email: node.email || "-",
         note: node.note || "",
-        financialStatus: node.displayFinancialStatus || "UNKNOWN", // 필터링을 위해 결제 상태 저장
+        financialStatus: isDraftMode ? (node.status === "COMPLETED" ? "PAID" : "PENDING") : (node.displayFinancialStatus || "UNKNOWN"),
         paymentGatewayNames: node.paymentGatewayNames || [],
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
@@ -438,98 +551,20 @@ export const loader = async ({ request }) => {
       };
     });
 
-    return jsonResponse({ orders: ordersWithPrintStatus, pageInfo, error: null, shop: session.shop });
+    return jsonResponse({ orders: ordersWithPrintStatus, pageInfo, error: null, shop: session.shop, orderType });
   } catch (err) {
     if (err instanceof Response) throw err;
     console.error("Loader error:", err);
-    return jsonResponse({ orders: [], error: err.message });
+    return jsonResponse({ orders: [], error: err.message, orderType: "ORDERS" });
   }
 };
-
-// ─── 표준 Code 128B 바코드 엔진 ──────────────────────────────────────
-const CODE128_CHARS = [
-  "11011001100", "11001101100", "11001100110", "10010011000", "10010001100",
-  "10001001100", "10011001000", "10011000100", "10001100100", "11001001000",
-  "11001000100", "11000100100", "10110011100", "10011011100", "10011001110",
-  "10111001100", "10011101100", "10011100110", "11001110010", "11001011100",
-  "11001001110", "11011100100", "11001110100", "11101101110", "11101001100",
-  "11100101100", "11100100110", "11101100100", "11100110100", "11100110010",
-  "11011011000", "11011000110", "11000110110", "10100011000", "10001011000",
-  "10001000110", "10110001000", "10001101000", "10001100010", "11010001000",
-  "11000101000", "11000100010", "10110111000", "10110001110", "10001101110",
-  "10111011000", "10111000110", "10001110110", "11101110110", "11010001110",
-  "11000101110", "11011101000", "11011100010", "11011101110", "11101011000",
-  "11101000110", "11100010110", "11101101000", "11101100010", "11100011010",
-  "11101111010", "11001000010", "11110001010", "10100110000", "10100001100",
-  "10010110000", "10010000110", "10000101100", "10000100110", "10110010000",
-  "10110000100", "10011010000", "10011000010", "10000110100", "10000110010",
-  "11000010010", "11001010000", "11110111010", "11000010100", "10001111010",
-  "10100111100", "10010111100", "10010011110", "10111100100", "10011110100",
-  "10011110010", "11110100100", "11110010100", "11110010010", "11011011110",
-  "11011110110", "11110110110", "10101111000", "10100011110", "10001011110",
-  "10111101000", "10111100010", "11110101000", "11110100010", "10111011110",
-  "10111101110", "11101011110", "11110101110", "11010000100", "11010010000",
-  "11010011100", "11000111010"
-];
-const CODE128_START_B = 104;
-const CODE128_STOP = "1100011101011";
-
-function encodeCode128(text) {
-  let checksum = CODE128_START_B;
-  const bars = [CODE128_CHARS[CODE128_START_B]];
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i) - 32;
-    if (code < 0 || code > 94) continue;
-    checksum += code * (i + 1);
-    bars.push(CODE128_CHARS[code]);
-  }
-  bars.push(CODE128_CHARS[checksum % 103]);
-  bars.push(CODE128_STOP);
-  return bars.join("");
-}
-
-function Code128({ value, height = 36, moduleWidth = 1.1 }) {
-  if (!value) return null;
-  const encoded = encodeCode128(value);
-  const quietZone = 6;
-  const totalWidth = encoded.length * moduleWidth;
-
-  let x = quietZone;
-  const rects = [];
-  for (let i = 0; i < encoded.length; i++) {
-    if (encoded[i] === "1") {
-      let w = 0;
-      while (i < encoded.length && encoded[i] === "1") { w++; i++; }
-      i--;
-      rects.push(<rect key={x} x={x} y={0} width={w * moduleWidth} height={height} fill="#000" />);
-      x += (w * moduleWidth);
-    } else {
-      let w = 0;
-      while (i < encoded.length && encoded[i] === "0") { w++; i++; }
-      i--;
-      x += (w * moduleWidth);
-    }
-  }
-
-  return (
-    <div style={{ display: "block", textAlign: "center" }}>
-      <svg xmlns="http://www.w3.org/2000/svg" width={totalWidth + quietZone * 2} height={height + 12} style={{ margin: "0 auto" }}>
-        {rects}
-        <text x={(totalWidth + quietZone * 2) / 2} y={height + 10} textAnchor="middle" fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#111">
-          {value}
-        </text>
-      </svg>
-    </div>
-  );
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
   const shop = loaderData?.shop || "";
   const fetcher = useFetcher();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const currentOrderType = searchParams.get("orderType") || "ORDERS";
 
   const [orders, setOrders] = useState([]);
 
@@ -542,6 +577,19 @@ export default function AdditionalPage() {
   const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || "");
   const [tempFilter, setTempFilter] = useState("ALL");
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+
+  const handleOrderTypeChange = (value) => {
+    const params = new URLSearchParams(searchParams);
+    if (value === "DRAFT_ORDERS") {
+      params.set("orderType", "DRAFT_ORDERS");
+    } else {
+      params.delete("orderType");
+    }
+    params.delete("after");
+    params.delete("before");
+    setSelectedOrderIds([]);
+    setSearchParams(params);
+  };
 
   const handleSearchChange = (value) => {
     setSearchQuery(value);
@@ -680,12 +728,16 @@ export default function AdditionalPage() {
     }
 
     // Open printing detailed page in a new window/tab
-    const numericIds = selectedOrderIds.map(id => id.split("/").pop());
+    const idList = selectedOrderIds.map(id => {
+      const o = orders.find(ord => ord.id === id);
+      const numId = id.split("/").pop();
+      return o?.isDraft ? `draft-${numId}` : numId;
+    });
     const tokens = selectedOrderIds.map(id => {
       const o = orders.find(ord => ord.id === id);
       return o?.printToken || "";
     });
-    window.open(`/print/lieferschein/${numericIds.join(",")}?shop=${shop}&tokens=${tokens.join(",")}`, "_blank");
+    window.open(`/print/lieferschein/${idList.join(",")}?shop=${shop}&tokens=${tokens.join(",")}`, "_blank");
 
     // Prepare payload to mark as printed
     const selectedPayload = filteredOrders
@@ -755,6 +807,17 @@ export default function AdditionalPage() {
               </div>
 
               <InlineStack gap="400" wrap={true}>
+                <Box minWidth="160px">
+                  <Select
+                    label="주문 구분"
+                    options={[
+                      { label: '일반 주문 (Orders)', value: 'ORDERS' },
+                      { label: '주문 초안 (Draft Orders)', value: 'DRAFT_ORDERS' },
+                    ]}
+                    value={currentOrderType}
+                    onChange={handleOrderTypeChange}
+                  />
+                </Box>
                 {/* 결제 상태 필터 UI 추가 */}
                 <Box minWidth="150px">
                   <Select
@@ -836,7 +899,7 @@ export default function AdditionalPage() {
         </Box>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBlockStart: "20px", marginBlockEnd: "10px" }}>
           <div style={{ fontSize: "15px", color: "#1e293b", fontWeight: "bold" }}>
-            주문 목록 (필터 결과: <span style={{ color: "#008060" }}>{filteredOrders.length}</span>건 / 전체: {orders.length}건)
+            {currentOrderType === "DRAFT_ORDERS" ? "주문 초안 목록" : "주문 목록"} (필터 결과: <span style={{ color: "#008060" }}>{filteredOrders.length}</span>건 / 전체: {orders.length}건)
           </div>
           {selectedOrderIds.length > 0 && (
             <button
@@ -918,7 +981,7 @@ export default function AdditionalPage() {
                     <td className="order-name">
                       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                         <Link
-                          to={`/app/lieferschein/${order.id.split('/').pop()}`}
+                          to={order.isDraft ? `/app/lieferschein/draft-${order.id.split('/').pop()}` : `/app/lieferschein/${order.id.split('/').pop()}`}
                           style={{
                             color: order.isCustomerHold ? "#dc2626" : "#008060",
                             textDecoration: "underline",
@@ -927,6 +990,21 @@ export default function AdditionalPage() {
                         >
                           {order.name}
                         </Link>
+                        {order.isDraft && (
+                          <span style={{
+                            fontSize: "10px",
+                            background: "#e0e7ff",
+                            color: "#3730a3",
+                            border: "1px solid #c7d2fe",
+                            padding: "1px 5px",
+                            borderRadius: "4px",
+                            fontWeight: "bold",
+                            display: "inline-block",
+                            width: "fit-content"
+                          }}>
+                            초안 {order.draftStatus ? `(${order.draftStatus})` : ""}
+                          </span>
+                        )}
                         {order.isCustomerHold && (
                           <span style={{
                             fontSize: "11px",
@@ -950,7 +1028,11 @@ export default function AdditionalPage() {
                     </td>
 
                     <td>
-                      {isPaid ? (
+                      {order.isDraft ? (
+                        <span style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                          {order.draftStatus === "COMPLETED" ? "주문완료" : order.draftStatus === "INVOICED" ? "청구서발송" : "초안대기"}
+                        </span>
+                      ) : isPaid ? (
                         <span style={{ fontSize: "11px", background: "#dcfce7", color: "#166534", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>결제완료</span>
                       ) : (
                         <span style={{ fontSize: "11px", background: "#fef08a", color: "#854d0e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>{order.financialStatus}</span>

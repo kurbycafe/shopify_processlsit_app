@@ -17,24 +17,27 @@
 
   const API_ENDPOINT = SCRIPT_HOST + "/api/storefront-notice";
 
+  const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+
   async function initPromoModal() {
     const host = location.hostname;
     const path = location.pathname;
 
     const isMainPage = (path === "/" || path === "" || path === "/index.html");
-    const isTargetDomain = host.includes("dawayo.de") || host.includes("myshopify.com") || location.search.includes("preview_theme_id");
+    const isTargetDomain = host === "dawayo.de" || host.endsWith(".dawayo.de") || host.endsWith(".myshopify.com");
 
-    if (!isMainPage && !host.includes("dawayo.de")) return;
+    if (!isTargetDomain || (!isMainPage && !(host === "dawayo.de" || host.endsWith(".dawayo.de")))) return;
 
     try {
-      const res = await fetch(`${API_ENDPOINT}?shop=${encodeURIComponent(host)}`);
+      const res = await fetch(`${API_ENDPOINT}?shop=${encodeURIComponent(window.Shopify?.shop || host)}`);
       if (!res.ok) return;
-      const data = await res.json();
-
-      if (!data.success || !data.isActive) return;
+      const payload = await res.json();
+      const data = payload.data;
+      if (!payload.success || !data?.isActive) return;
 
       const noticeVersion = data.noticeVersion || "v1.3.0";
-      const isDismissed = localStorage.getItem("dawayo_promo_dismissed_version") === noticeVersion;
+      let isDismissed = false;
+      try { isDismissed = localStorage.getItem("dawayo_promo_dismissed_version") === noticeVersion; } catch { /* Storage can be disabled. */ }
 
       if (isDismissed) return;
 
@@ -225,16 +228,17 @@
 
       let itemsHtml = "";
       items.forEach((it) => {
-        const itemTitle = typeof it === "string" ? it : it.title;
-        const itemDesc = typeof it === "string" ? "" : it.desc;
+        const itemTitle = typeof it === "string" ? it : it?.title;
+        const itemDesc = typeof it === "string" ? "" : it?.desc;
         itemsHtml += `
           <li>
             <div class="dawayo-promo-icon">✓</div>
-            <div>${itemTitle ? `<strong>${itemTitle}:</strong> ` : ""}${itemDesc || ""}</div>
+            <div>${itemTitle ? `<strong>${escapeHtml(itemTitle)}:</strong> ` : ""}${escapeHtml(itemDesc || "")}</div>
           </li>
         `;
       });
 
+      if (document.querySelector(".dawayo-promo-overlay")) return;
       const overlay = document.createElement("div");
       overlay.className = "dawayo-promo-overlay";
       overlay.innerHTML = `
@@ -247,12 +251,12 @@
               <button class="dawayo-promo-close-btn" aria-label="Close">&times;</button>
             </div>
             <div>
-              <span class="dawayo-promo-tag">${badgeTag}</span>
-              <h3 class="dawayo-promo-title">${title}</h3>
+              <span class="dawayo-promo-tag">${escapeHtml(badgeTag)}</span>
+              <h3 class="dawayo-promo-title">${escapeHtml(title)}</h3>
             </div>
           </div>
           <div class="dawayo-promo-body">
-            ${subtext ? `<p class="dawayo-promo-subtext">${subtext}</p>` : ""}
+            ${subtext ? `<p class="dawayo-promo-subtext">${escapeHtml(subtext)}</p>` : ""}
             <ul class="dawayo-promo-list">
               ${itemsHtml}
             </ul>
@@ -272,13 +276,13 @@
       const closeBtn = overlay.querySelector(".dawayo-promo-close-btn");
       const confirmBtn = overlay.querySelector(".dawayo-promo-confirm-btn");
 
-      function dismissModal() {
-        localStorage.setItem("dawayo_promo_dismissed_version", noticeVersion);
+      const dismissModal = () => {
+        try { localStorage.setItem("dawayo_promo_dismissed_version", noticeVersion); } catch { /* Still close if storage is blocked. */ }
         overlay.classList.remove("active");
         setTimeout(() => {
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         }, 350);
-      }
+      };
 
       closeBtn.addEventListener("click", dismissModal);
       confirmBtn.addEventListener("click", dismissModal);

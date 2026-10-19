@@ -24,8 +24,10 @@ import { parseWarehouseInfo, compareRegalAscending } from "../utils/warehouseHel
 import { fetchOdooBinLocations } from "../services/odooClient.server.js";
 import AppEmptyState from "../components/common/AppEmptyState";
 import MetricCard from "../components/common/MetricCard";
+import { dispatchPickList } from "../services/pickListDispatch.js";
 
 export { parseWarehouseInfo, compareRegalAscending };
+const EMPTY_LIST = Object.freeze([]);
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -51,46 +53,18 @@ export const action = async ({ request }) => {
   const techTime = formData.get("techTime");
 
   if (intent === "send-email") {
-    const items = JSON.parse(formData.get("items") || "[]");
-    const ordersPayload = JSON.parse(formData.get("ordersPayload") || "[]");
-
-    // 1. Record print status in DB
-    const updatePromises = ordersPayload.map(async (order) => {
-      try {
-        await prisma.inspectionRecord.upsert({
-          where: { orderId: order.id },
-          update: { isPickListPrinted: true },
-          create: {
-            orderId: order.id,
-            orderName: order.name,
-            shop: session.shop,
-            status: "PENDING",
-            isPickListPrinted: true,
-          },
-        });
-      } catch (err) {
-        console.error(`DB update failed for order ${order.name}:`, err.message);
-      }
-    });
-    await Promise.all(updatePromises);
-
-    // 2. Generate PDF and dispatch via Brevo HTTP API
     try {
+      const items = JSON.parse(formData.get("items") || "[]");
+      const ordersPayload = JSON.parse(formData.get("ordersPayload") || "[]");
       const [{ generatePickListPdfBuffer }, { sendPickListEmailWithPdf }] = await Promise.all([
         import("../utils/pickListPrint.js"),
         import("../utils/emailService.js"),
       ]);
-      const pdfBuffer = await generatePickListPdfBuffer(items, techTime);
-      const base64Pdf = pdfBuffer.toString("base64");
-      const mailTitle = `${clientTime} 기준 처리중 리스트`;
-
-      await sendPickListEmailWithPdf({
-        mailTitle,
-        base64Pdf,
-        techTime,
+      return await dispatchPickList({
+        shop: session.shop, items, orders: ordersPayload, clientTime, techTime,
+      }, {
+        db: prisma, generatePdf: generatePickListPdfBuffer, sendEmail: sendPickListEmailWithPdf,
       });
-
-      return { success: true, message: "처리중 리스트 PDF가 물류 이메일로 발송되었습니다." };
     } catch (err) {
       console.error("PDF dispatch failed:", err.message);
       return { success: false, error: `이메일 발송 실패: ${err.message}` };
@@ -245,8 +219,8 @@ export default function PickListPage() {
     || (Array.isArray(loaderData.items) ? loaderData : null)
     || {};
 
-  const items = Array.isArray(currentView.items) ? currentView.items : [];
-  const ordersList = Array.isArray(currentView.ordersList) ? currentView.ordersList : [];
+  const items = Array.isArray(currentView.items) ? currentView.items : EMPTY_LIST;
+  const ordersList = Array.isArray(currentView.ordersList) ? currentView.ordersList : EMPTY_LIST;
   const totalOrdersCount = currentView.totalOrdersCount ?? ordersList.length;
   const fetchedAt = loaderData.fetchedAt || new Date().toISOString();
 

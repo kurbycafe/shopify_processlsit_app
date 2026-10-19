@@ -7,7 +7,6 @@ import {
   Select,
   InlineGrid,
   Box,
-  Badge,
 } from "@shopify/polaris";
 import {
   RECIPE_CATEGORIES,

@@ -1,4 +1,4 @@
-import { Card, BlockStack, Text, InlineStack, Badge, Divider, Box } from "@shopify/polaris";
+import { Card, BlockStack, Text, InlineStack, Badge, Box } from "@shopify/polaris";
 import { Link, useNavigate } from "react-router";
 import dayjs from "dayjs";
 

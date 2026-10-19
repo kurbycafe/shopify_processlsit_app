@@ -1,6 +1,7 @@
 import prisma from "../db.server.js";
 import { getEtaBySku } from "./odooClient.server.js";
 import { getEtaStageInfo } from "../utils/backInStockHelpers.js";
+import { getShopAliases, getVariantIdAliases } from "./subscriptionService.server.js";
 
 /**
  * Resolves ETA for a variant with tiered fallback strategy:
@@ -25,8 +26,8 @@ export async function resolveVariantEta({ shop, variantId, sku = null }) {
     try {
       const existing = await prisma.backInStockSubscription.findFirst({
         where: {
-          shop,
-          variantId: String(variantId),
+          shop: { in: getShopAliases(shop) },
+          variantId: { in: getVariantIdAliases(variantId) },
           etaDate: { not: null },
         },
         orderBy: { createdAt: "desc" },

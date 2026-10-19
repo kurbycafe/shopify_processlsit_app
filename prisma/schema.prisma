@@ -65,6 +65,7 @@ model InspectionItem {
   id                 String           @id @default(cuid())
   inspectionRecordId String
   inspectionRecord   InspectionRecord @relation(fields: [inspectionRecordId], references: [id], onDelete: Cascade)
+  orderLineId        String?          // Shopify Order line item GID
   variantId          String           // Shopify Variant ID
   productTitle       String
   variantTitle       String?
@@ -164,7 +165,7 @@ model BackInStockSubscription {
   email                String
   phone                String?
   channel              String    @default("EMAIL") // EMAIL, PUSH, SMS
-  status               String    @default("PENDING") // PENDING, PROCESSING, NOTIFIED, FAILED, CANCELLED
+  status               String    @default("PENDING") // PENDING, PROCESSING, NOTIFIED, DELIVERED_UNCONFIRMED, FAILED, CANCELLED
   etaDate              String?   // Expected arrival date (e.g. 2026-08-15)
   poNumber             String?   // Odoo Purchase Order number (e.g. PO00412)
   restockedAt          DateTime? // Actual restock / receipt date
@@ -199,4 +200,122 @@ model StorefrontNotice {
   itemsJson     Json     // Array of bullet items
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+model CustomerRequest {
+  id         String   @id @default(cuid())
+  shop       String
+  type       String   // B2B, RETURN
+  customerId String?
+  orderId    String?
+  requestKey String   @unique
+  payload    Json
+  status     String   @default("REQUESTED") // REQUESTED, REVIEWING, CLOSED
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([shop, status, id])
+  @@index([shop, customerId, createdAt])
+}
+
+model CustomerNotificationPreference {
+  id          String   @id @default(cuid())
+  shop        String
+  customerId  String
+  pushEnabled Boolean  @default(false)
+  orderUpdates Boolean @default(false)
+  events      Boolean  @default(false)
+  marketing   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([shop, customerId])
+}
+
+model MobileBanner {
+  id         String    @id @default(cuid())
+  shop       String
+  sortOrder  Int       @default(0)
+  isActive   Boolean   @default(true)
+  tagKo      String    @default("주간 특가")
+  tagDe      String?
+  tagEn      String?
+  titleKo    String
+  titleDe    String?
+  titleEn    String?
+  subKo      String?
+  subDe      String?
+  subEn      String?
+  badgeKo    String?
+  badgeDe    String?
+  badgeEn    String?
+  ctaKo      String    @default("특가 보기")
+  ctaDe      String?
+  ctaEn      String?
+  linkType   String    @default("TAB")
+  linkValue  String    @default("deals")
+  imageUrl   String
+  bgGradient String    @default("linear-gradient(135deg, #E30613 0%, #B8000B 100%)")
+  startsAt   DateTime?
+  endsAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([shop, isActive, sortOrder])
+}
+
+model MobileHotDeal {
+  id            String    @id @default(cuid())
+  shop          String
+  productId     String
+  variantId     String
+  productNameKo String
+  productNameDe String?
+  productNameEn String?
+  imageUrl      String
+  basePrice     Decimal   @db.Decimal(10, 2)
+  salePrice     Decimal   @db.Decimal(10, 2)
+  discountRate  Int
+  badgeKo       String?
+  badgeDe       String?
+  badgeEn       String?
+  sortOrder     Int       @default(0)
+  isActive      Boolean   @default(true)
+  dealEndsAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([shop, isActive, sortOrder])
+}
+
+model MobileCategoryConfig {
+  id          String   @id @default(cuid())
+  shop        String
+  categoryKey String
+  nameKo      String
+  nameDe      String?
+  nameEn      String?
+  iconName    String
+  isGnbTab    Boolean  @default(false)
+  isCarousel  Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  badgeTag    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([shop, categoryKey])
+  @@index([shop, isActive, sortOrder])
+}
+
+model MobileStorefrontConfig {
+  id                    String   @id @default(cuid())
+  shop                  String   @unique
+  freeShippingThreshold Decimal  @default(60.00) @db.Decimal(10, 2)
+  shippingNoticeKo      String   @default("독일 전역 60€ 이상 무료배송 · 신선 안심 보랭 출고")
+  shippingNoticeDe      String   @default("Kostenloser Versand ab 60€ in ganz Deutschland")
+  shippingNoticeEn      String   @default("Free shipping over 60€ across Germany")
+  tickersJson           Json
+  configVersion         String   @default("1.0.0")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }

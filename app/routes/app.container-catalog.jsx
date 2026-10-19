@@ -1,25 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useFetcher, useLoaderData, useSearchParams } from "react-router";
-import {
-  Page,
-  Layout,
-  Card,
-  TextField,
-  BlockStack,
-  InlineStack,
-  Text,
-  DataTable,
-  Badge,
-  Thumbnail,
-  Button,
-  Banner,
-  Box,
-  Icon,
-  Divider,
-  Checkbox,
-  Grid,
-  Modal,
-} from "@shopify/polaris";
+import { Page, Layout, Card, TextField, BlockStack, InlineStack, Text, DataTable, Badge, Thumbnail, Button, Banner, Box, Icon, Checkbox, Grid, Modal } from "@shopify/polaris";
 import {
   SearchIcon,
   PrintIcon,
@@ -777,9 +758,6 @@ export default function ContainerCatalog() {
                   columnContentTypes={["text", "text", "text", "text", "numeric", "numeric", "numeric", "numeric", "numeric"]}
                   headings={["이미지", "SKU / 바코드", "상품명 (Shopify / Odoo)", "유통기한", "총 수량", "입수", "박스수", "도매가", "소매가"]}
                   rows={filteredItems.map((item) => {
-                    const finalWholesale = customWholesalePrices[item.sku] !== undefined && customWholesalePrices[item.sku] !== ""
-                      ? parseFloat(customWholesalePrices[item.sku]) || 0
-                      : item.wholesalePrice;
                     const finalPack = packQuantities[item.sku] !== undefined && packQuantities[item.sku] !== ""
                       ? parseInt(packQuantities[item.sku], 10) || 0
                       : item.unitPerBox;

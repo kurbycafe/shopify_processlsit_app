@@ -277,39 +277,26 @@
     <div class="pl-bis-modal">
       <button class="pl-bis-modal-close" id="pl-bis-close">&times;</button>
       <h3>재입고 알림 신청</h3>
-      <p id="pl-bis-desc">상품이 재입고되는 즉시 실시간 푸시 팝업 또는 이메일로 안내해 드립니다.</p>
+      <p id="pl-bis-desc">현재 이메일 알림만 지원합니다. 재입고 시 입력한 이메일로 안내해 드립니다.</p>
       <div id="pl-bis-eta" class="pl-bis-eta-badge" style="display: none;"></div>
       
-      <div style="margin-bottom: 12px;">
-        <button type="button" id="pl-bis-push-btn" class="pl-bis-push-btn">
-          원클릭 웹 푸시 알림 신청
-        </button>
-        <button type="button" id="pl-bis-push-cancel-btn" class="pl-bis-sub-cancel-link">
-          웹 푸시 알림 신청 취소하기
-        </button>
-      </div>
-
-      <div class="pl-bis-divider"><span>또는 이메일 수신</span></div>
-
       <form id="pl-bis-form">
         <input type="email" id="pl-bis-email" class="pl-bis-input" placeholder="이메일 주소를 입력하세요" />
         <div style="display: flex; gap: 8px;">
           <button type="submit" id="pl-bis-submit" class="pl-bis-submit-btn" style="flex: 2;">이메일 알림 신청</button>
-          <button type="button" id="pl-bis-email-cancel-btn" class="pl-bis-cancel-btn" style="flex: 1;">알림 취소</button>
+
         </div>
       </form>
+      <p style="font-size: 12px; color: #6b7280;">알림 수신을 중단하려면 <a href="mailto:service@dawayo.de">고객센터(service@dawayo.de)</a>로 신청한 이메일과 상품명을 보내 주세요.</p>
       <div id="pl-bis-msg" class="pl-bis-msg"></div>
     </div>
   `;
   document.body.appendChild(modalContainer);
 
   const closeBtn = document.getElementById("pl-bis-close");
-  const pushBtn = document.getElementById("pl-bis-push-btn");
-  const pushCancelBtn = document.getElementById("pl-bis-push-cancel-btn");
   const form = document.getElementById("pl-bis-form");
   const emailInput = document.getElementById("pl-bis-email");
   const submitBtn = document.getElementById("pl-bis-submit");
-  const emailCancelBtn = document.getElementById("pl-bis-email-cancel-btn");
   const msgDiv = document.getElementById("pl-bis-msg");
   const etaDiv = document.getElementById("pl-bis-eta");
 
@@ -327,165 +314,6 @@
 
   modalContainer.addEventListener("click", (e) => {
     if (e.target === modalContainer) modalContainer.classList.remove("active");
-  });
-
-  // 1-Click 웹 푸시 알림 이벤트 처리
-  pushBtn.addEventListener("click", async () => {
-    if (!("Notification" in window)) {
-      msgDiv.className = "pl-bis-msg error";
-      msgDiv.textContent = "이 브라우저는 웹 푸시 알림을 지원하지 않습니다. 이메일 입력을 이용해 주세요.";
-      return;
-    }
-
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        msgDiv.className = "pl-bis-msg error";
-        msgDiv.textContent = "알림 권한이 차단되었습니다. 브라우저 설정에서 알림을 허용해 주시거나 이메일 입력을 이용해 주세요.";
-        return;
-      }
-
-      pushBtn.disabled = true;
-      pushBtn.textContent = "푸시 신청 처리 중...";
-      msgDiv.textContent = "";
-
-      const res = await fetch(API_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop: currentContext.shop,
-          email: emailInput.value.trim() || `push_user@${location.hostname}`,
-          channel: "PUSH",
-          variantId: currentContext.variantId,
-          productId: currentContext.productId,
-          productTitle: currentContext.productTitle,
-          variantTitle: currentContext.variantTitle,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        // 브라우저 데스크톱 테스트 푸시 알림 트리거
-        try {
-          new Notification(`[다와요] ${currentContext.productTitle} 알림 신청 완료`, {
-            body: "상품이 재입고되면 이 브라우저로 실시간 알람이 수신됩니다.",
-          });
-        } catch (e) {}
-
-        msgDiv.className = "pl-bis-msg success";
-        msgDiv.textContent = "웹 푸시 알림이 성공적으로 등록되었습니다.";
-        setTimeout(() => {
-          modalContainer.classList.remove("active");
-          msgDiv.textContent = "";
-          pushBtn.disabled = false;
-          pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
-        }, 2200);
-      } else {
-        msgDiv.className = "pl-bis-msg error";
-        msgDiv.textContent = data.error || "신청 중 오류가 발생했습니다.";
-        pushBtn.disabled = false;
-        pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
-      }
-    } catch (err) {
-      console.error("Web Push error:", err);
-      msgDiv.className = "pl-bis-msg error";
-      msgDiv.textContent = "웹 푸시 신청 중 오류가 발생했습니다.";
-      pushBtn.disabled = false;
-      pushBtn.textContent = "원클릭 웹 푸시 알림 신청";
-    }
-  });
-
-  // 푸시 알림 취소 이벤트 처리
-  pushCancelBtn.addEventListener("click", async () => {
-    msgDiv.textContent = "";
-    pushCancelBtn.disabled = true;
-    pushCancelBtn.textContent = "취소 처리 중...";
-
-    try {
-      const res = await fetch(API_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          intent: "unsubscribe",
-          shop: currentContext.shop,
-          variantId: currentContext.variantId,
-          channel: "PUSH",
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        msgDiv.className = "pl-bis-msg success";
-        msgDiv.textContent = data.message || "웹 푸시 알림 신청이 성공적으로 취소되었습니다.";
-        setTimeout(() => {
-          modalContainer.classList.remove("active");
-          msgDiv.textContent = "";
-          pushCancelBtn.disabled = false;
-          pushCancelBtn.textContent = "웹 푸시 알림 신청 취소하기";
-        }, 2000);
-      } else {
-        msgDiv.className = "pl-bis-msg error";
-        msgDiv.textContent = data.error || "취소 중 오류가 발생했습니다.";
-        pushCancelBtn.disabled = false;
-        pushCancelBtn.textContent = "웹 푸시 알림 신청 취소하기";
-      }
-    } catch (err) {
-      msgDiv.className = "pl-bis-msg error";
-      msgDiv.textContent = "네트워크 오류가 발생했습니다.";
-      pushCancelBtn.disabled = false;
-      pushCancelBtn.textContent = "웹 푸시 알림 신청 취소하기";
-    }
-  });
-
-  // 이메일 알림 취소 버튼 처리
-  emailCancelBtn.addEventListener("click", async () => {
-    const email = emailInput.value.trim();
-    if (!email) {
-      msgDiv.className = "pl-bis-msg error";
-      msgDiv.textContent = "취소할 이메일 주소를 입력해 주세요.";
-      return;
-    }
-
-    emailCancelBtn.disabled = true;
-    emailCancelBtn.textContent = "취소 중...";
-    msgDiv.textContent = "";
-
-    try {
-      const res = await fetch(API_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          intent: "unsubscribe",
-          shop: currentContext.shop,
-          variantId: currentContext.variantId,
-          email: email,
-          channel: "EMAIL",
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        msgDiv.className = "pl-bis-msg success";
-        msgDiv.textContent = data.message || "이메일 알림 신청이 성공적으로 취소되었습니다.";
-        setTimeout(() => {
-          modalContainer.classList.remove("active");
-          emailInput.value = "";
-          msgDiv.textContent = "";
-          emailCancelBtn.disabled = false;
-          emailCancelBtn.textContent = "알림 취소";
-        }, 2000);
-      } else {
-        msgDiv.className = "pl-bis-msg error";
-        msgDiv.textContent = data.error || "취소 처리 중 오류가 발생했습니다.";
-        emailCancelBtn.disabled = false;
-        emailCancelBtn.textContent = "알림 취소";
-      }
-    } catch (err) {
-      msgDiv.className = "pl-bis-msg error";
-      msgDiv.textContent = "네트워크 오류가 발생했습니다.";
-      emailCancelBtn.disabled = false;
-      emailCancelBtn.textContent = "알림 취소";
-    }
   });
 
   form.addEventListener("submit", async (e) => {
@@ -529,7 +357,7 @@
         }, 2000);
       } else {
         msgDiv.className = "pl-bis-msg error";
-        msgDiv.textContent = data.error || "신청 중 오류가 발생했습니다.";
+        msgDiv.textContent = (typeof data.error === "string" ? data.error : data.error?.message) || "신청 중 오류가 발생했습니다.";
         submitBtn.disabled = false;
         submitBtn.textContent = "이메일 알림 신청하기";
       }
@@ -638,8 +466,7 @@
           if (infoRes.ok) {
             const infoData = await infoRes.json();
             if (infoData.success) {
-              etaDate = infoData.etaDate;
-              subscriberCount = infoData.subscriberCount || 0;
+              etaDate = infoData.data?.etaDate || null;
             }
           }
         } catch (e) {
@@ -662,26 +489,29 @@
   }
 
   // 스토어프론트 (고객 화면) 신규 기능 1회성 홍보 모달 (dawayo.de 메인화면 특정)
+  const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+
   async function initStorefrontPromoModal() {
     const host = location.hostname;
     const path = location.pathname;
 
     const isMainPage = (path === "/" || path === "" || path === "/index.html");
-    const isTargetDomain = host.includes("dawayo.de") || host.includes("myshopify.com") || location.search.includes("preview_theme_id");
+    const isTargetDomain = host === "dawayo.de" || host.endsWith(".dawayo.de") || host.endsWith(".myshopify.com");
 
-    if (!isMainPage && !host.includes("dawayo.de")) return;
+    if (!isTargetDomain || (!isMainPage && !(host === "dawayo.de" || host.endsWith(".dawayo.de")))) return;
 
     const PROMO_API = SCRIPT_HOST + "/api/storefront-notice";
 
     try {
-      const res = await fetch(`${PROMO_API}?shop=${encodeURIComponent(host)}`);
+      const res = await fetch(`${PROMO_API}?shop=${encodeURIComponent(window.Shopify?.shop || host)}`);
       if (!res.ok) return;
-      const data = await res.json();
-
-      if (!data.success || !data.isActive) return;
+      const payload = await res.json();
+      const data = payload.data;
+      if (!payload.success || !data?.isActive) return;
 
       const noticeVersion = data.noticeVersion || "v1.3.0";
-      const isDismissed = localStorage.getItem("dawayo_promo_dismissed_version") === noticeVersion;
+      let isDismissed = false;
+      try { isDismissed = localStorage.getItem("dawayo_promo_dismissed_version") === noticeVersion; } catch { /* Storage can be disabled. */ }
 
       if (isDismissed) return;
 
@@ -872,16 +702,17 @@
 
       let itemsHtml = "";
       items.forEach((it) => {
-        const itemTitle = typeof it === "string" ? it : it.title;
-        const itemDesc = typeof it === "string" ? "" : it.desc;
+        const itemTitle = typeof it === "string" ? it : it?.title;
+        const itemDesc = typeof it === "string" ? "" : it?.desc;
         itemsHtml += `
           <li>
             <div class="dawayo-promo-icon">✓</div>
-            <div>${itemTitle ? `<strong>${itemTitle}:</strong> ` : ""}${itemDesc || ""}</div>
+            <div>${itemTitle ? `<strong>${escapeHtml(itemTitle)}:</strong> ` : ""}${escapeHtml(itemDesc || "")}</div>
           </li>
         `;
       });
 
+      if (document.querySelector(".dawayo-promo-overlay")) return;
       const overlay = document.createElement("div");
       overlay.className = "dawayo-promo-overlay";
       overlay.innerHTML = `
@@ -894,12 +725,12 @@
               <button class="dawayo-promo-close-btn" aria-label="Close">&times;</button>
             </div>
             <div>
-              <span class="dawayo-promo-tag">${badgeTag}</span>
-              <h3 class="dawayo-promo-title">${title}</h3>
+              <span class="dawayo-promo-tag">${escapeHtml(badgeTag)}</span>
+              <h3 class="dawayo-promo-title">${escapeHtml(title)}</h3>
             </div>
           </div>
           <div class="dawayo-promo-body">
-            ${subtext ? `<p class="dawayo-promo-subtext">${subtext}</p>` : ""}
+            ${subtext ? `<p class="dawayo-promo-subtext">${escapeHtml(subtext)}</p>` : ""}
             <ul class="dawayo-promo-list">
               ${itemsHtml}
             </ul>
@@ -919,13 +750,13 @@
       const closeBtn = overlay.querySelector(".dawayo-promo-close-btn");
       const confirmBtn = overlay.querySelector(".dawayo-promo-confirm-btn");
 
-      function dismissModal() {
-        localStorage.setItem("dawayo_promo_dismissed_version", noticeVersion);
+      const dismissModal = () => {
+        try { localStorage.setItem("dawayo_promo_dismissed_version", noticeVersion); } catch { /* Still close if storage is blocked. */ }
         overlay.classList.remove("active");
         setTimeout(() => {
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         }, 350);
-      }
+      };
 
       closeBtn.addEventListener("click", dismissModal);
       confirmBtn.addEventListener("click", dismissModal);

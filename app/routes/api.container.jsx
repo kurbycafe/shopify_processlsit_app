@@ -7,6 +7,7 @@ import {
   isOdooConfigured,
 } from "../services/odooClient.server.js";
 import { notifySubscribersForContainer } from "../services/subscriptionService.server.js";
+import { mergeContainerItems, lockContainer, completeContainerReceipt } from "../services/containerSync.js";
 
 // Origin allowlist validation for container endpoints
 function getCorsHeaders(request) {
@@ -242,7 +243,7 @@ export const action = async ({ request }) => {
     const {
       containerRef,
       actionType = "sync",
-      status = "SCHEDULED",
+      status,
       supplier,
       scheduledDate,
       notes,
@@ -263,15 +264,22 @@ export const action = async ({ request }) => {
     }
 
     const cleanRef = containerRef.trim();
+    if ((status !== undefined && !["SCHEDULED", "IN_TRANSIT", "ARRIVED", "RECEIVED", "CANCELLED"].includes(status)) || !Array.isArray(items)) {
+      return Response.json({ success: false, error: { code: "VALIDATION_ERROR", message: "상태 또는 품목 목록이 올바르지 않습니다." } }, { status: 400, headers });
+    }
+    if (actionType === "sync" && !isOdooConfigured()) {
+      return Response.json({ success: false, error: { code: "ODOO_UNAVAILABLE", message: "Odoo 연결이 설정되지 않아 동기화할 수 없습니다." } }, { status: 503, headers });
+    }
 
     // 1. Sync from Odoo
     if (actionType === "sync" && isOdooConfigured()) {
       try {
-        const odooData = await fetchOdooContainerProducts(cleanRef);
+        const odooData = await fetchOdooContainerProducts(cleanRef, { exact: true });
         const syncedItems = odooData.items || [];
 
         // Transactional upsert container + items
         const updated = await prisma.$transaction(async (tx) => {
+          await lockContainer(tx, shop, cleanRef);
           const container = await tx.container.upsert({
             where: {
               shop_containerRef: {
@@ -282,7 +290,6 @@ export const action = async ({ request }) => {
             update: {
               supplier: odooData.partnerId || supplier || null,
               scheduledDate: odooData.scheduledDate || scheduledDate || null,
-              status: status || "SCHEDULED",
               notes: notes || undefined,
               syncedAt: new Date(),
             },
@@ -297,26 +304,7 @@ export const action = async ({ request }) => {
             },
           });
 
-          // Re-sync items
-          if (syncedItems.length > 0) {
-            await tx.containerItem.deleteMany({
-              where: { containerId: container.id },
-            });
-
-            await tx.containerItem.createMany({
-              data: syncedItems.map((it) => ({
-                containerId: container.id,
-                sku: it.sku || null,
-                barcode: it.barcode || null,
-                productName: it.odooName || "품목",
-                expectedQty: it.qty || 0,
-                receivedQty: 0,
-                unitPrice: it.wholesalePrice || 0,
-                unitPerBox: it.unitPerBox || 0,
-                boxQty: it.boxQty || 0,
-              })),
-            });
-          }
+          await mergeContainerItems(tx, container.id, syncedItems, { fromOdoo: true });
 
           return await tx.container.findUnique({
             where: { id: container.id },
@@ -333,12 +321,17 @@ export const action = async ({ request }) => {
           { headers }
         );
       } catch (syncErr) {
-        console.warn("[API Container] Odoo sync failed, falling back to manual save:", syncErr.message);
+        console.error("[API Container] Odoo sync failed:", syncErr.message);
+        return Response.json({ success: false, error: { code: "ODOO_SYNC_FAILED", message: "Odoo 동기화에 실패했습니다. 기존 입고 정보는 유지됩니다." } }, { status: 502, headers });
       }
     }
 
     // 2. Manual Update / Upsert with provided items
     const result = await prisma.$transaction(async (tx) => {
+      await lockContainer(tx, shop, cleanRef);
+      const existing = await tx.container.findUnique({ where: { shop_containerRef: { shop, containerRef: cleanRef } } });
+      const nextStatus = status ?? existing?.status ?? "SCHEDULED";
+      if (existing?.status === "RECEIVED" && nextStatus !== "RECEIVED") throw new Error("입고 완료된 컨테이너는 이전 상태로 변경할 수 없습니다.");
       const container = await tx.container.upsert({
         where: {
           shop_containerRef: {
@@ -347,43 +340,30 @@ export const action = async ({ request }) => {
           },
         },
         update: {
-          status,
+          status: nextStatus,
           supplier: supplier || undefined,
           scheduledDate: scheduledDate || undefined,
           notes: notes !== undefined ? notes : undefined,
-          receivedAt: status === "RECEIVED" ? new Date() : undefined,
+          receivedAt: nextStatus === "RECEIVED" ? existing?.receivedAt || new Date() : undefined,
           syncedAt: new Date(),
         },
         create: {
           shop,
           containerRef: cleanRef,
-          status,
+          status: nextStatus,
           supplier: supplier || null,
           scheduledDate: scheduledDate || null,
           notes: notes || null,
-          receivedAt: status === "RECEIVED" ? new Date() : null,
+          receivedAt: nextStatus === "RECEIVED" ? new Date() : null,
           syncedAt: new Date(),
         },
       });
 
       if (Array.isArray(items) && items.length > 0) {
-        await tx.containerItem.deleteMany({
-          where: { containerId: container.id },
-        });
-
-        await tx.containerItem.createMany({
-          data: items.map((it) => ({
-            containerId: container.id,
-            sku: it.sku || null,
-            barcode: it.barcode || null,
-            productName: it.productName || it.title || "품목",
-            expectedQty: Number(it.expectedQty || it.qty) || 0,
-            receivedQty: Number(it.receivedQty) || 0,
-            unitPrice: it.unitPrice !== undefined ? Number(it.unitPrice) : null,
-            unitPerBox: Number(it.unitPerBox) || 0,
-            boxQty: Number(it.boxQty) || 0,
-          })),
-        });
+        await mergeContainerItems(tx, container.id, items);
+      }
+      if (nextStatus === "RECEIVED" && existing?.status !== "RECEIVED" && !items.some(item => item.receivedQty !== undefined)) {
+        await completeContainerReceipt(tx, container.id);
       }
 
       return await tx.container.findUnique({
@@ -392,9 +372,10 @@ export const action = async ({ request }) => {
       });
     });
 
-    if (status === "RECEIVED" && result?.items?.length > 0) {
+    let notificationResult = null;
+    if (result?.status === "RECEIVED" && result?.items?.length > 0) {
       try {
-        await notifySubscribersForContainer({
+        notificationResult = await notifySubscribersForContainer({
           shop,
           containerRef: cleanRef,
           receivedAt: new Date(),
@@ -402,6 +383,7 @@ export const action = async ({ request }) => {
         });
       } catch (notifErr) {
         console.warn("[API Container] Restock notification trigger notice:", notifErr.message);
+        notificationResult = { error: "입고 정보는 저장되었지만 알림 처리를 완료하지 못했습니다." };
       }
     }
 
@@ -410,6 +392,7 @@ export const action = async ({ request }) => {
         success: true,
         message: `컨테이너 [${cleanRef}] 정보가 성공적으로 저장되었습니다.`,
         data: result,
+        notifications: notificationResult,
       },
       { headers }
     );

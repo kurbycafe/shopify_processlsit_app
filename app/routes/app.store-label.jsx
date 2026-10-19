@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
-import { 
-  Page, Layout, Card, BlockStack, InlineStack, Text, Button, 
-  Modal, ResourceList, ResourceItem, Avatar, Badge, Select, Checkbox, Banner
-} from "@shopify/polaris";
+import { Page, Layout, Card, BlockStack, InlineStack, Text, Button, Modal, ResourceList, ResourceItem, Avatar, Badge, Select, Checkbox } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import styles from "../styles/app.store-label.css?url";
 
@@ -233,7 +230,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   const displayTitle = item.germanTranslation || item.productTitle || "";
   const { hasDiscount: isAutoDiscount, percent: discountPercent } = getDiscountInfo(item.price, item.compareAtPrice);
   const pricePerKg = getPricePerKg(item.price, item.weight, item.weightUnit);
-  
+
   // badgeType이 AUTO(기본값)이면 할인 여부에 따라 SALE 적용, NONE이면 뱃지 없음 강제, 그 외에는 명시된 뱃지 적용
   const badgeVal = item.badgeType || "AUTO";
   const finalBadgeType = badgeVal === "AUTO"
@@ -246,26 +243,26 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   if (size === "50x50") {
     const isSale = finalBadgeType === "SALE";
     const isNew = finalBadgeType === "NEW";
-    
+
     // 테마별 색상 설정
     const borderColor = isSale ? "#b91c1c" : isNew ? "#16a34a" : "#b45309";
     const titleColor = "#1f1f1f";
     const priceColor = isSale ? "#b91c1c" : "#111111";
 
     return (
-      <div 
-        className={printMode ? "store-label-print" : ""} 
+      <div
+        className={printMode ? "store-label-print" : ""}
         style={{
           width: printMode ? "50mm" : "188px",
           height: printMode ? "50mm" : "188px",
           backgroundColor: "#ffffff",
           border: `2.2mm solid ${borderColor}`, // 인쇄 시 테두리가 엑센트 라인으로 선명하게 출력
-          display: "flex", 
-          flexDirection: "column", 
+          display: "flex",
+          flexDirection: "column",
           justifyContent: "space-between",
-          padding: "2.8mm", 
+          padding: "2.8mm",
           boxSizing: "border-box",
-          overflow: "hidden", 
+          overflow: "hidden",
           position: "relative",
           fontFamily: "'IBM Plex Sans', 'Noto Sans KR', sans-serif"
         }}
@@ -282,7 +279,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
               </div>
             )}
           </div>
-          
+
           {finalBadgeType !== "NONE" && (
             <div style={{
               flex: "0 0 auto",
@@ -308,7 +305,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
           ) : (
             <div style={{ width: "42px", height: "42px" }} />
           )}
-          
+
           <div style={{ textAlign: "right", flex: 1 }}>
             <div style={{ fontSize: "19px", fontWeight: "900", letterSpacing: "-0.5px", color: priceColor, lineHeight: "1" }}>
               {formatEuro(item.price)}
@@ -341,26 +338,26 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   if (size === "68x50") {
     const isSale = finalBadgeType === "SALE";
     const isNew = finalBadgeType === "NEW";
-    
+
     // 테마별 색상 설정
     const borderColor = isSale ? "#b91c1c" : isNew ? "#16a34a" : "#111111";
     const titleColor = "#111111";
     const priceColor = isSale ? "#b91c1c" : "#111111";
 
     return (
-      <div 
-        className={printMode ? "store-label-print" : ""} 
+      <div
+        className={printMode ? "store-label-print" : ""}
         style={{
           width: printMode ? "68mm" : "256px",
           height: printMode ? "50mm" : "188px",
           backgroundColor: "#ffffff",
           border: `2mm solid ${borderColor}`, // 인쇄 시 테두리가 엑센트 라인으로 선명하게 출력
-          display: "flex", 
-          flexDirection: "column", 
+          display: "flex",
+          flexDirection: "column",
           justifyContent: "space-between",
-          padding: "3mm 3.5mm", 
+          padding: "3mm 3.5mm",
           boxSizing: "border-box",
-          overflow: "hidden", 
+          overflow: "hidden",
           position: "relative",
           fontFamily: "'IBM Plex Sans', 'Noto Sans KR', sans-serif"
         }}
@@ -377,7 +374,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
               </div>
             )}
           </div>
-          
+
           {finalBadgeType !== "NONE" && (
             <div style={{
               flex: "0 0 auto",
@@ -402,7 +399,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
           ) : (
             <div style={{ width: "45px", height: "45px" }} />
           )}
-          
+
           <div style={{ textAlign: "right", flex: 1 }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: "2px" }}>
               <span style={{ fontSize: "20px", fontWeight: "900", color: priceColor, lineHeight: "1" }}>
@@ -441,7 +438,6 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   // 3. Brother QL-700 (Image 1 커스텀 레이아웃 & 실시간 설정 연동)
   // ==========================================
   const isSale = finalBadgeType === "SALE";
-  const isNew = finalBadgeType === "NEW";
 
   const cfg = {
     titleFontSize: settings?.titleFontSize ?? 13,
@@ -451,13 +447,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     showSku: settings?.showSku ?? true,
   };
 
-  const qlHeight = "29mm";
-  const qlPreviewHeight = "110px";
 
   // 독일어 타이틀 / 한국어 타이틀 구별
   const germanTitle = item.germanTranslation || item.productTitle || "";
-  const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation 
-    ? item.productTitle 
+  const koreanTitle = cfg.showKoreanTitle && item.germanTranslation && item.productTitle && item.productTitle !== item.germanTranslation
+    ? item.productTitle
     : "";
 
   // 바코드 제거 극대화 폰트 엔진 (상품명 및 가격 극대화 표기)
@@ -470,7 +464,7 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
     return Math.max(basePt, 13.0);
   };
 
-  const calculateKoreanFontSize = (titleStr, basePt) => {
+  const calculateKoreanFontSize = (titleStr) => {
     const len = titleStr.length;
     if (len > 45) return 7.2;
     if (len > 30) return 8.0;
@@ -481,12 +475,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
   const germanFontSizePt = calculateGermanFontSize(germanTitle, cfg.titleFontSize);
   const koreanFontSizePt = calculateKoreanFontSize(koreanTitle, cfg.titleFontSize);
 
-  const cleanBarcode = item.barcode && /^[A-Za-z0-9-]+$/.test(item.barcode) ? item.barcode : (item.sku || "");
 
   return (
-    <div 
-      className={`store-label ${printMode ? "store-label-print" : ""}`} 
-      style={{ 
+    <div
+      className={`store-label ${printMode ? "store-label-print" : ""}`}
+      style={{
         position: "relative",
         width: "62mm",
         height: "29mm",
@@ -505,22 +498,22 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
       }}
     >
       {/* 1. 극대화된 상품명 영역 (바코드 제거로 최적 공간 확보) */}
-      <div style={{ 
-        flex: 1, 
-        display: "flex", 
-        flexDirection: "column", 
-        justify: "flex-start", 
-        margin: "0", 
+      <div style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        justify: "flex-start",
+        margin: "0",
         width: "100%",
         overflow: "hidden"
       }}>
         {/* 독일어 상품명 */}
-        <div style={{ 
-          fontSize: `${germanFontSizePt}pt`, 
-          fontWeight: "800", 
-          lineHeight: "1.05", 
+        <div style={{
+          fontSize: `${germanFontSizePt}pt`,
+          fontWeight: "800",
+          lineHeight: "1.05",
           letterSpacing: germanTitle.length > 40 ? "-0.2px" : "normal",
-          color: "#000000", 
+          color: "#000000",
           display: "block",
           wordBreak: "break-word",
           overflowWrap: "break-word",
@@ -532,11 +525,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
 
         {/* 한국어 상품명 */}
         {koreanTitle && (
-          <div style={{ 
-            fontSize: `${koreanFontSizePt}pt`, 
-            color: "#111111", 
-            fontWeight: "700", 
-            marginTop: "1.5px", 
+          <div style={{
+            fontSize: `${koreanFontSizePt}pt`,
+            color: "#111111",
+            fontWeight: "700",
+            marginTop: "1.5px",
             lineHeight: "1.05",
             letterSpacing: "-0.1px",
             display: "block",
@@ -550,11 +543,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
       </div>
 
       {/* 2. 하단 영역: 좌측(단가/SKU) / 우측(대형 초극대화 가격) */}
-      <div style={{ 
-        display: "flex", 
-        justify: "space-between", 
-        alignItems: "flex-end", 
-        width: "100%", 
+      <div style={{
+        display: "flex",
+        justify: "space-between",
+        alignItems: "flex-end",
+        width: "100%",
         marginTop: "1px",
         paddingTop: "0"
       }}>
@@ -581,11 +574,11 @@ function StoreLabel({ item, printMode = false, size = "62x29", settings }) {
                 {formatEuro(item.compareAtPrice)}
               </span>
             )}
-            <span style={{ 
-              fontSize: `${cfg.priceFontSize}pt`, 
-              fontWeight: "900", 
-              color: "#000000", 
-              lineHeight: "0.92", 
+            <span style={{
+              fontSize: `${cfg.priceFontSize}pt`,
+              fontWeight: "900",
+              color: "#000000",
+              lineHeight: "0.92",
               letterSpacing: "-0.6px"
             }}>
               {formatEuro(item.price)}
@@ -612,7 +605,7 @@ export default function StoreLabelPage() {
   const [message, setMessage] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  
+
   const [labelSize, setLabelSize] = useState("62x29");
 
   // 실시간 라벨 맞춤 설정
@@ -637,7 +630,7 @@ export default function StoreLabelPage() {
   const addVariantToQueue = (variantObj, copies) => {
     const newItem = { ...variantObj, badgeType: "AUTO" };
     setActiveLabel(newItem);
-    
+
     setQueuedLabels((current) => {
       const existingIndex = current.findIndex((item) => item.id === variantObj.id);
       if (existingIndex === -1) {
@@ -762,7 +755,7 @@ export default function StoreLabelPage() {
                         바코드, SKU 또는 제품명을 검색해 라벨을 출력합니다.
                       </Text>
                     </BlockStack>
-                    
+
                     <div style={{ width: "320px" }}>
                       <Select
                         labelHidden
@@ -829,8 +822,8 @@ export default function StoreLabelPage() {
                 <BlockStack gap="400">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text variant="headingMd" as="h2">라벨 실시간 커스텀 설정 (글자 크기 & 항목)</Text>
-                    <Button 
-                      plain 
+                    <Button
+                      plain
                       onClick={() => {
                         setTitleFontSize("12");
                         setPriceFontSize("18");
@@ -941,12 +934,12 @@ export default function StoreLabelPage() {
                             <div className="label-queue-subtitle">{item.sku ? `SKU ${item.sku}` : "SKU 없음"}</div>
                             {item.expiryDate && <div className="label-queue-subtitle">MHD {item.expiryDate}</div>}
                           </div>
-                          
+
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             <label className="label-queue-qty" style={{ width: '85px' }}>
                               <span>강조 뱃지</span>
-                              <select 
-                                className="label-control-input" 
+                              <select
+                                className="label-control-input"
                                 value={item.badgeType || "AUTO"}
                                 onChange={(e) => handleQueueBadgeChange(item.id, e.target.value)}
                                 style={{ padding: '4px', cursor: 'pointer' }}
@@ -970,7 +963,7 @@ export default function StoreLabelPage() {
                               />
                             </label>
                           </div>
-                          
+
                           <Button onClick={() => handleQueueRemove(item.id)}>삭제</Button>
                         </div>
                       ))}
@@ -1033,7 +1026,7 @@ export default function StoreLabelPage() {
                     onClick={() => {
                       const copies = Math.min(50, Math.max(1, Number.parseInt(labelCopies, 10) || 1));
                       addVariantToQueue(item, copies);
-                      setIsModalOpen(false); 
+                      setIsModalOpen(false);
                     }}
                   >
                     <BlockStack gap="100">

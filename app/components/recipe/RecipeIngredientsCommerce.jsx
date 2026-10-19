@@ -10,7 +10,6 @@ import {
   Box,
   Divider,
   Banner,
-  Select,
 } from "@shopify/polaris";
 import { getConfidenceBadgeTone } from "../../utils/recipeMatchingEngine";
 
@@ -24,7 +23,6 @@ export default function RecipeIngredientsCommerce({
   searchLoading = false,
 }) {
   const [productQuery, setProductQuery] = useState("");
-  const [targetIngredientId, setTargetIngredientId] = useState(null);
 
   const handleAddIngredient = () => {
     const newId = `ing_${Date.now()}`;
@@ -101,7 +99,7 @@ export default function RecipeIngredientsCommerce({
   };
 
   const handleChangeQty = (variantId, qty) => {
-    const num = Math.max(1, parseInt(qty) || 1);
+    const num = Math.max(1, Math.min(99, parseInt(qty) || 1));
     onChangeProducts(
       selectedProducts.map((p) => (p.variantId === variantId ? { ...p, requiredQuantity: num } : p))
     );

@@ -2,12 +2,34 @@ import prisma from "../db.server.js";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 
+// All webhook and polling paths share this lock, so only its owner can dispatch.
+export async function sendCancellationAlertOnce({ orderId, shop, orderName, ...email }, {
+  db = prisma, sendEmail = sendCancellationAlertEmail,
+} = {}) {
+  if (!orderId || !shop) throw new Error("Order and shop are required for cancellation alerts");
+  return db.$transaction(async tx => {
+    const key = `cancellation-alert:${shop}:${orderId}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+    const existing = await tx.inspectionRecord.findUnique({ where: { orderId }, select: { shop: true, isCancelAlertSent: true } });
+    if (existing && existing.shop !== shop) throw new Error("Order belongs to a different shop");
+    if (existing?.isCancelAlertSent) return false;
+    const delivery = await sendEmail({ ...email, orderName, shopDomain: shop });
+    if (Array.isArray(delivery) && delivery.length === 0) throw new Error("Cancellation email was not dispatched");
+    await tx.inspectionRecord.upsert({
+      where: { orderId },
+      update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },
+      create: { orderId, orderName, shop, status: "PENDING", isCancelAlertSent: true, cancelAlertSentAt: new Date() },
+    });
+    return true;
+  }, { maxWait: 10000, timeout: 45000 });
+}
+
 /**
  * Checks recently updated open orders for legitimate customer cancellation/return requests
  * and dispatches alert emails for any unnotified orders.
  * Strictly ignores normal orders and benign events (credit card payments, carrier requests).
  */
-export async function checkAndAlertCustomerRequests(admin, shop) {
+export async function checkAndAlertCustomerRequests(admin, shop, { db = prisma, sendEmail = sendCancellationAlertEmail } = {}) {
   try {
     const res = await admin.graphql(
       `#graphql
@@ -55,24 +77,13 @@ export async function checkAndAlertCustomerRequests(admin, shop) {
     );
 
     const json = await res.json();
+    if (json.errors?.length) throw new Error(json.errors.map(error => error.message).join(", "));
     const orders = (json.data?.orders?.edges || []).map((e) => e.node);
 
     const alerted = [];
-    const existingRecords = orders.length
-      ? await prisma.inspectionRecord.findMany({
-          where: { shop, orderId: { in: orders.map((order) => order.id) } },
-          select: { orderId: true, isCancelAlertSent: true },
-        })
-      : [];
-    const sentIds = new Set(
-      existingRecords.filter((record) => record.isCancelAlertSent).map((record) => record.orderId)
-    );
-
     for (const order of orders) {
       const orderGid = order.id;
       const orderName = order.name;
-
-      if (sentIds.has(orderGid)) continue;
 
       // 1. Strict validation: Verify this order is actually on customer hold / cancellation request
       const eventsList = (order.events?.edges || []).map((e) => e.node);
@@ -104,7 +115,9 @@ export async function checkAndAlertCustomerRequests(admin, shop) {
         "고객 취소/청약철회 요청 접수 (EU Widerrufsrecht / customer_request)";
 
       // 3. Send email alert
-      await sendCancellationAlertEmail({
+      const sent = await sendCancellationAlertOnce({
+        orderId: orderGid,
+        shop,
         orderName,
         customerEmail,
         customerName,
@@ -113,25 +126,9 @@ export async function checkAndAlertCustomerRequests(admin, shop) {
         totalAmount,
         currency,
         items: items.length > 0 ? items : [{ title: "주문 상품", quantity: 1 }],
-        shopDomain: shop || "dawayo.de",
-      });
+      }, { db, sendEmail });
 
-      // 4. Update DB to prevent duplicate alerts
-      await prisma.inspectionRecord.upsert({
-        where: { orderId: orderGid },
-        update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },
-        create: {
-          orderId: orderGid,
-          orderName,
-          shop: shop || "dawayo.de",
-          status: "PENDING",
-          isCancelAlertSent: true,
-          cancelAlertSentAt: new Date(),
-        },
-      });
-
-      console.log(`[Auto-Check] Cancellation alert email sent for ${orderName}`);
-      alerted.push(orderName);
+      if (sent) alerted.push(orderName);
     }
 
     return alerted;

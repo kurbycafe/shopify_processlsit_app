@@ -115,3 +115,84 @@ test('restock looks up the server SKU, excludes unpublished products and does no
   assert.equal(result.estimatedDate, '2099-01-01');
   assert.ok(!JSON.stringify(result).includes('PRIVATE'));
 });
+
+test('support-request, subscription-request, push-token, and photo-reviews persist and validate payloads', async () => {
+  const { createCustomerResolver } = await import('../app/services/customerResources.server.js');
+  const stored = new Map();
+  let seq = 1;
+  const db = {
+    customerRequest: {
+      upsert: async ({ where, create, update }) => {
+        const existing = stored.get(where.requestKey);
+        if (existing) {
+          const merged = { ...existing, ...update, updatedAt: new Date('2026-10-16T12:00:00Z') };
+          stored.set(where.requestKey, merged);
+          return merged;
+        }
+        const rec = { id: `req_${seq++}`, status: 'REQUESTED', createdAt: new Date('2026-10-16T10:00:00Z'), updatedAt: new Date('2026-10-16T10:00:00Z'), ...create };
+        stored.set(where.requestKey, rec);
+        return rec;
+      },
+      findMany: async ({ where }) => [...stored.values()].filter((r) => r.shop === where.shop && r.type === where.type),
+      findFirst: async ({ where }) => [...stored.values()].find((r) => r.id === where.id && r.shop === where.shop && r.type === where.type) || null,
+      update: async ({ where, data }) => {
+        const rec = [...stored.values()].find((r) => r.id === where.id);
+        Object.assign(rec, data);
+        return rec;
+      },
+    },
+  };
+  const resolver = createCustomerResolver({ db, verify: async () => customerId });
+  const postJson = (body) => new Request('https://example.com', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer token' },
+    body: JSON.stringify(body),
+  });
+
+  const supportRes = await resolver({
+    request: postJson({ category: 'claim', orderId: '#1001', claimType: 'damage', message: 'Box damaged', photoCount: 2 }),
+    resource: 'support-request',
+    shop,
+  });
+  assert.equal(supportRes.accepted, true);
+  assert.equal(supportRes.type, 'CLAIM');
+
+  const subRes = await resolver({
+    request: postJson({ planId: 'sub2', planTitle: 'Kimchi Abo', frequency: 'monthly', price: 29.9, email: 'user@dawayo.de' }),
+    resource: 'subscription-request',
+    shop,
+  });
+  assert.equal(subRes.accepted, true);
+  assert.ok(subRes.subscriptionId);
+
+  const pushRes = await resolver({
+    request: postJson({ token: 'fcm_device_token_12345', platform: 'android', email: 'user@dawayo.de' }),
+    resource: 'push-token',
+    shop,
+  });
+  assert.equal(pushRes.accepted, true);
+  assert.equal(pushRes.platform, 'android');
+
+  const reviewPost = await resolver({
+    request: postJson({ dishName: 'Kimchi Jjigae', comment: 'Delicious!', rating: 5, userName: 'Tester' }),
+    resource: 'photo-reviews',
+    shop,
+  });
+  assert.equal(reviewPost.accepted, true);
+  assert.equal(reviewPost.review.dishName, 'Kimchi Jjigae');
+
+  const likeRes = await resolver({
+    request: postJson({ action: 'like', reviewId: reviewPost.reviewId }),
+    resource: 'photo-reviews',
+    shop,
+  });
+  assert.equal(likeRes.likes, 2);
+
+  const reviewList = await resolver({
+    request: new Request('https://example.com', { method: 'GET' }),
+    resource: 'photo-reviews',
+    shop,
+  });
+  assert.equal(reviewList.reviews.length, 1);
+  assert.equal(reviewList.reviews[0].likes, 2);
+});

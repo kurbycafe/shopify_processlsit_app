@@ -3,6 +3,18 @@ import assert from "node:assert/strict";
 import { checkAndAlertCustomerRequests } from "../app/services/cancellationAlertService.server.js";
 import { isEmailServiceConfigured } from "../app/utils/emailService.js";
 
+function alertDependencies(sendEmail = async () => ({ messageId: "test" })) {
+  const rows = new Map();
+  const db = { $transaction: callback => callback({
+    $executeRaw: async () => {},
+    inspectionRecord: {
+      findUnique: async ({ where }) => rows.get(where.orderId),
+      upsert: async ({ where, create, update }) => { const row = { ...(rows.get(where.orderId) || create), ...update }; rows.set(where.orderId, row); return row; },
+    },
+  }) };
+  return { db, sendEmail, rows };
+}
+
 test("isEmailServiceConfigured accurately checks environment variables without fallback secrets", () => {
   const origKey = process.env.BREVO_API_KEY;
   const origSmtp = process.env.SMTP_PASSWORD;
@@ -80,14 +92,17 @@ test("checkAndAlertCustomerRequests skips normal orders and only alerts genuine 
     }),
   };
 
-  const alerted = await checkAndAlertCustomerRequests(mockAdmin, "dawayo.myshopify.com");
+  const messages = [];
+  const dependencies = alertDependencies(async message => { messages.push(message); return { messageId: "test" }; });
+  const alerted = await checkAndAlertCustomerRequests(mockAdmin, "dawayo.myshopify.com", dependencies);
 
   // Only #102 should be alerted, NEVER #101!
   assert.equal(alerted.includes("#101"), false);
-  // If email was dispatched or simulated, #102 is the only valid candidate
-  if (alerted.length > 0) {
-    assert.deepEqual(alerted, ["#102"]);
-  }
+  assert.deepEqual(alerted, ["#102"]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].orderName, "#102");
+  assert.equal(dependencies.rows.size, 1);
+  assert.equal(dependencies.rows.get(returnOrder.id).isCancelAlertSent, true);
 });
 
 test("checkAndAlertCustomerRequests safely completes when email service is unconfigured", async () => {
@@ -126,8 +141,10 @@ test("checkAndAlertCustomerRequests safely completes when email service is uncon
     };
 
     // Should not throw or crash
-    const alerted = await checkAndAlertCustomerRequests(mockAdmin, "dawayo.myshopify.com");
-    assert.ok(Array.isArray(alerted));
+    const dependencies = alertDependencies(async () => { throw new Error("Not configured"); });
+    const alerted = await checkAndAlertCustomerRequests(mockAdmin, "dawayo.myshopify.com", dependencies);
+    assert.deepEqual(alerted, []);
+    assert.equal(dependencies.rows.size, 0);
   } finally {
     if (origKey !== undefined) process.env.BREVO_API_KEY = origKey; else delete process.env.BREVO_API_KEY;
     if (origSmtp !== undefined) process.env.SMTP_PASSWORD = origSmtp; else delete process.env.SMTP_PASSWORD;

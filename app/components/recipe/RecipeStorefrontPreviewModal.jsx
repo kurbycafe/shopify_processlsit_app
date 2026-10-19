@@ -7,7 +7,6 @@ import {
   Button,
   ButtonGroup,
   Box,
-  Badge,
 } from "@shopify/polaris";
 import { buildAdvancedArticleHtml } from "../../utils/recipeHtmlBuilder";
 

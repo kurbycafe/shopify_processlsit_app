@@ -1,21 +1,6 @@
 import { useState, useMemo } from "react";
 import { useLoaderData, useSearchParams, useNavigate, useRouteError } from "react-router";
-import {
-  Page,
-  Card,
-  Text,
-  BlockStack,
-  InlineStack,
-  Badge,
-  Divider,
-  Modal,
-  DataTable,
-  TextField,
-  Select,
-  Box,
-  Button,
-  Banner,
-} from "@shopify/polaris";
+import { Page, Card, Text, BlockStack, InlineStack, Badge, Divider, Modal, DataTable, TextField, Select, Button, Banner } from "@shopify/polaris";
 import {
   CheckCircleIcon,
   AlertTriangleIcon,

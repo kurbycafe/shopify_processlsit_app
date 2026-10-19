@@ -7,7 +7,6 @@ import {
   TextField,
   Text,
   Badge,
-  Box,
   Banner,
 } from "@shopify/polaris";
 

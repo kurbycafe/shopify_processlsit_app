@@ -39,15 +39,20 @@ test('dashboard starts all independent reads before awaiting any result and pres
 test('schema readiness requires every existing repair column and index', async () => {
  const { readFile } = await import('node:fs/promises');
  const { schemaIsReady } = await import('../app/services/schemaReadiness.js');
- const source = await readFile(new URL('../app/db.server.js', import.meta.url), 'utf8');
+ const { customerSchemaStatements } = await import('../app/services/customerSchema.js');
+ const source = await readFile(new URL('../app/db.server.js', import.meta.url), 'utf8') + '\n' + customerSchemaStatements.join(';\n') + ';';
  const entries = new Map();
  const add = (kind, tableName, name) => entries.set(`${kind}:${tableName}:${name}`, { kind, tableName, name });
  for (const [, table, columns] of source.matchAll(/CREATE TABLE IF NOT EXISTS "(\w+)" \(([\s\S]*?)\);/g)) {
    for (const [, column] of columns.matchAll(/^\s*"(\w+)"/gm)) add('column', table, column);
  }
- for (const [, table, column] of source.matchAll(/ALTER TABLE "(\w+)" ADD COLUMN IF NOT EXISTS "(\w+)"/g)) add('column', table, column);
- for (const [, index, table] of source.matchAll(/CREATE INDEX IF NOT EXISTS "(\w+)" ON "(\w+)"/g)) add('index', table, index);
+ for (const [, table, column] of source.matchAll(/ALTER TABLE (?:IF EXISTS )?"(\w+)" ADD COLUMN IF NOT EXISTS "(\w+)"/g)) add('column', table, column);
+ for (const [, index, table] of source.matchAll(/CREATE (?:UNIQUE )?INDEX IF NOT EXISTS "(\w+)" ON "(\w+)"/g)) add('index', table, index);
  const rows = [...entries.values()]; assert.ok(rows.length > 50); assert.equal(schemaIsReady(rows), true);
  for (let i = 0; i < rows.length; i++) assert.equal(schemaIsReady(rows.filter((_, index) => i !== index)), false);
  assert.equal(schemaIsReady([]), false);
+ for (const [tableName, name] of [['CustomerRequest', 'requestKey'], ['CustomerNotificationPreference', 'marketing'], ['InspectionItem', 'orderLineId']]) {
+   assert.equal(schemaIsReady(rows.filter(row => row.tableName !== tableName || row.name !== name)), false);
+ }
+ assert.equal(schemaIsReady(rows.filter(row => row.name !== 'CustomerNotificationPreference_shop_customerId_key')), false);
 });

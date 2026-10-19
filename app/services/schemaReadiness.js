@@ -1,5 +1,29 @@
 // Keep aligned with the additive schema repair in db.server.js.
 const required = [
+  "column:CustomerRequest:id",
+  "column:CustomerRequest:shop",
+  "column:CustomerRequest:type",
+  "column:CustomerRequest:customerId",
+  "column:CustomerRequest:orderId",
+  "column:CustomerRequest:requestKey",
+  "column:CustomerRequest:payload",
+  "column:CustomerRequest:status",
+  "column:CustomerRequest:createdAt",
+  "column:CustomerRequest:updatedAt",
+  "column:CustomerNotificationPreference:id",
+  "column:CustomerNotificationPreference:shop",
+  "column:CustomerNotificationPreference:customerId",
+  "column:CustomerNotificationPreference:pushEnabled",
+  "column:CustomerNotificationPreference:orderUpdates",
+  "column:CustomerNotificationPreference:events",
+  "column:CustomerNotificationPreference:marketing",
+  "column:CustomerNotificationPreference:createdAt",
+  "column:CustomerNotificationPreference:updatedAt",
+  "column:InspectionItem:orderLineId",
+  "index:CustomerRequest:CustomerRequest_requestKey_key",
+  "index:CustomerRequest:CustomerRequest_shop_status_id_idx",
+  "index:CustomerRequest:CustomerRequest_shop_customerId_createdAt_idx",
+  "index:CustomerNotificationPreference:CustomerNotificationPreference_shop_customerId_key",
   "column:BackInStockSubscription:channel",
   "column:BackInStockSubscription:createdAt",
   "column:BackInStockSubscription:email",
@@ -79,10 +103,10 @@ export async function readSchemaCatalog(db) {
   return db.$queryRaw`
         SELECT 'column' AS kind, table_name AS "tableName", column_name AS name
         FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem')
+        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference')
         UNION ALL
         SELECT 'index' AS kind, tablename AS "tableName", indexname AS name
         FROM pg_indexes
-        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem')
+        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference')
       `;
 }

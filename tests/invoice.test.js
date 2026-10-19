@@ -13,15 +13,7 @@ import {
   translatePaymentGateway,
   checkIsB2B,
 } from "../app/utils/invoice.js";
-import {
-  issueInvoiceForOrder,
-  getInvoiceForOrder,
-  getInvoicesForOrders,
-  handleIssueInvoiceIntent,
-  autoIssueInvoiceOnFulfillment,
-  buildSnapshotFromWebhookPayload,
-  buildSnapshotFromGraphQLNode,
-} from "../app/services/invoiceService.server.js";
+import { issueInvoiceForOrder, getInvoiceForOrder, getInvoicesForOrders, handleIssueInvoiceIntent, autoIssueInvoiceOnFulfillment, buildSnapshotFromWebhookPayload } from "../app/services/invoiceService.server.js";
 import {
   COMPANY,
   COMPANY_BANK,
@@ -258,6 +250,7 @@ test("issueInvoiceForOrder is idempotent and returns existing invoice if already
   const mockClient = {
     $transaction: async (cb) => {
       const tx = {
+        $executeRaw: async () => {},
         inspectionRecord: {
           findUnique: async () => ({
             invoiceNumber: "RE-2026-00003",
@@ -464,7 +457,7 @@ test("buildSnapshotFromWebhookPayload produces valid compliant snapshot", () => 
     total_discounts: "0.00",
     shipping_address: { name: "Max Mustermann", company: "Test UG", country_code: "DE" },
     line_items: [
-      { id: 987, title: "Shin Ramyun", quantity: 5, price: "1.50", sku: "SHIN01" },
+      { id: 987, title: "Shin Ramyun", quantity: 5, price: "1.50", sku: "SHIN01", tax_lines: [{ rate: 0.07 }] },
     ],
   };
 
@@ -570,7 +563,7 @@ test("autoIssueInvoiceOnFulfillment issues invoice with fulfillment date on fulf
       name: "27020",
       fulfillment_status: "fulfilled",
       fulfillments: [{ created_at: fulfillmentTime }],
-      line_items: [{ id: 1, title: "Item", quantity: 1, price: "10.00" }],
+      line_items: [{ id: 1, title: "Item", quantity: 1, price: "10.00", tax_lines: [] }],
     },
   }, mockClient);
 

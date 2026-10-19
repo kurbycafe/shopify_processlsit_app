@@ -1,5 +1,7 @@
 import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { formatInvoiceNumber, getInvoiceYear, pickInvoiceSnapshot, checkIsB2B } from "../utils/invoice.js";
+import { completeOrderLineItems } from "./orderPagination.server.js";
+import { resolveTaxRate, resolveShippingTaxDetails } from "./invoiceTax.js";
 
 const INVOICE_NUMBER_LOCK_ID = 72190319;
 
@@ -82,14 +84,19 @@ export async function issueInvoiceForOrder({ shop, orderId, orderName, snapshot,
   }
 
   return await client.$transaction(async (tx) => {
+    // Serialize before reading: a waiter must observe the committed invoice.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${INVOICE_NUMBER_LOCK_ID})`;
     const existing = await tx.inspectionRecord.findUnique({
       where: { orderId },
       select: {
+        shop: true,
         invoiceNumber: true,
         invoiceIssuedAt: true,
         invoiceSnapshot: true,
       },
     });
+
+    if (existing?.shop && existing.shop !== shop) throw new Error("Invoice order belongs to a different shop");
 
     if (existing?.invoiceNumber) {
       return {
@@ -97,12 +104,6 @@ export async function issueInvoiceForOrder({ shop, orderId, orderName, snapshot,
         issuedAt: existing.invoiceIssuedAt,
         snapshot: existing.invoiceSnapshot,
       };
-    }
-
-    try {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${INVOICE_NUMBER_LOCK_ID})`;
-    } catch {
-      // Ignore if database does not support pg_advisory_xact_lock (e.g. SQLite / in-memory test mocks)
     }
 
     const parsedDate = issuedAt ? new Date(issuedAt) : null;
@@ -160,6 +161,7 @@ export const ORDER_FOR_INVOICE_QUERY = `#graphql
       id
       name
       createdAt
+      taxesIncluded
       email
       note
       displayFinancialStatus
@@ -185,10 +187,13 @@ export const ORDER_FOR_INVOICE_QUERY = `#graphql
       totalDiscountsSet { shopMoney { amount currencyCode } }
       totalRefundedSet { shopMoney { amount currencyCode } }
       totalOutstandingSet { shopMoney { amount currencyCode } }
-      shippingLines(first: 1) {
+      shippingLines(first: 10) {
+        pageInfo { hasNextPage endCursor }
         edges {
           node {
+            id
             title
+            taxLines { rate priceSet { shopMoney { amount currencyCode } } }
           }
         }
       }
@@ -199,10 +204,13 @@ export const ORDER_FOR_INVOICE_QUERY = `#graphql
         name company address1 address2 zip city country phone countryCode
       }
       lineItems(first: 50) {
+        pageInfo { hasNextPage endCursor }
         edges {
           node {
             id
             title
+            sku
+            variantTitle
             quantity
             originalUnitPriceSet { shopMoney { amount currencyCode } }
             discountedUnitPriceSet { shopMoney { amount currencyCode } }
@@ -233,6 +241,7 @@ export const ORDER_FOR_INVOICE_QUERY = `#graphql
 
 export function buildSnapshotFromGraphQLNode(node) {
   if (!node) return null;
+  if (node.lineItems?.pageInfo?.hasNextPage) throw new Error("Cannot invoice an incomplete order");
 
   const isB2B = checkIsB2B(node.shippingAddress);
   const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
@@ -242,16 +251,14 @@ export function buildSnapshotFromGraphQLNode(node) {
     const variant = item.variant;
     const product = variant?.product;
 
-    const originalTaxRate = item.taxLines?.[0]?.rate != null
-      ? Math.round(item.taxLines[0].rate * 100)
-      : 7;
+    const originalTaxRate = resolveTaxRate(item.taxLines, item.taxable);
 
     return {
       id: item.id,
       title: (item.title || "").replace(" - Default Title", ""),
       quantity: item.quantity || 0,
-      sku: variant?.sku || "",
-      variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
+      sku: variant?.sku || item.sku || "",
+      variantTitle: (variant?.title || item.variantTitle) === "Default Title" ? "" : (variant?.title || item.variantTitle || ""),
       germanTranslation: product?.germanTranslation?.value || "",
       expiryDate: product?.expiryDate?.value || "",
       imageUrl: null,
@@ -261,12 +268,6 @@ export function buildSnapshotFromGraphQLNode(node) {
       taxRate: originalTaxRate,
     };
   });
-
-  const taxLines = (node.taxLines || []).map((tl) => ({
-    title: tl.title,
-    ratePercent: (tl.rate * 100).toFixed(0),
-    amount: tl.priceSet?.shopMoney?.amount || "0.00",
-  }));
 
   const orderData = {
     name: node.name,
@@ -289,7 +290,8 @@ export function buildSnapshotFromGraphQLNode(node) {
     totalRefunded: node.totalRefundedSet?.shopMoney?.amount || "0.00",
     totalOutstanding: node.totalOutstandingSet?.shopMoney?.amount || "0.00",
     currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
-    shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
+    taxesIncluded: node.taxesIncluded !== false,
+    ...resolveShippingTaxDetails(node.shippingLines, node.totalShippingPriceSet?.shopMoney?.amount || "0", node.taxesIncluded !== false),
     isB2B,
     items: rawItems,
   };
@@ -310,20 +312,20 @@ export function buildSnapshotFromWebhookPayload(payload) {
   const rawDiscounts = parseFloat(payload.total_discounts || "0");
   const subtotal = parseFloat(payload.subtotal_price || payload.total_line_items_price || "0");
   const total = parseFloat(payload.total_price || "0");
-  const shippingTotal = payload.total_shipping_price_set?.shop_money?.amount ||
-    (payload.shipping_lines?.[0]?.price || "0.00");
+  const shippingTotal = payload.total_shipping_price_set?.shop_money?.amount ??
+    (payload.shipping_lines || []).reduce((sum, line) => sum + Number(line.discounted_price ?? line.price ?? 0), 0);
   const totalTax = payload.total_tax || "0.00";
 
   const items = (payload.line_items || []).map((li) => {
     const originalPrice = li.price || "0.00";
     const discountedPrice = li.discount_allocations?.length > 0
-      ? (parseFloat(originalPrice) - (parseFloat(li.discount_allocations[0].amount || "0") / (li.quantity || 1))).toFixed(2)
+      ? (parseFloat(originalPrice) - (li.discount_allocations.reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0) / (li.quantity || 1))).toFixed(2)
       : originalPrice;
 
     return {
       id: `gid://shopify/LineItem/${li.id}`,
       title: li.title || li.name || "상품",
-      quantity: li.quantity || 1,
+      quantity: li.quantity ?? 0,
       sku: li.sku || "",
       variantTitle: li.variant_title === "Default Title" ? "" : (li.variant_title || ""),
       germanTranslation: "",
@@ -331,8 +333,8 @@ export function buildSnapshotFromWebhookPayload(payload) {
       imageUrl: null,
       priceOriginal: originalPrice,
       priceDiscounted: discountedPrice,
-      originalTaxRate: 7,
-      taxRate: 7,
+      originalTaxRate: resolveTaxRate(li.tax_lines, li.taxable),
+      taxRate: resolveTaxRate(li.tax_lines, li.taxable),
     };
   });
 
@@ -357,7 +359,8 @@ export function buildSnapshotFromWebhookPayload(payload) {
     totalRefunded: "0.00",
     totalOutstanding: "0.00",
     currencyCode: payload.currency || "EUR",
-    shippingTaxRate: 19,
+    taxesIncluded: payload.taxes_included !== false,
+    ...resolveShippingTaxDetails(payload.shipping_lines || [], shippingTotal, payload.taxes_included !== false),
     isB2B,
     items,
   };
@@ -386,8 +389,9 @@ export async function autoIssueInvoiceOnFulfillment({
   try {
     const existing = await client.inspectionRecord.findUnique({
       where: { orderId: orderGid },
-      select: { invoiceNumber: true, invoiceIssuedAt: true, invoiceSnapshot: true },
+      select: { shop: true, invoiceNumber: true, invoiceIssuedAt: true, invoiceSnapshot: true },
     });
+    if (existing?.shop && existing.shop !== shop) throw new Error("Invoice order belongs to a different shop");
     if (existing?.invoiceNumber) {
       return {
         invoiceNumber: existing.invoiceNumber,
@@ -397,7 +401,7 @@ export async function autoIssueInvoiceOnFulfillment({
       };
     }
   } catch (err) {
-    // Continue if record doesn't exist yet
+    throw new Error("Cannot verify existing invoice", { cause: err });
   }
 
   // 2. Validate fulfillment & cancellation status
@@ -424,8 +428,10 @@ export async function autoIssueInvoiceOnFulfillment({
         variables: { id: orderGid },
       });
       const json = await res.json();
+      if (json.errors?.length) throw new Error(json.errors.map(error => error.message).join(", "));
       const node = json.data?.order;
       if (node) {
+        await completeOrderLineItems(adminClient, node);
         snapshot = buildSnapshotFromGraphQLNode(node);
       }
     } catch (gqlErr) {
@@ -438,15 +444,7 @@ export async function autoIssueInvoiceOnFulfillment({
   }
 
   if (!snapshot) {
-    snapshot = pickInvoiceSnapshot({
-      order: {
-        name: orderName || "N/A",
-        createdAt: new Date().toLocaleDateString("de-DE"),
-        items: [],
-      },
-      taxDisplayMode: "GROSS",
-      taxExemptionNote: "",
-    });
+    throw new Error("A complete order snapshot is required to issue an invoice");
   }
 
   return await issueInvoiceForOrder(
@@ -487,7 +485,13 @@ const ORDER_GID_PREFIX = "gid://shopify/Order/";
  */
 export async function handleIssueInvoiceIntent({ shop, formData, allowedRawIds }, client = prisma) {
   try {
-    const allowed = new Set((allowedRawIds || []).map((id) => `${ORDER_GID_PREFIX}${String(id).trim()}`));
+    const allowed = new Set((allowedRawIds || []).flatMap((id) => {
+      const cleanId = String(id).trim().replace(/^draft-/, "");
+      return [
+        `${ORDER_GID_PREFIX}${cleanId}`,
+        `gid://shopify/DraftOrder/${cleanId}`,
+      ];
+    }));
     const parsed = JSON.parse(formData.get("entries") || "[]");
     const entries = (Array.isArray(parsed) ? parsed : []).filter((e) => e && allowed.has(e.orderId));
 

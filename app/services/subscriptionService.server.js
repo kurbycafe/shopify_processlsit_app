@@ -3,16 +3,50 @@ import { sendBackInStockEmail } from "../utils/emailService.js";
 import { resolveVariantEta } from "./etaService.server.js";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const PROCESSING_LEASE_MS = 15 * 60 * 1000;
+const MAX_NOTIFICATION_ATTEMPTS = 5;
+
+/**
+ * Resolves equivalent shop domain aliases (e.g. dawayo.de <-> dawayo.myshopify.com)
+ * while preserving strict isolation for unrelated multi-tenant shops.
+ */
+export function getShopAliases(shop) {
+  const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
+  const configuredShop = String(process.env.CUSTOMER_API_SHOP || "").toLowerCase().trim();
+  const dawayoDomains = new Set(["dawayo.de", "www.dawayo.de", "dawayo.myshopify.com"]);
+  if (configuredShop) dawayoDomains.add(configuredShop);
+
+  if (dawayoDomains.has(cleanShop)) {
+    return Array.from(dawayoDomains);
+  }
+  return [cleanShop];
+}
+
+/**
+ * Resolves both numeric and Shopify GID representations of a ProductVariant ID
+ */
+export function getVariantIdAliases(variantId) {
+  const raw = String(variantId || "").trim();
+  if (!raw) return [];
+  const numeric = raw.match(/^(?:gid:\/\/shopify\/ProductVariant\/)?([1-9]\d*)$/)?.[1];
+  if (!numeric) return [];
+  const aliases = new Set([raw]);
+  if (numeric) {
+    aliases.add(numeric);
+    aliases.add(`gid://shopify/ProductVariant/${numeric}`);
+  }
+  return Array.from(aliases);
+}
 
 /**
  * Validates and normalizes subscription input
  */
 export function validateSubscriptionInput({ email, phone, channel = "EMAIL" }) {
   const normalizedChannel = String(channel || "EMAIL").toUpperCase();
-  const validChannels = ["EMAIL", "PUSH", "SMS"];
+  const validChannels = ["EMAIL", "PUSH"];
 
   if (!validChannels.includes(normalizedChannel)) {
-    return { valid: false, error: "유효하지 않은 알림 채널입니다. (EMAIL, PUSH, SMS 지원)" };
+    return { valid: false, error: "이메일 또는 푸시 알림을 선택해 주세요. 문자 알림은 현재 지원하지 않습니다." };
   }
 
   const cleanEmail = email ? String(email).trim().toLowerCase() : null;
@@ -21,12 +55,6 @@ export function validateSubscriptionInput({ email, phone, channel = "EMAIL" }) {
   if (normalizedChannel === "EMAIL" || normalizedChannel === "PUSH") {
     if (!cleanEmail || !EMAIL_REGEX.test(cleanEmail)) {
       return { valid: false, error: "올바른 이메일 주소를 입력해 주세요." };
-    }
-  }
-
-  if (normalizedChannel === "SMS") {
-    if (!cleanPhone || cleanPhone.length < 6) {
-      return { valid: false, error: "올바른 휴대폰 번호를 입력해 주세요." };
     }
   }
 
@@ -55,6 +83,9 @@ export async function createSubscription({
 }) {
   await ensureDatabaseSchema();
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
+  const shopAliases = getShopAliases(cleanShop);
+  const variantAliases = getVariantIdAliases(variantId);
+  if (!variantAliases.length) throw new Error("올바른 상품 옵션 ID가 필요합니다.");
   const validation = validateSubscriptionInput({ email, phone, channel });
   if (!validation.valid) {
     throw new Error(validation.error);
@@ -70,14 +101,16 @@ export async function createSubscription({
   }
 
   return prisma.$transaction(async (tx) => {
-    const key = `${cleanShop}:${String(variantId).split('/').pop()}:${cleanEmail || cleanPhone}`;
+    const key = `${shopAliases.slice().sort()[0]}:${String(variantId).split('/').pop()}:${cleanChannel}:${cleanEmail}:${cleanChannel === "PUSH" ? cleanPhone || "" : ""}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-  // Idempotency: Check if active or pending subscription already exists
+  // Idempotency: Check if active or pending subscription already exists across shop/variant aliases
   const existing = await tx.backInStockSubscription.findFirst({
     where: {
-      shop: cleanShop,
-      variantId: String(variantId),
+      shop: { in: shopAliases },
+      variantId: { in: variantAliases },
       email: cleanEmail,
+      channel: cleanChannel,
+      ...(cleanChannel === "PUSH" ? { phone: cleanPhone } : {}),
       status: { in: ["PENDING", "PROCESSING"] },
     },
   });
@@ -119,34 +152,36 @@ export async function createSubscription({
 /**
  * Securely unsubscribes a specific subscription
  */
-export async function cancelSubscription({ shop, subscriptionId, email, variantId }) {
+export async function cancelSubscription({ shop, subscriptionId, email, variantId }, { db = prisma } = {}) {
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
+  const shopAliases = getShopAliases(cleanShop);
 
   if (subscriptionId) {
-    const sub = await prisma.backInStockSubscription.findUnique({
+    const sub = await db.backInStockSubscription.findUnique({
       where: { id: String(subscriptionId) },
     });
 
-    if (!sub || sub.shop !== cleanShop) {
+    if (!sub || !shopAliases.includes(sub.shop)) {
       throw new Error("신청 내역을 찾을 수 없거나 권한이 없습니다.");
     }
 
-    const updated = await prisma.backInStockSubscription.update({
-      where: { id: sub.id },
+    const result = await db.backInStockSubscription.updateMany({
+      where: { id: sub.id, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
       data: { status: "CANCELLED" },
     });
 
-    return { success: true, count: 1, updated };
+    return { success: true, count: result.count, updated: result.count ? { ...sub, status: "CANCELLED" } : sub };
   }
 
   if (email && variantId) {
     const cleanEmail = String(email).trim().toLowerCase();
-    const res = await prisma.backInStockSubscription.updateMany({
+    const variantAliases = getVariantIdAliases(variantId);
+    const res = await db.backInStockSubscription.updateMany({
       where: {
-        shop: cleanShop,
-        variantId: String(variantId),
+        shop: { in: shopAliases },
+        variantId: { in: variantAliases },
         email: cleanEmail,
-        status: "PENDING",
+        status: { in: ["PENDING", "FAILED", "PROCESSING"] },
       },
       data: { status: "CANCELLED" },
     });
@@ -171,20 +206,26 @@ export async function notifyPendingSubscribersForVariant({
   restockedAt = null,
   dispatchDate = null,
   sku = null,
-}) {
-  await ensureDatabaseSchema();
+  subscriptionIds = null,
+}, { db = prisma, sendEmail = sendBackInStockEmail, now = () => new Date(), sendPush = dispatchPush } = {}) {
+  if (db === prisma) await ensureDatabaseSchema();
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
-  const cleanVariantId = String(variantId);
-  const numericVariantId = cleanVariantId.replace("gid://shopify/ProductVariant/", "");
+  const shopAliases = getShopAliases(cleanShop);
+  const variantAliases = getVariantIdAliases(variantId);
 
-  // 1. Find all pending subscribers
-  const pendingSubscribers = await prisma.backInStockSubscription.findMany({
+  if (!variantAliases.length) throw new Error("Invalid variant ID");
+  if (subscriptionIds !== null && (!Array.isArray(subscriptionIds) || subscriptionIds.length > 1000 || subscriptionIds.some(id => typeof id !== "string" || !id || id.length > 128))) throw new Error("Invalid subscription selection");
+  const selectedIds = subscriptionIds === null ? null : new Set(subscriptionIds);
+  const pendingSubscribers = await db.backInStockSubscription.findMany({
     where: {
-      shop: cleanShop,
-      status: "PENDING",
+      shop: { in: shopAliases },
+      variantId: { in: variantAliases },
+      notificationAttempts: { lt: MAX_NOTIFICATION_ATTEMPTS },
+      ...(selectedIds ? { id: { in: [...selectedIds] } } : {}),
       OR: [
-        { variantId: cleanVariantId },
-        { variantId: numericVariantId },
+        { status: { in: ["PENDING", "FAILED"] } },
+        { status: "PROCESSING", processingAt: { lt: new Date(now().getTime() - PROCESSING_LEASE_MS) } },
+        { status: "PROCESSING", processingAt: null },
       ],
     },
   });
@@ -202,10 +243,10 @@ export async function notifyPendingSubscribersForVariant({
     const targetSku = sku || pendingSubscribers.find((s) => s.sku)?.sku;
     if (targetSku) {
       try {
-        const containerItem = await prisma.containerItem.findFirst({
+        const containerItem = await db.containerItem.findFirst({
           where: {
             sku: targetSku,
-            container: { shop: cleanShop },
+            container: { shop: { in: shopAliases } },
           },
           orderBy: { createdAt: "desc" },
           include: { container: true },
@@ -223,25 +264,76 @@ export async function notifyPendingSubscribersForVariant({
     }
   }
 
-  // 2. Mark as PROCESSING to prevent duplicate concurrent runs
-  const subIds = pendingSubscribers.map((s) => s.id);
-  await prisma.backInStockSubscription.updateMany({
-    where: { id: { in: subIds }, status: "PENDING" },
-    data: { status: "PROCESSING", processingAt: new Date() },
-  });
-
   let sentCount = 0;
   let failedCount = 0;
-
+  let claimedCount = 0;
+  const warnings = [];
+  const groups = new Map();
   for (const sub of pendingSubscribers) {
+    const identity = notificationIdentity(sub);
+    if (!groups.has(identity)) groups.set(identity, sub);
+  }
+
+  for (const [identity, candidate] of groups) {
+    // Re-read under the same identity lock. A losing worker never sends a row it did not claim.
+    const claim = await db.$transaction(async tx => {
+      const key = `restock:${shopAliases.slice().sort()[0]}:${String(variantId).split("/").pop()}:${identity}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+      const rows = await tx.backInStockSubscription.findMany({
+        where: {
+          shop: { in: shopAliases }, variantId: { in: variantAliases },
+          channel: candidate.channel, email: candidate.email,
+          ...(candidate.channel === "PUSH" ? { phone: candidate.phone } : {}),
+          status: { in: ["PENDING", "FAILED", "PROCESSING"] },
+        },
+        orderBy: { subscribedAt: "asc" },
+      });
+      const claimedAt = now();
+      const cutoff = claimedAt.getTime() - PROCESSING_LEASE_MS;
+      if (rows.some(row => row.status === "PROCESSING" && row.processingAt && new Date(row.processingAt).getTime() >= cutoff)) return null;
+      const eligible = rows.filter(row => (!selectedIds || selectedIds.has(row.id)) && ["PENDING", "FAILED", "PROCESSING"].includes(row.status) && row.notificationAttempts < MAX_NOTIFICATION_ATTEMPTS);
+      if (!eligible.length) return null;
+      const ids = eligible.map(row => row.id);
+      await tx.backInStockSubscription.updateMany({
+        where: { id: { in: ids }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
+        data: { status: "PROCESSING", processingAt: claimedAt, notificationAttempts: { increment: 1 } },
+      });
+      const claimed = await tx.backInStockSubscription.findMany({ where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt } });
+      if (!claimed.length) return null;
+      return { sub: claimed[0], ids: claimed.map(row => row.id), claimedAt };
+    });
+    if (!claim) continue;
+    const { claimedAt } = claim;
+    const active = await db.backInStockSubscription.findMany({ where: { id: { in: claim.ids }, status: "PROCESSING", processingAt: claimedAt } });
+    if (!active.length) continue;
+    const sub = active[0];
+    let ids = active.map(row => row.id);
+    claimedCount += ids.length;
     const pTitle = sub.productTitle || productTitle || "상품";
     const vTitle = sub.variantTitle || variantTitle || "";
     const subPo = resolvedPo || sub.poNumber || null;
 
     try {
-      if (sub.channel === "EMAIL" || sub.channel === "PUSH" || sub.channel === "SMS") {
-        if (sub.email) {
-          await sendBackInStockEmail({
+      let delivered = false;
+      if (sub.channel === "PUSH" && sub.phone) {
+        try {
+          await sendPush(sub.phone, {
+              title: `[다와요] ${pTitle} 재입고 완료!`,
+              body: `${pTitle}${vTitle ? ` (${vTitle})` : ""} 상품이 입고되었습니다.`,
+              url: productUrl || "https://dawayo.de",
+          });
+          delivered = true;
+        } catch (pushErr) {
+          console.warn("WebPush dispatch fallback to email:", pushErr.message);
+        }
+      }
+
+      if (!delivered && (sub.channel === "EMAIL" || sub.channel === "PUSH") && sub.email) {
+          // A failed push can take time; an unsubscribe must also suppress its email fallback.
+          const stillActive = await db.backInStockSubscription.findMany({ where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt } });
+          if (!stillActive.length) continue;
+          ids = stillActive.map(row => row.id);
+          await sendEmail({
             email: sub.email,
             productTitle: pTitle,
             variantTitle: vTitle,
@@ -250,49 +342,82 @@ export async function notifyPendingSubscribersForVariant({
             poNumber: subPo,
             dispatchDate: nowDispatchDate,
           });
-        }
+          delivered = true;
       }
-
-      // Mark as NOTIFIED
-      await prisma.backInStockSubscription.update({
-        where: { id: sub.id },
+      if (!delivered) throw new Error("Unsupported notification channel or missing delivery address");
+    } catch (err) {
+      failedCount += ids.length;
+      console.error(`Back in stock delivery failed for subscriber [${sub.id}]:`, err.message);
+      await db.backInStockSubscription.updateMany({
+        where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt },
         data: {
+          status: "FAILED", sku: sub.sku || sku || undefined, poNumber: subPo, processingAt: null,
+          lastNotificationAt: new Date(), lastNotificationError: err.message || "Notification dispatch failed",
+        },
+      });
+      continue;
+    }
+
+    // Delivery has already succeeded. Retry metadata alone, never the external send.
+    sentCount += ids.length;
+    let metadataError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await db.backInStockSubscription.updateMany({
+          where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt },
+          data: {
           status: "NOTIFIED",
           sku: sub.sku || sku || undefined,
           poNumber: subPo,
           restockedAt: resolvedRestockedAt,
           notifiedAt: nowDispatchDate,
-          notificationAttempts: { increment: 1 },
+          processingAt: null,
           lastNotificationAt: nowDispatchDate,
           lastNotificationError: null,
-        },
-      });
-      sentCount++;
-    } catch (err) {
-      failedCount++;
-      console.error(`Back in stock email failed for subscriber [${sub.id}]:`, err.message);
-
-      await prisma.backInStockSubscription.update({
-        where: { id: sub.id },
-        data: {
-          status: "FAILED",
-          sku: sub.sku || sku || undefined,
-          poNumber: subPo,
-          notificationAttempts: { increment: 1 },
-          lastNotificationAt: new Date(),
-          lastNotificationError: err.message || "Email dispatch failed",
-        },
-      });
+          },
+        });
+        metadataError = null;
+        break;
+      } catch (err) {
+        metadataError = err;
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 25 * (attempt + 1)));
+      }
+    }
+    if (metadataError) {
+      const message = `Delivery accepted; status reconciliation required: ${metadataError.message}`;
+      warnings.push({ subscriptionIds: ids, message });
+      console.error(message);
+      try {
+        await db.backInStockSubscription.updateMany({
+          where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt },
+          data: { status: "DELIVERED_UNCONFIRMED", processingAt: null, notifiedAt: nowDispatchDate, lastNotificationAt: nowDispatchDate, lastNotificationError: message },
+        });
+      } catch (err) {
+        console.error("Cannot persist accepted delivery; manual reconciliation is required:", err.message);
+      }
     }
   }
 
   return {
-    success: true,
-    total: pendingSubscribers.length,
+    success: failedCount === 0 && warnings.length === 0,
+    total: claimedCount,
     sent: sentCount,
     failed: failedCount,
     poNumber: resolvedPo,
+    warnings,
   };
+}
+
+function notificationIdentity(sub) {
+  return JSON.stringify([sub.channel, String(sub.email || "").trim().toLowerCase(), sub.channel === "PUSH" ? sub.phone || "" : ""]);
+}
+
+async function dispatchPush(subscription, message) {
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) throw new Error("WebPush is not configured");
+  const webpush = await import("web-push");
+  const client = webpush.default || webpush;
+  client.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:service@dawayo.de", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+  await client.sendNotification(JSON.parse(subscription), JSON.stringify(message), { timeout: 30000 });
 }
 
 /**
@@ -310,21 +435,19 @@ export async function notifySubscribersForContainer({
 
   let totalNotified = 0;
   let totalFailed = 0;
+  let totalWarnings = 0;
   const processedVariants = new Set();
 
   for (const item of items) {
     const sku = item.sku;
-    if (!sku) continue;
+    if (!sku || Number(item.receivedQty) <= 0) continue;
 
     try {
       const subscribers = await prisma.backInStockSubscription.findMany({
         where: {
-          shop: cleanShop,
-          status: "PENDING",
-          OR: [
-            { sku: sku },
-            { productTitle: item.productName || item.odooName || item.shopifyName },
-          ],
+          shop: { in: getShopAliases(cleanShop) },
+          status: { in: ["PENDING", "FAILED", "PROCESSING"] },
+          sku,
         },
       });
 
@@ -345,11 +468,13 @@ export async function notifySubscribersForContainer({
 
         totalNotified += res.sent;
         totalFailed += res.failed;
+        totalWarnings += res.warnings?.length || 0;
       }
     } catch (err) {
+      totalFailed++;
       console.warn(`Container restock notification warning for SKU [${sku}]:`, err.message);
     }
   }
 
-  return { totalNotified, totalFailed };
+  return { totalNotified, totalFailed, totalWarnings };
 }

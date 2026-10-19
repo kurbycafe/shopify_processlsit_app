@@ -98,3 +98,15 @@ async function getOrders(token, cursor) {
 Run `node --test tests/mobile-api.test.js` and `npm run lint`. Deploy only after configuring the variables above. Smoke-test missing credentials (401), valid scoped requests, pagination, a token for another shop, and the live Odoo PO. Monitor request IDs and configure request rate limits in your existing gateway/Vercel controls for issued clients.
 
 The legacy `/api/container` and `/api/inspection-history` endpoints now require staff/backend Bearer credentials too. GET uses the corresponding read scope; inspection POST/PUT requires `inspections:write`, container POST requires `containers:write`. Container calls must match `MOBILE_API_ODOO_SHOP`. Caller-provided shop values cannot override credential ownership. See `customer-mobile-integration.md` for the separate customer-only endpoints and mobile UI integration. No production deployment is included.
+
+
+## Legacy inspection write validation (2026-10-16)
+
+POST/PUT /api/inspection-history still require a separately issued inspections:write credential.
+The server now verifies the real order in that credential's shop and validates every order line
+and integer inspected quantity before saving. Empty or partial payloads cannot mark inspection complete.
+Provide orderLineId (Shopify LineItem GID) for each item. Unambiguous older variantId/SKU payloads
+remain compatible; duplicate variants require original line IDs. Substitute product identities are
+verified on the server. Caller-provided product names/shop/orderName cannot override server ownership.
+Invalid input returns 400, an inaccessible order returns 404, and unexpected failures use a bounded
+error message. These checks also apply to the staff UI save path through shared validators.

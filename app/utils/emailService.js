@@ -524,10 +524,7 @@ export async function sendCancellationAlertEmail({
 }) {
   const config = getEmailConfig();
   if (!config.isConfigured) {
-    console.warn(
-      "[EmailService] Brevo API Key 또는 발신자 이메일이 설정되지 않아 취소 알림 이메일 발송을 건너뜁니다."
-    );
-    return [];
+    throw new Error("취소 알림 이메일 서비스가 설정되지 않았습니다.");
   }
 
   const recipients = ["service@dawayo.de", "ceo@dawayo.de", "kgt@dawayo.de"];
@@ -546,16 +543,11 @@ export async function sendCancellationAlertEmail({
 
   const subject = `[Dawayo 긴급 알림] 주문 취소 / EU 청약철회 요청 - ${orderName}`;
 
-  const sendPromises = recipients.map((rEmail) =>
-    sendBrevoMail({
+  return await sendBrevoMail({
       sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
-      to: [{ email: rEmail.trim().toLowerCase() }],
+      to: recipients.map(email => ({ email })),
       subject: subject,
       htmlContent: htmlContent,
-    })
-  );
-
-  const results = await Promise.all(sendPromises);
-  return results;
+  });
 }
 

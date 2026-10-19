@@ -1,5 +1,17 @@
 import dayjs from "dayjs";
 
+export function getSubscriptionStatusInfo(status) {
+  const states = {
+    PENDING: { label: "대기 중", tone: "warning" },
+    PROCESSING: { label: "발송 중", tone: "info" },
+    FAILED: { label: "발송 실패", tone: "critical" },
+    NOTIFIED: { label: "발송 완료", tone: "success" },
+    CANCELLED: { label: "신청 취소", tone: "subdued" },
+    DELIVERED_UNCONFIRMED: { label: "발송됨 · 기록 확인 필요", tone: "warning", explanation: "자동 재발송하지 않습니다. 재발송 전에 메일 제공자의 발송 기록을 확인해 주세요." },
+  };
+  return states[status] || { label: "알 수 없는 상태", tone: "subdued" };
+}
+
 export function getDemandLevel(waitingCount) {
   const count = Number(waitingCount) || 0;
   if (count >= 50) {

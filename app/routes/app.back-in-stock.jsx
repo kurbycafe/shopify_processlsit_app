@@ -12,7 +12,6 @@ import {
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema, safeFindSubscribers } from "../db.server";
-import { sendBackInStockEmail } from "../utils/emailService";
 import { getEtaBySku } from "../services/odooClient.server";
 import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server";
 import {
@@ -87,7 +86,7 @@ export const loader = async ({ request }) => {
 
   // Group by variant to get product-level aggregates
   const allVariantGroups = await prisma.backInStockSubscription.groupBy({
-    by: ["variantId"],
+    by: ["variantId", "status"],
     where: { shop },
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
@@ -161,8 +160,10 @@ export const loader = async ({ request }) => {
       rawId,
       variantId: g.variantId.startsWith("gid://") ? g.variantId : `gid://shopify/ProductVariant/${g.variantId}`,
       totalCount: 0,
+      statusCounts: {},
     };
     existing.totalCount += g._count.id;
+    existing.statusCounts[g.status] = (existing.statusCounts[g.status] || 0) + g._count.id;
     if (g.variantId.startsWith("gid://")) {
       existing.variantId = g.variantId;
     }
@@ -214,6 +215,8 @@ export const loader = async ({ request }) => {
       subscriberCount: totalCount,
       pendingCount: pendingCount,
       notifiedCount: notifiedCount,
+      statusCounts: item.statusCounts,
+      reconciliationCount: item.statusCounts.DELIVERED_UNCONFIRMED || 0,
       etaStage: etaStage.stage,
       demandLevel: demand.level,
     };
@@ -258,6 +261,8 @@ export const loader = async ({ request }) => {
         if (p.pendingCount === 0) return false;
       } else if (statusFilter === "NOTIFIED" || statusFilter === "SENT") {
         if (p.notifiedCount === 0) return false;
+      } else if (statusFilter !== "ALL" && !p.statusCounts[statusFilter]) {
+        return false;
       }
 
       // ETA Filter
@@ -503,6 +508,7 @@ export const loader = async ({ request }) => {
       etaUnknownCount,
       notifiedCount,
       cancelledCount,
+      reconciliationCount: allVariantGroups.filter(group => group.status === "DELIVERED_UNCONFIRMED").reduce((sum, group) => sum + group._count.id, 0),
     },
   };
 };
@@ -521,58 +527,19 @@ export const action = async ({ request }) => {
       where: { id: String(subscriptionId) },
     });
 
-    if (!sub || !sub.email) {
+    if (!sub || sub.shop !== shop || !sub.email) {
       return Response.json({ success: false, error: "유효한 이메일 정보를 찾을 수 없습니다." }, { status: 400 });
     }
+    if (!["PENDING", "FAILED"].includes(sub.status)) return Response.json({ success: false, error: "대기 또는 발송 실패 상태만 발송할 수 있습니다. 이미 발송 중이거나 발송된 기록을 먼저 확인해 주세요." }, { status: 409 });
 
     try {
-      let poNumber = sub.poNumber;
-      let restockedAt = sub.restockedAt || new Date();
-      if (!poNumber && sub.sku) {
-        try {
-          const contItem = await prisma.containerItem.findFirst({
-            where: { sku: sub.sku, container: { shop } },
-            orderBy: { createdAt: "desc" },
-            include: { container: true },
-          });
-          if (contItem?.container?.containerRef) {
-            poNumber = contItem.container.containerRef;
-            if (contItem.container.receivedAt) {
-              restockedAt = contItem.container.receivedAt;
-            }
-          }
-        } catch (e) {
-          console.warn("Single PO lookup notice:", e.message);
-        }
-      }
-
-      const now = new Date();
-      await sendBackInStockEmail({
-        email: sub.email,
-        productTitle: sub.productTitle || "상품",
-        variantTitle: sub.variantTitle || "",
-        shopDomain: shop,
-        poNumber,
-        dispatchDate: now,
+      const result = await notifyPendingSubscribersForVariant({
+        shop, variantId: sub.variantId, subscriptionIds: [sub.id], sku: sub.sku, productTitle: sub.productTitle,
       });
-
-      await prisma.backInStockSubscription.update({
-        where: { id: sub.id },
-        data: {
-          status: "NOTIFIED",
-          poNumber: poNumber || undefined,
-          restockedAt,
-          notifiedAt: now,
-          notificationAttempts: { increment: 1 },
-          lastNotificationAt: now,
-          lastNotificationError: null,
-        },
-      });
-
-      const poText = poNumber ? ` (Odoo PO: ${poNumber})` : "";
       return Response.json({
-        success: true,
-        message: `${sub.email} 고객님께 재입고 알림 이메일이 발송되었습니다.${poText}`,
+        success: result.success,
+        ...(result.failed ? { error: "알림 발송에 실패했습니다. 발송 상태를 확인해 주세요." } : { message: result.sent ? "고객님께 재입고 알림이 발송되었습니다." : "발송할 대기 신청이 없거나 다른 작업에서 발송 중입니다." }),
+        ...(result.warnings?.length ? { warning: "알림은 발송되었지만 상태 저장을 완료하지 못했습니다. 재발송 전에 발송 내역을 확인해 주세요." } : {}),
       });
     } catch (err) {
       console.error("Single email send error:", err);
@@ -583,10 +550,11 @@ export const action = async ({ request }) => {
   // 2. 단일 신청 취소
   if (intent === "cancel_single") {
     const subscriptionId = formData.get("subscriptionId");
-    await prisma.backInStockSubscription.update({
-      where: { id: String(subscriptionId) },
+    const result = await prisma.backInStockSubscription.updateMany({
+      where: { id: String(subscriptionId), shop, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
       data: { status: "CANCELLED" },
     });
+    if (!result.count) return Response.json({ success: false, error: "취소할 수 있는 신청을 찾을 수 없습니다." }, { status: 404 });
     return Response.json({ success: true, message: "알림 신청이 취소 처리되었습니다." });
   }
 
@@ -611,8 +579,10 @@ export const action = async ({ request }) => {
 
     const poText = result.poNumber ? ` [PO: ${result.poNumber}]` : "";
     return Response.json({
-      success: true,
+      success: result.success,
       message: `${result.sent}명의 대기 고객에게 재입고 알림 이메일이 발송되었습니다.${poText}`,
+      ...(result.failed ? { error: `${result.failed}건의 알림 발송에 실패했습니다.` } : {}),
+      ...(result.warnings?.length ? { warning: "일부 발송 기록을 저장하지 못했습니다. 재발송 전에 발송 내역을 확인해 주세요." } : {}),
     });
   }
 
@@ -627,6 +597,8 @@ export const action = async ({ request }) => {
     }
 
     let sentCount = 0;
+    let failedCount = 0;
+    let warningCount = 0;
     const now = new Date();
 
     if (mode === "products") {
@@ -637,62 +609,27 @@ export const action = async ({ request }) => {
           dispatchDate: now,
         });
         sentCount += res.sent;
+        failedCount += res.failed;
+        warningCount += res.warnings?.length || 0;
       }
     } else {
       const pendingList = await prisma.backInStockSubscription.findMany({
-        where: { shop, id: { in: ids }, status: "PENDING" },
+        where: { shop, id: { in: ids }, status: { in: ["PENDING", "FAILED"] } },
       });
-
-      for (const sub of pendingList) {
-        try {
-          let poNumber = sub.poNumber;
-          let restockedAt = sub.restockedAt || now;
-          if (!poNumber && sub.sku) {
-            const contItem = await prisma.containerItem.findFirst({
-              where: { sku: sub.sku, container: { shop } },
-              orderBy: { createdAt: "desc" },
-              include: { container: true },
-            });
-            if (contItem?.container?.containerRef) {
-              poNumber = contItem.container.containerRef;
-              if (contItem.container.receivedAt) {
-                restockedAt = contItem.container.receivedAt;
-              }
-            }
-          }
-
-          if (sub.email && sub.email.includes("@")) {
-            await sendBackInStockEmail({
-              email: sub.email,
-              productTitle: sub.productTitle,
-              variantTitle: sub.variantTitle,
-              shopDomain: shop,
-              poNumber,
-              dispatchDate: now,
-            });
-            sentCount++;
-          }
-
-          await prisma.backInStockSubscription.update({
-            where: { id: sub.id },
-            data: {
-              status: "NOTIFIED",
-              poNumber: poNumber || undefined,
-              restockedAt,
-              notifiedAt: now,
-              notificationAttempts: { increment: 1 },
-              lastNotificationAt: now,
-            },
-          });
-        } catch (err) {
-          console.error(`Bulk send error for ${sub.email}:`, err);
-        }
+      const variants = new Map(pendingList.map(sub => [sub.variantId.replace("gid://shopify/ProductVariant/", ""), sub.variantId]));
+      for (const variantId of variants.values()) {
+        const result = await notifyPendingSubscribersForVariant({ shop, variantId, subscriptionIds: ids, dispatchDate: now });
+        sentCount += result.sent;
+        failedCount += result.failed;
+        warningCount += result.warnings?.length || 0;
       }
     }
 
     return Response.json({
-      success: true,
+      success: failedCount === 0 && warningCount === 0,
       message: `일괄 발송 완료: 총 ${sentCount}명의 고객에게 알림이 발송되었습니다.`,
+      ...(failedCount ? { error: `${failedCount}건의 알림 발송에 실패했습니다.` } : {}),
+      ...(warningCount ? { warning: "일부 발송 기록을 저장하지 못했습니다. 재발송 전에 발송 내역을 확인해 주세요." } : {}),
     });
   }
 
@@ -709,13 +646,13 @@ export const action = async ({ request }) => {
     let count = 0;
     if (mode === "products") {
       const res = await prisma.backInStockSubscription.updateMany({
-        where: { shop, variantId: { in: ids }, status: "PENDING" },
+        where: { shop, variantId: { in: ids }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
         data: { status: "CANCELLED" },
       });
       count = res.count;
     } else {
       const res = await prisma.backInStockSubscription.updateMany({
-        where: { shop, id: { in: ids } },
+        where: { shop, id: { in: ids }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
         data: { status: "CANCELLED" },
       });
       count = res.count;
@@ -1219,6 +1156,7 @@ export default function BackInStockDashboard() {
         />
 
         {/* Feedback Banners */}
+        {kpiData?.reconciliationCount > 0 && <Banner tone="warning">발송됨 · 기록 확인 필요: {kpiData.reconciliationCount}건. 자동 재발송하지 않습니다. 상세 필터에서 해당 상태를 선택하고 메일 제공자의 발송 기록을 확인해 주세요.</Banner>}
         {fetcher.data?.message && (
           <Banner tone="success" onDismiss={() => {}}>
             {fetcher.data.message}
@@ -1229,6 +1167,7 @@ export default function BackInStockDashboard() {
             {fetcher.data.error}
           </Banner>
         )}
+        {fetcher.data?.warning && <Banner tone="warning">{fetcher.data.warning}</Banner>}
 
         {/* Interactive Priority KPI Metrics Grid */}
         <BackInStockKpiGrid

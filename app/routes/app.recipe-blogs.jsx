@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useLoaderData, useFetcher, useSubmit, useNavigation } from "react-router";
+import { useState, useEffect, useRef } from "react";
+import { useLoaderData, useFetcher } from "react-router";
 import {
   Page,
   Layout,
@@ -14,6 +14,7 @@ import {
   Box,
   Divider,
   TextField,
+  Modal,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -23,58 +24,9 @@ import RecipeLocalizationEditor from "../components/recipe/RecipeLocalizationEdi
 import RecipeMetadataSettings from "../components/recipe/RecipeMetadataSettings";
 import RecipeIngredientsCommerce from "../components/recipe/RecipeIngredientsCommerce";
 import RecipeStorefrontPreviewModal from "../components/recipe/RecipeStorefrontPreviewModal";
-import { buildAdvancedArticleHtml } from "../utils/recipeHtmlBuilder";
-import { autoMatchIngredientsWithProducts } from "../utils/recipeMatchingEngine";
-
-/**
- * Unpacks JSON metadata serialized inside the steps text column
- */
-export function unpackRecipe(raw) {
-  if (!raw) return null;
-  let parsed = {};
-  if (raw.steps && typeof raw.steps === "string") {
-    try {
-      const trimmed = raw.steps.trim();
-      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-        parsed = JSON.parse(trimmed);
-      }
-    } catch (e) {
-      parsed = {};
-    }
-  }
-
-  const category = parsed.category || "MAIN";
-  const occasion = parsed.occasion || "DINNER";
-  const difficulty = parsed.difficulty || "EASY";
-  const prepTimeMinutes = parsed.prepTimeMinutes || 15;
-  const cookTimeMinutes = parsed.cookTimeMinutes || 20;
-  const servings = parsed.servings || 2;
-  const spiceLevel = parsed.spiceLevel !== undefined ? parsed.spiceLevel : 1;
-  const dietaryFlags = parsed.dietaryFlags || [];
-  const translations = parsed.translations || {
-    ko: { title: raw.title || "", introduction: raw.introduction || "", steps: parsed.stepsText || raw.steps || "" },
-    de: { title: raw.title || "", introduction: raw.introduction || "", steps: parsed.stepsText || raw.steps || "" },
-    en: { title: raw.title || "", introduction: raw.introduction || "", steps: parsed.stepsText || raw.steps || "" },
-  };
-  const ingredientsJson = parsed.ingredientsJson || [];
-  const bundlesJson = parsed.bundlesJson || [];
-
-  return {
-    ...raw,
-    category,
-    occasion,
-    difficulty,
-    prepTimeMinutes,
-    cookTimeMinutes,
-    servings,
-    spiceLevel,
-    dietaryFlags,
-    translations,
-    ingredientsJson,
-    bundlesJson,
-    steps: parsed.stepsText || raw.steps || "",
-  };
-}
+import { unpackRecipe } from "../utils/recipeData.js";
+import { handleRecipeAction } from "../utils/recipePersistence.server.js";
+export { unpackRecipe } from "../utils/recipeData.js";
 
 // --- LOADER ---
 export async function loader({ request }) {
@@ -178,262 +130,23 @@ export async function loader({ request }) {
 // --- ACTION ---
 export async function action({ request }) {
   const { admin, session } = await authenticate.admin(request);
-  const shop = session.shop;
-
-  const formData = await request.formData();
-  const intent = formData.get("intent");
-
-  // Action: DELETE Recipe
-  if (intent === "delete") {
-    const id = formData.get("id");
-
-    const recipe = await prisma.recipe.findUnique({
-      where: { id },
-    });
-
-    if (recipe && recipe.shopifyArticleId && recipe.shopifyBlogId) {
-      try {
-        await admin.graphql(
-          `#graphql
-          mutation articleDelete($blogId: ID!, $id: ID!) {
-            articleDelete(blogId: $blogId, id: $id) {
-              deletedId
-              userErrors {
-                field
-                message
-              }
-            }
-          }`,
-          {
-            variables: {
-              blogId: recipe.shopifyBlogId,
-              id: recipe.shopifyArticleId,
-            },
-          }
-        );
-      } catch (err) {
-        console.error("Failed to delete article on Shopify:", err);
-      }
-    }
-
-    await prisma.recipe.delete({
-      where: { id },
-    });
-
-    return Response.json({ success: true, message: "레시피가 삭제되었습니다." });
-  }
-
-  // Action: SAVE (Create or Update Draft) / PUBLISH
-  if (intent === "save" || intent === "publish") {
-    const id = formData.get("id");
-    const title = formData.get("title");
-    const category = formData.get("category") || "STREET_FOOD";
-    const occasion = formData.get("occasion") || "QUICK_MEAL";
-    const difficulty = formData.get("difficulty") || "EASY";
-    const prepTimeMinutes = parseInt(formData.get("prepTimeMinutes") || "10", 10);
-    const cookTimeMinutes = parseInt(formData.get("cookTimeMinutes") || "15", 10);
-    const servings = parseInt(formData.get("servings") || "2", 10);
-    const spiceLevel = parseInt(formData.get("spiceLevel") || "2", 10);
-    const imageUrl = formData.get("imageUrl") || "";
-    const shopifyBlogId = formData.get("shopifyBlogId");
-
-    const dietaryFlags = JSON.parse(formData.get("dietaryFlags") || "[]");
-    const translations = JSON.parse(formData.get("translations") || "{}");
-    const ingredientsJson = JSON.parse(formData.get("ingredientsJson") || "[]");
-    const productsData = JSON.parse(formData.get("productsJson") || "[]");
-
-    // Extract default introduction and steps from German or Korean translations
-    const deIntro = translations.de?.introduction || translations.ko?.introduction || "";
-    const deSteps = Array.isArray(translations.de?.steps)
-      ? translations.de.steps.join("\n")
-      : (translations.de?.steps || translations.ko?.steps || "");
-
-    const stepsPayload = JSON.stringify({
-      stepsText: deSteps,
-      category,
-      occasion,
-      difficulty,
-      prepTimeMinutes,
-      cookTimeMinutes,
-      servings,
-      spiceLevel,
-      dietaryFlags,
-      translations,
-      ingredientsJson,
-      bundlesJson: [],
-    });
-
-    const dataPayload = {
-      shop,
-      title,
-      introduction: deIntro,
-      steps: stepsPayload,
-      imageUrl,
-      shopifyBlogId,
-    };
-
-    let rawRecipe;
-    if (id) {
-      // Clear previous products and update
-      await prisma.recipeProduct.deleteMany({
-        where: { recipeId: id },
-      });
-
-      rawRecipe = await prisma.recipe.update({
-        where: { id },
-        data: {
-          ...dataPayload,
-          products: {
-            create: productsData.map((p) => ({
-              productId: String(p.productId || ""),
-              variantId: String(p.variantId || ""),
-              title: String(p.title || ""),
-              variantTitle: p.variantTitle || "",
-              price: String(p.price || ""),
-              imageUrl: p.imageUrl || "",
-            })),
-          },
-        },
-        include: { products: true },
-      });
-    } else {
-      rawRecipe = await prisma.recipe.create({
-        data: {
-          ...dataPayload,
-          products: {
-            create: productsData.map((p) => ({
-              productId: String(p.productId || ""),
-              variantId: String(p.variantId || ""),
-              title: String(p.title || ""),
-              variantTitle: p.variantTitle || "",
-              price: String(p.price || ""),
-              imageUrl: p.imageUrl || "",
-            })),
-          },
-        },
-        include: { products: true },
-      });
-    }
-
-    let recipe = unpackRecipe(rawRecipe);
-
-    // Handle publishing to Shopify Blog Article
-    if (intent === "publish") {
-      if (!shopifyBlogId) {
-        return Response.json(
-          { success: false, error: "게시할 쇼피파이 블로그 채널을 선택해 주세요." },
-          { status: 400 }
-        );
-      }
-
-      // Generate HTML article with commerce widget
-      const articleTitle = translations.de?.title || recipe.title;
-      const bodyHtml = buildAdvancedArticleHtml(recipe, { activeLocale: "de", currencySymbol: "€" });
-
-      if (recipe.shopifyArticleId) {
-        // Update existing article
-        const response = await admin.graphql(
-          `#graphql
-          mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
-            articleUpdate(id: $id, article: $article) {
-              article {
-                id
-                title
-              }
-              userErrors {
-                field
-                message
-              }
-            }
-          }`,
-          {
-            variables: {
-              id: recipe.shopifyArticleId,
-              article: {
-                title: articleTitle,
-                body: bodyHtml,
-                ...(recipe.imageUrl ? { image: { src: recipe.imageUrl } } : {}),
-              },
-            },
-          }
-        );
-        const resJson = await response.json();
-        const errors = resJson.data?.articleUpdate?.userErrors || [];
-        if (errors.length > 0) {
-          return Response.json(
-            { success: false, error: "쇼피파이 글 수정 실패: " + errors.map((e) => e.message).join(", ") },
-            { status: 400 }
-          );
-        }
-      } else {
-        // Create new article
-        const response = await admin.graphql(
-          `#graphql
-          mutation articleCreate($article: ArticleCreateInput!) {
-            articleCreate(article: $article) {
-              article {
-                id
-                title
-                handle
-              }
-              userErrors {
-                field
-                message
-              }
-            }
-          }`,
-          {
-            variables: {
-              article: {
-                blogId: shopifyBlogId,
-                title: articleTitle,
-                body: bodyHtml,
-                isPublished: true,
-                author: { name: "DAWAYO K-Food" },
-                ...(recipe.imageUrl ? { image: { src: recipe.imageUrl } } : {}),
-              },
-            },
-          }
-        );
-        const resJson = await response.json();
-        const errors = resJson.data?.articleCreate?.userErrors || [];
-        if (errors.length > 0) {
-          return Response.json(
-            { success: false, error: "쇼피파이 글 등록 실패: " + errors.map((e) => e.message).join(", ") },
-            { status: 400 }
-          );
-        }
-
-        const createdArticle = resJson.data?.articleCreate?.article;
-        if (createdArticle) {
-          recipe = await prisma.recipe.update({
-            where: { id: recipe.id },
-            data: {
-              shopifyArticleId: createdArticle.id,
-              published: true,
-            },
-            include: { products: true },
-          });
-        }
-      }
-    }
-
-    return Response.json({ success: true, recipe });
-  }
-
-  return Response.json({ success: false, error: "알 수 없는 요청입니다." }, { status: 400 });
+  return handleRecipeAction({ form: await request.formData(), shop: session.shop, admin, db: prisma });
 }
 
 // --- MAIN FRONTEND COMPONENT ---
 export default function RecipeBlogs() {
   const { recipes, blogs, shopUrl } = useLoaderData();
   const fetcher = useFetcher();
-  const submit = useSubmit();
-  const navigation = useNavigation();
+  const actionFetcher = useFetcher();
+  const submissionLock = useRef(false);
+  const draftId = useRef(null);
+  const handledActionResult = useRef(null);
+  const submittedProducts = useRef(null);
 
   // Modals state
   const [presetModalOpen, setPresetModalOpen] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [deleteRecipeId, setDeleteRecipeId] = useState(null);
 
   // Selected recipe state
   const [selectedRecipe, setSelectedRecipe] = useState(null);
@@ -469,8 +182,8 @@ export default function RecipeBlogs() {
   // Feedback banner
   const [toastMessage, setToastMessage] = useState(null);
 
-  const isSaving = navigation.state === "submitting" && navigation.formData?.get("intent") === "save";
-  const isPublishing = navigation.state === "submitting" && navigation.formData?.get("intent") === "publish";
+  const isSaving = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "save";
+  const isPublishing = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "publish";
 
   // Watch product search fetcher results
   useEffect(() => {
@@ -480,8 +193,32 @@ export default function RecipeBlogs() {
     }
   }, [fetcher.data]);
 
+  useEffect(() => {
+    if (actionFetcher.state !== "idle") return;
+    submissionLock.current = false;
+    const result = actionFetcher.data;
+    if (!result || handledActionResult.current === result) return;
+    handledActionResult.current = result;
+    if (result.recipe) {
+      setSelectedRecipe(result.recipe);
+      // Keep edits made while the save request was in flight.
+      setSelectedProducts(current => current === submittedProducts.current ? (result.recipe.products || []) : current);
+      draftId.current = result.recipe.id;
+    }
+    if (result.success && result.deletedId && result.deletedId === selectedRecipe?.id) {
+      setSelectedRecipe(null);
+      draftId.current = null;
+      setTranslations(Object.fromEntries(["ko", "de", "en"].map(locale => [locale, { title: "", subtitle: "", introduction: "", steps: "" }])));
+      setSelectedProducts([]);
+      setIngredients([]);
+    }
+    setToastMessage({ type: result.success ? "success" : "critical", title: result.success ? "처리 완료" : "처리 실패", content: result.error || result.message || "레시피가 저장되었습니다." });
+  }, [actionFetcher.state, actionFetcher.data, selectedRecipe?.id]);
+
   // Load recipe into editor
   const handleEditRecipe = (recipe) => {
+    if (submissionLock.current) return;
+    draftId.current = recipe.id;
     setSelectedRecipe(recipe);
     setCategory(recipe.category || "STREET_FOOD");
     setOccasion(recipe.occasion || "QUICK_MEAL");
@@ -543,6 +280,8 @@ export default function RecipeBlogs() {
 
   // Reset editor for new recipe
   const handleNewRecipe = () => {
+    if (submissionLock.current) return;
+    draftId.current = null;
     setSelectedRecipe(null);
     setCategory("STREET_FOOD");
     setOccasion("QUICK_MEAL");
@@ -566,6 +305,9 @@ export default function RecipeBlogs() {
 
   // Apply Preset
   const handleSelectPreset = (preset) => {
+    if (submissionLock.current) return;
+    draftId.current = null;
+    setSelectedProducts([]);
     setSelectedRecipe(null);
     setCategory(preset.category);
     setOccasion(preset.occasion);
@@ -599,19 +341,22 @@ export default function RecipeBlogs() {
 
   // Submit action (Save or Publish)
   const handleSubmitForm = (intent) => {
+    if (submissionLock.current || actionFetcher.state !== "idle") return;
     const mainTitle = translations.de?.title || translations.ko?.title || translations.en?.title;
     if (!mainTitle) {
-      setToastMessage({ error: true, text: "레시피 제목(독일어 또는 한국어)을 입력해 주세요." });
+      setToastMessage({ type: "critical", content: "레시피 제목(독일어 또는 한국어)을 입력해 주세요." });
       return;
     }
 
     if (intent === "publish" && !shopifyBlogId) {
-      setToastMessage({ error: true, text: "게시할 쇼피파이 블로그 채널을 선택해 주세요." });
+      setToastMessage({ type: "critical", content: "게시할 쇼피파이 블로그 채널을 선택해 주세요." });
       return;
     }
 
     const formData = new FormData();
     formData.append("intent", intent);
+    draftId.current ||= crypto.randomUUID();
+    formData.append("draftId", draftId.current);
     if (selectedRecipe) {
       formData.append("id", selectedRecipe.id);
     }
@@ -630,7 +375,9 @@ export default function RecipeBlogs() {
     formData.append("ingredientsJson", JSON.stringify(ingredients));
     formData.append("productsJson", JSON.stringify(selectedProducts));
 
-    submit(formData, { method: "post" });
+    submittedProducts.current = selectedProducts;
+    submissionLock.current = true;
+    actionFetcher.submit(formData, { method: "post" });
 
     setToastMessage({
       type: "info",
@@ -642,15 +389,17 @@ export default function RecipeBlogs() {
     });
   };
 
-  // Delete recipe
-  const handleDeleteRecipe = (id) => {
-    if (confirm("정말로 이 레시피를 삭제하시겠습니까? 쇼피파이에 연동된 블로그 글도 함께 삭제됩니다.")) {
-      const formData = new FormData();
-      formData.append("intent", "delete");
-      formData.append("id", id);
-      submit(formData, { method: "post" });
-      handleNewRecipe();
-    }
+  const handleDeleteRecipe = id => {
+    if (!submissionLock.current) setDeleteRecipeId(id);
+  };
+  const confirmDeleteRecipe = () => {
+    if (!deleteRecipeId || submissionLock.current) return;
+    const formData = new FormData();
+    formData.set("intent", "delete");
+    formData.set("id", deleteRecipeId);
+    submissionLock.current = true;
+    actionFetcher.submit(formData, { method: "post" });
+    setDeleteRecipeId(null);
   };
 
   // Filtered recipe list
@@ -695,7 +444,7 @@ export default function RecipeBlogs() {
         {toastMessage && (
           <Banner
             title={toastMessage.title}
-            tone={toastMessage.type === "success" ? "success" : "info"}
+            tone={toastMessage.type || "info"}
             onDismiss={() => setToastMessage(null)}
           >
             <p>{toastMessage.content}</p>
@@ -772,14 +521,13 @@ export default function RecipeBlogs() {
                               </InlineStack>
 
                               <InlineStack align="end" gap="200" style={{ marginTop: "4px" }}>
-                                {recipe.published && recipe.shopifyArticleId && (
+                                {recipe.published && recipe.articlePath && (
                                   <Button
                                     size="micro"
                                     variant="tertiary"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      const slug = encodeURIComponent(recipe.title || "");
-                                      window.open(`${shopUrl}/blogs/news/${slug}`, "_blank");
+                                      if (recipe.articlePath) window.open(new URL(recipe.articlePath, shopUrl).href, "_blank", "noopener,noreferrer");
                                     }}
                                   >
                                     상점 보기
@@ -893,14 +641,14 @@ export default function RecipeBlogs() {
                     <Button onClick={handleNewRecipe}>입력 필드 초기화</Button>
 
                     <InlineStack gap="200">
-                      <Button onClick={() => handleSubmitForm("save")} loading={isSaving}>
+                      <Button onClick={() => handleSubmitForm("save")} loading={isSaving} disabled={actionFetcher.state !== "idle"}>
                         초안 임시저장 (App DB)
                       </Button>
                       <Button
                         variant="primary"
                         onClick={() => handleSubmitForm("publish")}
                         loading={isPublishing}
-                        disabled={blogs.length === 0}
+                        disabled={actionFetcher.state !== "idle" || blogs.length === 0}
                       >
                         쇼피파이 블로그 게시 / 동기화
                       </Button>
@@ -913,6 +661,7 @@ export default function RecipeBlogs() {
           </Layout.Section>
         </Layout>
 
+        <Modal open={Boolean(deleteRecipeId)} onClose={() => setDeleteRecipeId(null)} title="레시피 삭제" primaryAction={{ content: "삭제", destructive: true, onAction: confirmDeleteRecipe }} secondaryActions={[{ content: "취소", onAction: () => setDeleteRecipeId(null) }]}><Modal.Section><Text as="p">이 레시피와 연결된 Shopify 블로그 글을 삭제하시겠습니까?</Text></Modal.Section></Modal>
         {/* Modals */}
         <RecipePresetModal
           open={presetModalOpen}

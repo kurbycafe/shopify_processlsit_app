@@ -1,8 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
 
+const DEFAULT_CUSTOMER_ORIGINS =
+  "capacitor://localhost,http://localhost,https://localhost,http://localhost:5173,http://127.0.0.1:5173,https://dawayo.de,https://www.dawayo.de,https://dawayo-mobile-app.vercel.app";
+const DEFAULT_CUSTOMER_ACCOUNT_URL =
+  "https://shopify.com/99898655049/account/customer/api/2026-01/graphql";
+const POST_RESOURCES = new Set([
+  "restock-subscription",
+  "b2b-inquiry",
+  "return-request",
+  "notification-preferences",
+  "support-request",
+  "subscription-request",
+  "push-token",
+]);
+const GET_POST_RESOURCES = new Set([
+  "notification-preferences",
+  "photo-reviews",
+]);
+
 export function customerShop(env = process.env) {
-  const shop = env.CUSTOMER_API_SHOP || "";
+  const shop = env.CUSTOMER_API_SHOP || (env === process.env ? "dawayo.myshopify.com" : "");
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
     throw new MobileApiError(503, "NOT_CONFIGURED", "Customer services are not configured.");
   }
@@ -15,14 +33,15 @@ export function createCustomerHandler(resolve, env = process.env) {
     const headers = { "Cache-Control": "private, no-store", Vary: "Origin", "X-Request-Id": requestId };
     try {
       const origin = request.headers.get("origin");
-      const allowed = (env.CUSTOMER_API_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+      const rawAllowed = env.CUSTOMER_API_ALLOWED_ORIGINS || (env === process.env ? DEFAULT_CUSTOMER_ORIGINS : "");
+      const allowed = rawAllowed.split(",").map((s) => s.trim()).filter(Boolean);
       if (origin && !allowed.includes(origin)) throw new MobileApiError(403, "ORIGIN_NOT_ALLOWED", "Origin not allowed.");
       if (origin) headers["Access-Control-Allow-Origin"] = origin;
-      const methods = params.resource === "restock-subscription" ? "POST, OPTIONS" : "GET, OPTIONS";
+      const methods = GET_POST_RESOURCES.has(params.resource) ? "GET, POST, OPTIONS" : POST_RESOURCES.has(params.resource) ? "POST, OPTIONS" : "GET, OPTIONS";
       headers["Access-Control-Allow-Methods"] = methods;
-      headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type";
+      headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Shop-Domain, X-Requested-With";
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
-      if (request.method !== methods.split(",")[0]) {
+      if (!methods.split(", ").includes(request.method)) {
         headers.Allow = methods;
         throw new MobileApiError(405, "METHOD_NOT_ALLOWED", "Unsupported request method.");
       }
@@ -50,7 +69,7 @@ export async function queryCustomerAccount(request, shop, query, variables = {},
   const match = /^Bearer ([^\s]{1,8192})$/i.exec(request.headers.get("authorization") || "");
   if (!match) throw new MobileApiError(401, "LOGIN_REQUIRED", "Please sign in to view your inspection.");
   // Trusted server configuration only; never accept a URL or shop from the caller.
-  const configuredUrl = env.CUSTOMER_ACCOUNT_API_URL;
+  const configuredUrl = env.CUSTOMER_ACCOUNT_API_URL || (env === process.env ? DEFAULT_CUSTOMER_ACCOUNT_URL : undefined);
   let endpoint;
   try {
     endpoint = new URL(configuredUrl);

@@ -37,6 +37,9 @@ import { isBarcodeOrSkuMatch } from "../utils/barcodeHelpers.js";
 import StatusBadge from "../components/common/StatusBadge";
 import { getInspectorName } from "../services/inspectorService.server.js";
 
+import { readInspectionOrder, validateInspectionSubstitutes } from "../services/inspectionOrders.server.js";
+import { normalizeInspectionItems, restoreSavedInspections } from "../services/inspectionValidation.js";
+
 export { isBarcodeOrSkuMatch };
 
 export const loader = async ({ request }) => {
@@ -65,60 +68,24 @@ export const action = async ({ request }) => {
       shopifyQuery = `name:#${cleanNum} OR name:${cleanNum} OR name:${rawSearch}`;
     }
 
-    const response = await admin.graphql(
-      `#graphql
-      query findOrder($query: String!) {
-        orders(first: 1, query: $query) {
-          edges {
-            node {
-              id
-              name
-              email
-              lineItems(first: 250) {
-                edges {
-                  node {
-                    id
-                    title
-                    variantTitle
-                    sku
-                    quantity
-                    variant {
-                      id
-                      barcode
-                      image { url }
-                      product {
-                        featuredImage { url }
-                        expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`,
-      { variables: { query: shopifyQuery } }
-    );
-
-    const json = await response.json();
-    const order = json.data?.orders?.edges?.[0]?.node;
+    let order;
+    try { order = await readInspectionOrder(admin, { query: shopifyQuery }); }
+    catch (error) { return { error: error.message }; }
 
     if (!order) return { error: `'${rawSearch}'에 해당하는 주문을 찾을 수 없습니다.` };
 
     // Fetch existing inspection record from local DB
     const existingRecord = await prisma.inspectionRecord.findUnique({
-      where: { orderId: order.id },
+      where: { orderId: order.id, shop: session.shop },
       include: { items: true },
     });
 
+    const savedItems = restoreSavedInspections(order.lineItems.edges.map(edge => edge.node), existingRecord?.items);
     const items = order.lineItems.edges.map((edge) => {
       const lineItemId = edge.node.id;
       const variantId = edge.node.variant?.id;
 
-      const existingItem = existingRecord?.items.find(
-        (item) => item.variantId === variantId || (item.sku && item.sku === edge.node.sku)
-      );
+      const existingItem = savedItems.get(lineItemId);
 
       return {
         id: lineItemId,
@@ -186,25 +153,17 @@ export const action = async ({ request }) => {
   }
 
   if (intent === "save_inspection") {
-    const orderId = formData.get("orderId");
-    const orderName = formData.get("orderName");
-    const items = JSON.parse(formData.get("items") || "[]");
-    const inspectorName = formData.get("inspectorName");
-    const orderEmail = formData.get("orderEmail");
-
-    if (!orderId || !orderName) {
-      return { error: "주문 정보가 올바르지 않습니다." };
-    }
-
-    // Validation: Check substitute integrity
-    for (const item of items) {
-      if (item.issueType === "SUBSTITUTE" && !item.substitutedVariantId) {
-        return { error: `[${item.title}] 대체상품을 선택해야 대체 처리가 가능합니다.` };
-      }
-      if (item.inspectedQuantity > item.orderedQuantity) {
-        return { error: `[${item.title}] 검수 수량이 주문 수량을 초과할 수 없습니다.` };
-      }
-    }
+    const orderId = String(formData.get("orderId") || "");
+    let order, items;
+    try {
+      order = await readInspectionOrder(admin, { id: orderId });
+      if (!order || order.cancelledAt) return { error: "취소되었거나 조회할 수 없는 주문입니다." };
+      items = normalizeInspectionItems(JSON.parse(formData.get("items") || "[]"), order.lineItems.edges.map(edge => edge.node));
+      await validateInspectionSubstitutes(admin, items);
+    } catch (error) { return { error: error instanceof SyntaxError ? "검수 데이터를 확인해 주세요." : error.message }; }
+    const orderName = order.name;
+    const orderEmail = order.email || "";
+    const inspectorName = String(formData.get("inspectorName") || await getInspectorName(admin, session)).trim().slice(0,200);
 
     // Determine status
     let status = "SUCCESS";
@@ -221,7 +180,9 @@ export const action = async ({ request }) => {
 
     // Transactional save / replace items
     const record = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${session.shop}:${orderId}`}, 0))`;
       const existing = await tx.inspectionRecord.findUnique({ where: { orderId } });
+      if (existing && existing.shop !== session.shop) throw new Error("주문에 대한 권한이 없습니다.");
       if (existing) {
         await tx.inspectionItem.deleteMany({ where: { inspectionRecordId: existing.id } });
         return await tx.inspectionRecord.update({
@@ -234,6 +195,7 @@ export const action = async ({ request }) => {
             completedAt: new Date(),
             items: {
               create: items.map((item) => ({
+                orderLineId: item.id,
                 variantId: item.variantId || "N/A",
                 productTitle: item.title,
                 variantTitle: item.variantTitle || "",
@@ -261,7 +223,8 @@ export const action = async ({ request }) => {
           completedAt: new Date(),
           items: {
             create: items.map((item) => ({
-              variantId: item.variantId || "N/A",
+              orderLineId: item.id,
+                variantId: item.variantId || "N/A",
               productTitle: item.title,
               variantTitle: item.variantTitle || "",
               sku: item.sku || null,

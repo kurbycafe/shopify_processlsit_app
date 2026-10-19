@@ -17,276 +17,17 @@ import {
 } from "@shopify/polaris";
 import { PrintIcon } from "@shopify/polaris-icons";
 import {
-  DEFAULT_STORE_COUNTRY_CODE,
-  DEFAULT_STORE_COUNTRY_NAME,
-  DEFAULT_STORE_CITY,
-  DEFAULT_STORE_ZIP,
-  DEFAULT_STORE_ADDRESS1,
-  GERMAN_TAX_RATES,
   DEFAULT_CURRENCY,
 } from "../constants/shopify";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { generateInventoryReportHTML } from "../utils/inventoryPrint";
+import { fetchCalculatedTaxRates } from "../utils/inventoryTax.server.js";
+import { fetchInventoryProducts, processProducts } from "../utils/inventoryData.server.js";
 import { InventorySampleCard } from "../components/inventory/InventorySampleCard";
 
 // ========================================================
 // 1. GraphQL Queries & Mutations
 // ========================================================
-const INVENTORY_PRODUCTS_QUERY = `#graphql
-  query InventoryProducts($first: Int!, $after: String) {
-    shop {
-      name
-      currencyCode
-      taxesIncluded
-      billingAddress {
-        address1
-        city
-        province
-        zip
-        country
-        countryCodeV2
-      }
-    }
-    products(first: $first, after: $after) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
-        id
-        title
-        status
-        variants(first: 250) {
-          nodes {
-            id
-            title
-            sku
-            barcode
-            price
-            taxable
-            inventoryQuantity
-          }
-        }
-      }
-    }
-  }
-`;
-
-const RECENT_ORDERS_TAX_QUERY = `#graphql
-  query RecentOrdersTaxRates {
-    orders(first: 100, sortKey: CREATED_AT, reverse: true) {
-      nodes {
-        shippingAddress {
-          countryCodeV2
-        }
-        billingAddress {
-          countryCodeV2
-        }
-        lineItems(first: 100) {
-          nodes {
-            variant {
-              id
-            }
-            taxable
-            taxLines {
-              rate
-              ratePercentage
-              title
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
-  mutation InventoryDraftOrderCalculate($input: DraftOrderInput!) {
-    draftOrderCalculate(input: $input) {
-      calculatedDraftOrder {
-        taxLines {
-          rate
-          ratePercentage
-          title
-        }
-        lineItems {
-          variant {
-            id
-          }
-          title
-          taxable
-        }
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
-
-// Helper: Calculate real-time tax rates combining Recent Orders (Germany DE only) + Draft Order fallback
-async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
-  const taxRateMap = new Map();
-  let sampleDebug = {
-    addressUsed: null,
-    apiType: "Shopify Tax Engine (Germany DE Orders + Draft Order Simulation)",
-    userErrors: [],
-    sampleItems: [],
-  };
-
-  if (!taxableVariantIds || taxableVariantIds.length === 0) {
-    return { taxRateMap, sampleDebug };
-  }
-
-  const countryCode = shopAddress.countryCodeV2 || DEFAULT_STORE_COUNTRY_CODE;
-  const address = {
-    address1: shopAddress.address1 || DEFAULT_STORE_ADDRESS1,
-    city: shopAddress.city || DEFAULT_STORE_CITY,
-    zip: shopAddress.zip || DEFAULT_STORE_ZIP,
-    country: shopAddress.country || DEFAULT_STORE_COUNTRY_NAME,
-    countryCode: countryCode,
-  };
-
-  sampleDebug.addressUsed = address;
-
-  // Step 1: Query actual taxLines applied in recent store orders (Strictly filtered by destination Germany 'DE')
-  try {
-    const ordersResp = await admin.graphql(RECENT_ORDERS_TAX_QUERY);
-    const ordersPayload = await ordersResp.json();
-    const orders = ordersPayload?.data?.orders?.nodes || [];
-
-    for (const order of orders) {
-      const orderCountry = order.shippingAddress?.countryCodeV2 || order.billingAddress?.countryCodeV2 || DEFAULT_STORE_COUNTRY_CODE;
-      if (orderCountry !== countryCode && orderCountry !== DEFAULT_STORE_COUNTRY_CODE) {
-        continue;
-      }
-
-      for (const item of order.lineItems?.nodes || []) {
-        const variantId = item.variant?.id;
-        if (!variantId || taxRateMap.has(variantId)) continue;
-
-        if (item.taxable && item.taxLines?.length > 0) {
-          const firstTax = item.taxLines[0];
-          let rate = GERMAN_TAX_RATES.ZERO;
-          if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
-            rate = Math.round(Number(firstTax.ratePercentage));
-          } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
-            rate = Math.round(Number(firstTax.rate) * 100);
-          }
-          taxRateMap.set(variantId, rate);
-
-          if (sampleDebug.sampleItems.length < 10) {
-            const productTitle = productTitleMap.get(variantId) || variantId;
-            sampleDebug.sampleItems.push({
-              variantId,
-              title: productTitle,
-              taxLines: item.taxLines,
-              rate,
-            });
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("Failed to load recent orders tax lines:", err);
-  }
-
-  // Step 2: For any remaining unmapped variants, calculate via Draft Order (throttling-safe batching)
-  const unmappedVariantIds = Array.from(new Set(taxableVariantIds)).filter((id) => !taxRateMap.has(id));
-  const sampleFallbackLimit = Math.min(unmappedVariantIds.length, 30);
-  const targetVariants = unmappedVariantIds.slice(0, sampleFallbackLimit);
-
-  const concurrency = 3;
-  for (let i = 0; i < targetVariants.length; i += concurrency) {
-    const batch = targetVariants.slice(i, i + concurrency);
-    await Promise.all(
-      batch.map(async (variantId) => {
-        try {
-          const response = await admin.graphql(DRAFT_ORDER_CALCULATE_MUTATION, {
-            variables: {
-              input: {
-                shippingAddress: address,
-                billingAddress: address,
-                lineItems: [{ variantId, quantity: 1 }],
-              },
-            },
-          });
-
-          const payload = await response.json();
-          const calculatedDraftOrder = payload?.data?.draftOrderCalculate?.calculatedDraftOrder;
-          const taxLines = calculatedDraftOrder?.taxLines || [];
-          const productTitle = productTitleMap.get(variantId) || variantId;
-
-          let rate = GERMAN_TAX_RATES.ZERO;
-          if (taxLines.length > 0) {
-            const firstTax = taxLines[0];
-            if (firstTax.ratePercentage != null && !isNaN(Number(firstTax.ratePercentage))) {
-              rate = Math.round(Number(firstTax.ratePercentage));
-            } else if (firstTax.rate != null && !isNaN(Number(firstTax.rate))) {
-              rate = Math.round(Number(firstTax.rate) * 100);
-            }
-          }
-
-          taxRateMap.set(variantId, rate);
-
-          if (sampleDebug.sampleItems.length < 10) {
-            sampleDebug.sampleItems.push({
-              variantId,
-              title: productTitle,
-              taxLines,
-              rate,
-            });
-          }
-        } catch (err) {
-          taxRateMap.set(variantId, GERMAN_TAX_RATES.STANDARD);
-        }
-      })
-    );
-  }
-
-  return { taxRateMap, sampleDebug };
-}
-
-// Helper: Process GraphQL products array into inventory items
-function processProducts(products, calculatedTaxRates = new Map()) {
-  const items = [];
-  for (const product of products || []) {
-    const productTitle = product.title || "알 수 없는 상품";
-
-    for (const variant of product.variants?.nodes || []) {
-      const variantTitle = variant.title && variant.title !== "Default Title" ? variant.title : "";
-      const fullName = variantTitle ? `${productTitle} (${variantTitle})` : productTitle;
-      const sku = variant.sku || "-";
-      const barcode = variant.barcode || "-";
-      const price = parseFloat(variant.price || "0");
-      const taxable = Boolean(variant.taxable);
-      const inventoryQuantity = typeof variant.inventoryQuantity === "number" ? variant.inventoryQuantity : 0;
-
-      let taxRate = GERMAN_TAX_RATES.ZERO;
-      if (taxable) {
-        taxRate = calculatedTaxRates.has(variant.id) ? calculatedTaxRates.get(variant.id) : GERMAN_TAX_RATES.STANDARD;
-      }
-
-      items.push({
-        id: variant.id,
-        productId: product.id,
-        productTitle,
-        variantTitle,
-        fullName,
-        sku,
-        barcode,
-        price,
-        taxable,
-        taxRate,
-        inventoryQuantity,
-        valuation: price * inventoryQuantity,
-      });
-    }
-  }
-  return items;
-}
-
 // ========================================================
 // 2. Server Loader: Fetches 100% of ALL products without pagination limits
 // ========================================================
@@ -294,33 +35,10 @@ export const loader = async ({ request }) => {
   try {
     const { admin } = await authenticate.admin(request);
 
-    let allProducts = [];
-    let hasNextPage = true;
-    let after = null;
-    let shopName = "Shopify Store";
-    let currencyCode = DEFAULT_CURRENCY;
-    let shopBillingAddress = null;
-
-    while (hasNextPage) {
-      const response = await admin.graphql(INVENTORY_PRODUCTS_QUERY, {
-        variables: { first: 250, after },
-      });
-      const payload = await response.json();
-
-      const shopData = payload?.data?.shop || {};
-      if (shopData.name) shopName = shopData.name;
-      if (shopData.currencyCode) currencyCode = shopData.currencyCode;
-      if (shopData.billingAddress) {
-        shopBillingAddress = shopData.billingAddress;
-      }
-
-      const productsData = payload?.data?.products || {};
-      const rawProducts = productsData.nodes || [];
-      allProducts = [...allProducts, ...rawProducts];
-
-      hasNextPage = Boolean(productsData.pageInfo?.hasNextPage);
-      after = productsData.pageInfo?.endCursor || null;
-    }
+    const { products: allProducts, shop } = await fetchInventoryProducts(admin);
+    const shopName = shop.name || "Shopify Store";
+    const currencyCode = shop.currencyCode || DEFAULT_CURRENCY;
+    const shopBillingAddress = shop.billingAddress;
 
     const taxableVariantIds = [];
     const productTitleMap = new Map();
@@ -368,16 +86,8 @@ export const loader = async ({ request }) => {
 // 3. React Route Component
 // ========================================================
 export default function InventoryReportPage() {
-  const { shopName, currencyCode, items, sampleDebug, error: errorMsg } = useLoaderData();
+  const { shopName, currencyCode, items, sampleDebug, fetchedAt, error: errorMsg } = useLoaderData();
 
-  const currentYearMonth = useMemo(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    return `${y}-${m}`;
-  }, []);
-
-  const [selectedMonth, setSelectedMonth] = useState(currentYearMonth);
   const [stockFilter, setStockFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -422,20 +132,20 @@ export default function InventoryReportPage() {
       "SKU": item.sku,
       "상품명": item.fullName,
       "단가": item.price,
-      "적용 세율(%)": `${item.taxRate}%`,
+      "적용 세율(%)": item.taxRate == null ? "미확인" : `${item.taxRate}%`,
       "재고 수량": item.inventoryQuantity,
       "재고 평가 금액": item.valuation,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "월별 인벤토리");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "현재 재고");
 
-    const fileName = `Inventory_Report_${selectedMonth}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const fileName = `Current_Inventory_${fetchedAt.slice(0, 10)}.xlsx`;
     XLSX.writeFile(workbook, fileName);
     } catch { setStatusBanner({ tone: "critical", message: "엑셀 파일 생성에 실패했습니다. 다시 시도해 주세요." }); }
     finally { setExporting(false); }
-  }, [filteredItems, selectedMonth, exporting]);
+  }, [filteredItems, fetchedAt, exporting]);
 
   const handleGeneratePDF = useCallback(() => {
     if (filteredItems.length === 0) {
@@ -451,7 +161,7 @@ export default function InventoryReportPage() {
 
     const htmlContent = generateInventoryReportHTML({
       items: filteredItems,
-      selectedMonth,
+      fetchedAt,
       shopName,
       currencyCode,
     });
@@ -459,12 +169,12 @@ export default function InventoryReportPage() {
     printWindow.document.open();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-  }, [filteredItems, selectedMonth, shopName, currencyCode]);
+  }, [filteredItems, fetchedAt, shopName, currencyCode]);
 
   return (
     <Page
-      title="월별 인벤토리 (재고 평가 보고서)"
-      subtitle="쇼피파이 전체 상품 재고 및 가격, 적용 세율 데이터를 수집하여 PDF 보고서 및 엑셀을 출력합니다."
+      title="현재 재고 보고서"
+      subtitle="조회 시점의 Shopify 재고와 판매 가격을 기준으로 출력합니다. 과거 월말 재고 자료는 제공하지 않습니다."
     >
       <BlockStack gap="500">
         {errorMsg && (
@@ -479,29 +189,21 @@ export default function InventoryReportPage() {
           </Banner>
         )}
 
+        <Banner tone="info"><p>재고 조회 시각: {new Date(fetchedAt).toLocaleString("ko-KR")}. 금액은 판매 가격 × 재고 수량이며, 원가나 과거 월말 평가 금액이 아닙니다.</p></Banner>
         <InventorySampleCard sampleDebug={sampleDebug} />
 
         <Card padding="600">
           <BlockStack gap="500">
             <Text variant="headingLg" as="h2">
-              월별 인벤토리 보고서 출력 설정
+              현재 재고 보고서 출력 설정
             </Text>
             <Text variant="bodyMd" tone="subdued">
-              기준 연월과 재고 상태 필터를 선택한 후 &quot;PDF 보고서 출력하기&quot; 버튼을 클릭하세요.
+              재고 상태를 선택해 출력하세요. 세율은 주문 이력 또는 세금 계산 결과의 참고값이며 미확인 값은 임의로 채우지 않습니다.
             </Text>
 
             <Divider />
 
             <InlineStack gap="400" align="start">
-              <div style={{ width: "200px" }}>
-                <TextField
-                  label="기준 연월"
-                  type="month"
-                  value={selectedMonth}
-                  onChange={setSelectedMonth}
-                />
-              </div>
-
               <div style={{ width: "220px" }}>
                 <Select
                   label="재고 상태 필터"
@@ -622,7 +324,7 @@ export default function InventoryReportPage() {
                             color: item.taxRate === 7 ? "#2b8a3e" : item.taxRate === 19 ? "#1971c2" : "#495057",
                           }}
                         >
-                          {item.taxRate}%
+                          {item.taxRate == null ? "미확인" : `${item.taxRate}%`}
                         </span>
                       </td>
                       <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: "600", color: item.inventoryQuantity < 0 ? "#d32f2f" : "#111" }}>

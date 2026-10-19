@@ -1,16 +1,47 @@
 import { getCustomerInspection } from "./customerInspection.server.js";
-import { MobileApiError, readId } from "./mobileApi.server.js";
+import { MobileApiError, readId, readPage } from "./mobileApi.server.js";
 import { getCustomerOrders, getCustomerOrderItems } from "./customerOrders.server.js";
+import { getShopAliases } from "./subscriptionService.server.js";
+import { saveBusinessInquiry, saveReturnRequest, customerNotificationPreferences, saveSupportRequest, saveSubscriptionRequest, registerPushToken, customerPhotoReviews } from "./customerRequests.server.js";
+
+async function readJsonPayload(request, maxBytes = 8192) {
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+    throw new MobileApiError(415, "INVALID_CONTENT_TYPE", "JSON is required.");
+  }
+  const reader = request.body?.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0, raw = "";
+  try {
+    if (reader) {
+      let chunk = await reader.read();
+      while (!chunk.done) {
+        const { value } = chunk;
+        bytes += value.byteLength;
+        if (bytes > maxBytes) {
+          await reader.cancel();
+          throw new MobileApiError(413, "PAYLOAD_TOO_LARGE", "Request is too large.");
+        }
+        raw += decoder.decode(value, { stream: true });
+        chunk = await reader.read();
+      }
+    }
+    raw += decoder.decode();
+    const input = JSON.parse(raw);
+    if (!input || Array.isArray(input) || typeof input !== "object") throw new Error();
+    return input;
+  } catch (error) {
+    if (error instanceof MobileApiError) throw error;
+    throw new MobileApiError(400, "INVALID_INPUT", "A valid JSON object is required.");
+  } finally {
+    reader?.releaseLock();
+  }
+}
 
 export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
   if (resource === "restock-subscription") {
     if (!subscribe) throw new MobileApiError(503, "NOT_CONFIGURED", "Subscriptions are unavailable.");
-    if (!request.headers.get("content-type")?.startsWith("application/json")) throw new MobileApiError(415, "INVALID_CONTENT_TYPE", "JSON is required.");
-    const raw = await request.text();
-    if (raw.length > 2048) throw new MobileApiError(413, "PAYLOAD_TOO_LARGE", "Request is too large.");
-    let input;
-    try { input = JSON.parse(raw); } catch { throw new MobileApiError(400, "INVALID_INPUT", "Invalid JSON."); }
+    const input = await readJsonPayload(request, 2048);
     const email = typeof input?.email === "string" ? input.email.trim().toLowerCase() : "";
     if (email.length > 254 || !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) throw new MobileApiError(400, "INVALID_EMAIL", "Enter a valid email address.");
     const id = readId(input?.variantId, "ProductVariant");
@@ -28,6 +59,87 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
   if (resource === "order-items") return getCustomerOrderItems({ request, shop, customerQuery });
   if (resource === "orders") return getCustomerOrders({ request, shop, customerQuery, db });
   if (resource === "order-inspection") return getCustomerInspection({ request, shop, verify, graphql, db, customerQuery });
+  if (resource === "order-invoice") {
+    const orderId = readId(new URL(request.url).searchParams.get("orderId"), "Order");
+    // Verify ownership via customerQuery or verify+graphql
+    await getCustomerInspection({ request, shop, verify, graphql, db, customerQuery });
+    const numericOrderId = orderId.split("/").pop();
+    const record = await db.inspectionRecord?.findFirst?.({
+      where: {
+        shop: { in: getShopAliases(shop) },
+        orderId: { in: [orderId, numericOrderId] },
+      },
+      select: {
+        orderId: true,
+        orderName: true,
+        status: true,
+        invoiceNumber: true,
+        invoiceIssuedAt: true,
+        invoiceSnapshot: true,
+        customVat: true,
+      },
+    });
+    return {
+      orderId,
+      orderName: record?.orderName || null,
+      invoiceNumber: record?.invoiceNumber || null,
+      invoiceIssuedAt: record?.invoiceIssuedAt || null,
+      invoiceSnapshot: record?.invoiceSnapshot || null,
+      customVat: record?.customVat ?? null,
+    };
+  }
+  if (resource === "arrivals") {
+    const page = readPage(new URL(request.url).searchParams);
+    if (page.first > 25) throw new MobileApiError(400, "INVALID_LIMIT", "Arrival pages are limited to 25 entries.");
+    if (page.after && !/^[a-zA-Z0-9_-]{1,100}$/.test(page.after)) throw new MobileApiError(400, "INVALID_CURSOR", "Invalid arrival cursor.");
+    const containers = await db.container.findMany({
+      where: {
+        shop: { in: getShopAliases(shop) },
+        status: { in: ["SCHEDULED", "IN_TRANSIT", "ARRIVED"] },
+        ...(page.after ? { id: { gt: page.after } } : {}),
+      },
+      orderBy: { id: "asc" }, take: page.first + 1,
+      select: {
+        id: true, status: true, scheduledDate: true, syncedAt: true,
+        items: { orderBy: { id: "asc" }, take: 51, select: { sku: true, productName: true } },
+      },
+    });
+    const visible = containers.slice(0, page.first);
+    return {
+      containers: visible.map((c) => ({
+        status: c.status, scheduledDate: c.scheduledDate, updatedAt: c.syncedAt,
+        items: (c.items || []).slice(0, 50).map((item) => ({
+          sku: item.sku || null, title: item.productName || "Incoming Item",
+        })),
+        itemsTruncated: (c.items || []).length > 50,
+      })),
+      pagination: { hasNextPage: containers.length > page.first,
+        nextCursor: containers.length > page.first ? visible.at(-1).id : null },
+    };
+  }
+  if (resource === "b2b-inquiry") {
+    return saveBusinessInquiry({ db, shop, input: await readJsonPayload(request, 8192) });
+  }
+  if (resource === "return-request") {
+    return saveReturnRequest({ db, shop, request, customerQuery, input: await readJsonPayload(request, 8192) });
+  }
+  if (resource === "support-request") {
+    return saveSupportRequest({ db, shop, request, verify, input: await readJsonPayload(request, 16384) });
+  }
+  if (resource === "subscription-request") {
+    return saveSubscriptionRequest({ db, shop, request, verify, input: await readJsonPayload(request, 8192) });
+  }
+  if (resource === "push-token") {
+    return registerPushToken({ db, shop, request, verify, input: await readJsonPayload(request, 4096) });
+  }
+  if (resource === "photo-reviews") {
+    return customerPhotoReviews({ db, shop, request, verify,
+      input: request.method === "GET" ? undefined : await readJsonPayload(request, 262144) });
+  }
+  if (resource === "notification-preferences") {
+    return customerNotificationPreferences({ db, shop, request, verify,
+      input: request.method === "GET" ? undefined : await readJsonPayload(request, 4096) });
+  }
   if (resource === "notice") {
     const notice = await db.storefrontNotice.findUnique({
       where: { shop }, select: { isActive: true, noticeVersion: true, title: true, subtext: true, itemsJson: true, updatedAt: true },

@@ -282,6 +282,7 @@ export default function BackInStockProductTable({
                   </td>
 
                   <td style={{ padding: "10px 12px" }}>
+                    {item.reconciliationCount > 0 && <Badge tone="warning">발송됨 · 기록 확인 필요 ({item.reconciliationCount}명)</Badge>}
                     {item.pendingCount > 0 && item.notifiedCount === 0 && (
                       <Badge tone="warning">전송 대기 ({item.pendingCount}명)</Badge>
                     )}
@@ -291,7 +292,7 @@ export default function BackInStockProductTable({
                     {item.pendingCount === 0 && item.notifiedCount > 0 && (
                       <Badge tone="success">전송 완료 ({item.notifiedCount}명)</Badge>
                     )}
-                    {item.pendingCount === 0 && item.notifiedCount === 0 && (
+                    {item.pendingCount === 0 && item.notifiedCount === 0 && !item.reconciliationCount && (
                       <Badge tone="subdued">신청 없음</Badge>
                     )}
                   </td>

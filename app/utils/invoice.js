@@ -5,9 +5,6 @@ import {
   PAYMENT_REFERENCE_PREFIX,
 } from "../constants/company.js";
 
-const DEFAULT_ITEM_TAX_RATE = 7;
-const DEFAULT_SHIPPING_TAX_RATE = 19;
-
 const ORDER_SNAPSHOT_FIELDS = [
   "name",
   "createdAt",
@@ -30,6 +27,10 @@ const ORDER_SNAPSHOT_FIELDS = [
   "totalOutstanding",
   "currencyCode",
   "shippingTaxRate",
+  "originalShippingTaxRate",
+  "shippingTaxAmount",
+  "shippingTaxBreakdown",
+  "taxesIncluded",
   "isB2B",
 ];
 
@@ -148,11 +149,17 @@ export function translatePaymentGateway(gateways) {
 export function computeInvoiceTotals(order, taxDisplayMode) {
   const processedItems = (order.items || []).map((item) => {
     const qty = item.quantity || 0;
-    const origRate = item.originalTaxRate ?? DEFAULT_ITEM_TAX_RATE;
+    const origRate = item.originalTaxRate ?? item.taxRate;
     const currentRate = item.taxRate ?? origRate;
+    if (!Number.isFinite(origRate) || !Number.isFinite(currentRate)) {
+      throw new Error("Actual item tax rates are required for invoice totals");
+    }
 
-    const unitGross = parseFloat(item.priceDiscounted || item.priceOriginal || 0);
-    const unitNet = unitGross / (1 + origRate / 100);
+    const unitPrice = parseFloat(item.priceDiscounted || item.priceOriginal || 0);
+    const unitNet = order.taxesIncluded === false ? unitPrice : unitPrice / (1 + origRate / 100);
+    const originalPrice = parseFloat(item.priceOriginal ?? unitPrice);
+    const originalUnitNet = order.taxesIncluded === false ? originalPrice : originalPrice / (1 + origRate / 100);
+    const originalUnitGross = originalUnitNet * (1 + origRate / 100);
 
     const currentUnitGross = unitNet * (1 + currentRate / 100);
     const totalGross = currentUnitGross * qty;
@@ -161,6 +168,9 @@ export function computeInvoiceTotals(order, taxDisplayMode) {
     return {
       ...item,
       unitNet,
+      originalUnitNet,
+      originalUnitGross,
+      originalRate: origRate,
       unitGross: currentUnitGross,
       totalNet,
       totalGross,
@@ -171,26 +181,52 @@ export function computeInvoiceTotals(order, taxDisplayMode) {
 
   const totalNetItems = processedItems.reduce((acc, i) => acc + i.totalNet, 0);
   const totalOriginalGrossItems = processedItems.reduce(
-    (acc, i) => acc + parseFloat(i.priceOriginal || 0) * (i.quantity || 1),
+    (acc, i) => acc + parseFloat(i.priceOriginal || 0) * (i.quantity ?? 0) * (order.taxesIncluded === false ? 1 + i.currentRate / 100 : 1),
     0,
   );
 
-  const shippingRate = order.shippingTaxRate ?? DEFAULT_SHIPPING_TAX_RATE;
-  const shippingGross = parseFloat(order.totalShipping || 0);
-  const shippingNet = shippingGross / (1 + shippingRate / 100);
-  const shippingVat = shippingGross - shippingNet;
+  const shippingPrice = parseFloat(order.totalShipping || 0);
+  const shippingRate = order.shippingTaxRate ?? (shippingPrice === 0 ? 0 : null);
+  if (!Number.isFinite(shippingRate)) throw new Error("Actual shipping tax rate is required for invoice totals");
+  const originalShippingRate = order.originalShippingTaxRate ?? shippingRate;
+  const actualShippingTax = order.shippingTaxAmount;
+  const hasActualTax = typeof actualShippingTax === "number" && Number.isFinite(actualShippingTax) && actualShippingTax >= 0;
+  const preserveActualTax = hasActualTax && Math.abs(originalShippingRate - shippingRate) < 1e-6;
+  const shippingNet = order.taxesIncluded === false ? shippingPrice : hasActualTax
+    ? shippingPrice - actualShippingTax
+    : shippingPrice / (1 + originalShippingRate / 100);
+  const shippingVat = preserveActualTax ? actualShippingTax : shippingNet * shippingRate / 100;
+  const shippingGross = shippingNet + shippingVat;
+  const itemTaxDelta = processedItems.reduce((sum, item) => sum + item.unitNet * (item.currentRate - item.originalRate) / 100 * (item.quantity || 0), 0);
+  const originalShippingVat = hasActualTax ? actualShippingTax : shippingNet * originalShippingRate / 100;
+  const shippingTaxDelta = Math.abs(originalShippingRate - shippingRate) < 1e-6 ? 0 : shippingVat - originalShippingVat;
+  const taxAdjustment = itemTaxDelta + shippingTaxDelta;
 
   const vatBreakdown = {};
   processedItems.forEach((item) => {
     if (item.currentRate === 0) return;
     vatBreakdown[item.currentRate] = (vatBreakdown[item.currentRate] || 0) + item.totalVat;
   });
-  if (shippingVat > 0 && shippingRate !== 0) {
+  const sourceShippingBreakdown = order.shippingTaxBreakdown;
+  if (preserveActualTax && sourceShippingBreakdown && Object.keys(sourceShippingBreakdown).length > 0) {
+    const entries = Object.entries(sourceShippingBreakdown);
+    if (entries.some(([rate, amount]) => !Number.isFinite(Number(rate)) || Number(rate) < 0 || typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) || Math.abs(entries.reduce((sum, [, amount]) => sum + amount, 0) - actualShippingTax) > 1e-6) {
+      throw new Error("Actual shipping tax breakdown is inconsistent");
+    }
+    for (const [rate, amount] of entries) {
+      if (Number(rate) === 0) continue;
+      vatBreakdown[rate] = (vatBreakdown[rate] || 0) + amount;
+    }
+  } else if (shippingVat > 0 && shippingRate !== 0) {
     vatBreakdown[shippingRate] = (vatBreakdown[shippingRate] || 0) + shippingVat;
   }
 
-  const rawSubtotal = parseFloat(order.subtotalPrice || 0);
-  const rawDiscounts = parseFloat(order.totalDiscounts || 0);
+  const rawSubtotal = order.taxesIncluded === false
+    ? processedItems.reduce((sum, item) => sum + item.totalGross, 0)
+    : parseFloat(order.subtotalPrice || 0);
+  const rawDiscounts = order.taxesIncluded === false
+    ? Math.max(0, totalOriginalGrossItems - rawSubtotal)
+    : parseFloat(order.totalDiscounts || 0);
   const isNet = taxDisplayMode === "NET";
 
   const finalSubtotal = isNet
@@ -208,7 +244,8 @@ export function computeInvoiceTotals(order, taxDisplayMode) {
     vatBreakdown,
     finalSubtotal,
     finalShipping: isNet ? shippingNet : shippingGross,
-    finalTotal: parseFloat(order.totalPrice || 0),
+    finalTotal: taxAdjustment === 0 ? parseFloat(order.totalPrice || 0) : Math.round((parseFloat(order.totalPrice || 0) + taxAdjustment + Number.EPSILON) * 100) / 100,
+    taxAdjustment,
     discount,
     refunded: parseFloat(order.totalRefunded || 0),
   };

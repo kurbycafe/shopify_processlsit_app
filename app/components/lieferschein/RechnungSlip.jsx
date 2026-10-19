@@ -1,3 +1,4 @@
+import { formatTaxPercent } from "../../utils/taxDisplay.js";
 import { COMPANY, getCompanyBankAccount } from "../../constants/company.js";
 import {
   buildPaymentReference,
@@ -136,9 +137,7 @@ function InvoiceItemsTable({ items, currencyCode, taxDisplayMode, showImages, sh
           const unitPrice = isNet ? item.unitNet : item.unitGross;
           const totalPrice = isNet ? item.totalNet : item.totalGross;
 
-          const origUnitGross = parseFloat(item.priceOriginal || 0);
-          const origRate = item.originalTaxRate ?? 7;
-          const origUnitPrice = isNet ? origUnitGross / (1 + origRate / 100) : origUnitGross;
+          const origUnitPrice = isNet ? item.originalUnitNet : item.originalUnitGross;
           const hasDiscount = origUnitPrice > unitPrice + 0.001;
 
           return (
@@ -173,7 +172,7 @@ function InvoiceItemsTable({ items, currencyCode, taxDisplayMode, showImages, sh
                 </span>
               </td>
               <td style={{ textAlign: "center", fontSize: "11px", fontFamily: "monospace" }}>
-                {item.currentRate}%
+                {formatTaxPercent(item.currentRate)}%
               </td>
               <td style={{ textAlign: "right", fontSize: "11px", fontFamily: "monospace" }}>
                 {totalPrice.toFixed(2)} {currencyCode}
@@ -211,7 +210,7 @@ function InvoiceSummaryBlock({ totals, currencyCode, taxDisplayMode }) {
           {Object.entries(vatBreakdown).map(([rate, amount]) => (
             <tr key={rate} style={summaryRowDivider}>
               <td style={{ ...summaryCellLabel, color: "#777", fontStyle: "italic" }}>
-                {isNet ? "zzgl." : "inkl."} {rate}% MwSt.:
+                {isNet ? "zzgl." : "inkl."} {formatTaxPercent(rate)}% MwSt.:
               </td>
               <td style={{ ...summaryCellValue, color: "#777", fontStyle: "italic" }}>
                 {amount.toFixed(2)} {currencyCode}

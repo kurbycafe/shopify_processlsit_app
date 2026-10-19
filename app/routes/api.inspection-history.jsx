@@ -1,5 +1,8 @@
 import { operationalIdentity } from "../services/operationalApi.server.js";
-import { MobileApiError } from "../services/mobileApi.server.js";
+import { unauthenticated } from "../shopify.server.js";
+import { readInspectionOrder, validateInspectionSubstitutes } from "../services/inspectionOrders.server.js";
+import { normalizeOperationalInspectionItems } from "../services/inspectionValidation.js";
+import { MobileApiError, readId } from "../services/mobileApi.server.js";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import dayjs from "dayjs";
 
@@ -38,7 +41,7 @@ function getCorsHeaders(request) {
 
 // GET: 검수 내역 조회 API
 export const loader = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = { ...getCorsHeaders(request), "Cache-Control": "private, no-store", Vary: "Origin" };
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -48,7 +51,6 @@ export const loader = async ({ request }) => {
   const shop = identity.shop;
 
   try {
-    await ensureDatabaseSchema();
     const url = new URL(request.url);
     const orderId = url.searchParams.get("orderId");
     const orderName = url.searchParams.get("orderName");
@@ -56,9 +58,21 @@ export const loader = async ({ request }) => {
     const status = url.searchParams.get("status") || "ALL";
     const startDate = url.searchParams.get("startDate");
     const endDate = url.searchParams.get("endDate");
-    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10), 1), 250);
-    const page = Math.max(parseInt(url.searchParams.get("page") || "1", 10), 1);
+    const readInteger = (name, fallback) => {
+      const raw = (url.searchParams.get(name) || "").trim() || String(fallback);
+      const value = Number(raw);
+      if (!/^-?\d+$/.test(raw) || !Number.isSafeInteger(value)) {
+        throw new MobileApiError(400, "VALIDATION_ERROR", `${name} 값은 정수여야 합니다.`);
+      }
+      return value;
+    };
+    const limit = Math.min(Math.max(readInteger("limit", 50), 1), 250);
+    const page = Math.max(readInteger("page", 1), 1);
     const skip = (page - 1) * limit;
+    // Prisma's integer offset must stay finite and within its supported range.
+    if (!Number.isSafeInteger(skip) || skip > 2_147_483_647) {
+      throw new MobileApiError(400, "VALIDATION_ERROR", "요청한 페이지가 조회 범위를 초과했습니다.");
+    }
 
     const whereClause = { shop };
 
@@ -99,14 +113,25 @@ export const loader = async ({ request }) => {
 
     if (startDate || endDate) {
       whereClause.createdAt = {};
+      const readDate = (value, boundary) => {
+        const date = dayjs(value);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !date.isValid() || date.format("YYYY-MM-DD") !== value) {
+          throw new MobileApiError(400, "VALIDATION_ERROR", "날짜는 올바른 YYYY-MM-DD 형식이어야 합니다.");
+        }
+        return boundary === "start" ? date.startOf("day").toDate() : date.endOf("day").toDate();
+      };
       if (startDate) {
-        whereClause.createdAt.gte = dayjs(startDate).startOf("day").toDate();
+        whereClause.createdAt.gte = readDate(startDate, "start");
       }
       if (endDate) {
-        whereClause.createdAt.lte = dayjs(endDate).endOf("day").toDate();
+        whereClause.createdAt.lte = readDate(endDate, "end");
+      }
+      if (whereClause.createdAt.gte && whereClause.createdAt.lte && whereClause.createdAt.gte > whereClause.createdAt.lte) {
+        throw new MobileApiError(400, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.");
       }
     }
 
+    await ensureDatabaseSchema();
     const [total, records] = await Promise.all([
       prisma.inspectionRecord.count({ where: whereClause }),
       prisma.inspectionRecord.findMany({
@@ -136,13 +161,16 @@ export const loader = async ({ request }) => {
       { headers: corsHeaders }
     );
   } catch (error) {
+    if (error instanceof MobileApiError) {
+      return Response.json({ success: false, error: { code: error.code, message: error.message } }, { status: error.status, headers: corsHeaders });
+    }
     console.error("[API] 검수 내역 조회 오류:", error);
     return Response.json(
       {
         success: false,
         error: {
           code: "FETCH_FAILED",
-          message: error.message || "검수 내역 조회 중 오류가 발생했습니다.",
+          message: "검수 내역 조회 중 오류가 발생했습니다. 다시 시도해 주세요.",
         },
       },
       { status: 500, headers: corsHeaders }
@@ -152,7 +180,7 @@ export const loader = async ({ request }) => {
 
 // POST / PUT: 검수 결과 저장 및 업데이트 API
 export const action = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = { ...getCorsHeaders(request), "Cache-Control": "private, no-store", Vary: "Origin" };
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -162,49 +190,40 @@ export const action = async ({ request }) => {
     if (identity instanceof Response) return identity;
     const shop = identity.shop;
     try {
-      const data = await request.json();
+      let data;
+      try { data = await request.json(); }
+      catch { throw new MobileApiError(400, "VALIDATION_ERROR", "올바른 JSON 검수 데이터를 보내주세요."); }
+      if (!data || typeof data !== "object" || Array.isArray(data)) throw new MobileApiError(400, "VALIDATION_ERROR", "검수 데이터를 확인해 주세요.");
       const {
-        orderId,
-        orderName,
+        orderId: rawOrderId,
+        orderName: suppliedOrderName,
         inspectorName = "외부 API 작업자",
-        items = [],
+        items: suppliedItems = [],
         customShippingAddress = null,
         customBillingAddress = null,
         customVat = null,
       } = data;
 
-      if (!orderId || !orderName) {
-        return Response.json(
-          {
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "필수 항목(orderId, orderName)이 누락되었습니다.",
-            },
-          },
-          { status: 400, headers: corsHeaders }
-        );
+      if (!rawOrderId || !suppliedOrderName || !Array.isArray(suppliedItems) || !suppliedItems.length) {
+        throw new MobileApiError(400,"VALIDATION_ERROR","주문과 검수 상품을 확인해 주세요.");
       }
-
-      // 검수 상태 자동 판별
-      let status = data.status;
-      if (!status) {
-        const hasIssue = items.some((item) => item.issueType != null);
-        const isPartial = items.some(
-          (item) => (item.inspectedQuantity || 0) < (item.orderedQuantity || 0) && !item.issueType
-        );
-
-        if (hasIssue) {
-          status = "ISSUE_REPORTED";
-        } else if (isPartial) {
-          status = "PARTIAL";
-        } else {
-          status = "SUCCESS";
-        }
-      }
+      const orderId=readId(String(rawOrderId),"Order");
+      const { admin }=await unauthenticated.admin(shop);
+      const order=await readInspectionOrder(admin,{id:orderId});
+      if (!order || order.cancelledAt) throw new MobileApiError(404,"ORDER_NOT_FOUND","Order not found.");
+      let items;
+      try { items=normalizeOperationalInspectionItems(suppliedItems,order.lineItems.edges.map(edge=>edge.node)); await validateInspectionSubstitutes(admin,items); }
+      catch(error){throw new MobileApiError(400,"VALIDATION_ERROR",error.message);}
+      const orderName=order.name;
+      const computedStatus=items.some(item=>item.issueType)?"ISSUE_REPORTED":items.some(item=>item.inspectedQuantity<item.orderedQuantity)?"PARTIAL":"SUCCESS";
+      if (data.status && !["PENDING","FAILED","SUCCESS","PARTIAL","ISSUE_REPORTED"].includes(data.status)) throw new MobileApiError(400,"VALIDATION_ERROR","잘못된 검수 상태입니다.");
+      if (data.status==="SUCCESS" && computedStatus!=="SUCCESS") throw new MobileApiError(400,"VALIDATION_ERROR","미완료 검수를 완료 상태로 저장할 수 없습니다.");
+      const status=["PENDING","FAILED"].includes(data.status)?data.status:computedStatus;
+      await ensureDatabaseSchema();
 
       // Transactional record update/upsert
       const record = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${shop}:${orderId}`}, 0))`;
         // Find existing record
         const existing = await tx.inspectionRecord.findUnique({
           where: { orderId },
@@ -233,6 +252,7 @@ export const action = async ({ request }) => {
               completedAt: new Date(),
               items: {
                 create: items.map((item) => ({
+                  orderLineId: item.id,
                   variantId: item.variantId || "N/A",
                   productTitle: item.productTitle || item.title || "미지정 상품",
                   variantTitle: item.variantTitle || "",
@@ -268,7 +288,8 @@ export const action = async ({ request }) => {
             completedAt: new Date(),
             items: {
               create: items.map((item) => ({
-                variantId: item.variantId || "N/A",
+                orderLineId: item.id,
+                  variantId: item.variantId || "N/A",
                 productTitle: item.productTitle || item.title || "미지정 상품",
                 variantTitle: item.variantTitle || "",
                 sku: item.sku || null,
@@ -302,7 +323,7 @@ export const action = async ({ request }) => {
           success: false,
           error: {
             code: "SAVE_FAILED",
-            message: error.message || "검수 내역 저장 중 오류가 발생했습니다.",
+            message: "검수 내역 저장 중 오류가 발생했습니다. 다시 시도해주세요.",
           },
         },
         { status: 500, headers: corsHeaders }

@@ -8,12 +8,16 @@ export function InventorySampleCard({ sampleDebug }) {
       <BlockStack gap="300">
         <InlineStack align="space-between">
           <Text variant="headingMd" as="h3">
-            Shopify 실시간 세금 계산 결과 (샘플 10개 검증)
+            Shopify 세율 참고 결과 (확인된 품목 최대 10개)
           </Text>
           <Text variant="bodySm" tone="subdued">
             배송 기준국가: {sampleDebug.addressUsed?.country} ({sampleDebug.addressUsed?.city} {sampleDebug.addressUsed?.zip})
           </Text>
         </InlineStack>
+
+        <Text as="p" variant="bodySm" tone="subdued">
+          최근 주문 5건의 상품 일부와 제한된 세금 계산 결과를 참고합니다. 전체 상품의 세율을 검증한 자료가 아니며, 확인하지 못한 세율은 미확인으로 표시합니다.
+        </Text>
 
         {sampleDebug.userErrors?.length > 0 && (
           <Banner tone="critical" title="Shopify 세금 계산 API 오류">

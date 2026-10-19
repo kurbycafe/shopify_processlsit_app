@@ -1,3 +1,5 @@
+import { escapeHtml, scriptJson, safeImageUrl } from "./htmlSafety.js";
+
 export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   const {
     activeLocale = "de", // "de", "en", or "ko"
@@ -22,7 +24,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
 
   const title = locData.title || recipe.title || "K-Food Recipe";
   const subtitle = locData.subtitle || "";
-  const introduction = (locData.introduction || recipe.introduction || "").replace(/\n/g, "<br />");
+  const introduction = escapeHtml(locData.introduction || recipe.introduction || "").replace(/\n/g, "<br />");
   
   const rawSteps = Array.isArray(locData.steps) 
     ? locData.steps 
@@ -35,17 +37,17 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
       return `
         <li style="margin-bottom: 16px; font-size: 1.05rem; color: #2d3748; line-height: 1.65; padding-left: 8px;">
           <strong style="color: #008060; font-weight: 700; margin-right: 6px;">Schritt ${idx + 1}.</strong>
-          <span>${cleanStep}</span>
+          <span>${escapeHtml(cleanStep)}</span>
         </li>
       `;
     })
     .filter(Boolean)
     .join("");
 
-  const prepTime = recipe.prepTimeMinutes || 10;
-  const cookTime = recipe.cookTimeMinutes || 15;
+  const prepTime = Math.max(0, Math.min(1440, Number(recipe.prepTimeMinutes) || 0));
+  const cookTime = Math.max(0, Math.min(1440, Number(recipe.cookTimeMinutes) || 0));
   const totalTime = prepTime + cookTime;
-  const baseServings = recipe.servings || 2;
+  const baseServings = Math.max(1, Math.min(99, Number(recipe.servings) || 2));
   const spiceLevel = recipe.spiceLevel ?? 2;
 
   let dietaryFlags = recipe.dietaryFlags;
@@ -71,31 +73,25 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   const spiceLabels = ["Mild / Nicht scharf", "Leicht pikant", "Mittel scharf", "Sehr scharf", "Extrem scharf"];
   const spiceText = spiceLabels[spiceLevel] || "Mittel scharf";
 
-  const products = Array.isArray(recipe.products) ? recipe.products : [];
+  const products = (Array.isArray(recipe.products) ? recipe.products : []).filter(product => /^gid:\/\/shopify\/ProductVariant\/\d+$/.test(product.variantId));
 
   let productsCardsHtml = "";
-  let essentialProductIds = [];
-  let completeProductIds = [];
 
   products.forEach((p) => {
     const isAvailable = p.isAvailable !== false;
     const numericVariantId = String(p.variantId).replace("gid://shopify/ProductVariant/", "");
     const priceFloat = parseFloat(p.price || "0.00");
     const formattedPrice = isNaN(priceFloat) ? "0.00" : priceFloat.toFixed(2);
-    const reqQty = p.requiredQuantity || 1;
+    const reqQty = Math.max(1, Math.min(99, Math.trunc(Number(p.requiredQuantity) || 1)));
     const isEssential = p.matchTier === "PRIMARY";
 
-    completeProductIds.push(numericVariantId);
-    if (isEssential) {
-      essentialProductIds.push(numericVariantId);
-    }
 
     const imgHtml = p.imageUrl
-      ? `<img src="${p.imageUrl}" alt="${p.title}" style="width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0; flex-shrink: 0;" />`
+      ? `<img src="${escapeHtml(safeImageUrl(p.imageUrl))}" alt="${escapeHtml(p.title)}" style="width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0; flex-shrink: 0;" />`
       : `<div style="width: 64px; height: 64px; background: #edf2f7; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #718096; flex-shrink: 0;">No Image</div>`;
 
     const variantLabel = p.variantTitle && p.variantTitle !== "Default Title"
-      ? `<span style="display: inline-block; font-size: 0.8rem; background: #edf2f7; color: #4a5568; padding: 2px 6px; border-radius: 4px; margin-top: 2px;">${p.variantTitle}</span>`
+      ? `<span style="display: inline-block; font-size: 0.8rem; background: #edf2f7; color: #4a5568; padding: 2px 6px; border-radius: 4px; margin-top: 2px;">${escapeHtml(p.variantTitle)}</span>`
       : "";
 
     const stockBadge = isAvailable
@@ -108,12 +104,12 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
           <input type="checkbox" class="recipe-prod-checkbox" ${isAvailable ? 'checked' : 'disabled'} data-variant-id="${numericVariantId}" style="width: 20px; height: 20px; cursor: ${isAvailable ? 'pointer' : 'not-allowed'}; accent-color: #008060; flex-shrink: 0;" />
           ${imgHtml}
           <div style="flex-grow: 1; min-width: 0; padding-right: 12px;">
-            <div style="font-weight: 600; color: #1a202c; font-size: 0.95rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.title}</div>
+            <div style="font-weight: 600; color: #1a202c; font-size: 0.95rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(p.title)}</div>
             <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
               ${variantLabel}
               ${stockBadge}
             </div>
-            <div style="font-weight: 700; color: #008060; font-size: 0.95rem; margin-top: 4px;">${currencySymbol}${formattedPrice}</div>
+            <div style="font-weight: 700; color: #008060; font-size: 0.95rem; margin-top: 4px;">${escapeHtml(currencySymbol)}${formattedPrice}</div>
           </div>
         </div>
         <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
@@ -149,15 +145,15 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   
   ${recipe.imageUrl ? `
   <div style="width: 100%; max-height: 420px; overflow: hidden; background: #f7fafc; position: relative;">
-    <img src="${recipe.imageUrl}" alt="${title}" style="width: 100%; height: 100%; max-height: 420px; object-fit: cover; display: block;" />
+    <img src="${escapeHtml(safeImageUrl(recipe.imageUrl))}" alt="${escapeHtml(title)}" style="width: 100%; height: 100%; max-height: 420px; object-fit: cover; display: block;" />
   </div>
   ` : ""}
 
   <div style="padding: 28px 24px;">
     
     <!-- Title & Subtitle -->
-    <h1 style="font-size: 1.75rem; font-weight: 800; color: #1a202c; line-height: 1.3; margin: 0 0 8px 0;">${title}</h1>
-    ${subtitle ? `<p style="font-size: 1.05rem; color: #718096; margin: 0 0 20px 0; line-height: 1.5;">${subtitle}</p>` : ""}
+    <h1 style="font-size: 1.75rem; font-weight: 800; color: #1a202c; line-height: 1.3; margin: 0 0 8px 0;">${escapeHtml(title)}</h1>
+    ${subtitle ? `<p style="font-size: 1.05rem; color: #718096; margin: 0 0 20px 0; line-height: 1.5;">${escapeHtml(subtitle)}</p>` : ""}
 
     <!-- Metadata Tags Bar -->
     <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #edf2f7;">
@@ -172,7 +168,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
       </span>
       ${dietaryFlags.map(flag => `
         <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; border-radius: 20px; font-size: 0.85rem; font-weight: 500;">
-          ${flag}
+          ${escapeHtml(flag)}
         </span>
       `).join("")}
     </div>
@@ -233,7 +229,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
           </span>
           <div style="text-align: right;">
             <span style="font-size: 0.85rem; color: #718096; display: block;">Gesamtpreis (inkl. MwSt.)</span>
-            <span id="recipe-total-price" style="font-size: 1.4rem; font-weight: 800; color: #008060;">${currencySymbol}0.00</span>
+            <span id="recipe-total-price" style="font-size: 1.4rem; font-weight: 800; color: #008060;">${escapeHtml(currencySymbol)}0.00</span>
           </div>
         </div>
 
@@ -249,7 +245,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
 
   <!-- JSON-LD SEO Injection -->
   <script type="application/ld+json">
-    ${JSON.stringify(jsonLd)}
+    ${scriptJson(jsonLd)}
   </script>
 
   <!-- STOREFRONT INTERACTIVITY SCRIPT -->
@@ -258,7 +254,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
       const widget = document.getElementById('recipe-bundle-widget');
       if (!widget) return;
 
-      const currencySymbol = "${currencySymbol}";
+      const currencySymbol = ${scriptJson(currencySymbol)};
       const baseServings = ${baseServings};
       let currentServings = baseServings;
 
@@ -283,7 +279,8 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
           const price = parseFloat(card.getAttribute('data-price') || '0');
 
           if (checkbox && checkbox.checked && !checkbox.disabled && qtyInput) {
-            const qty = parseInt(qtyInput.value) || 1;
+            const qty = Math.max(1, Math.min(99, parseInt(qtyInput.value) || 1));
+            qtyInput.value = qty;
             total += price * qty;
             count++;
           }
@@ -332,7 +329,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
         if (plus && input) {
           plus.addEventListener('click', () => {
             const val = parseInt(input.value) || 1;
-            input.value = val + 1;
+            input.value = Math.min(99, val + 1);
             recalculate();
           });
         }
@@ -391,13 +388,13 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
             const qtyInput = card.querySelector('.recipe-prod-qty');
             if (cb && cb.checked && !cb.disabled && qtyInput) {
               const variantId = cb.getAttribute('data-variant-id');
-              const quantity = parseInt(qtyInput.value) || 1;
+              const quantity = Math.max(1, Math.min(99, parseInt(qtyInput.value) || 1));
               items.push({
                 id: variantId,
                 quantity: quantity,
                 properties: {
-                  '_recipe_id': '${recipe.id}',
-                  '_recipe_title': '${title.replace(/'/g, "\\'")}'
+                  '_recipe_id': ${scriptJson(String(recipe.id || ''))},
+                  '_recipe_title': ${scriptJson(title)}
                 }
               });
             }

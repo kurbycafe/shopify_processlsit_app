@@ -124,7 +124,7 @@ test("bulk print tokens generate and verify cleanly across 100 items", async () 
   process.env.SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL || "https://example.com";
   process.env.SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || "test-api-key";
   process.env.SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || "test-secret-for-tokens";
-  const { generatePrintToken, verifyPrintToken } = await import("../app/shopify.server.js");
+  const { generatePrintToken, verifyPrintToken } = await import("../app/utils/printTokens.js");
   const shop = "dawayo.myshopify.com";
   const rawIds = Array.from({ length: 100 }, (_, i) => String(1000 + i));
   const tokens = rawIds.map((id) => generatePrintToken(id, shop));

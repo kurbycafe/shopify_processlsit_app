@@ -1,9 +1,13 @@
-import { useLoaderData, useFetcher, useNavigate } from "react-router";
-import { useState, useEffect } from "react";
-import { unauthenticated, verifyPrintToken } from "../shopify.server";
+import { useLoaderData, useFetcher } from "react-router";
+import { useState, useEffect, useCallback } from "react";
+import { authenticate, unauthenticated, verifyPrintToken } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
-import { handleIssueInvoiceIntent, issueInvoiceForOrder } from "../services/invoiceService.server.js";
+import { handleIssueInvoiceIntent } from "../services/invoiceService.server.js";
+import { completeOrderLineItems, readOrderNodes } from "../services/orderPagination.server.js";
+import { resolveTaxRate, resolveShippingTaxDetails } from "../services/invoiceTax.js";
+import { taxRateOptions } from "../utils/taxDisplay.js";
+import { saveOrderAddress, verifyInvoiceOrderAccess } from "../services/orderAddress.server.js";
 import { pickInvoiceSnapshot, resolveInvoiceView } from "../utils/invoice.js";
 import Code128 from "../components/lieferschein/Code128.jsx";
 import CompanyFooter from "../components/lieferschein/CompanyFooter.jsx";
@@ -29,10 +33,8 @@ export const links = () => [
   { rel: "stylesheet", href: styles },
 ];
 
-const jsonResponse = (data) =>
-  new Response(JSON.stringify(data), {
-    headers: { "Content-Type": "application/json" },
-  });
+const jsonResponse = (data, init = {}) =>
+  new Response(JSON.stringify(data), { ...init, headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", ...init.headers } });
 
 function checkIsB2B(shippingAddress) {
   if (!shippingAddress) return false;
@@ -62,7 +64,6 @@ function checkIsB2B(shippingAddress) {
 }
 
 export const action = async ({ request, params }) => {
-  await ensureDatabaseSchema();
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
   const tokensStr = url.searchParams.get("tokens") || "";
@@ -82,80 +83,24 @@ export const action = async ({ request, params }) => {
     }
   }
 
-  const { admin } = await unauthenticated.admin(shop);
+  // A signed print URL grants read access only. Writes also require the current staff session.
+  const { admin, session } = await authenticate.admin(request);
+  if (session.shop !== shop) return new Response("Forbidden", { status: 403 });
+  await ensureDatabaseSchema();
   const formData = await request.formData();
   const intent = formData.get("intent");
 
   if (intent === "save_address") {
-    const orderId = `gid://shopify/Order/${params.id}`;
-    const orderName = formData.get("orderName") || "N/A";
-    const customShippingAddress = JSON.parse(formData.get("shippingAddress") || "null");
-    const customBillingAddress = JSON.parse(formData.get("billingAddress") || "null");
-    const customVat = formData.get("customVat") || "";
-    const customerId = formData.get("customerId") || "";
-
-    // 1. Local database save
-    await prisma.inspectionRecord.upsert({
-      where: { orderId },
-      update: {
-        customShippingAddress,
-        customBillingAddress,
-        customVat,
-      },
-      create: {
-        orderId,
-        orderName,
-        shop: shop,
-        status: "PENDING",
-        customShippingAddress,
-        customBillingAddress,
-        customVat,
-      },
-    });
-
-    // 2. Attempt to update Shopify customer metafield
-    if (customerId) {
-      try {
-        const response = await admin.graphql(`
-          #graphql
-          mutation setCustomerVat($metafields: [MetafieldsSetInput!]!) {
-            metafieldsSet(metafields: $metafields) {
-              metafields {
-                id
-                value
-              }
-              userErrors {
-                field
-                message
-              }
-            }
-          }
-        `, {
-          variables: {
-            metafields: [
-              {
-                ownerId: customerId,
-                namespace: "custom",
-                key: "vat",
-                type: "single_line_text_field",
-                value: customVat,
-              }
-            ]
-          }
-        });
-        const resJson = await response.json();
-        if (resJson?.data?.metafieldsSet?.userErrors?.length > 0) {
-          console.warn("Shopify customer VAT metafield update user errors:", resJson.data.metafieldsSet.userErrors);
-        }
-      } catch (err) {
-        console.error("Failed to update Shopify customer VAT metafield:", err);
-      }
+    try {
+      return jsonResponse(await saveOrderAddress({ admin, db: prisma, shop: session.shop, rawId: params.id, formData }));
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, { status: 400 });
     }
-
-    return jsonResponse({ success: true });
   }
 
   if (intent === "issue_invoice") {
+    try { await verifyInvoiceOrderAccess(admin, params.id.split(",").map(id => id.trim())); }
+    catch (error) { return jsonResponse({ success: false, error: error.message }, { status: 403 }); }
     const result = await handleIssueInvoiceIntent({
       shop,
       formData,
@@ -168,14 +113,13 @@ export const action = async ({ request, params }) => {
 };
 
 export const loader = async ({ request, params }) => {
-  await ensureDatabaseSchema();
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
   const tokensStr = url.searchParams.get("tokens") || "";
   const tokens = tokensStr.split(",");
 
-  const rawIds = params.id.split(",");
-  const orderGids = rawIds.map(id => `gid://shopify/Order/${id.trim()}`);
+  const rawIds = params.id.split(",").map(id => id.trim()).filter(Boolean);
+  const orderGids = rawIds.map(id => id.startsWith("draft-") ? `gid://shopify/DraftOrder/${id.slice(6)}` : `gid://shopify/Order/${id}`);
 
   if (!shop) {
     return jsonResponse({ orders: null, error: "Missing shop parameter" });
@@ -191,9 +135,10 @@ export const loader = async ({ request, params }) => {
   }
 
   try {
+    await ensureDatabaseSchema();
     const { admin } = await unauthenticated.admin(shop);
 
-    const response = await admin.graphql(`
+    const nodes = await readOrderNodes(admin, `
       #graphql
       query getDetailedOrders($ids: [ID!]!) {
         nodes(ids: $ids) {
@@ -231,6 +176,7 @@ export const loader = async ({ request, params }) => {
                 value
               }
             }
+            taxesIncluded
             taxLines {
               title
               rate
@@ -261,10 +207,13 @@ export const loader = async ({ request, params }) => {
             }
             totalRefundedSet { shopMoney { amount currencyCode } }
             totalOutstandingSet { shopMoney { amount currencyCode } }
-            shippingLines(first: 1) {
+            shippingLines(first: 10) {
+              pageInfo { hasNextPage endCursor }
               edges {
                 node {
+                  id
                   title
+                  taxLines { rate priceSet { shopMoney { amount currencyCode } } }
                 }
               }
             }
@@ -275,10 +224,14 @@ export const loader = async ({ request, params }) => {
               name company address1 address2 zip city country phone countryCode
             }
             lineItems(first: 50) {
+
+              pageInfo { hasNextPage endCursor }
               edges {
                 node {
                   id
                   title
+                  sku
+                  variantTitle
                   quantity
                   originalUnitPriceSet { shopMoney { amount currencyCode } }
                   discountedUnitPriceSet { shopMoney { amount currencyCode } }
@@ -326,33 +279,224 @@ export const loader = async ({ request, params }) => {
               }
             }
           }
+          ... on DraftOrder {
+            id
+            name
+            createdAt
+            email
+            note: note2
+            status
+            tags
+            customAttributes {
+              key
+              value
+            }
+            customer {
+              id
+              numberOfOrders
+              vat: metafield(namespace: "custom", key: "vat") {
+                id
+                value
+              }
+            }
+            draftTaxesIncluded: taxesIncluded
+            draftTaxLines: taxLines {
+              title
+              rate
+              priceSet { shopMoney { amount currencyCode } }
+            }
+            draftTotalPriceSet: totalPriceSet { shopMoney { amount currencyCode } }
+            draftSubtotalPriceSet: subtotalPriceSet { shopMoney { amount currencyCode } }
+            draftTotalTaxSet: totalTaxSet { shopMoney { amount currencyCode } }
+            draftTotalShippingPriceSet: totalShippingPriceSet { shopMoney { amount currencyCode } }
+            draftTotalDiscountsSet: totalDiscountsSet { shopMoney { amount currencyCode } }
+            draftShippingLine: shippingLine {
+              title
+            }
+            draftBillingAddress: billingAddress {
+              name company address1 address2 zip city country phone countryCode
+            }
+            draftShippingAddress: shippingAddress {
+              name company address1 address2 zip city country phone countryCode
+            }
+            draftLineItems: lineItems(first: 50) {
+              pageInfo { hasNextPage endCursor }
+              edges {
+                node {
+                  id
+                  title
+                  name
+                  sku
+                  quantity
+                  originalUnitPriceSet { shopMoney { amount currencyCode } }
+                  discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                  originalTotalSet { shopMoney { amount currencyCode } }
+                  discountedTotalSet { shopMoney { amount currencyCode } }
+                  appliedDiscount {
+                    amount
+                    title
+                    value
+                    valueType
+                  }
+                  taxable
+                  taxLines {
+                    title
+                    rate
+                    priceSet { shopMoney { amount currencyCode } }
+                  }
+                  variant {
+                    id
+                    title
+                    sku
+                    barcode
+                    price
+                    compareAtPrice
+                    inventoryItem {
+                      measurement {
+                        weight {
+                          value
+                          unit
+                        }
+                      }
+                    }
+                    image { url src } 
+                    product {
+                      featuredImage { url src } 
+                      germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                      expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                      position: metafield(namespace: "custom", key: "position") { value }
+                      producttype: metafield(namespace: "custom", key: "producttype") { value }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
-    `, {
-      variables: {
-        ids: orderGids
-      }
-    });
+    `, orderGids);
 
-    const responseJson = await response.json();
-    if (responseJson?.errors?.length > 0) {
-      throw new Error(responseJson.errors.map(e => e.message).join(", "));
+    // Fallback lookup: if any numeric order was queried as Order but returned null, try DraftOrder
+    const nullIndices = [];
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i] === null && !rawIds[i].startsWith("draft-") && !rawIds[i].startsWith("order-")) {
+        nullIndices.push(i);
+      }
     }
 
-    const nodes = responseJson?.data?.nodes || [];
+    if (nullIndices.length > 0) {
+      const fallbackDraftGids = nullIndices.map(i => `gid://shopify/DraftOrder/${rawIds[i]}`);
+      try {
+        const draftNodes = await readOrderNodes(admin, `
+          #graphql
+          query getDetailedFallbackDrafts($ids: [ID!]!) {
+            nodes(ids: $ids) {
+              ... on DraftOrder {
+                id
+                name
+                createdAt
+                email
+                note: note2
+                status
+                tags
+                customAttributes { key value }
+                customer {
+                  id
+                  numberOfOrders
+                  vat: metafield(namespace: "custom", key: "vat") { id value }
+                }
+                draftTaxesIncluded: taxesIncluded
+                draftTaxLines: taxLines {
+                  title
+                  rate
+                  priceSet { shopMoney { amount currencyCode } }
+                }
+                draftTotalPriceSet: totalPriceSet { shopMoney { amount currencyCode } }
+                draftSubtotalPriceSet: subtotalPriceSet { shopMoney { amount currencyCode } }
+                draftTotalTaxSet: totalTaxSet { shopMoney { amount currencyCode } }
+                draftTotalShippingPriceSet: totalShippingPriceSet { shopMoney { amount currencyCode } }
+                draftTotalDiscountsSet: totalDiscountsSet { shopMoney { amount currencyCode } }
+                draftShippingLine: shippingLine { title }
+                draftBillingAddress: billingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                draftShippingAddress: shippingAddress {
+                  name company address1 address2 zip city country phone countryCode
+                }
+                draftLineItems: lineItems(first: 50) {
+                  pageInfo { hasNextPage endCursor }
+                  edges {
+                    node {
+                      id
+                      title
+                      name
+                      sku
+                      quantity
+                      originalUnitPriceSet { shopMoney { amount currencyCode } }
+                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
+                      originalTotalSet { shopMoney { amount currencyCode } }
+                      discountedTotalSet { shopMoney { amount currencyCode } }
+                      appliedDiscount { amount title value valueType }
+                      taxable
+                      taxLines {
+                        title
+                        rate
+                        priceSet { shopMoney { amount currencyCode } }
+                      }
+                      variant {
+                        id
+                        title
+                        sku
+                        barcode
+                        price
+                        compareAtPrice
+                        inventoryItem { measurement { weight { value unit } } }
+                        image { url src } 
+                        product {
+                          featuredImage { url src } 
+                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                          position: metafield(namespace: "custom", key: "position") { value }
+                          producttype: metafield(namespace: "custom", key: "producttype") { value }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `, fallbackDraftGids);
+
+        for (let j = 0; j < nullIndices.length; j++) {
+          if (draftNodes[j]) {
+            nodes[nullIndices[j]] = draftNodes[j];
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn("Fallback draft order lookup error:", fallbackErr);
+      }
+    }
+
     const ordersData = [];
 
     for (const node of nodes) {
       if (!node) continue;
+      const isDraft = node.id && node.id.includes("DraftOrder");
+      await completeOrderLineItems(admin, node);
 
       const soldOutActionAttr = (node.customAttributes || []).find(attr => attr.key === "sold_out_action");
       const soldOutAction = soldOutActionAttr ? soldOutActionAttr.value : null;
 
-      console.log("Order Name:", node.name, "Custom Attributes:", node.customAttributes, "Sold Out Action:", soldOutAction);
+      const shippingTitle = isDraft
+        ? (node.draftShippingLine?.title || node.shippingLine?.title || "Standard Delivery")
+        : (node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery");
 
-      const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || "Standard Delivery";
+      const lineItemsEdges = isDraft
+        ? (node.draftLineItems?.edges || node.lineItems?.edges || [])
+        : (node.lineItems?.edges || []);
 
-      const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
+      const rawItems = lineItemsEdges.map((itemEdge) => {
         const item = itemEdge.node;
         const variant = item.variant;
         const product = variant?.product;
@@ -368,7 +512,7 @@ export const loader = async ({ request, params }) => {
         else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
         else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
 
-        const titleKey = (item.title || "").replace(/["']/g, "").trim().toUpperCase();
+        const titleKey = (item.title || item.name || "").replace(/["']/g, "").trim().toUpperCase();
 
         const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? 0;
         const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? "GRAMS";
@@ -385,45 +529,49 @@ export const loader = async ({ request, params }) => {
         const unitOriginalRaw = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0.00");
         const compareAtPriceRaw = parseFloat(variant?.compareAtPrice || "0.00");
 
-        let unitDiscountedRaw = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || "0.00");
+        let unitDiscountedRaw = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || item.originalUnitPriceSet?.shopMoney?.amount || "0.00");
 
-        // Calculate discount allocations if present (e.g. Draft order / Order level percentage discounts)
-        const totalAllocatedDiscount = (item.discountAllocations || []).reduce((sum, alloc) => {
-          return sum + parseFloat(alloc.allocatedAmountSet?.shopMoney?.amount || "0.00");
-        }, 0);
+        if (isDraft && item.appliedDiscount) {
+          const disc = item.appliedDiscount;
+          const discVal = parseFloat(disc.value || disc.amount || "0");
+          if (disc.valueType === "PERCENTAGE" && discVal > 0) {
+            unitDiscountedRaw = Math.max(0, unitOriginalRaw * (1 - discVal / 100));
+          } else if (discVal > 0) {
+            const allocPerUnit = discVal / (item.quantity || 1);
+            unitDiscountedRaw = Math.max(0, unitOriginalRaw - allocPerUnit);
+          }
+        } else {
+          const totalAllocatedDiscount = (item.discountAllocations || []).reduce((sum, alloc) => {
+            return sum + parseFloat(alloc.allocatedAmountSet?.shopMoney?.amount || "0.00");
+          }, 0);
 
-        if (totalAllocatedDiscount > 0 && item.quantity > 0) {
-          const allocPerUnit = totalAllocatedDiscount / item.quantity;
-          unitDiscountedRaw = Math.max(0, unitOriginalRaw - allocPerUnit);
+          if (totalAllocatedDiscount > 0 && item.quantity > 0) {
+            const allocPerUnit = totalAllocatedDiscount / item.quantity;
+            unitDiscountedRaw = Math.max(0, unitOriginalRaw - allocPerUnit);
+          }
         }
 
         let effectiveOriginalUnitPrice = unitOriginalRaw;
-        if (compareAtPriceRaw > unitOriginalRaw && (totalAllocatedDiscount > 0 || unitDiscountedRaw < unitOriginalRaw)) {
+        if (compareAtPriceRaw > unitOriginalRaw && (unitDiscountedRaw < unitOriginalRaw)) {
           effectiveOriginalUnitPrice = compareAtPriceRaw;
         }
 
         const priceOriginal = effectiveOriginalUnitPrice.toFixed(2);
         const priceDiscounted = unitDiscountedRaw.toFixed(2);
-        const totalOriginal = (effectiveOriginalUnitPrice * (item.quantity || 1)).toFixed(2);
-        const totalDiscounted = (unitDiscountedRaw * (item.quantity || 1)).toFixed(2);
+        const totalOriginal = (effectiveOriginalUnitPrice * (item.quantity ?? 0)).toFixed(2);
+        const totalDiscounted = (unitDiscountedRaw * (item.quantity ?? 0)).toFixed(2);
 
-        const lineTaxLines = item.taxLines || [];
-        let originalTaxRate = 0;
-        if (item.taxable && lineTaxLines.length > 0) {
-          originalTaxRate = Math.round(lineTaxLines[0].rate * 100);
-        } else if (item.taxable) {
-          originalTaxRate = 7;
-        }
+        const originalTaxRate = resolveTaxRate(item.taxLines, item.taxable);
 
         return {
           id: item.id,
-          title: (item.title || "").replace(" - Default Title", ""),
+          title: (item.title || item.name || "").replace(" - Default Title", ""),
           quantity: item.quantity || 0,
-          sku: variant?.sku || "",
+          sku: item.sku || variant?.sku || "",
           weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
           gramsTotal: grams * (item.quantity || 0),
           barcode: variant?.barcode || "",
-          variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
+          variantTitle: (item.variantTitle || variant?.title) === "Default Title" ? "" : (item.variantTitle || variant?.title || ""),
           imageUrl,
           isIcePackage,
           germanTranslation: product?.germanTranslation?.value || "",
@@ -460,11 +608,13 @@ export const loader = async ({ request, params }) => {
         events: cancelEventsList,
       });
 
-      const hasCancellationRequest = detection.hasCancellationRequest;
-      const hasReturnRequest = detection.hasReturnRequest;
-      const isCustomerHold = detection.isCustomerHold;
+      const hasCancellationRequest = isDraft ? false : detection.hasCancellationRequest;
+      const hasReturnRequest = isDraft ? false : detection.hasReturnRequest;
+      const isCustomerHold = isDraft ? false : detection.isCustomerHold;
 
-      const isB2B = checkIsB2B(node.shippingAddress);
+      const currentShippingAddress = isDraft ? (node.draftShippingAddress || node.shippingAddress) : node.shippingAddress;
+      const currentBillingAddress = isDraft ? (node.draftBillingAddress || node.billingAddress) : node.billingAddress;
+      const isB2B = checkIsB2B(currentShippingAddress);
 
       let dbRecord = null;
       try {
@@ -482,26 +632,46 @@ export const loader = async ({ request, params }) => {
         }
       }
 
-      const taxLines = (node.taxLines || []).map((tl) => ({
+      const rawTaxLines = isDraft ? (node.draftTaxLines || node.taxLines || []) : (node.taxLines || []);
+      const taxLines = rawTaxLines.map((tl) => ({
         title: tl.title,
         ratePercent: (tl.rate * 100).toFixed(0),
         amount: tl.priceSet?.shopMoney?.amount || "0.00",
       }));
 
+      const totalPrice = (isDraft ? (node.draftTotalPriceSet || node.totalPriceSet) : node.totalPriceSet)?.shopMoney?.amount || "0.00";
+      const subtotalPrice = (isDraft ? (node.draftSubtotalPriceSet || node.subtotalPriceSet) : node.subtotalPriceSet)?.shopMoney?.amount || "0.00";
+      const totalTax = (isDraft ? (node.draftTotalTaxSet || node.totalTaxSet) : node.totalTaxSet)?.shopMoney?.amount || "0.00";
+      const totalShipping = (isDraft ? (node.draftTotalShippingPriceSet || node.totalShippingPriceSet) : node.totalShippingPriceSet)?.shopMoney?.amount || "0.00";
+      const totalDiscounts = (isDraft ? (node.draftTotalDiscountsSet || node.totalDiscountsSet) : node.totalDiscountsSet)?.shopMoney?.amount || "0.00";
+      const totalRefunded = isDraft ? "0.00" : (node.totalRefundedSet?.shopMoney?.amount || "0.00");
+      const totalOutstanding = isDraft ? (node.status === "COMPLETED" ? "0.00" : totalPrice) : (node.totalOutstandingSet?.shopMoney?.amount || "0.00");
+      const currencyCode = (isDraft ? (node.draftTotalPriceSet || node.totalPriceSet) : node.totalPriceSet)?.shopMoney?.currencyCode || "EUR";
+      const taxesIncluded = isDraft ? (node.draftTaxesIncluded ?? (node.taxesIncluded !== false)) : (node.taxesIncluded !== false);
+
+      const shippingLinesConn = isDraft
+        ? { edges: [{ node: { id: "draft-shipping", title: shippingTitle, taxLines: [] } }] }
+        : node.shippingLines;
+
+      const financialStatus = isDraft
+        ? (node.status === "COMPLETED" ? "PAID" : (node.status === "INVOICE_SENT" ? "PENDING" : "OPEN"))
+        : (node.displayFinancialStatus || "UNKNOWN");
+
       const orderData = {
         id: node.id,
         name: node.name,
+        isDraft,
         createdAt: node.createdAt ? new Date(node.createdAt).toLocaleDateString("de-DE") : "-",
         createdTime: node.createdAt
           ? new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
           : "-",
         email: node.email || "-",
         note: node.note || "",
-        financialStatus: node.displayFinancialStatus || "UNKNOWN",
-        paymentGatewayNames: node.paymentGatewayNames || [],
+        financialStatus,
+        paymentGatewayNames: isDraft ? ["Draft Order"] : (node.paymentGatewayNames || []),
         shippingMethod: shippingTitle,
-        billingAddress: node.billingAddress || null,
-        shippingAddress: node.shippingAddress || null,
+        billingAddress: currentBillingAddress || null,
+        shippingAddress: currentShippingAddress || null,
         hasIcePackage,
         totalWeightKg: (totalGrams / 1000).toFixed(3),
         totalOrderQty,
@@ -514,21 +684,22 @@ export const loader = async ({ request, params }) => {
         hasCancellationRequest,
         hasReturnRequest,
         isCustomerHold,
-        cancelReason: detection.cancelReason || node.cancelReason || null,
-        totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
-        subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
-        totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
-        totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
-        totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
-        totalRefunded: node.totalRefundedSet?.shopMoney?.amount || "0.00",
-        totalOutstanding: node.totalOutstandingSet?.shopMoney?.amount || "0.00",
-        currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
+        cancelReason: isDraft ? null : (detection.cancelReason || node.cancelReason || null),
+        totalPrice,
+        subtotalPrice,
+        totalTax,
+        totalShipping,
+        totalDiscounts,
+        totalRefunded,
+        totalOutstanding,
+        currencyCode,
         customShippingAddress: dbRecord?.customShippingAddress || null,
         customBillingAddress: dbRecord?.customBillingAddress || null,
         customVat: dbRecord?.customVat || node.customer?.vat?.value || null,
         customerId: node.customer?.id || null,
         taxLines,
-        shippingTaxRate: taxLines.length > 0 ? parseInt(taxLines[0].ratePercent) : 19,
+        ...resolveShippingTaxDetails(shippingLinesConn, totalShipping, taxesIncluded),
+        taxesIncluded,
         soldOutAction,
         customAttributes: node.customAttributes || [],
       };
@@ -539,50 +710,38 @@ export const loader = async ({ request, params }) => {
         snapshot: dbRecord.invoiceSnapshot,
       } : null;
 
-      if (!invoice) {
-        try {
-          const snapshot = pickInvoiceSnapshot({
-            order: orderData,
-            taxDisplayMode: isB2B ? "NET" : "GROSS",
-            taxExemptionNote: "",
-          });
-          invoice = await issueInvoiceForOrder({
-            shop: shop || "dawayo.myshopify.com",
-            orderId: node.id,
-            orderName: node.name,
-            snapshot,
-          });
-        } catch (invoiceErr) {
-          console.error("Auto invoice issuance in print loader failed:", invoiceErr);
-        }
-      }
-
       orderData.invoice = invoice;
       ordersData.push(orderData);
     }
 
     const loadedGids = new Set(ordersData.map((o) => o.id));
-    const missingRawIds = rawIds.filter((rawId) => !loadedGids.has(`gid://shopify/Order/${rawId}`));
+    const missingRawIds = rawIds.filter((rawId) => {
+      const cleanId = rawId.replace(/^draft-/, "");
+      return !loadedGids.has(`gid://shopify/Order/${cleanId}`) && !loadedGids.has(`gid://shopify/DraftOrder/${cleanId}`);
+    });
 
     let missingOrders = [];
     if (missingRawIds.length > 0) {
       try {
-        const missingGids = missingRawIds.map((id) => `gid://shopify/Order/${id}`);
+        const missingGids = missingRawIds.flatMap((id) => {
+          const cleanId = id.replace(/^draft-/, "");
+          return [`gid://shopify/Order/${cleanId}`, `gid://shopify/DraftOrder/${cleanId}`];
+        });
         const dbRecords = await prisma.inspectionRecord.findMany({
-          where: { orderId: { in: missingGids } },
+          where: { shop: shop, orderId: { in: missingGids } },
           select: { orderId: true, orderName: true },
         });
         const nameMap = new Map(dbRecords.map((r) => [r.orderId, r.orderName]));
         missingOrders = missingRawIds.map((id) => {
-          const gid = `gid://shopify/Order/${id}`;
+          const cleanId = id.replace(/^draft-/, "");
           return {
             id,
-            name: nameMap.get(gid) || `#${id}`,
+            name: nameMap.get(`gid://shopify/DraftOrder/${cleanId}`) || nameMap.get(`gid://shopify/Order/${cleanId}`) || `#${cleanId}`,
           };
         });
       } catch (dbErr) {
         console.warn("Failed to lookup missing order names from DB:", dbErr);
-        missingOrders = missingRawIds.map((id) => ({ id, name: `#${id}` }));
+        missingOrders = missingRawIds.map((id) => ({ id, name: `#${id.replace(/^draft-/, "")}` }));
       }
     }
 
@@ -648,7 +807,6 @@ const translatePaymentGateway = (gateways) => {
 export default function OrderPrintDetailPage() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
-  const navigate = useNavigate();
 
   const [orders, setOrders] = useState(loaderData?.orders || []);
   const requestedCount = loaderData?.requestedCount || orders.length;
@@ -721,12 +879,7 @@ export default function OrderPrintDetailPage() {
       const hasB2B = loaderData.orders.some(ord => ord.isB2B);
       setTaxDisplayMode(hasB2B ? "NET" : "GROSS");
 
-      const hasZeroTax = loaderData.orders.some(ord => ord.items.some(i => i.originalTaxRate === 0));
-      if (hasZeroTax) {
-        setTaxExemptionNote("Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge)");
-      } else {
-        setTaxExemptionNote("");
-      }
+      setTaxExemptionNote("");
     }
   }, [loaderData]);
 
@@ -771,16 +924,15 @@ export default function OrderPrintDetailPage() {
       }
     );
 
-    // Update local preview state for the first order
-    setOrders(prev => prev.map((o, idx) => idx === 0 ? {
-      ...o,
-      customShippingAddress: shippingEdit,
-      customBillingAddress: billingEdit,
-      customVat: customVat,
-    } : o));
+
   };
 
   const [pendingPrint, setPendingPrint] = useState(false);
+  useEffect(() => {
+    const updated = fetcher.data?.success && fetcher.data.updatedOrder;
+    if (updated) setOrders(previous => previous.map(order => order.id === updated.id ? { ...order, ...updated } : order));
+  }, [fetcher.data]);
+
 
   useEffect(() => {
     const issued = fetcher.data?.success ? fetcher.data.invoices : null;
@@ -789,7 +941,7 @@ export default function OrderPrintDetailPage() {
     }
   }, [fetcher.data]);
 
-  const triggerBrowserPrint = () => {
+  const triggerBrowserPrint = useCallback(() => {
     const originalTitle = document.title;
     if (orders.length === 1) {
       const o = orders[0];
@@ -814,7 +966,7 @@ export default function OrderPrintDetailPage() {
     setTimeout(() => {
       document.title = originalTitle;
     }, 50);
-  };
+  }, [orders, docMode]);
 
   useEffect(() => {
     if (pendingPrint && orders.length > 0 && orders.every(o => o.invoice?.invoiceNumber)) {
@@ -823,7 +975,7 @@ export default function OrderPrintDetailPage() {
         triggerBrowserPrint();
       }, 50);
     }
-  }, [pendingPrint, orders]);
+  }, [pendingPrint, orders, triggerBrowserPrint]);
 
   useEffect(() => {
     if (pendingPrint && fetcher.state === "idle" && fetcher.data && !fetcher.data?.success) {
@@ -898,18 +1050,6 @@ export default function OrderPrintDetailPage() {
     const isInternational = order.shippingAddress?.country &&
       order.shippingAddress.country !== "Germany" &&
       order.shippingAddress.countryCode !== "DE";
-
-    const methodUpper = order.shippingMethod.toUpperCase();
-    let shippingBadgeText = null;
-    if (methodUpper.includes("DHL")) {
-      shippingBadgeText = "DHL Standard";
-    } else if (methodUpper.includes("UPS EXPRESS SAVER")) {
-      shippingBadgeText = "UPS Express Saver";
-    } else if (methodUpper.includes("UPS EXPRESS")) {
-      shippingBadgeText = "UPS Express";
-    } else if (methodUpper.includes("UPS STANDARD")) {
-      shippingBadgeText = "UPS Standard";
-    }
 
     const currentBillingAddress = order.customBillingAddress || order.billingAddress;
     const currentShippingAddress = order.customShippingAddress || order.shippingAddress;
@@ -1242,6 +1382,13 @@ export default function OrderPrintDetailPage() {
           )}
 
           <Layout>
+            {fetcher.state === "idle" && fetcher.data?.success === false && (
+              <Layout.Section>
+                <Banner tone="critical" title="저장하지 못했습니다.">
+                  <p>{fetcher.data.error || "다시 시도해 주세요."}</p>
+                </Banner>
+              </Layout.Section>
+            )}
             {/* 왼쪽: 주소 편집기 */}
             {orders.length === 1 ? (
               <Layout.Section variant="oneThird">
@@ -1293,13 +1440,9 @@ export default function OrderPrintDetailPage() {
                       />
                       <Select
                         label="배송비 세율 (MwSt.)"
-                        options={[
-                          { label: '0%', value: '0' },
-                          { label: '7%', value: '7' },
-                          { label: '19%', value: '19' },
-                        ]}
-                        value={String(order.shippingTaxRate ?? 19)}
-                        onChange={(val) => handleShippingTaxRateChange(order.id, parseInt(val))}
+                        options={taxRateOptions(order.shippingTaxRate, order.originalShippingTaxRate ?? order.shippingTaxRate, order.shippingTaxBreakdown)}
+                        value={String(order.shippingTaxRate ?? 0)}
+                        onChange={(val) => handleShippingTaxRateChange(order.id, Number(val))}
                       />
                       <TextField
                         label="세금 면제 안내 문구 (0% 적용시 출력)"
@@ -1320,13 +1463,9 @@ export default function OrderPrintDetailPage() {
                               <Select
                                 label=""
                                 labelHidden
-                                options={[
-                                  { label: '0%', value: '0' },
-                                  { label: '7%', value: '7' },
-                                  { label: '19%', value: '19' },
-                                ]}
-                                value={String(item.taxRate ?? 7)}
-                                onChange={(val) => handleTaxRateChange(order.id, item.id, parseInt(val))}
+                                options={taxRateOptions(item.taxRate, item.originalTaxRate)}
+                                value={String(item.taxRate ?? 0)}
+                                onChange={(val) => handleTaxRateChange(order.id, item.id, Number(val))}
                               />
                             </div>
                           </div>

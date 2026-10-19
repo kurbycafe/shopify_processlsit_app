@@ -14,7 +14,7 @@ export const action = async ({ request }) => {
       const { admin } = await unauthenticated.admin(cleanShop);
       if (!admin) {
         console.warn(`[Webhook ${topic}] Cannot get offline admin client for shop: ${cleanShop}`);
-        return new Response(null, { status: 200 });
+        return new Response(null, { status: 503 });
       }
 
       // 1. Resolve variant and product information from inventoryItemId
@@ -40,6 +40,7 @@ export const action = async ({ request }) => {
       );
 
       const json = await response.json();
+      if (json.errors?.length) throw new Error(json.errors.map(error => error.message).join(", "));
       const variant = json.data?.inventoryItem?.variant;
 
       if (!variant) {
@@ -65,6 +66,7 @@ export const action = async ({ request }) => {
         sku,
         dispatchDate: new Date(),
       });
+      if (!result.success) return new Response(null, { status: 503 });
 
       if (result.total > 0) {
         console.log(
@@ -73,6 +75,7 @@ export const action = async ({ request }) => {
       }
     } catch (err) {
       console.error(`[Webhook ${topic}] Error processing inventory update:`, err.message);
+      return new Response(null, { status: 503 });
     }
   }
 

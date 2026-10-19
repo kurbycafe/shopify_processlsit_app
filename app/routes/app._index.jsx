@@ -1,20 +1,7 @@
 import { getDashboardData } from "../services/dashboardData.server.js";
 import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
-import {
-  Page,
-  Layout,
-  Modal,
-  DataTable,
-  Badge,
-  Text,
-  BlockStack,
-  InlineStack,
-  Card,
-  Box,
-  Button,
-  Banner,
-} from "@shopify/polaris";
+import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button } from "@shopify/polaris";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { authenticate } from "../shopify.server";

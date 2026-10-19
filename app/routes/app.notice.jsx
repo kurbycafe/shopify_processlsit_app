@@ -1,22 +1,7 @@
 import { useState } from "react";
 import { useLoaderData, useFetcher } from "react-router";
-import {
-  Page,
-  Layout,
-  Card,
-  Text,
-  TextField,
-  Button,
-  Banner,
-  BlockStack,
-  InlineStack,
-  Divider,
-  Badge,
-  Checkbox,
-  Box,
-  Icon,
-} from "@shopify/polaris";
-import { PlusIcon, DeleteIcon, CheckCircleIcon } from "@shopify/polaris-icons";
+import { Page, Layout, Card, Text, TextField, Button, Banner, BlockStack, InlineStack, Divider, Checkbox, Box } from "@shopify/polaris";
+import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 

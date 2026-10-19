@@ -1,10 +1,8 @@
 import { authenticate, unauthenticated } from "../shopify.server";
 import prisma from "../db.server";
-import { sendCancellationAlertEmail } from "../utils/emailService.js";
+import { sendCancellationAlertOnce } from "../services/cancellationAlertService.server.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import { autoIssueInvoiceOnFulfillment } from "../services/invoiceService.server.js";
-
-const MAX_RECENCY_MS = 15 * 60 * 1000; // 15 minutes
 
 export const action = async ({ request }) => {
   const { topic, shop, payload } = await authenticate.webhook(request);
@@ -15,19 +13,15 @@ export const action = async ({ request }) => {
 
   const orderGid = `gid://shopify/Order/${payload.id}`;
   const orderName = payload.name || `Order ${payload.id}`;
+  let processingFailed = false;
 
   // Obtain admin client if possible for shop
   let adminClient = null;
   try {
     const adminRes = await unauthenticated.admin(shop);
     adminClient = adminRes?.admin;
-  } catch (e1) {
-    try {
-      const adminRes2 = await unauthenticated.admin("dawayo.myshopify.com");
-      adminClient = adminRes2?.admin;
-    } catch (e2) {
-      console.warn("[Webhook orders/updated] Admin client lookup failed:", e2.message);
-    }
+  } catch (error) {
+    console.warn("[Webhook orders/updated] Admin client lookup failed:", error.message);
   }
 
   // 1. 배송 완료(Fulfillment) 시점 자동 영수증(Rechnung) 번호 발급
@@ -48,6 +42,7 @@ export const action = async ({ request }) => {
       }
     }
   } catch (err) {
+    processingFailed = true;
     console.error(`[Webhook ${topic}] Auto-invoicing failed for ${orderName}:`, err.message);
   }
 
@@ -64,7 +59,6 @@ export const action = async ({ request }) => {
         cancelReason: payload.cancel_reason,
         returnStatus: payload.return_status,
         tags: payload.tags,
-        maxRecencyMs: MAX_RECENCY_MS,
       });
 
       if (!detection.isCustomerHold && adminClient) {
@@ -90,6 +84,7 @@ export const action = async ({ request }) => {
         );
 
         const eventJson = await eventRes.json();
+        if (eventJson.errors?.length) throw new Error(eventJson.errors.map(error => error.message).join(", "));
         const orderNode = eventJson.data?.order;
 
         if (orderNode) {
@@ -100,10 +95,10 @@ export const action = async ({ request }) => {
             returnStatus: orderNode.returnStatus,
             tags: orderNode.tags,
             events: eventsList,
-            maxRecencyMs: MAX_RECENCY_MS,
           });
         }
       }
+      if (!detection.isCustomerHold && !adminClient) throw new Error("Admin unavailable for cancellation verification");
 
       if (detection.isCustomerHold) {
         const customer = payload.customer || {};
@@ -121,7 +116,9 @@ export const action = async ({ request }) => {
           ? new Date(payload.cancelled_at)
           : new Date();
 
-        await sendCancellationAlertEmail({
+        await sendCancellationAlertOnce({
+          orderId: orderGid,
+          shop,
           orderName,
           customerEmail,
           customerName,
@@ -130,28 +127,15 @@ export const action = async ({ request }) => {
           totalAmount,
           currency,
           items,
-          shopDomain: shop,
-        });
-
-        await prisma.inspectionRecord.upsert({
-          where: { orderId: orderGid },
-          update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },
-          create: {
-            orderId: orderGid,
-            orderName,
-            shop,
-            status: "PENDING",
-            isCancelAlertSent: true,
-            cancelAlertSentAt: new Date(),
-          },
         });
 
         console.log(`[Webhook ${topic}] Successfully dispatched cancellation email for ${orderName}`);
       }
     }
   } catch (err) {
+    processingFailed = true;
     console.error(`[Webhook ${topic}] Error processing cancellation check for ${orderName}:`, err.message);
   }
 
-  return new Response(null, { status: 200 });
+  return new Response(null, { status: processingFailed ? 503 : 200 });
 };

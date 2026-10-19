@@ -1,3 +1,4 @@
+import { ensureCustomerRequestSchema } from "./services/customerSchema.js";
 import { schemaIsReady, readSchemaCatalog } from "./services/schemaReadiness.js";
 import { PrismaClient } from "@prisma/client";
 
@@ -142,6 +143,7 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_inspectionRecordId_idx" ON "InspectionItem"("inspectionRecordId");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_variantId_idx" ON "InspectionItem"("variantId");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_sku_idx" ON "InspectionItem"("sku");`);
+      await ensureCustomerRequestSchema(prisma);
     } catch (err) {
       schemaEnsuredPromise = null;
       console.warn("[DB Auto-Schema Notice]:", err.message);

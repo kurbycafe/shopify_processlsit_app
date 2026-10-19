@@ -1,0 +1,21 @@
+name: Checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PRISMA_DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
+      SHOPIFY_API_KEY: test-api-key
+      SHOPIFY_API_SECRET: test-secret
+      SHOPIFY_APP_URL: https://example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

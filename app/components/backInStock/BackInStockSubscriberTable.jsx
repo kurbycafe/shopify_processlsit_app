@@ -16,7 +16,7 @@ import {
   ClipboardIcon,
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
-import { maskEmail, maskPhone } from "../../utils/backInStockHelpers";
+import { maskEmail, maskPhone, getSubscriptionStatusInfo } from "../../utils/backInStockHelpers";
 
 export default function BackInStockSubscriberTable({
   subscribers,
@@ -119,6 +119,7 @@ export default function BackInStockSubscriberTable({
               const isSelected = selectedSubscriberIds.includes(sub.id);
               const isNotifying = notifyingSubId === sub.id;
               const isCancelling = cancellingSubId === sub.id;
+              const status = getSubscriptionStatusInfo(sub.status);
 
               return (
                 <tr
@@ -207,13 +208,8 @@ export default function BackInStockSubscriberTable({
                   </td>
 
                   <td style={{ padding: "10px 12px" }}>
-                    {sub.status === "PENDING" ? (
-                      <Badge tone="warning">대기 중</Badge>
-                    ) : sub.status === "NOTIFIED" ? (
-                      <Badge tone="success">발송 완료</Badge>
-                    ) : (
-                      <Badge tone="critical">신청 취소됨</Badge>
-                    )}
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                    {status.explanation && <Text variant="bodyXs" tone="subdued">{status.explanation}</Text>}
                   </td>
 
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
@@ -240,8 +236,8 @@ export default function BackInStockSubscriberTable({
                       </InlineStack>
                     ) : (
                       <BlockStack gap="050" inlineAlign="end">
-                        <Text variant="bodyXs" fontWeight="semibold" tone="success">
-                          발송 완료
+                        <Text variant="bodyXs" fontWeight="semibold">
+                          {status.label}
                         </Text>
                         <Text variant="bodyXs" tone="subdued">
                           {sub.notifiedAt
