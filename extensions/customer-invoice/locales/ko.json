@@ -1,0 +1,14 @@
+{
+  "menuItem": "영수증",
+  "heading": "영수증(Rechnung) 다운로드",
+  "download": "영수증 PDF 열기",
+  "close": "닫기",
+  "loading": "영수증을 불러오는 중 …",
+  "invoiceNumber": "영수증 번호: {{number}}",
+  "issuedAt": "발행일 {{date}}",
+  "linkHint": "보안을 위해 다운로드 링크는 5분 동안만 유효합니다.",
+  "pending": "영수증은 주문이 출고되면 자동으로 발행되며, 발행 후 이곳에서 다운로드할 수 있습니다.",
+  "notFound": "이 주문에 대해 발행된 영수증이 없습니다.",
+  "error": "지금은 영수증을 불러올 수 없습니다.",
+  "retry": "다시 시도"
+}

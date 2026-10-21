@@ -1,0 +1,25 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "Rechnung herunterladen"
+handle = "customer-invoice"
+type = "ui_extension"
+
+# Order list (Order index) + order detail: action button on every order card.
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "customer-account.order.action.menu-item.render"
+
+# Modal opened by the action button.
+[[extensions.targeting]]
+module = "./src/InvoiceAction.jsx"
+target = "customer-account.order.action.render"
+
+# Block that merchants can place on the order status (detail) page.
+[[extensions.targeting]]
+module = "./src/OrderStatusBlock.jsx"
+target = "customer-account.order-status.block.render"
+
+[extensions.capabilities]
+# Required to call the app backend with a session token.
+network_access = true

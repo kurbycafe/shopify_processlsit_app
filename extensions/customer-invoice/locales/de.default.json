@@ -1,0 +1,14 @@
+{
+  "menuItem": "Rechnung",
+  "heading": "Rechnung herunterladen",
+  "download": "Rechnung (PDF) öffnen",
+  "close": "Schließen",
+  "loading": "Rechnung wird geladen …",
+  "invoiceNumber": "Rechnungsnummer: {{number}}",
+  "issuedAt": "Ausgestellt am {{date}}",
+  "linkHint": "Aus Sicherheitsgründen ist der Download-Link nur 5 Minuten gültig.",
+  "pending": "Die Rechnung wird nach dem Versand Ihrer Bestellung automatisch erstellt und steht dann hier zum Download bereit.",
+  "notFound": "Für diese Bestellung ist keine Rechnung verfügbar.",
+  "error": "Die Rechnung konnte gerade nicht geladen werden.",
+  "retry": "Erneut versuchen"
+}

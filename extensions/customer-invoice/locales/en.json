@@ -1,0 +1,14 @@
+{
+  "menuItem": "Invoice",
+  "heading": "Download invoice",
+  "download": "Open invoice (PDF)",
+  "close": "Close",
+  "loading": "Loading invoice …",
+  "invoiceNumber": "Invoice number: {{number}}",
+  "issuedAt": "Issued on {{date}}",
+  "linkHint": "For your security, the download link is valid for 5 minutes only.",
+  "pending": "Your invoice is created automatically once your order has shipped and will then be available here.",
+  "notFound": "No invoice is available for this order.",
+  "error": "The invoice could not be loaded right now.",
+  "retry": "Try again"
+}
