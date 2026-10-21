@@ -3,6 +3,7 @@ api_version = "2026-07"
 [[extensions]]
 name = "Rechnung herunterladen"
 handle = "customer-invoice"
+uid = "2841ed11-92f9-6def-fcb5-fe53951f067433f7fcdc"
 type = "ui_extension"
 
 # Order list (Order index) + order detail: action button on every order card.
