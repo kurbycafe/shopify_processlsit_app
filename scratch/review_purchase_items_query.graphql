@@ -1,0 +1,5 @@
+query MobileReviewPurchaseItems($search: String!, $after: String) {
+  customer { id orders(first: 1, query: $search) { nodes { id lineItems(first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor } nodes { productId quantity }
+  } } } }
+}

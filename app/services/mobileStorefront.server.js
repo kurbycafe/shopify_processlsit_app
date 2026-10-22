@@ -1,5 +1,6 @@
 import prisma from "../db.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
+import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
 
 export const ALLOWED_CATEGORY_ICONS = [
   "Sparkles",
@@ -74,7 +75,10 @@ export const DEFAULT_EXTENDED_SETTINGS = {
   "groupBuying": [],
   "prospekt": {},
   "subscriptionPlans": [],
-  "searchKeywords": []
+  "searchKeywords": [],
+  "faqs": [],
+  "loyaltyPolicy": null,
+  "giftCardVariants": {}
 };
 
 /**
@@ -107,6 +111,25 @@ export function withLangFallback(ko, de, en) {
     en: baseEn,
   };
 }
+
+export const DEFAULT_FAQS = [
+  {
+    q: withLangFallback("배송은 얼마나 걸리나요?", "Wie lange dauert die Lieferung?", "How long does shipping take?"),
+    a: withLangFallback("독일 전역 기준 평균 1~2영업일 내 도착합니다. 냉동/냉장 상품은 전용 콜드체인으로 배송됩니다.", "In Deutschland dauert der Versand im Schnitt 1-2 Werktage. Kühl- und Tiefkühlwaren werden sicher verpackt.", "Standard delivery within Germany takes 1-2 business days. Frozen/fresh goods are dispatched in insulated cold packs.")
+  },
+  {
+    q: withLangFallback("반품/교환은 어떻게 신청하나요?", "Wie kann ich Artikel zurücksenden?", "How do I request a return or exchange?"),
+    a: withLangFallback("마이페이지 > 반품/교환 내역에서 신청 가능하며, 수령 후 14일 이내 단순 변심 반품이 가능합니다. (신선식품 제외)", "Unter Mein Konto > Retouren kannst du Rücksendungen beantragen. Frische/verderbliche Waren sind vom Widerruf ausgeschlossen.", "You can request returns under My Page > Return History within 14 days (excluding perishable/fresh items).")
+  },
+  {
+    q: withLangFallback("유통기한이 임박한 상품도 있나요?", "Haben Angebote ein kurzes Mindesthaltbarkeitsdatum?", "Do discounted items have short expiry dates?"),
+    a: withLangFallback("할인 특가 상품 중 일부는 유통기한이 임박할 수 있으며, 상세페이지에 안내 문구가 표기됩니다.", "Einige Sonderangebote können ein kürzeres MHD haben, was auf der Produktseite transparent ausgewiesen ist.", "Some special deals may have shorter best-before dates, which is indicated clearly on the product page.")
+  },
+  {
+    q: withLangFallback("적립 포인트는 언제 사용할 수 있나요?", "Wann kann ich meine Bonuspunkte einlösen?", "When can I use my reward points?"),
+    a: withLangFallback("보유 포인트는 오프라인 매장 결제 시 QR 코드를 제시하여 즉시 사용하거나 온라인에서 확인 가능합니다.", "Deinen Punktestand findest du im Konto. Zeige deinen QR-Code an der Kasse, um Punkte einzulösen.", "View your balance in your account. Present your loyalty QR code at checkout to redeem points.")
+  }
+];
 
 /**
  * Optimizes Shopify CDN URLs with WebP & responsive width parameters
@@ -199,6 +222,9 @@ export function parseExtendedSettings(rawJson) {
       ...DEFAULT_EXTENDED_SETTINGS.myPage,
       ...(parsed.myPage || {}),
     },
+    faqs: Array.isArray(parsed.faqs) && parsed.faqs.length > 0 ? parsed.faqs : [],
+    loyaltyPolicy: parsed.loyaltyPolicy || null,
+    giftCardVariants: parsed.giftCardVariants && typeof parsed.giftCardVariants === "object" ? parsed.giftCardVariants : {},
   };
 }
 
@@ -228,7 +254,7 @@ export async function getStorefrontConfig(
   const shop = await ensureStorefrontSeeded(rawShop, db);
   const shopAliases = getShopAliases(shop);
 
-  const [storeConfig, banners, hotDeals, categories] = await Promise.all([
+  const [storeConfig, banners, hotDeals, categories, recipes] = await Promise.all([
     db.mobileStorefrontConfig.findFirst({
       where: { shop: { in: shopAliases } },
       orderBy: { updatedAt: "desc" },
@@ -254,6 +280,16 @@ export async function getStorefrontConfig(
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     }),
+    db.recipe?.findMany
+      ? db.recipe.findMany({
+          where: {
+            shop: { in: shopAliases },
+            ...(includeInactive ? {} : { published: true }),
+          },
+          include: { products: true },
+          orderBy: { updatedAt: "desc" },
+        })
+      : Promise.resolve([]),
   ]);
 
   const now = new Date();
@@ -395,6 +431,26 @@ export async function getStorefrontConfig(
       isActive: c.isActive,
       badgeTag: c.badgeTag || null,
     })),
+    recipes: (Array.isArray(recipes) ? recipes : []).map((r) => ({
+      id: r.id,
+      title: r.title,
+      introduction: r.introduction,
+      steps: r.steps,
+      imageUrl: r.imageUrl || (r.products?.[0]?.imageUrl || null),
+      published: r.published,
+      updatedAt: r.updatedAt,
+      products: (r.products || []).map((p) => ({
+        id: p.id,
+        productId: p.productId,
+        variantId: p.variantId,
+        title: p.title,
+        price: p.price,
+        imageUrl: p.imageUrl,
+      })),
+    })),
+    faqs: extended.faqs && extended.faqs.length > 0 ? extended.faqs : DEFAULT_FAQS,
+    loyaltyPolicy: extended.loyaltyPolicy || LOYALTY_POLICY,
+    giftCardVariants: extended.giftCardVariants || {},
   };
 }
 

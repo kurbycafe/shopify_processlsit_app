@@ -51,9 +51,13 @@ export function createJoyLoyalty({ env = process.env, fetcher = fetch } = {}) {
     },
     async balance({ shop, customerId, request }) {
       try {
-        let points;
-        if (configured()) points = (await customer(shop, customerId)).point;
-        else {
+        let points, joyQrCode;
+        const rawShopifyId = customerId.split("/").pop();
+        if (configured()) {
+          const cust = await customer(shop, customerId);
+          points = cust.point;
+          if (cust.id) joyQrCode = `joy_${rawShopifyId}_${cust.id}_avada`;
+        } else {
           // Official native grant: read the real balance without a headless secret.
           if (shop !== (env.CUSTOMER_API_SHOP || "dawayo.myshopify.com")) throw unavailable();
           const token = /^Bearer ([^\s]{1,8192})$/i.exec(request?.headers.get("authorization") || "")?.[1];
@@ -70,9 +74,10 @@ export function createJoyLoyalty({ env = process.env, fetcher = fetch } = {}) {
           const result = await response.json();
           if (!response.ok || result.success !== true) throw unavailable();
           points = result.data?.points;
+          if (result.data?.id) joyQrCode = `joy_${rawShopifyId}_${result.data.id}_avada`;
         }
         if (typeof points !== "number" || !Number.isFinite(points) || points < 0) throw unavailable();
-        return { points, verified: true, source: "JOY", checkedAt: new Date().toISOString() };
+        return { points, verified: true, source: "JOY", checkedAt: new Date().toISOString(), joyQrCode };
       } catch { throw unavailable(); }
     },
     async prepare({ shop, customerId }) {

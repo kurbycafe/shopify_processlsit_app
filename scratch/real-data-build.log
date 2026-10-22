@@ -1,0 +1,142 @@
+
+> build
+> prisma generate && react-router build
+
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+
+✔ Generated Prisma Client (v6.19.3) to .\node_modules\@prisma\client in 113ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+vite v6.4.2 building for production...
+transforming...
+✓ 1500 modules transformed.
+Generated an empty chunk: "api.mobile.v1.storefront-config".
+Generated an empty chunk: "api.back-in-stock.subscribe".
+Generated an empty chunk: "webhooks.app.scopes_update".
+Generated an empty chunk: "api.customer.v1._resource".
+Generated an empty chunk: "webhooks.inventory.update".
+Generated an empty chunk: "webhooks.orders.cancelled".
+Generated an empty chunk: "webhooks.app.uninstalled".
+Generated an empty chunk: "api.check-cancellations".
+Generated an empty chunk: "api.mobile.v1._resource".
+Generated an empty chunk: "webhooks.orders.updated".
+Generated an empty chunk: "api.inspection-history".
+Generated an empty chunk: "api.storefront-notice".
+Generated an empty chunk: "api.customer-invoice".
+Generated an empty chunk: "api.container".
+Generated an empty chunk: "auth._".
+rendering chunks...
+computing gzip size...
+build/client/.vite/manifest.json                                  25.67 kB │ gzip:   2.79 kB
+build/client/assets/route-CNPfFM0M.css                             0.76 kB │ gzip:   0.35 kB
+build/client/assets/operations-DngWUpzG.css                        1.41 kB │ gzip:   0.51 kB
+build/client/assets/container-calendar-C9hShoM2.css                2.99 kB │ gzip:   1.01 kB
+build/client/assets/app.store-label-pUt_5R71.css                   5.83 kB │ gzip:   1.86 kB
+build/client/assets/app.lieferschein-BWRrfmgc.css                 11.21 kB │ gzip:   2.84 kB
+build/client/assets/root-x1cbIzLV.css                            444.42 kB │ gzip:  52.38 kB
+build/client/assets/api.mobile.v1.storefront-config-l0sNRNKZ.js    0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.back-in-stock.subscribe-l0sNRNKZ.js        0.00 kB │ gzip:   0.02 kB
+build/client/assets/webhooks.app.scopes_update-l0sNRNKZ.js         0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.customer.v1._resource-l0sNRNKZ.js          0.00 kB │ gzip:   0.02 kB
+build/client/assets/webhooks.inventory.update-l0sNRNKZ.js          0.00 kB │ gzip:   0.02 kB
+build/client/assets/webhooks.orders.cancelled-l0sNRNKZ.js          0.00 kB │ gzip:   0.02 kB
+build/client/assets/webhooks.app.uninstalled-l0sNRNKZ.js           0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.check-cancellations-l0sNRNKZ.js            0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.mobile.v1._resource-l0sNRNKZ.js            0.00 kB │ gzip:   0.02 kB
+build/client/assets/webhooks.orders.updated-l0sNRNKZ.js            0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.inspection-history-l0sNRNKZ.js             0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.storefront-notice-l0sNRNKZ.js              0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.customer-invoice-l0sNRNKZ.js               0.00 kB │ gzip:   0.02 kB
+build/client/assets/api.container-l0sNRNKZ.js                      0.00 kB │ gzip:   0.02 kB
+build/client/assets/auth._-l0sNRNKZ.js                             0.00 kB │ gzip:   0.02 kB
+build/client/assets/app.lieferschein-Ce7KFs2v.js                   0.06 kB │ gzip:   0.08 kB
+build/client/assets/context-DJPTMfD-.js                            0.09 kB │ gzip:   0.11 kB
+build/client/assets/context-CzZ_jmpE.js                            0.13 kB │ gzip:   0.12 kB
+build/client/assets/Divider-Cwpqnhat.js                            0.33 kB │ gzip:   0.27 kB
+build/client/assets/htmlSafety-CjH2PARC.js                         0.35 kB │ gzip:   0.26 kB
+build/client/assets/Image-20RfizlY.js                              0.42 kB │ gzip:   0.32 kB
+build/client/assets/route-vJztH4-a.js                              0.60 kB │ gzip:   0.41 kB
+build/client/assets/AppProxyProvider-BklxjF8t.js                   0.63 kB │ gzip:   0.40 kB
+build/client/assets/ClipboardIcon.svg-9C2quQEu.js                  0.68 kB │ gzip:   0.38 kB
+build/client/assets/Thumbnail-HoIbaWKm.js                          0.70 kB │ gzip:   0.37 kB
+build/client/assets/index-_LnScxO1.js                              0.73 kB │ gzip:   0.45 kB
+build/client/assets/AppEmptyState-DXRI7qxS.js                      0.90 kB │ gzip:   0.58 kB
+build/client/assets/FormLayout-BR5twJ8j.js                         0.97 kB │ gzip:   0.54 kB
+build/client/assets/MetricCard-B8kHbKPE.js                         1.04 kB │ gzip:   0.63 kB
+build/client/assets/customer-invoice._orderId-4JqAMH0X.js          1.08 kB │ gzip:   0.67 kB
+build/client/assets/ExportIcon.svg-Cy6NWlVt.js                     1.34 kB │ gzip:   0.49 kB
+build/client/assets/PlusIcon.svg-Byhy1-gu.js                       1.38 kB │ gzip:   0.61 kB
+build/client/assets/route-2yU74nJW.js                              1.49 kB │ gzip:   0.62 kB
+build/client/assets/StatusBadge-D7W1oCaz.js                        1.52 kB │ gzip:   0.60 kB
+build/client/assets/Layout-Bp1eGXPr.js                             1.61 kB │ gzip:   0.60 kB
+build/client/assets/app-C2f7pTou.js                                1.98 kB │ gzip:   1.01 kB
+build/client/assets/PrintIcon.svg-FWEpm6TK.js                      2.73 kB │ gzip:   1.12 kB
+build/client/assets/Select-Byk73BKW.js                             2.76 kB │ gzip:   1.26 kB
+build/client/assets/app.customer-requests-D7-c1Cm4.js              3.68 kB │ gzip:   1.95 kB
+build/client/assets/Sticky-BHctabnX.js                             4.17 kB │ gzip:   1.49 kB
+build/client/assets/Checkbox-Bk6p07CA.js                           4.36 kB │ gzip:   1.84 kB
+build/client/assets/app.notice-CzBsDz9n.js                         6.17 kB │ gzip:   2.60 kB
+build/client/assets/entry.client-Cz56GVck.js                       6.60 kB │ gzip:   2.63 kB
+build/client/assets/dayjs.min-CT2SSeOp.js                          7.16 kB │ gzip:   3.13 kB
+build/client/assets/Banner-CaRqHW5_.js                             8.08 kB │ gzip:   2.64 kB
+build/client/assets/app.inspection-history-BD9PmP2R.js            10.62 kB │ gzip:   4.50 kB
+build/client/assets/app.lieferschein._index-DrNj4y4v.js           13.61 kB │ gzip:   4.81 kB
+build/client/assets/app.settings-Bv8phA9k.js                      15.54 kB │ gzip:   5.71 kB
+build/client/assets/root-DfxCQJW6.js                              17.38 kB │ gzip:   5.69 kB
+build/client/assets/DataTable-CoSZnN-Z.js                         18.24 kB │ gzip:   5.50 kB
+build/client/assets/Modal-B4R_N5hB.js                             18.76 kB │ gzip:   6.53 kB
+build/client/assets/app.inventory-SYAVjNYc.js                     19.50 kB │ gzip:   6.37 kB
+build/client/assets/Tabs-JcfnmfiP.js                              19.78 kB │ gzip:   6.69 kB
+build/client/assets/RechnungSlip-DU5_G0DO.js                      20.56 kB │ gzip:   6.85 kB
+build/client/assets/app.pick-list-CvcFi5dZ.js                     23.06 kB │ gzip:   7.31 kB
+build/client/assets/app.container-catalog-C6FEBUiD.js             23.77 kB │ gzip:   7.74 kB
+build/client/assets/print.lieferschein._id-DClGICss.js            24.20 kB │ gzip:   7.68 kB
+build/client/assets/app._index-DjOZlu8w.js                        24.41 kB │ gzip:   7.86 kB
+build/client/assets/app.store-label-DWLskNP6.js                   24.80 kB │ gzip:   8.06 kB
+build/client/assets/app.lieferschein._id-DtTd3Rht.js              25.01 kB │ gzip:   7.96 kB
+build/client/assets/ResourceList-q25g6D4X.js                      25.81 kB │ gzip:   8.32 kB
+build/client/assets/app.inspect-C3FX9Nrn.js                       28.07 kB │ gzip:   9.03 kB
+build/client/assets/Page-BVR1Rwdg.js                              35.07 kB │ gzip:  10.84 kB
+build/client/assets/app.back-in-stock-BPaBSB7Z.js                 50.65 kB │ gzip:  15.58 kB
+build/client/assets/Pagination-BDTNzUj0.js                        55.26 kB │ gzip:  18.06 kB
+build/client/assets/app.app-management-1GcGvnLQ.js                69.93 kB │ gzip:  16.31 kB
+build/client/assets/app.recipe-blogs-CT7L7ek6.js                 101.12 kB │ gzip:  31.62 kB
+build/client/assets/context-Bzt2044J.js                          102.53 kB │ gzip:  10.33 kB
+build/client/assets/chunk-4N6VE7H7-BOS06bvL.js                   130.72 kB │ gzip:  43.97 kB
+build/client/assets/index-CwfIANBe.js                            134.72 kB │ gzip:  43.26 kB
+build/client/assets/xlsx-CkFp8p6R.js                             429.53 kB │ gzip: 143.08 kB
+✓ built in 5.18s
+vite v6.4.2 building SSR bundle for production...
+transforming...
+✓ 149 modules transformed.
+rendering chunks...
+[plugin vite:reporter] 
+(!) C:/Users/po043/dawayoapp/process-list/app/db.server.js is dynamically imported by C:/Users/po043/dawayoapp/process-list/app/services/inspectorService.server.js but also statically imported by C:/Users/po043/dawayoapp/process-list/app/routes/api.container.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/api.inspection-history.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/api.storefront-notice.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app._index.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.app-management.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.back-in-stock.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.container-catalog.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.customer-requests.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.inspect.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.inspection-history.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.lieferschein.$id.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.lieferschein._index.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.notice.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.pick-list.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.recipe-blogs.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/customer-invoice.$orderId.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/print.lieferschein.$id.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/webhooks.app.scopes_update.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/webhooks.app.uninstalled.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/webhooks.orders.updated.jsx, C:/Users/po043/dawayoapp/process-list/app/services/cancellationAlertService.server.js, C:/Users/po043/dawayoapp/process-list/app/services/customerData.server.js, C:/Users/po043/dawayoapp/process-list/app/services/customerInvoice.server.js, C:/Users/po043/dawayoapp/process-list/app/services/etaService.server.js, C:/Users/po043/dawayoapp/process-list/app/services/invoiceService.server.js, C:/Users/po043/dawayoapp/process-list/app/services/mobileData.server.js, C:/Users/po043/dawayoapp/process-list/app/services/mobileStorefront.server.js, C:/Users/po043/dawayoapp/process-list/app/services/subscriptionService.server.js, C:/Users/po043/dawayoapp/process-list/app/shopify.server.js, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) C:/Users/po043/dawayoapp/process-list/app/utils/emailService.js is dynamically imported by C:/Users/po043/dawayoapp/process-list/app/routes/app.pick-list.jsx but also statically imported by C:/Users/po043/dawayoapp/process-list/app/components/backInStock/BackInStockEmailPreviewModal.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.inspect.jsx, C:/Users/po043/dawayoapp/process-list/app/routes/app.settings.jsx, C:/Users/po043/dawayoapp/process-list/app/services/cancellationAlertService.server.js, C:/Users/po043/dawayoapp/process-list/app/services/subscriptionService.server.js, dynamic import will not move module into another chunk.
+
+build/server/.vite/manifest.json                         1.89 kB
+build/server/assets/operations-DngWUpzG.css              1.41 kB
+build/server/assets/container-calendar-C9hShoM2.css      2.99 kB
+build/server/assets/app.store-label-pUt_5R71.css         5.83 kB
+build/server/assets/app.lieferschein-BWRrfmgc.css       11.21 kB
+build/server/assets/server-build-CfRxLe0i.css          445.18 kB
+build/server/index.js                                    0.92 kB
+build/server/assets/pickListPrint-Cy8o0UqH.js            6.90 kB
+build/server/assets/server-build-Bs0-7wGn.js         1,415.77 kB
+
+✓ 5 assets cleaned from React Router server build.
+build\client\assets\app.lieferschein-BWRrfmgc.css
+build\client\assets\app.store-label-pUt_5R71.css
+build\client\assets\container-calendar-C9hShoM2.css
+build\client\assets\operations-DngWUpzG.css
+build\server\assets\server-build-CfRxLe0i.css
+✓ 1 asset moved from React Router server build to client assets.
+build\client\assets\server-build-CfRxLe0i.css
+
+✓ built in 1.46s

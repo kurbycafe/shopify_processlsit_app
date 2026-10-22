@@ -1,0 +1,13 @@
+
+> lint
+> eslint --ignore-path .gitignore app tests scripts api vite.config.js .eslintrc.cjs
+
+
+C:\Users\po043\dawayoapp\process-list\tests\customer-invoice.test.js
+   6:3  warning  'numericOrderId' is defined but never used. Allowed unused vars must match /^_/u       no-unused-vars
+   7:3  warning  'numericCustomerId' is defined but never used. Allowed unused vars must match /^_/u    no-unused-vars
+   8:3  warning  'normalizeShopDomain' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  12:3  warning  'findIssuedInvoice' is defined but never used. Allowed unused vars must match /^_/u    no-unused-vars
+
+✖ 4 problems (0 errors, 4 warnings)
+

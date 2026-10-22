@@ -1,0 +1,8 @@
+query MobileReviewPurchase($after: String) {
+  customer { id orders(first: 20, after: $after, sortKey: PROCESSED_AT, reverse: true) {
+    pageInfo { hasNextPage endCursor }
+    nodes { id cancelledAt financialStatus lineItems(first: 100) {
+      pageInfo { hasNextPage endCursor } nodes { productId quantity }
+    } }
+  } }
+}
