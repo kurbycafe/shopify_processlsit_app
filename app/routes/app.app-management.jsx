@@ -345,7 +345,7 @@ export const action = async ({ request }) => {
       const response = await admin.graphql(
         `#graphql
         query SearchProductsForMobileDeals($query: String!) {
-          products(first: 12, query: $query) {
+          products(first: 25, query: $query) {
             edges {
               node {
                 id
@@ -1044,8 +1044,14 @@ export default function AppManagementPage() {
   const { config } = useLoaderData();
   const fetcher = useFetcher();
   const searchFetcher = useFetcher();
+  const campaignSearchFetcher = useFetcher();
 
   const [activeTab, setActiveTab] = useState("overview");
+
+  // Campaign search states
+  const [activeGbSearchIdx, setActiveGbSearchIdx] = useState(null);
+  const [gbSearchQuery, setGbSearchQuery] = useState("");
+  const [prospektSearchQuery, setProspektSearchQuery] = useState("");
 
   // Banner form state
   const [editingBanner, setEditingBanner] = useState(null);
@@ -3472,187 +3478,395 @@ export default function AppManagementPage() {
             <Card>
               <BlockStack gap="400">
                 <InlineStack align="space-between">
-                  <Text variant="headingMd" as="h2">
-                    공동구매 (Group Buying) 캠페인 관리 ({groupBuying.length}건)
-                  </Text>
+                  <div>
+                    <Text variant="headingMd" as="h2">
+                      공동구매 (Group Buying) 캠페인 관리 ({groupBuying.length}건)
+                    </Text>
+                    <Text variant="bodySm" tone="subdued" as="p">
+                      쇼피파이 실물 상품을 직접 검색·연결하여 모바일 앱 공동구매 코너에 노출합니다.
+                    </Text>
+                  </div>
                   <Button
+                    variant="primary"
                     size="slim"
-                    onClick={() =>
+                    onClick={() => {
+                      const newIdx = groupBuying.length;
                       setGroupBuying([
                         ...groupBuying,
                         {
                           id: `gb-${Date.now()}`,
-                          productId: "gid://shopify/Product/p1",
-                          variantId: "gid://shopify/ProductVariant/v1",
-                          keyword: "라면",
-                          titleKo: "신규 공동구매 특가 캠페인",
+                          productId: "",
+                          variantId: "",
+                          productTitle: "",
+                          keyword: "",
+                          titleKo: "신규 공동구매 기획전",
                           titleDe: "Neuer Gruppenkauf Deal",
                           titleEn: "New Group Buy Campaign",
                           descKo: "목표 인원 달성 시 특가 일괄 출고",
                           descDe: "Sofortiger Versand ab Zielerreichung",
                           descEn: "Dispatches upon reaching target participants",
-                          regularPrice: 18.0,
-                          groupPrice: 13.9,
-                          targetCount: 25,
-                          currentCount: 18,
-                          endsInHours: 12,
+                          regularPrice: 0,
+                          groupPrice: 0,
+                          targetCount: 20,
+                          currentCount: 15,
+                          endsInHours: 24,
                           storageTemp: "ambient",
-                          imageUrl:
-                            "https://cdn.shopify.com/s/files/1/0998/9865/5049/files/EB_86_8D_EC_8B_AC-_EA_B9_80_EC_B9_98-_EC_8B_A0_EB_9D_BC_EB_A9_B4.jpg?v=1777654892",
+                          imageUrl: "",
                           isActive: true,
                         },
-                      ])
-                    }
+                      ]);
+                      setActiveGbSearchIdx(newIdx);
+                      setGbSearchQuery("");
+                    }}
                   >
-                    공동구매 캠페인 추가
+                    + 신규 공동구매 캠페인 추가
                   </Button>
                 </InlineStack>
                 <Divider />
 
-                {groupBuying.map((gb, idx) => (
-                  <div
-                    key={gb.id || idx}
-                    style={{
-                      border: "1px solid #E5E7EB",
-                      borderRadius: "10px",
-                      padding: "14px",
-                      background: "#F9FAFB",
-                    }}
-                  >
-                    <BlockStack gap="300">
-                      <InlineStack align="space-between">
-                        <Text variant="bodyMd" fontWeight="bold" as="span">
-                          캠페인 #{idx + 1}: {gb.titleKo}
-                        </Text>
-                        <Button
-                          size="slim"
-                          tone="critical"
-                          onClick={() =>
-                            setGroupBuying(
-                              groupBuying.filter((_, i) => i !== idx)
-                            )
-                          }
-                        >
-                          캠페인 삭제
-                        </Button>
-                      </InlineStack>
-                      <InlineStack gap="300">
-                        <div style={{ flex: 2 }}>
-                          <TextField
-                            label="공동구매 타이틀 (한국어)"
-                            value={gb.titleKo || ""}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = { ...next[idx], titleKo: v };
-                              setGroupBuying(next);
-                            }}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <TextField
-                            label="매칭 상품 키워드"
-                            value={gb.keyword || ""}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = { ...next[idx], keyword: v };
-                              setGroupBuying(next);
-                            }}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <Select
-                            label="보관 온도"
-                            options={[
-                              { label: "상온", value: "ambient" },
-                              { label: "냉장", value: "chilled" },
-                              { label: "냉동", value: "frozen" },
-                            ]}
-                            value={gb.storageTemp || "ambient"}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = { ...next[idx], storageTemp: v };
-                              setGroupBuying(next);
-                            }}
-                          />
-                        </div>
-                      </InlineStack>
-
-                      <InlineStack gap="300">
-                        <div style={{ flex: 1 }}>
-                          <TextField
-                            label="정상가 (€)"
-                            type="number"
-                            step="0.01"
-                            value={String(gb.regularPrice ?? 0)}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = {
-                                ...next[idx],
-                                regularPrice: Number(v || 0),
-                              };
-                              setGroupBuying(next);
-                            }}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <TextField
-                            label="공동구매 특가가 (€)"
-                            type="number"
-                            step="0.01"
-                            value={String(gb.groupPrice ?? 0)}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = {
-                                ...next[idx],
-                                groupPrice: Number(v || 0),
-                              };
-                              setGroupBuying(next);
-                            }}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <TextField
-                            label="목표 인원(명)"
-                            type="number"
-                            value={String(gb.targetCount ?? 20)}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = {
-                                ...next[idx],
-                                targetCount: Number(v || 20),
-                              };
-                              setGroupBuying(next);
-                            }}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <TextField
-                            label="현재 참여 인원(명)"
-                            type="number"
-                            value={String(gb.currentCount ?? 15)}
-                            onChange={(v) => {
-                              const next = [...groupBuying];
-                              next[idx] = {
-                                ...next[idx],
-                                currentCount: Number(v || 0),
-                              };
-                              setGroupBuying(next);
-                            }}
-                            autoComplete="off"
-                          />
-                        </div>
-                      </InlineStack>
-                    </BlockStack>
+                {groupBuying.length === 0 ? (
+                  <div style={{ padding: "24px", textAlign: "center", color: "#6B7280" }}>
+                    등록된 공동구매 캠페인이 없습니다. 상단의 "+ 신규 공동구매 캠페인 추가" 버튼을 눌러 상품을 연결하세요.
                   </div>
-                ))}
+                ) : (
+                  groupBuying.map((gb, idx) => {
+                    const isProductConnected = gb.productId && !String(gb.productId).endsWith("/p1");
+                    const isSearchOpen = activeGbSearchIdx === idx;
+
+                    return (
+                      <div
+                        key={gb.id || idx}
+                        style={{
+                          border: isProductConnected ? "1px solid #D1D5DB" : "1px dashed #F59E0B",
+                          borderRadius: "10px",
+                          padding: "16px",
+                          background: isProductConnected ? "#FFFFFF" : "#FFFBEB",
+                        }}
+                      >
+                        <BlockStack gap="300">
+                          <InlineStack align="space-between">
+                            <InlineStack gap="200" blockAlign="center">
+                              <Badge tone={isProductConnected ? "success" : "attention"}>
+                                {isProductConnected ? "쇼피파이 상품 연결됨" : "상품 미연결 (선택 필요)"}
+                              </Badge>
+                              <Text variant="bodyMd" fontWeight="bold" as="span">
+                                캠페인 #{idx + 1}: {gb.titleKo || gb.productTitle || "제목 미설정"}
+                              </Text>
+                            </InlineStack>
+                            <Button
+                              size="slim"
+                              tone="critical"
+                              onClick={() =>
+                                setGroupBuying(
+                                  groupBuying.filter((_, i) => i !== idx)
+                                )
+                              }
+                            >
+                              캠페인 삭제
+                            </Button>
+                          </InlineStack>
+
+                          {/* Linked Shopify Product Card */}
+                          <div
+                            style={{
+                              background: "#F9FAFB",
+                              border: "1px solid #E5E7EB",
+                              borderRadius: "8px",
+                              padding: "12px",
+                            }}
+                          >
+                            <InlineStack align="space-between" blockAlign="center">
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: 0 }}>
+                                {gb.imageUrl ? (
+                                  <img
+                                    src={gb.imageUrl}
+                                    alt={gb.productTitle || gb.titleKo}
+                                    style={{
+                                      width: "48px",
+                                      height: "48px",
+                                      objectFit: "contain",
+                                      borderRadius: "6px",
+                                      background: "#FFFFFF",
+                                      border: "1px solid #E5E7EB",
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                ) : (
+                                  <div
+                                    style={{
+                                      width: "48px",
+                                      height: "48px",
+                                      background: "#E5E7EB",
+                                      borderRadius: "6px",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      fontSize: "10px",
+                                      color: "#6B7280",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    이미지 없음
+                                  </div>
+                                )}
+                                <div style={{ minWidth: 0 }}>
+                                  <Text variant="bodyMd" fontWeight="bold" as="p" truncate>
+                                    {gb.productTitle || (isProductConnected ? gb.titleKo : "연결된 쇼피파이 상품이 없습니다.")}
+                                  </Text>
+                                  <Text variant="bodySm" tone="subdued" as="p">
+                                    {isProductConnected
+                                      ? `Shopify ID: ${gb.productId.split("/").pop()} · 정가: €${Number(gb.regularPrice || 0).toFixed(2)}`
+                                      : "우측 '쇼피파이 상품 선택' 버튼을 눌러 실제 판매 상품을 연결해주세요."}
+                                  </Text>
+                                </div>
+                              </div>
+                              <Button
+                                size="slim"
+                                variant={isSearchOpen ? "secondary" : "primary"}
+                                onClick={() => {
+                                  if (isSearchOpen) {
+                                    setActiveGbSearchIdx(null);
+                                  } else {
+                                    setActiveGbSearchIdx(idx);
+                                    setGbSearchQuery(gb.keyword || (gb.productTitle ? gb.productTitle.slice(0, 8) : ""));
+                                  }
+                                }}
+                              >
+                                {isSearchOpen ? "검색창 닫기" : (isProductConnected ? "상품 변경하기" : "쇼피파이 상품 선택")}
+                              </Button>
+                            </InlineStack>
+
+                            {/* Search Product Box (Opened when clicking select/change) */}
+                            {isSearchOpen && (
+                              <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px dashed #D1D5DB" }}>
+                                <BlockStack gap="300">
+                                  <InlineStack gap="200">
+                                    <div style={{ flex: 1 }}>
+                                      <TextField
+                                        label="쇼피파이 등록 상품명 또는 SKU 검색"
+                                        labelHidden
+                                        placeholder="예: 종가집, 총각김치, 라면, 비비고 만두 등 검색어 입력"
+                                        value={gbSearchQuery}
+                                        onChange={setGbSearchQuery}
+                                        autoComplete="off"
+                                      />
+                                    </div>
+                                    <Button
+                                      loading={campaignSearchFetcher.state !== "idle"}
+                                      onClick={() => {
+                                        const fd = new FormData();
+                                        fd.append("intent", "search_shopify_products");
+                                        fd.append("query", gbSearchQuery);
+                                        campaignSearchFetcher.submit(fd, { method: "post" });
+                                      }}
+                                    >
+                                      쇼피파이 상품 검색
+                                    </Button>
+                                  </InlineStack>
+
+                                  {campaignSearchFetcher.data?.searchedProducts && (
+                                    <div
+                                      style={{
+                                        maxHeight: "240px",
+                                        overflowY: "auto",
+                                        border: "1px solid #D1D5DB",
+                                        borderRadius: "8px",
+                                        padding: "6px",
+                                        background: "#FFFFFF",
+                                      }}
+                                    >
+                                      <BlockStack gap="150">
+                                        {campaignSearchFetcher.data.searchedProducts.length === 0 ? (
+                                          <div style={{ padding: "16px", textAlign: "center", color: "#6B7280", fontSize: "13px" }}>
+                                            검색 결과가 없습니다. 다른 검색어로 검색해보세요.
+                                          </div>
+                                        ) : (
+                                          campaignSearchFetcher.data.searchedProducts.map((sp) => (
+                                            <div
+                                              key={sp.productId}
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "space-between",
+                                                padding: "8px 12px",
+                                                borderRadius: "6px",
+                                                background: gb.productId === sp.productId ? "#EFF6FF" : "#F9FAFB",
+                                                border: gb.productId === sp.productId ? "1px solid #3B82F6" : "1px solid #E5E7EB",
+                                              }}
+                                            >
+                                              <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
+                                                {sp.imageUrl && (
+                                                  <img
+                                                    src={sp.imageUrl}
+                                                    alt=""
+                                                    style={{ width: "36px", height: "36px", objectFit: "contain", borderRadius: "4px" }}
+                                                  />
+                                                )}
+                                                <div style={{ minWidth: 0 }}>
+                                                  <Text variant="bodySm" fontWeight="bold" as="p" truncate>
+                                                    {sp.title}
+                                                  </Text>
+                                                  <Text variant="bodyXs" tone="subdued" as="p">
+                                                    정상 판매가: €{sp.price.toFixed(2)} · SKU: {sp.sku || "-"}
+                                                  </Text>
+                                                </div>
+                                              </div>
+                                              <Button
+                                                size="slim"
+                                                variant="primary"
+                                                onClick={() => {
+                                                  const next = [...groupBuying];
+                                                  const regular = sp.price;
+                                                  const groupDiscounted = Number((regular * 0.85).toFixed(2));
+                                                  next[idx] = {
+                                                    ...next[idx],
+                                                    productId: sp.productId,
+                                                    variantId: sp.variantId,
+                                                    productTitle: sp.title,
+                                                    imageUrl: sp.imageUrl,
+                                                    regularPrice: regular,
+                                                    groupPrice: next[idx].groupPrice && next[idx].groupPrice < regular && next[idx].groupPrice > 0 ? next[idx].groupPrice : groupDiscounted,
+                                                    keyword: sp.title,
+                                                    titleKo: next[idx].titleKo && !next[idx].titleKo.includes("신규 공동구매") ? next[idx].titleKo : `${sp.title} 기획 공동구매`,
+                                                  };
+                                                  setGroupBuying(next);
+                                                  setActiveGbSearchIdx(null);
+                                                }}
+                                              >
+                                                이 상품으로 연결
+                                              </Button>
+                                            </div>
+                                          ))
+                                        )}
+                                      </BlockStack>
+                                    </div>
+                                  )}
+                                </BlockStack>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Editable Campaign Meta Fields */}
+                          <InlineStack gap="300">
+                            <div style={{ flex: 2 }}>
+                              <TextField
+                                label="공동구매 타이틀 (한국어)"
+                                value={gb.titleKo || ""}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = { ...next[idx], titleKo: v };
+                                  setGroupBuying(next);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                label="검색 보조 키워드"
+                                value={gb.keyword || ""}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = { ...next[idx], keyword: v };
+                                  setGroupBuying(next);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <Select
+                                label="보관 온도"
+                                options={[
+                                  { label: "상온", value: "ambient" },
+                                  { label: "냉장", value: "chilled" },
+                                  { label: "냉동", value: "frozen" },
+                                ]}
+                                value={gb.storageTemp || "ambient"}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = { ...next[idx], storageTemp: v };
+                                  setGroupBuying(next);
+                                }}
+                              />
+                            </div>
+                          </InlineStack>
+
+                          <InlineStack gap="300">
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                label="정상가 (€)"
+                                type="number"
+                                step="0.01"
+                                value={String(gb.regularPrice ?? 0)}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    regularPrice: Number(v || 0),
+                                  };
+                                  setGroupBuying(next);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                label="공동구매 특가가 (€)"
+                                type="number"
+                                step="0.01"
+                                value={String(gb.groupPrice ?? 0)}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    groupPrice: Number(v || 0),
+                                  };
+                                  setGroupBuying(next);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                label="목표 인원(명)"
+                                type="number"
+                                value={String(gb.targetCount ?? 20)}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    targetCount: Number(v || 20),
+                                  };
+                                  setGroupBuying(next);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                label="현재 참여 인원(명)"
+                                type="number"
+                                value={String(gb.currentCount ?? 15)}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    currentCount: Number(v || 0),
+                                  };
+                                  setGroupBuying(next);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                          </InlineStack>
+                        </BlockStack>
+                      </div>
+                    );
+                  })
+                )}
               </BlockStack>
             </Card>
 
+            {/* Weekly Prospekt Flyer Section with Product Search */}
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">
@@ -3689,8 +3903,160 @@ export default function AppManagementPage() {
                   }
                   autoComplete="off"
                 />
+
+                {/* Shopify Direct Product Selector for Prospekt */}
+                <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: "10px", padding: "14px" }}>
+                  <BlockStack gap="300">
+                    <Text variant="bodyMd" fontWeight="bold">
+                      전단지 대표 상품 직접 선택 ({Array.isArray(prospekt.selectedProducts) ? prospekt.selectedProducts.length : (Array.isArray(prospekt.productIds) ? prospekt.productIds.length : 0)}개 등록됨)
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      전단지 상단에 노출할 실제 쇼피파이 상품을 직접 검색하여 추가할 수 있습니다.
+                    </Text>
+
+                    <InlineStack gap="200">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="쇼피파이 상품 검색하여 전단지에 추가"
+                          labelHidden
+                          placeholder="예: 신라면, 종가집 김치, 참이슬, 비비고 만두 등 검색어 입력"
+                          value={prospektSearchQuery}
+                          onChange={setProspektSearchQuery}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <Button
+                        loading={campaignSearchFetcher.state !== "idle"}
+                        onClick={() => {
+                          const fd = new FormData();
+                          fd.append("intent", "search_shopify_products");
+                          fd.append("query", prospektSearchQuery);
+                          campaignSearchFetcher.submit(fd, { method: "post" });
+                        }}
+                      >
+                        쇼피파이 상품 검색
+                      </Button>
+                    </InlineStack>
+
+                    {/* Search Results */}
+                    {campaignSearchFetcher.data?.searchedProducts && (
+                      <div
+                        style={{
+                          maxHeight: "220px",
+                          overflowY: "auto",
+                          border: "1px solid #D1D5DB",
+                          borderRadius: "8px",
+                          padding: "6px",
+                          background: "#FFFFFF",
+                        }}
+                      >
+                        <BlockStack gap="150">
+                          {campaignSearchFetcher.data.searchedProducts.map((sp) => {
+                            const currentIds = Array.isArray(prospekt.productIds) ? prospekt.productIds : [];
+                            const isAlreadyAdded = currentIds.includes(sp.productId);
+                            return (
+                              <div
+                                key={sp.productId}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "6px 10px",
+                                  borderRadius: "6px",
+                                  background: isAlreadyAdded ? "#EFF6FF" : "#F9FAFB",
+                                  border: isAlreadyAdded ? "1px solid #93C5FD" : "1px solid #E5E7EB",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
+                                  {sp.imageUrl && (
+                                    <img
+                                      src={sp.imageUrl}
+                                      alt=""
+                                      style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "4px" }}
+                                    />
+                                  )}
+                                  <Text variant="bodySm" as="span" truncate>
+                                    {sp.title} (€{sp.price.toFixed(2)})
+                                  </Text>
+                                </div>
+                                <Button
+                                  size="slim"
+                                  disabled={isAlreadyAdded}
+                                  variant={isAlreadyAdded ? "secondary" : "primary"}
+                                  onClick={() => {
+                                    const currentSelected = Array.isArray(prospekt.selectedProducts) ? prospekt.selectedProducts : [];
+                                    const currentIds = Array.isArray(prospekt.productIds) ? prospekt.productIds : [];
+                                    if (!currentIds.includes(sp.productId)) {
+                                      setProspekt({
+                                        ...prospekt,
+                                        productIds: [...currentIds, sp.productId],
+                                        selectedProducts: [...currentSelected, sp],
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {isAlreadyAdded ? "추가됨" : "+ 전단지 추가"}
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </BlockStack>
+                      </div>
+                    )}
+
+                    {/* Selected Products Chips */}
+                    {Array.isArray(prospekt.selectedProducts) && prospekt.selectedProducts.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", paddingTop: "6px" }}>
+                        {prospekt.selectedProducts.map((prod, pIdx) => (
+                          <div
+                            key={prod.productId || pIdx}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              padding: "4px 10px 4px 6px",
+                              background: "#FFFFFF",
+                              border: "1px solid #D1D5DB",
+                              borderRadius: "20px",
+                              fontSize: "12px",
+                            }}
+                          >
+                            {prod.imageUrl && (
+                              <img
+                                src={prod.imageUrl}
+                                alt=""
+                                style={{ width: "22px", height: "22px", objectFit: "contain", borderRadius: "50%" }}
+                              />
+                            )}
+                            <span style={{ fontWeight: 600 }}>{prod.title}</span>
+                            <button
+                              type="button"
+                              style={{
+                                border: "none",
+                                background: "none",
+                                cursor: "pointer",
+                                color: "#EF4444",
+                                fontWeight: "bold",
+                                fontSize: "14px",
+                                padding: "0 2px",
+                              }}
+                              onClick={() => {
+                                const nextProds = prospekt.selectedProducts.filter((_, i) => i !== pIdx);
+                                const nextIds = (prospekt.productIds || []).filter((id) => id !== prod.productId);
+                                setProspekt({ ...prospekt, selectedProducts: nextProds, productIds: nextIds });
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </BlockStack>
+                </div>
+
                 <TextField
-                  label="전단지 메인 노출 상품 키워드 (쉼표 구분)"
+                  label="전단지 보조 검색 키워드 (쉼표 구분)"
                   value={(prospekt.keywords || []).join(", ")}
                   onChange={(v) =>
                     setProspekt({
