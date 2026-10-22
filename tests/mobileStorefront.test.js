@@ -12,6 +12,7 @@ test("resolveCanonicalShop maps dawayo aliases to canonical shop while isolating
   assert.equal(resolveCanonicalShop("dawayo.myshopify.com"), "dawayo.de");
   assert.equal(resolveCanonicalShop("https://www.dawayo.de/collections"), "dawayo.de");
   assert.equal(resolveCanonicalShop("other-store.myshopify.com"), "other-store.myshopify.com");
+  assert.equal(resolveCanonicalShop("other-dawayo.myshopify.com"),"other-dawayo.myshopify.com");
 });
 
 test("withLangFallback falls back to Korean when German or English is blank", () => {
@@ -47,10 +48,10 @@ test("parseExtendedSettings safely merges partial JSON with default settings", (
   assert.equal(parsed.tickers[0].ko, "독일 전역 당일 발송");
   assert.equal(parsed.tickers[0].de, "독일 전역 당일 발송");
   assert.equal(parsed.hotDealSettings.hideSoldOut, true);
-  assert.equal(parsed.productPage.showFreshnessBanner, true);
+  assert.equal(parsed.productPage.showFreshnessBanner, false);
 });
 
-test("getStorefrontConfig seeds defaults and filters active items for mobile app", async () => {
+test("getStorefrontConfig returns an empty unconfigured store without seeding samples", async () => {
   const banners = [];
   const hotDeals = [];
   const categories = [];
@@ -96,14 +97,14 @@ test("getStorefrontConfig seeds defaults and filters active items for mobile app
   });
 
   assert.equal(config.shop, "dawayo.de");
-  assert.equal(config.banners.length, 3);
-  assert.equal(config.hotDeals.length, 3);
-  assert.equal(config.categories.length, 8);
-  assert.equal(config.store.freeShippingThreshold, 60);
-  assert.equal(config.store.coldChain.cutoffDayOfWeek, 4);
-  assert.equal(config.store.coldChain.cutoffHour, 14);
+  assert.equal(config.banners.length, 0);
+  assert.equal(config.hotDeals.length, 0);
+  assert.equal(config.categories.length, 0);
+  assert.equal(config.store.freeShippingThreshold, null);
+  assert.equal(config.store.coldChain.cutoffDayOfWeek, undefined);
+  assert.equal(config.store.coldChain.cutoffHour, undefined);
   assert.ok(Array.isArray(config.productOverrides));
-  assert.ok(config.productOverrides.length >= 4);
+  assert.ok(config.productOverrides.length === 0);
   assert.ok(Array.isArray(config.groupBuying));
   assert.ok(Array.isArray(config.subscriptionPlans));
   assert.ok(Array.isArray(config.searchKeywords));

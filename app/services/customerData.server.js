@@ -1,3 +1,4 @@
+import { createJoyLoyalty } from "./joyLoyalty.server.js";
 import prisma from "../db.server.js";
 import { unauthenticated } from "../shopify.server.js";
 import { executeGraphQLWithRetry } from "../utils/shopifyApi.js";
@@ -35,4 +36,4 @@ async function restock({ shop, variant }) {
   }
 }
 
-export const resolveCustomerResource = createCustomerResolver({ db: prisma, verify: verifyCustomer, graphql, customerQuery: queryCustomerAccount, restock, subscribe: createSubscription });
+export const resolveCustomerResource = createCustomerResolver({ db: prisma, verify: verifyCustomer, graphql, customerQuery: queryCustomerAccount, restock, subscribe: createSubscription, loyalty: createJoyLoyalty() });

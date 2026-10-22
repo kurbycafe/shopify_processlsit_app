@@ -1,5 +1,15 @@
 // Keep aligned with the additive schema repair in db.server.js.
 const required = [
+  "column:CustomerReaction:id",
+  "column:CustomerReaction:shop",
+  "column:CustomerReaction:targetType",
+  "column:CustomerReaction:targetId",
+  "column:CustomerReaction:customerId",
+  "column:CustomerReaction:active",
+  "column:CustomerReaction:createdAt",
+  "column:CustomerReaction:updatedAt",
+  "index:CustomerReaction:CustomerReaction_shop_targetType_targetId_customerId_key",
+  "index:CustomerReaction:CustomerReaction_shop_targetType_targetId_active_idx",
   "column:CustomerRequest:id",
   "column:CustomerRequest:shop",
   "column:CustomerRequest:type",
@@ -103,10 +113,10 @@ export async function readSchemaCatalog(db) {
   return db.$queryRaw`
         SELECT 'column' AS kind, table_name AS "tableName", column_name AS name
         FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference')
+        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction')
         UNION ALL
         SELECT 'index' AS kind, tablename AS "tableName", indexname AS name
         FROM pg_indexes
-        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference')
+        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction')
       `;
 }

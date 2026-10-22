@@ -1,3 +1,5 @@
+import { reviewReward } from "./customerLoyalty.server.js";
+import {customerReaction,requireCustomer,reviewImage,reactionCounts} from "./customerCommunity.server.js";
 import { createHash } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
 
@@ -6,7 +8,7 @@ export const CUSTOMER_RETURN_ORDER_QUERY = `query ProcesslistReturnOrder($search
 }`;
 const DEFAULT_PREFERENCES = Object.freeze({ pushEnabled: false, orderUpdates: false, events: false, marketing: false });
 const STATUSES = new Set(["REQUESTED", "REVIEWING", "CLOSED"]);
-const REVIEW_TYPES = ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW"];
+const REVIEW_TYPES = ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW", "COMMUNITY_POST", "COMMUNITY_COMMENT", "ACCOUNT_DELETE"];
 
 function text(value, max, required = false) {
   if (value != null && typeof value !== "string") throw new MobileApiError(400, "INVALID_INPUT", "Text fields must contain strings.");
@@ -108,12 +110,17 @@ export async function updateCustomerRequest({ db, shop, id, status }) {
 }
 
 async function optionalCustomerId(request, shop, verify) {
-  if (!verify || !request?.headers?.get?.("authorization")) return null;
+  const authHeader = request?.headers?.get?.("authorization");
+  if (!verify || !authHeader) return null;
   try {
     const id = await verify(request, shop);
-    return /^gid:\/\/shopify\/Customer\/\d+$/.test(id || "") ? id : null;
-  } catch {
-    return null;
+    if (!/^gid:\/\/shopify\/Customer\/\d+$/.test(id || "")) {
+      throw new MobileApiError(401, "UNAUTHORIZED", "Invalid customer credentials.");
+    }
+    return id;
+  } catch (error) {
+    if (error instanceof MobileApiError) throw error;
+    throw new MobileApiError(401, "UNAUTHORIZED", "Session expired or invalid. Please log in again.");
   }
 }
 
@@ -126,10 +133,12 @@ export async function saveSupportRequest({ db, shop, request, verify, input }) {
   }
   const orderId = text(input.orderId, 100, category === "claim");
   const claimType = category === "claim" ? text(input.claimType || "damage", 50) : null;
-  const photoCount = Number.isInteger(input.photoCount) ? Math.min(3, Math.max(0, input.photoCount)) : 0;
+  const rawPhotos = Array.isArray(input.photos) ? input.photos.slice(0, 3) : [];
+  const photos = rawPhotos.filter(p => typeof p === "string" && (p.startsWith("data:image/") || p.startsWith("https://")));
+  const photoCount = photos.length || (Number.isInteger(input.photoCount) ? Math.min(3, Math.max(0, input.photoCount)) : 0);
   const customerId = await optionalCustomerId(request, shop, verify);
   const type = category === "claim" ? "CLAIM" : "SUPPORT";
-  const payload = { category, claimType, orderId: orderId || null, email: email || null, message, photoCount };
+  const payload = { category, claimType, orderId: orderId || null, email: email || null, message, photoCount, photos };
   const key = requestKey([shop, type, customerId, orderId || null, payload]);
   const record = await requestModel(db).upsert({
     where: { requestKey: key },
@@ -184,65 +193,52 @@ export async function registerPushToken({ db, shop, request, verify, input }) {
   return { accepted: true, registrationId: record.id, platform, updatedAt: record.updatedAt || record.createdAt };
 }
 
-export async function customerPhotoReviews({ db, shop, request, verify, input }) {
+export async function customerPhotoReviews({ db, shop, request, verify, input, loyalty, customerQuery }) {
   if (input === undefined) {
     if (!db.customerRequest?.findMany) throw new MobileApiError(503, "NOT_CONFIGURED", "Photo reviews are unavailable.");
+    const productId=new URL(request.url).searchParams.get("productId");
+    if(productId && !/^gid:\/\/shopify\/Product\/\d+$/.test(productId))throw new MobileApiError(400,"INVALID_INPUT","Invalid product ID.");
     const records = await db.customerRequest.findMany({
-      where: { shop, type: "PHOTO_REVIEW", status: { not: "CLOSED" } },
+      where: { shop, type: "PHOTO_REVIEW", status: { not: "CLOSED" },...(productId?{payload:{path:["productId"],equals:productId}}:{}) },
       orderBy: { id: "desc" },
       take: 30,
       select: { id: true, payload: true, createdAt: true },
     });
+    const counts=await reactionCounts(db,shop,"PHOTO_REVIEW",records.map(record=>record.id));
     const reviews = records.map((rec) => {
       const p = rec.payload || {};
       return {
         id: rec.id,
         userName: p.userName || "Dawayo 고객",
+        productId:p.productId||null,
         dishName: p.dishName || "다와요 요리",
         comment: p.comment || "",
-        rating: Number.isInteger(p.rating) ? Math.min(5, Math.max(1, p.rating)) : 5,
+        rating: Number.isInteger(p.rating) && p.rating>=1 && p.rating<=5 ? p.rating : null,
         date: p.date || new Date(rec.createdAt).toISOString().split("T")[0].replace(/-/g, "."),
         image: p.image || null,
-        likes: Number.isInteger(p.likes) ? p.likes : 1,
+        likes: counts.get(rec.id) || 0,
       };
     });
     return { reviews };
   }
-  if (input.action === "like") {
-    const reviewId = text(input.reviewId, 100, true);
-    if (!db.customerRequest?.findFirst || !db.customerRequest?.update) {
-      throw new MobileApiError(503, "NOT_CONFIGURED", "Photo reviews are unavailable.");
-    }
-    const existing = await db.customerRequest.findFirst({
-      where: { id: reviewId, shop, type: "PHOTO_REVIEW" },
-      select: { id: true, payload: true },
-    });
-    if (!existing) throw new MobileApiError(404, "NOT_FOUND", "Review not found.");
-    const currentPayload = existing.payload && typeof existing.payload === "object" ? existing.payload : {};
-    const delta = input.unlike === true ? -1 : 1;
-    const nextLikes = Math.max(0, (Number(currentPayload.likes) || 0) + delta);
-    const updatedPayload = { ...currentPayload, likes: nextLikes };
-    await db.customerRequest.update({
-      where: { id: existing.id },
-      data: { payload: updatedPayload },
-    });
-    return { accepted: true, reviewId: existing.id, likes: nextLikes };
-  }
+  if (input.action === "like")return customerReaction({db,shop,request,verify,input:{targetType:"PHOTO_REVIEW",targetId:input.reviewId,active:input.unlike!==true}});
   const comment = text(input.comment, 2000, true);
   const dishName = text(input.dishName || "다와요 맛있는 요리", 200, true);
   const userName = text(input.userName || "다와요 고객", 100, true);
-  const rating = Number.isInteger(input.rating) ? Math.min(5, Math.max(1, input.rating)) : 5;
-  const image = input.image ? text(input.image, 200000) : null;
+  if(!Number.isInteger(input.rating) || input.rating<1 || input.rating>5)throw new MobileApiError(400,"INVALID_INPUT","Choose a rating from 1 to 5.");
+  const rating=input.rating;
+  const image = reviewImage(input.image);
   const date = new Date().toISOString().split("T")[0].replace(/-/g, ".");
-  const customerId = await optionalCustomerId(request, shop, verify);
-  const payload = { userName, dishName, comment, rating, date, image, likes: 1 };
+  const customerId = await requireCustomer(verify,request,shop);
+  const payload = { userName, dishName, comment, rating, date, image, productId:text(input.productId,100), productTitle:text(input.productTitle,300) };
   const key = requestKey([shop, "PHOTO_REVIEW", customerId || userName, dishName, comment]);
   const record = await requestModel(db).upsert({
     where: { requestKey: key },
     create: { shop, customerId, type: "PHOTO_REVIEW", requestKey: key, payload },
-    update: { payload },
-    select: { id: true, createdAt: true },
+    update: {},
+    select: { id: true, createdAt: true, payload: true },
   });
-  return { accepted: true, reviewId: record.id, review: { id: record.id, ...payload } };
+  const reward = loyalty ? await reviewReward({ db, loyalty, shop, customerId, request, customerQuery, review: record }) : { status: "PENDING_CONFIGURATION", awardedPoints: 0 };
+  return { accepted: true, reviewId: record.id, review: { id: record.id, ...record.payload, likes: 0 }, reward };
 }
 

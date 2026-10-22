@@ -142,6 +142,12 @@ test('support-request, subscription-request, push-token, and photo-reviews persi
       },
     },
   };
+  db.mobileStorefrontConfig={findFirst:async()=>({tickersJson:{subscriptionPlans:[{id:"sub2",titleKo:"Kimchi Abo",price:29.9}]}})};
+  db.mobileBanner={findMany:async()=>[]};db.mobileHotDeal={findMany:async()=>[]};db.mobileCategoryConfig={findMany:async()=>[]};
+  const reactions=new Map();
+  db.customerReaction={upsert:async({create,update})=>{reactions.set(create.customerId,{...create,...update});},groupBy:async()=>{
+    const active=[...reactions.values()].filter(row=>row.active);return [...new Set(active.map(row=>row.targetId))].map(targetId=>({targetId,_count:{_all:active.filter(row=>row.targetId===targetId).length}}));
+  }};
   const resolver = createCustomerResolver({ db, verify: async () => customerId });
   const postJson = (body) => new Request('https://example.com', {
     method: 'POST',
@@ -186,7 +192,7 @@ test('support-request, subscription-request, push-token, and photo-reviews persi
     resource: 'photo-reviews',
     shop,
   });
-  assert.equal(likeRes.likes, 2);
+  assert.equal(likeRes.likes, 1);
 
   const reviewList = await resolver({
     request: new Request('https://example.com', { method: 'GET' }),
@@ -194,5 +200,5 @@ test('support-request, subscription-request, push-token, and photo-reviews persi
     shop,
   });
   assert.equal(reviewList.reviews.length, 1);
-  assert.equal(reviewList.reviews[0].likes, 2);
+  assert.equal(reviewList.reviews[0].likes, 1);
 });

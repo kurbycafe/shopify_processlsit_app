@@ -39,8 +39,8 @@ test('dashboard starts all independent reads before awaiting any result and pres
 test('schema readiness requires every existing repair column and index', async () => {
  const { readFile } = await import('node:fs/promises');
  const { schemaIsReady } = await import('../app/services/schemaReadiness.js');
- const { customerSchemaStatements } = await import('../app/services/customerSchema.js');
- const source = await readFile(new URL('../app/db.server.js', import.meta.url), 'utf8') + '\n' + customerSchemaStatements.join(';\n') + ';';
+ const { customerSchemaStatements, customerReactionStatements } = await import('../app/services/customerSchema.js');
+ const source = await readFile(new URL('../app/db.server.js', import.meta.url), 'utf8') + '\n' + [...customerSchemaStatements,...customerReactionStatements].join(';\n') + ';';
  const entries = new Map();
  const add = (kind, tableName, name) => entries.set(`${kind}:${tableName}:${name}`, { kind, tableName, name });
  for (const [, table, columns] of source.matchAll(/CREATE TABLE IF NOT EXISTS "(\w+)" \(([\s\S]*?)\);/g)) {

@@ -3,13 +3,9 @@ import assert from "node:assert/strict";
 import {
   generateCustomerInvoiceToken,
   verifyCustomerInvoiceToken,
-  numericOrderId,
-  numericCustomerId,
-  normalizeShopDomain,
 } from "../app/utils/customerInvoiceTokens.js";
 import {
   assertOrderOwnership,
-  findIssuedInvoice,
   createCustomerInvoiceLink,
   buildCustomerInvoiceView,
   CustomerInvoiceError,

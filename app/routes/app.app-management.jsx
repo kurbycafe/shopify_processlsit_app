@@ -423,10 +423,16 @@ export const action = async ({ request }) => {
       }
 
       if (bannerId) {
-        await prisma.mobileBanner.update({
-          where: { id: bannerId },
+        const updated = await prisma.mobileBanner.updateMany({
+          where: { id: bannerId, shop },
           data,
         });
+        if (updated.count === 0) {
+          return {
+            success: false,
+            message: "수정할 배너를 찾을 수 없거나 변경 권한이 없습니다.",
+          };
+        }
       } else {
         await prisma.mobileBanner.create({ data });
       }
@@ -448,7 +454,15 @@ export const action = async ({ request }) => {
             "안전 가드: 모바일 앱 메인 화면 보호를 위해 최소 1개 이상의 배너는 유지되어야 합니다.",
         };
       }
-      await prisma.mobileBanner.delete({ where: { id: bannerId } });
+      const deleted = await prisma.mobileBanner.deleteMany({
+        where: { id: bannerId, shop },
+      });
+      if (deleted.count === 0) {
+        return {
+          success: false,
+          message: "삭제할 배너를 찾을 수 없거나 권한이 없습니다.",
+        };
+      }
       await bumpStorefrontVersion(shop);
       return {
         success: true,
@@ -471,10 +485,16 @@ export const action = async ({ request }) => {
           };
         }
       }
-      await prisma.mobileBanner.update({
-        where: { id: bannerId },
+      const toggled = await prisma.mobileBanner.updateMany({
+        where: { id: bannerId, shop },
         data: { isActive: nextActive },
       });
+      if (toggled.count === 0) {
+        return {
+          success: false,
+          message: "배너를 찾을 수 없거나 권한이 없습니다.",
+        };
+      }
       await bumpStorefrontVersion(shop);
       return {
         success: true,
@@ -492,12 +512,21 @@ export const action = async ({ request }) => {
           ? manualDiscount
           : basePrice > salePrice
           ? Math.round(((basePrice - salePrice) / basePrice) * 100)
-          : 10;
+          : 0;
+
+      const productId = String(formData.get("productId") || "").trim();
+      const variantId = String(formData.get("variantId") || "").trim();
+      if (!productId || productId.endsWith("/0")) {
+        return {
+          success: false,
+          message: "유효한 Shopify 상품을 선택해주세요.",
+        };
+      }
 
       const data = {
         shop,
-        productId: String(formData.get("productId") || "gid://shopify/Product/0").trim(),
-        variantId: String(formData.get("variantId") || "gid://shopify/ProductVariant/0").trim(),
+        productId,
+        variantId: variantId && !variantId.endsWith("/0") ? variantId : null,
         productNameKo: String(formData.get("productNameKo") || "").trim(),
         productNameDe: String(formData.get("productNameDe") || "").trim() || null,
         productNameEn: String(formData.get("productNameEn") || "").trim() || null,
@@ -520,10 +549,16 @@ export const action = async ({ request }) => {
       }
 
       if (dealId) {
-        await prisma.mobileHotDeal.update({
-          where: { id: dealId },
+        const updated = await prisma.mobileHotDeal.updateMany({
+          where: { id: dealId, shop },
           data,
         });
+        if (updated.count === 0) {
+          return {
+            success: false,
+            message: "수정할 특가 상품을 찾을 수 없거나 권한이 없습니다.",
+          };
+        }
       } else {
         await prisma.mobileHotDeal.create({ data });
       }
@@ -597,7 +632,15 @@ export const action = async ({ request }) => {
 
     if (intent === "delete_hot_deal") {
       const dealId = String(formData.get("dealId") || "").trim();
-      await prisma.mobileHotDeal.delete({ where: { id: dealId } });
+      const deleted = await prisma.mobileHotDeal.deleteMany({
+        where: { id: dealId, shop },
+      });
+      if (deleted.count === 0) {
+        return {
+          success: false,
+          message: "삭제할 특가 상품을 찾을 수 없거나 권한이 없습니다.",
+        };
+      }
       await bumpStorefrontVersion(shop);
       return {
         success: true,
@@ -768,10 +811,16 @@ export const action = async ({ request }) => {
       }
 
       if (categoryId) {
-        await prisma.mobileCategoryConfig.update({
-          where: { id: categoryId },
+        const updated = await prisma.mobileCategoryConfig.updateMany({
+          where: { id: categoryId, shop },
           data,
         });
+        if (updated.count === 0) {
+          return {
+            success: false,
+            message: "수정할 카테고리를 찾을 수 없거나 권한이 없습니다.",
+          };
+        }
       } else {
         await prisma.mobileCategoryConfig.upsert({
           where: { shop_categoryKey: { shop, categoryKey } },

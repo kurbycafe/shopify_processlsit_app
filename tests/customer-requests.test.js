@@ -139,8 +139,8 @@ test("arrival queries use real fields, page bounds and public response allowlist
 test("admin request lists and updates always constrain the authenticated shop", async () => {
   let listed = false, changed = false;
   const db = { customerRequest: {
-    findMany: async (args) => { assert.deepEqual(args.where, { shop, type: { in: ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW"] }, status: "REQUESTED", id: { lt: "cursor" } }); assert.equal(args.take, 26); listed = true; return []; },
-    updateMany: async (args) => { assert.deepEqual(args.where, { id: "request1", shop, type: { in: ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW"] } }); changed = true; return { count: 0 }; },
+    findMany: async (args) => { assert.deepEqual(args.where, { shop, type: { in: ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW", "COMMUNITY_POST", "COMMUNITY_COMMENT", "ACCOUNT_DELETE"] }, status: "REQUESTED", id: { lt: "cursor" } }); assert.equal(args.take, 26); listed = true; return []; },
+    updateMany: async (args) => { assert.deepEqual(args.where, { id: "request1", shop, type: { in: ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW", "COMMUNITY_POST", "COMMUNITY_COMMENT", "ACCOUNT_DELETE"] } }); changed = true; return { count: 0 }; },
   } };
   await listCustomerRequests({ db, shop, after: "cursor" });
   await assert.rejects(updateCustomerRequest({ db, shop, id: "request1", status: "CLOSED" }), { status: 404 });

@@ -6,6 +6,7 @@ const DEFAULT_CUSTOMER_ORIGINS =
 const DEFAULT_CUSTOMER_ACCOUNT_URL =
   "https://shopify.com/99898655049/account/customer/api/2026-01/graphql";
 const POST_RESOURCES = new Set([
+  "community-reactions", "account-delete-request",
   "restock-subscription",
   "b2b-inquiry",
   "return-request",
@@ -15,6 +16,7 @@ const POST_RESOURCES = new Set([
   "push-token",
 ]);
 const GET_POST_RESOURCES = new Set([
+  "community-posts", "community-comments", "attendance", "loyalty",
   "notification-preferences",
   "photo-reviews",
 ]);

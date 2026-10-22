@@ -1,7 +1,11 @@
+import { customerLoyalty } from "./customerLoyalty.server.js";
+import {customerCommunity,customerComments,customerReaction,customerRequestHistory,customerAttendance,customerDeleteRequest,requireCustomer} from "./customerCommunity.server.js";
+import {getStorefrontConfig} from "./mobileStorefront.server.js";
 import { getCustomerInspection } from "./customerInspection.server.js";
 import { MobileApiError, readId, readPage } from "./mobileApi.server.js";
 import { getCustomerOrders, getCustomerOrderItems } from "./customerOrders.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
+import { generateCustomerInvoiceToken } from "../utils/customerInvoiceTokens.js";
 import { saveBusinessInquiry, saveReturnRequest, customerNotificationPreferences, saveSupportRequest, saveSubscriptionRequest, registerPushToken, customerPhotoReviews } from "./customerRequests.server.js";
 
 async function readJsonPayload(request, maxBytes = 8192) {
@@ -37,8 +41,15 @@ async function readJsonPayload(request, maxBytes = 8192) {
   }
 }
 
-export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe }) {
+export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
+  if(resource==="community-posts")return customerCommunity({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,250000)});
+  if(resource==="community-comments")return customerComments({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,4096)});
+  if(resource==="community-reactions")return customerReaction({db,shop,request,verify,input:await readJsonPayload(request,2048)});
+  if(resource==="customer-requests")return customerRequestHistory({db,shop,request,verify});
+  if(resource==="loyalty")return customerLoyalty({db,loyalty,shop,request,customerQuery,customerId:await requireCustomer(verify,request,shop),input:request.method==="GET"?undefined:await readJsonPayload(request,2048)});
+  if(resource==="attendance")return customerAttendance({db,shop,request,verify,loyalty,input:request.method==="GET"?undefined:await readJsonPayload(request,1024)});
+  if(resource==="account-delete-request")return customerDeleteRequest({db,shop,request,verify,input:await readJsonPayload(request,2048)});
   if (resource === "restock-subscription") {
     if (!subscribe) throw new MobileApiError(503, "NOT_CONFIGURED", "Subscriptions are unavailable.");
     const input = await readJsonPayload(request, 2048);
@@ -79,6 +90,17 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
         customVat: true,
       },
     });
+    let downloadUrl = null;
+    if (record?.invoiceNumber) {
+      try {
+        const customerId = await verify(request, shop, { customerQuery });
+        const numericCustId = customerId.split("/").pop();
+        const token = generateCustomerInvoiceToken({ orderId: numericOrderId, shop, customerId: numericCustId });
+        const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "process-list-beryl.vercel.app";
+        const proto = request.headers.get("x-forwarded-proto") || "https";
+        downloadUrl = `${proto}://${host}/customer-invoice/${numericOrderId}?shop=${shop}&t=${token}`;
+      } catch {}
+    }
     return {
       orderId,
       orderName: record?.orderName || null,
@@ -86,6 +108,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
       invoiceIssuedAt: record?.invoiceIssuedAt || null,
       invoiceSnapshot: record?.invoiceSnapshot || null,
       customVat: record?.customVat ?? null,
+      downloadUrl,
     };
   }
   if (resource === "arrivals") {
@@ -127,13 +150,17 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     return saveSupportRequest({ db, shop, request, verify, input: await readJsonPayload(request, 16384) });
   }
   if (resource === "subscription-request") {
-    return saveSubscriptionRequest({ db, shop, request, verify, input: await readJsonPayload(request, 8192) });
+    const input=await readJsonPayload(request,8192);
+    const config=await getStorefrontConfig(shop,{db});
+    const plan=config.subscriptionPlans.find(item=>item.id===input.planId && item.isActive!==false);
+    if(!plan)throw new MobileApiError(404,"PLAN_NOT_FOUND","Subscription plan is unavailable.");
+    return saveSubscriptionRequest({db,shop,request,verify,input:{...input,planId:plan.id,planTitle:plan.titleKo||plan.titleDe||plan.titleEn,price:plan.price}});
   }
   if (resource === "push-token") {
     return registerPushToken({ db, shop, request, verify, input: await readJsonPayload(request, 4096) });
   }
   if (resource === "photo-reviews") {
-    return customerPhotoReviews({ db, shop, request, verify,
+    return customerPhotoReviews({ db, shop, request, verify, loyalty, customerQuery,
       input: request.method === "GET" ? undefined : await readJsonPayload(request, 262144) });
   }
   if (resource === "notification-preferences") {

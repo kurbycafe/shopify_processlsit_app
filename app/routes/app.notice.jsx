@@ -15,27 +15,12 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  let notice = await prisma.storefrontNotice.findUnique({
+  const notice = await prisma.storefrontNotice.findUnique({
     where: { shop }
   });
 
-  if (!notice) {
-    // 최초 기본 설정 생성
-    notice = await prisma.storefrontNotice.create({
-      data: {
-        shop,
-        isActive: true,
-        noticeVersion: "v1.3.0",
-        badgeTag: "NEW ANNOUNCEMENT",
-        title: "다와요(Dawayo) 서비스 안내",
-        subtext: "고객님께 더 빠르고 정확한 서비스를 제공하기 위해 시스템이 업데이트되었습니다.",
-        itemsJson: DEFAULT_ITEMS
-      }
-    });
-  }
-
-  let items = DEFAULT_ITEMS;
-  if (notice.itemsJson) {
+  let items = [];
+  if (notice?.itemsJson) {
     try {
       items = typeof notice.itemsJson === "string" ? JSON.parse(notice.itemsJson) : notice.itemsJson;
     } catch (e) {
@@ -46,12 +31,13 @@ export const loader = async ({ request }) => {
   return {
     shop,
     notice: {
-      isActive: notice.isActive,
-      noticeVersion: notice.noticeVersion,
-      badgeTag: notice.badgeTag,
-      title: notice.title,
-      subtext: notice.subtext,
-      items
+      isActive: notice ? notice.isActive : false,
+      noticeVersion: notice ? notice.noticeVersion : "v1.0.0",
+      badgeTag: notice ? notice.badgeTag : "NOTICE",
+      title: notice ? notice.title : "",
+      subtext: notice ? notice.subtext : "",
+      items,
+      updatedAt: notice?.updatedAt || null
     }
   };
 };

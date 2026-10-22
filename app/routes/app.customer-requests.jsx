@@ -54,6 +54,7 @@ export default function CustomerRequests() {
           CLAIM: "배송 파손 · 클레임 접수",
           SUBSCRIPTION: "정기구독(Abo) 신청",
           PHOTO_REVIEW: "포토 후기 등록",
+          COMMUNITY_POST: "커뮤니티 게시글", COMMUNITY_COMMENT: "커뮤니티 댓글", ACCOUNT_DELETE: "계정 삭제 요청",
         };
         const fields = record.type === "B2B"
           ? [["회사", detail.companyName], ["이메일", detail.email], ["담당자", detail.contactName], ["전화", detail.phone], ["VAT", detail.vatId], ["문의", detail.message]]
@@ -63,6 +64,12 @@ export default function CustomerRequests() {
           ? [["플랜", detail.planTitle], ["주기", detail.frequency === "biweekly" ? "2주 1회" : "월 1회"], ["금액", detail.price ? `€${detail.price}` : null], ["이메일", detail.email], ["고객 ID", record.customerId]]
           : record.type === "PHOTO_REVIEW"
           ? [["작성자", detail.userName], ["요리명", detail.dishName], ["별점", detail.rating ? `${detail.rating}점` : null], ["후기", detail.comment], ["좋아요", detail.likes != null ? `${detail.likes}` : null]]
+          : record.type === "ACCOUNT_DELETE"
+          ? [["고객 ID",record.customerId],["삭제 요청 사유",detail.reason]]
+          : record.type === "COMMUNITY_POST"
+          ? [["작성자",detail.author],["제목",detail.title],["내용",detail.content]]
+          : record.type === "COMMUNITY_COMMENT"
+          ? [["원문 ID",detail.postId],["작성자",detail.author],["댓글",detail.text]]
           : record.type === "RETURN"
           ? [["주문", detail.orderName || record.orderId], ["고객 ID", record.customerId], ["유형", detail.type === "exchange" ? "교환" : "반품"], ["상품", detail.productName], ["사유", detail.reason]] : [];
         return <Card key={record.id}>
@@ -73,6 +80,15 @@ export default function CustomerRequests() {
             </InlineStack>
             <Text as="p" tone="subdued">접수 번호: {record.id} · {new Date(record.createdAt).toLocaleString("de-DE")}</Text>
             {fields.filter(([, value]) => value).map(([label, value]) => <Text as="p" key={label}>{label}: {value}</Text>)}
+            {Array.isArray(detail.photos) && detail.photos.length > 0 && (
+              <InlineStack gap="200">
+                {detail.photos.map((src, i) => (
+                  <a key={i} href={src} target="_blank" rel="noopener noreferrer">
+                    <img src={src} alt={`첨부 ${i + 1}`} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #ddd" }} />
+                  </a>
+                ))}
+              </InlineStack>
+            )}
             <InlineStack gap="200">
               {Object.entries(LABELS).filter(([nextStatus]) => nextStatus !== record.status).map(([nextStatus, label]) =>
                 <Button key={nextStatus} disabled={fetcher.state !== "idle"} onClick={() => update(record.id, nextStatus)}>{label}로 변경</Button>)}
