@@ -25,5 +25,5 @@ export function findAttributeRule(rules, product) {
     (product.sku && rules.find(rule => rule?.sku === product.sku)) || null;
 }
 export function hasProductAttributes(attributes) {
-  return Object.values(attributes).some(value => value !== false && value !== "" && value !== null && value !== 0);
+  return Object.entries(attributes).some(([key, value]) => !["mhdDate", "mhdPrice"].includes(key) && value !== false && value !== "" && value !== null && value !== 0);
 }

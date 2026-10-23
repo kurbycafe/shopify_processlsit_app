@@ -7,7 +7,7 @@ const ENDPOINT = "/app/product-attributes";
 const PAGE_SIZE = 50;
 const FILTERS = [
  { label: "전체 상품", value: "all" }, { label: "속성 미설정", value: "unset" },
- { label: "MHD 임박특가", value: "mhd" }, { label: "MHD 기한 경과", value: "expired" },
+ { label: "MHD 임박특가", value: "mhd" },
  { label: "무료배송 채우기 추천", value: "filler" }, { label: "오픈예정", value: "upcoming" },
  { label: "연령 제한", value: "age" }, { label: "보증금 있음", value: "pfand" },
 ];
@@ -20,8 +20,7 @@ async function resultJson(response) {
 function attributeBadges(item) {
  const a = item.attributes;
  return <InlineStack gap="100">
-  {(a.isMhdDeal || a.mhdDate) && <Badge tone="critical">{a.mhdDate ? "MHD " + a.mhdDate : "MHD 임박특가"}</Badge>}
-  {a.mhdPrice != null && <Badge>{"참고 €" + Number(a.mhdPrice).toFixed(2)}</Badge>}
+  {a.isMhdDeal && <Badge tone="critical">MHD 특가 표시</Badge>}
   {a.isCartFiller && <Badge tone="success">무료배송 채우기</Badge>}
   {a.isUpcomingDeal && <Badge tone="info">{"오픈예정" + (a.upcomingDateKo ? " · " + a.upcomingDateKo : "")}</Badge>}
   {a.ageRestriction && <Badge tone="attention">{a.ageRestriction}</Badge>}
@@ -134,7 +133,7 @@ export default function ProductAttributesManager({ onSaved } = {}) {
  return <BlockStack gap="400">
   <Card><BlockStack gap="300">
    <InlineStack align="space-between" gap="200">
-    <BlockStack gap="100"><Text as="h2" variant="headingMd">MHD · 상품 속성 관리</Text><Text as="p" tone="subdued">실제 Shopify 상품을 선택해 MHD·추천·오픈예정·연령 제한·보증금을 관리합니다.</Text></BlockStack>
+    <BlockStack gap="100"><Text as="h2" variant="headingMd">추천 · 상품 속성 관리</Text><Text as="p" tone="subdued">실제 상품의 특가 표시·추천·오픈예정·연령 제한·보증금을 관리합니다. 실제 날짜는 유통기한 관리에서 수정합니다.</Text></BlockStack>
     <Button disabled={saving} loading={loadStatus === "loading"} onClick={() => setReloadKey(value => value + 1)}>속성 목록 새로고침</Button>
    </InlineStack>
    <InlineStack gap="200"><Badge>{"조회 상품 " + items.length + "개"}</Badge><Badge>{"속성 미설정 " + items.filter(item => !item.hasAttributes).length + "개"}</Badge></InlineStack>
@@ -163,14 +162,14 @@ export default function ProductAttributesManager({ onSaved } = {}) {
      <Text as="h3" variant="headingMd">선택 상품 일괄 편집</Text>
      <Text as="p">변경할 항목만 체크하세요. 체크하지 않은 항목은 각 상품의 기존 값을 유지합니다. 체크한 텍스트를 비우면 기존 문구를 삭제합니다.</Text>
      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-      {Object.entries(ATTRIBUTE_FIELDS).map(([key, field]) => <BlockStack key={key} gap="100">
+      {Object.entries(ATTRIBUTE_FIELDS).filter(([key]) => !["mhdDate", "mhdPrice"].includes(key)).map(([key, field]) => <BlockStack key={key} gap="100">
        <Checkbox label={field.label + " 변경"} checked={Boolean(applied[key])} disabled={busy} onChange={value => setApplied(previous => ({ ...previous, [key]: value }))} />
        {field.type === "boolean" ? <Select label={field.label} labelHidden disabled={busy || !applied[key]} value={draft[key] ? "true" : "false"} options={[{ label: "사용", value: "true" }, { label: "해제", value: "false" }]} onChange={value => setDraft(previous => ({ ...previous, [key]: value === "true" }))} /> :
         field.type === "age" ? <Select label={field.label} labelHidden disabled={busy || !applied[key]} value={draft[key]} options={[{ label: "기본값 (별도 지정 없음)", value: "" }, { label: "16세 이상", value: "16+" }, { label: "18세 이상", value: "18+" }]} onChange={value => setDraft(previous => ({ ...previous, [key]: value }))} /> :
         <TextField label={field.label} labelHidden disabled={busy || !applied[key]} value={String(draft[key] ?? "")} type={field.type === "date" ? "date" : field.type === "price" || field.type === "money" ? "number" : "text"} autoComplete="off" min={field.type === "price" ? 0.01 : field.type === "money" ? 0 : undefined} step={field.type === "price" || field.type === "money" ? 0.01 : undefined} onChange={value => setDraft(previous => ({ ...previous, [key]: value }))} />}
       </BlockStack>)}
      </div>
-     <Text as="p" tone="subdued">MHD 해제 시 날짜·참고 할인가도 지웁니다. 참고 할인가만 저장해도 Shopify 판매가격과 결제 금액은 변경되지 않습니다.</Text>
+     <Text as="p" tone="subdued">특가 표시·추천 설정은 실제 유통기한과 Shopify 판매가격을 변경하지 않습니다. 날짜는 유통기한 관리에서 수정해주세요.</Text>
      <InlineStack gap="200"><Button variant="primary" loading={saving} disabled={busy || !selected.length || !Object.keys(patch).length} onClick={save}>선택한 속성 저장</Button><Button disabled={saving} onClick={() => setEditing(false)}>편집 닫기</Button></InlineStack>
     </BlockStack>
    </div>}

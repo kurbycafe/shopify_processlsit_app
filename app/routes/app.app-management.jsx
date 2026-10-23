@@ -1,3 +1,4 @@
+import ProductExpiryManager from "../components/ProductExpiryManager.jsx";
 import ProductAttributesManager from "../components/ProductAttributesManager.jsx";
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
@@ -1017,7 +1018,8 @@ const TOP_MENU_TABS = [
   { id: "banners", label: "홈 배너 관리" },
   { id: "hotdeals", label: "오늘의 특가" },
   { id: "temperatures", label: "상품 온도 관리" },
-  { id: "product-rules", label: "MHD · 상품 속성" },
+  { id: "product-rules", label: "유통기한 관리" },
+  { id: "product-attributes", label: "추천 · 상품 속성" },
   { id: "categories", label: "카테고리 · GNB" },
   { id: "shipping", label: "콜드체인 · 배송바" },
   { id: "campaigns", label: "공동구매 · 전단지 · 구독" },
@@ -1317,7 +1319,7 @@ export default function AppManagementPage() {
       upcomingDateDe: po.upcomingDateDe || "",
       upcomingDateEn: po.upcomingDateEn || "",
     });
-    setActiveTab("product-rules");
+    setActiveTab("product-attributes");
   };
 
   const handleEditCategory = (c) => {
@@ -1687,7 +1689,7 @@ export default function AppManagementPage() {
                   </Text>
                 </div>
                 <div>
-                  <InlineStack gap="200"><Button onClick={() => setActiveTab("temperatures")}>온도 관리</Button><Button onClick={() => setActiveTab("product-rules")}>MHD · 속성</Button></InlineStack>
+                  <InlineStack gap="200"><Button onClick={() => setActiveTab("temperatures")}>온도 관리</Button><Button onClick={() => setActiveTab("product-rules")}>유통기한 관리</Button></InlineStack>
                 </div>
               </div>
 
@@ -2493,7 +2495,8 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {activeTab === "temperatures" && <ProductTemperatureManager />}
 
-        {activeTab === "product-rules" && <BlockStack gap="400">
+        {activeTab === "product-rules" && <ProductExpiryManager />}
+        {activeTab === "product-attributes" && <BlockStack gap="400">
           <ProductAttributesManager onSaved={() => { void revalidator.revalidate(); }} />
           <Button onClick={() => setShowLegacyRules(value => !value)}>{showLegacyRules ? "기존 수동 설정 닫기" : "기존 수동 설정 관리 (미연결 상품 포함)"}</Button>
           {showLegacyRules && (

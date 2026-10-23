@@ -1,3 +1,4 @@
+import { normalizeExpiryDate } from "../utils/productExpiry.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { normalizeProductType } from "../utils/productTemperatures.js";
 
@@ -5,6 +6,7 @@ export const PUBLIC_PRODUCT_TEMPERATURES_QUERY = `#graphql
  query MobileProductTemperatures($ids: [ID!]!) {
    nodes(ids: $ids) { ... on Product {
      id status onlineStoreUrl producttype: metafield(namespace: "custom", key: "producttype") { value }
+     expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
    } }
  }
 `;
@@ -18,7 +20,8 @@ export async function customerProductTemperatures({ request, shop, graphql }) {
   const result = await graphql(shop, PUBLIC_PRODUCT_TEMPERATURES_QUERY, { ids: productIds });
   if (result?.errors?.length || !Array.isArray(result?.data?.nodes)) throw new MobileApiError(502, "SHOPIFY_UNAVAILABLE", "Product temperatures are unavailable.");
   const publicProducts = new Map(result.data.nodes.filter(product => product?.status === "ACTIVE" && product.onlineStoreUrl).map(product => [product.id, product]));
-  return { source: "custom.producttype", items: productIds.map(productId => ({
+  return { source: "custom.producttype", expirySource: "freshly.expiry_date", items: productIds.map(productId => ({
     productId, productTemperatureCode: normalizeProductType(publicProducts.get(productId)?.producttype?.value),
+    productExpiryDate: normalizeExpiryDate(publicProducts.get(productId)?.expiryDate?.value),
   })) };
 }
