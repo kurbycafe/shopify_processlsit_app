@@ -1,7 +1,8 @@
+import ProductAttributesManager from "../components/ProductAttributesManager.jsx";
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import { useState, useEffect } from "react";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useRevalidator } from "react-router";
 import {
   Page,
   Card,
@@ -1030,12 +1031,14 @@ const TOP_MENU_TABS = [
 
 export default function AppManagementPage() {
   const { config } = useLoaderData();
+  const revalidator = useRevalidator();
   const productRules = config.productRules || config.productOverrides || [];
   const fetcher = useFetcher();
   const searchFetcher = useFetcher();
   const campaignSearchFetcher = useFetcher();
 
   const [activeTab, setActiveTab] = useState("overview");
+  const [showLegacyRules, setShowLegacyRules] = useState(false);
 
   // Campaign search states
   const [activeGbSearchIdx, setActiveGbSearchIdx] = useState(null);
@@ -2490,7 +2493,10 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {activeTab === "temperatures" && <ProductTemperatureManager />}
 
-        {activeTab === "product-rules" && (
+        {activeTab === "product-rules" && <BlockStack gap="400">
+          <ProductAttributesManager onSaved={() => { void revalidator.revalidate(); }} />
+          <Button onClick={() => setShowLegacyRules(value => !value)}>{showLegacyRules ? "기존 수동 설정 닫기" : "기존 수동 설정 관리 (미연결 상품 포함)"}</Button>
+          {showLegacyRules && (
           <div
             style={{
               display: "grid",
@@ -2922,7 +2928,8 @@ export default function AppManagementPage() {
               </BlockStack>
             </Card>
           </div>
-        )}
+          )}
+        </BlockStack>}
 
         {/* =================================================================
          * TAB 3: CATEGORIES & STICKY GNB MANAGEMENT
