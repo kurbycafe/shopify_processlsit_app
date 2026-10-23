@@ -1,9 +1,12 @@
 import ProductExpiryManager from "../components/ProductExpiryManager.jsx";
 import ProductAttributesManager from "../components/ProductAttributesManager.jsx";
+import BannerImageUploader from "../components/BannerImageUploader.jsx";
+import CustomerRequestsManager from "../components/CustomerRequestsManager.jsx";
+import B2bRequestsManager from "../components/B2bRequestsManager.jsx";
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import { useState, useEffect } from "react";
-import { useLoaderData, useFetcher, useRevalidator } from "react-router";
+import { useLoaderData, useFetcher, useRevalidator, useSearchParams } from "react-router";
 import {
   Page,
   Card,
@@ -357,10 +360,19 @@ export const action = async ({ request }) => {
                 featuredImage {
                   url
                 }
-                variants(first: 1) {
+                deTrans: translations(locale: "de") {
+                  key
+                  value
+                }
+                enTrans: translations(locale: "en") {
+                  key
+                  value
+                }
+                variants(first: 5) {
                   edges {
                     node {
                       id
+                      title
                       price
                       compareAtPrice
                       sku
@@ -376,10 +388,14 @@ export const action = async ({ request }) => {
       const result = await response.json();
       const products = (result?.data?.products?.edges || []).map(({ node }) => {
         const firstVariant = node.variants?.edges?.[0]?.node;
+        const deTitle = (node.deTrans || []).find((t) => t.key === "title")?.value || "";
+        const enTitle = (node.enTrans || []).find((t) => t.key === "title")?.value || "";
         return {
           productId: node.id,
           variantId: firstVariant?.id || node.id,
           title: node.title,
+          titleDe: deTitle || node.title,
+          titleEn: enTitle || node.title,
           imageUrl: node.featuredImage?.url || "",
           price: Number(firstVariant?.price || 0),
           compareAtPrice: Number(firstVariant?.compareAtPrice || firstVariant?.price || 0),
@@ -523,8 +539,56 @@ export const action = async ({ request }) => {
       if (!productId || productId.endsWith("/0")) {
         return {
           success: false,
-          message: "유효한 Shopify 상품을 선택해주세요.",
+          message: "유효한 Shopify 상품을 검색하여 선택해주세요.",
         };
+      }
+
+      const isActive = formData.get("isActive") === "true";
+
+      // 1. Synchronize price to Shopify Storefront/Checkout
+      let shopifyPriceSynced = false;
+      let shopifySyncNote = "";
+      if (admin?.graphql && variantId && !variantId.endsWith("/0")) {
+        try {
+          const syncMutation = `#graphql
+            mutation SyncHotDealPriceToShopify($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants {
+                  id
+                  price
+                  compareAtPrice
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `;
+          const syncRes = await admin.graphql(syncMutation, {
+            variables: {
+              productId,
+              variants: [
+                {
+                  id: variantId,
+                  price: (isActive ? salePrice : basePrice).toFixed(2),
+                  compareAtPrice: isActive ? basePrice.toFixed(2) : null,
+                },
+              ],
+            },
+          });
+          const syncJson = await syncRes.json();
+          const userErrors = syncJson?.data?.productVariantsBulkUpdate?.userErrors || [];
+          if (userErrors.length > 0) {
+            shopifySyncNote = ` (주의: Shopify 가격 반영 오류 - ${userErrors[0].message})`;
+            console.warn("[HotDeal] Shopify sync userErrors:", userErrors);
+          } else {
+            shopifyPriceSynced = true;
+          }
+        } catch (err) {
+          shopifySyncNote = ` (Shopify API 통신 오류: ${err.message})`;
+          console.warn("[HotDeal] Shopify sync exception:", err);
+        }
       }
 
       const data = {
@@ -625,12 +689,53 @@ export const action = async ({ request }) => {
 
       return {
         success: true,
-        message: "오늘의 특가 상품과 MHD 설정이 저장되었습니다.",
+        message: shopifyPriceSynced
+          ? `오늘의 특가 상품이 저장되었으며, Shopify 상점 판매가가 €${salePrice.toFixed(2)}(정상가 €${basePrice.toFixed(2)})로 실시간 동기화되어 결제 시 적용됩니다.`
+          : `오늘의 특가 상품과 MHD 설정이 저장되었습니다.${shopifySyncNote}`,
       };
     }
 
     if (intent === "delete_hot_deal") {
       const dealId = String(formData.get("dealId") || "").trim();
+      const deal = await prisma.mobileHotDeal.findFirst({
+        where: { id: dealId, shop },
+      });
+
+      // Restore Shopify price on delete
+      if (admin?.graphql && deal?.productId && deal?.variantId && deal?.basePrice) {
+        try {
+          const restoreMutation = `#graphql
+            mutation RestoreHotDealPriceToShopify($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants {
+                  id
+                  price
+                  compareAtPrice
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `;
+          await admin.graphql(restoreMutation, {
+            variables: {
+              productId: deal.productId,
+              variants: [
+                {
+                  id: deal.variantId,
+                  price: Number(deal.basePrice).toFixed(2),
+                  compareAtPrice: null,
+                },
+              ],
+            },
+          });
+        } catch (err) {
+          console.warn("[HotDeal] Failed to restore Shopify price on deletion:", err.message);
+        }
+      }
+
       const deleted = await prisma.mobileHotDeal.deleteMany({
         where: { id: dealId, shop },
       });
@@ -643,7 +748,81 @@ export const action = async ({ request }) => {
       await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: "특가 상품이 목록에서 삭제되었습니다.",
+        message: "특가 상품이 삭제되었으며 쇼피파이 판매가가 기존 정상가로 원복되었습니다.",
+      };
+    }
+
+    if (intent === "toggle_hot_deal") {
+      const dealId = String(formData.get("dealId") || "").trim();
+      const deal = await prisma.mobileHotDeal.findFirst({
+        where: { id: dealId, shop },
+      });
+      if (!deal) {
+        return {
+          success: false,
+          message: "특가 상품을 찾을 수 없습니다.",
+        };
+      }
+      const nextIsActive = !deal.isActive;
+
+      // Synchronize price to Shopify Storefront/Checkout
+      let shopifyPriceSynced = false;
+      let shopifySyncNote = "";
+      if (admin?.graphql && deal.productId && deal.variantId && deal.basePrice && deal.salePrice) {
+        try {
+          const syncMutation = `#graphql
+            mutation ToggleHotDealPriceToShopify($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants {
+                  id
+                  price
+                  compareAtPrice
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `;
+          const syncRes = await admin.graphql(syncMutation, {
+            variables: {
+              productId: deal.productId,
+              variants: [
+                {
+                  id: deal.variantId,
+                  price: (nextIsActive ? Number(deal.salePrice) : Number(deal.basePrice)).toFixed(2),
+                  compareAtPrice: nextIsActive ? Number(deal.basePrice).toFixed(2) : null,
+                },
+              ],
+            },
+          });
+          const syncJson = await syncRes.json();
+          const userErrors = syncJson?.data?.productVariantsBulkUpdate?.userErrors || [];
+          if (userErrors.length > 0) {
+            shopifySyncNote = ` (Shopify 가격 반영 오류: ${userErrors[0].message})`;
+          } else {
+            shopifyPriceSynced = true;
+          }
+        } catch (err) {
+          shopifySyncNote = ` (Shopify API 통신 오류: ${err.message})`;
+        }
+      }
+
+      await prisma.mobileHotDeal.update({
+        where: { id: dealId },
+        data: { isActive: nextIsActive },
+      });
+      await bumpStorefrontVersion(shop);
+      return {
+        success: true,
+        message: nextIsActive
+          ? (shopifyPriceSynced
+              ? `특가가 활성화되었으며 상점 판매가가 €${Number(deal.salePrice).toFixed(2)}로 실시간 반영되었습니다.`
+              : `특가가 활성화되었습니다.${shopifySyncNote}`)
+          : (shopifyPriceSynced
+              ? `특가가 일시 비활성화되었으며 상점 판매가가 정상가(€${Number(deal.basePrice).toFixed(2)})로 복원되었습니다.`
+              : `특가가 일시 비활성화되었습니다.${shopifySyncNote}`),
       };
     }
 
@@ -1022,8 +1201,10 @@ const TOP_MENU_TABS = [
   { id: "product-attributes", label: "추천 · 상품 속성" },
   { id: "categories", label: "카테고리 · GNB" },
   { id: "shipping", label: "콜드체인 · 배송바" },
-  { id: "campaigns", label: "공동구매 · 전단지 · 구독" },
+  { id: "campaigns", label: "공동구매 · 정기구독" },
   { id: "pages", label: "상품 · 장바구니 · 마이페이지" },
+  { id: "customer-requests", label: "고객 문의 · 반품 접수" },
+  { id: "b2b-requests", label: "B2B 도매 신청" },
   { id: "preview", label: "라이브 미리보기" },
 ];
 
@@ -1039,13 +1220,24 @@ export default function AppManagementPage() {
   const searchFetcher = useFetcher();
   const campaignSearchFetcher = useFetcher();
 
-  const [activeTab, setActiveTab] = useState("overview");
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") || "overview";
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set(["overview", initialTab]));
   const [showLegacyRules, setShowLegacyRules] = useState(false);
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
 
   // Campaign search states
   const [activeGbSearchIdx, setActiveGbSearchIdx] = useState(null);
   const [gbSearchQuery, setGbSearchQuery] = useState("");
-  const [prospektSearchQuery, setProspektSearchQuery] = useState("");
   const [activeSubSearchIdx, setActiveSubSearchIdx] = useState(null);
   const [subSearchQuery, setSubSearchQuery] = useState("");
 
@@ -1078,6 +1270,47 @@ export default function AppManagementPage() {
 
   // Hot deal form state
   const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [showDealProductSearch, setShowDealProductSearch] = useState(false);
+
+  const handleSelectDealProduct = (sp) => {
+    const base = sp.compareAtPrice > sp.price ? sp.compareAtPrice : sp.price;
+    const proposedSale = sp.compareAtPrice > sp.price ? sp.price : Number((sp.price * 0.85).toFixed(2));
+    const rate = base > proposedSale && base > 0 ? Math.round(((base - proposedSale) / base) * 100) : 15;
+    setDealForm({
+      ...dealForm,
+      productId: sp.productId,
+      variantId: sp.variantId,
+      productNameKo: sp.title,
+      productNameDe: sp.titleDe || sp.title,
+      productNameEn: sp.titleEn || sp.title,
+      imageUrl: sp.imageUrl,
+      basePrice: String(base),
+      salePrice: String(proposedSale),
+      discountRate: String(rate),
+    });
+    setShowDealProductSearch(false);
+  };
+
+  const handleDealBasePriceChange = (v) => {
+    const numBase = Number(v) || 0;
+    const numSale = Number(dealForm.salePrice) || 0;
+    const rate = numBase > numSale && numBase > 0 ? Math.round(((numBase - numSale) / numBase) * 100) : 0;
+    setDealForm({ ...dealForm, basePrice: v, discountRate: String(rate) });
+  };
+
+  const handleDealSalePriceChange = (v) => {
+    const numSale = Number(v) || 0;
+    const numBase = Number(dealForm.basePrice) || 0;
+    const rate = numBase > numSale && numBase > 0 ? Math.round(((numBase - numSale) / numBase) * 100) : 0;
+    setDealForm({ ...dealForm, salePrice: v, discountRate: String(rate) });
+  };
+
+  const handleDealDiscountRateChange = (v) => {
+    const rate = Number(v) || 0;
+    const numBase = Number(dealForm.basePrice) || 0;
+    const calcSale = numBase > 0 ? (numBase * (1 - rate / 100)).toFixed(2) : dealForm.salePrice;
+    setDealForm({ ...dealForm, discountRate: v, salePrice: String(calcSale) });
+  };
   const [dealForm, setDealForm] = useState({
     dealId: "",
     productId: "",
@@ -1716,12 +1949,12 @@ export default function AppManagementPage() {
                     }}
                   >
                     <Text variant="headingMd" as="h3">
-                      공동구매 · 디지털 전단지 · 정기구독
+                      공동구매 · 정기구독
                     </Text>
                     <Badge tone="success">{`캠페인 ${groupBuying.length}건`}</Badge>
                   </div>
                   <Text variant="bodyMd" tone="subdued" as="p">
-                    특가 탭 공동구매 캠페인, 주간 디지털 전단지(Prospekt) 기간/대표상품, 정기배송 박스 플랜을 통합 제어합니다.
+                    특가 탭 공동구매 캠페인 및 정기배송 박스 플랜을 통합 제어합니다.
                   </Text>
                 </div>
                 <div>
@@ -1764,14 +1997,104 @@ export default function AppManagementPage() {
                   <Button onClick={() => setActiveTab("pages")}>설정</Button>
                 </div>
               </div>
+
+              <div
+                style={{
+                  background: "#FFFFFF",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  padding: "20px",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  gap: "16px",
+                }}
+              >
+                <div
+                  style={{
+                    height: "120px",
+                    borderRadius: "8px",
+                    background: "linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "36px",
+                  }}
+                >
+                  📨
+                </div>
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    <Text variant="headingMd" as="h3">
+                      고객 문의 · 반품 접수
+                    </Text>
+                    <Badge tone="info">실시간 접수</Badge>
+                  </div>
+                  <Text variant="bodyMd" tone="subdued" as="p">
+                    모바일 앱 마이페이지에서 접수된 1:1 고객 문의, 반품/교환, 배송 파손 클레임, B2B 사업자 문의, 포토 후기 내역을 확인하고 처리 상태를 관리합니다.
+                  </Text>
+                </div>
+                <div>
+                  <Button onClick={() => setActiveTab("customer-requests")}>
+                    접수 내역 관리
+                  </Button>
+                </div>
+              </div>
             </div>
+
+              {/* B2B Wholesale Inquiries Card */}
+              <div
+                style={{
+                  background: "#FFFFFF",
+                  border: "1px solid #E2E8F0",
+                  borderRadius: "12px",
+                  padding: "20px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "16px",
+                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    <Text variant="headingMd" as="h3">
+                      B2B 도매 회원 신청
+                    </Text>
+                    <Badge tone="success">사업자 전담</Badge>
+                  </div>
+                  <Text variant="bodyMd" tone="subdued" as="p">
+                    모바일 앱에서 접수된 유럽 식당, 카페, 아시안 마트 사업자의 대량구매 및 B2B 도매 회원 신청 내역을 별도로 확인하고 승인 상태를 관리합니다.
+                  </Text>
+                </div>
+                <div>
+                  <Button variant="primary" onClick={() => setActiveTab("b2b-requests")}>
+                    신청 내역 확인
+                  </Button>
+                </div>
+              </div>
           </BlockStack>
         )}
 
         {/* =================================================================
          * TAB 1: HERO BANNERS MANAGEMENT
          * ================================================================= */}
-        {activeTab === "banners" && (
+        {visitedTabs.has("banners") && (
+          <div style={{ display: activeTab === "banners" ? "block" : "none" }}>
           <div
             style={{
               display: "grid",
@@ -2029,14 +2352,15 @@ export default function AppManagementPage() {
                   </div>
                 </InlineStack>
 
-                <TextField
-                  label="배너 상품 이미지 URL (Shopify CDN 자동 WebP 압축 지원)"
-                  value={bannerForm.imageUrl}
+                <BannerImageUploader
+                  imageUrl={bannerForm.imageUrl}
                   onChange={(v) =>
                     setBannerForm({ ...bannerForm, imageUrl: v })
                   }
-                  helpText="권장 규격: 정사각형 상품 컷 또는 1200x675px"
-                  autoComplete="off"
+                  bgGradient={bannerForm.bgGradient}
+                  titleKo={bannerForm.titleKo}
+                  tagKo={bannerForm.tagKo}
+                  ctaKo={bannerForm.ctaKo}
                 />
 
                 <Select
@@ -2095,12 +2419,14 @@ export default function AppManagementPage() {
               </BlockStack>
             </Card>
           </div>
-        )}
+        </div>
+      )}
 
         {/* =================================================================
          * TAB 2: HOT DEALS & TIME SALE MANAGEMENT
          * ================================================================= */}
-        {activeTab === "hotdeals" && (
+        {visitedTabs.has("hotdeals") && (
+          <div style={{ display: activeTab === "hotdeals" ? "block" : "none" }}>
           <div
             style={{
               display: "grid",
@@ -2190,6 +2516,19 @@ export default function AppManagementPage() {
                         <InlineStack gap="200">
                           <Button
                             size="slim"
+                            variant={deal.isActive ? "secondary" : "primary"}
+                            tone={deal.isActive ? undefined : "success"}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "toggle_hot_deal");
+                              fd.append("dealId", deal.id);
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                          >
+                            {deal.isActive ? "비활성화" : "특가 활성화"}
+                          </Button>
+                          <Button
+                            size="slim"
                             onClick={() => handleEditDeal(deal)}
                           >
                             수정
@@ -2277,28 +2616,10 @@ export default function AppManagementPage() {
                           </div>
                           <Button
                             size="slim"
-                            onClick={() => {
-                              const base =
-                                sp.compareAtPrice > sp.price
-                                  ? sp.compareAtPrice
-                                  : Number((sp.price * 1.25).toFixed(2));
-                              const rate = Math.round(
-                                ((base - sp.price) / base) * 100
-                              );
-                              setDealForm({
-                                ...dealForm,
-                                dealId: "",
-                                productId: sp.productId,
-                                variantId: sp.variantId,
-                                productNameKo: sp.title,
-                                imageUrl: sp.imageUrl,
-                                basePrice: String(base),
-                                salePrice: String(sp.price),
-                                discountRate: String(rate),
-                              });
-                            }}
+                            variant="primary"
+                            onClick={() => handleSelectDealProduct(sp)}
                           >
-                            선택
+                            특가 상품으로 선택
                           </Button>
                         </div>
                       ))}
@@ -2318,7 +2639,7 @@ export default function AppManagementPage() {
                   {dealForm.dealId && (
                     <Button
                       size="slim"
-                      onClick={() =>
+                      onClick={() => {
                         setDealForm({
                           dealId: "",
                           productId: "",
@@ -2337,14 +2658,177 @@ export default function AppManagementPage() {
                           mhdDate: "",
                           sortOrder: String((config.hotDeals?.length || 0) + 1),
                           isActive: true,
-                        })
-                      }
+                        });
+                        setShowDealProductSearch(false);
+                      }}
                     >
                       신규 등록 모드로 전환
                     </Button>
                   )}
                 </InlineStack>
                 <Divider />
+
+                {/* Shopify Product Connection Section */}
+                {dealForm.productId && !showDealProductSearch ? (
+                  <div
+                    style={{
+                      border: "1px solid #10B981",
+                      background: "#F0FDF4",
+                      borderRadius: "10px",
+                      padding: "12px 16px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+                      {dealForm.imageUrl && (
+                        <img
+                          src={dealForm.imageUrl}
+                          alt=""
+                          style={{
+                            width: "48px",
+                            height: "48px",
+                            objectFit: "contain",
+                            background: "#FFFFFF",
+                            borderRadius: "8px",
+                            border: "1px solid #D1D5DB",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <InlineStack gap="150" align="center">
+                          <Badge tone="success">Shopify 상품 연동됨</Badge>
+                          <span style={{ fontSize: "11px", color: "#065F46" }}>
+                            실제 결제 시 특가 자동 적용
+                          </span>
+                        </InlineStack>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: "13px",
+                            marginTop: "3px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {dealForm.productNameKo}
+                        </div>
+                      </div>
+                    </div>
+                    <Button size="slim" onClick={() => setShowDealProductSearch(true)}>
+                      다른 상품 검색 / 변경
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      border: "1px dashed #3B82F6",
+                      background: "#EFF6FF",
+                      borderRadius: "10px",
+                      padding: "14px",
+                    }}
+                  >
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between">
+                        <Text variant="bodyMd" fontWeight="semibold">
+                          🔍 쇼피파이 상품 검색으로 특가 대상 선택 (필수)
+                        </Text>
+                        {dealForm.productId && (
+                          <Button size="slim" variant="plain" onClick={() => setShowDealProductSearch(false)}>
+                            닫기
+                          </Button>
+                        )}
+                      </InlineStack>
+                      <Text variant="bodySm" tone="subdued">
+                        특가를 적용할 Shopify 상품을 검색하여 선택하면 상품명(다국어 포함), 이미지, 정상가가 자동으로 입력됩니다.
+                      </Text>
+
+                      <InlineStack gap="200">
+                        <div style={{ flex: 1 }}>
+                          <TextField
+                            label="쇼피파이 상품 검색"
+                            labelHidden
+                            placeholder="신라면, 김치, 만두, SKU 등 입력 후 검색"
+                            value={productSearchQuery}
+                            onChange={setProductSearchQuery}
+                            autoComplete="off"
+                          />
+                        </div>
+                        <Button
+                          loading={searchFetcher.state !== "idle"}
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.append("intent", "search_shopify_products");
+                            fd.append("query", productSearchQuery);
+                            searchFetcher.submit(fd, { method: "post" });
+                          }}
+                        >
+                          검색
+                        </Button>
+                      </InlineStack>
+
+                      {searchFetcher.data?.searchedProducts && (
+                        <div
+                          style={{
+                            maxHeight: "220px",
+                            overflowY: "auto",
+                            border: "1px solid #D1D5DB",
+                            borderRadius: "8px",
+                            padding: "6px",
+                            background: "#FFFFFF",
+                          }}
+                        >
+                          {searchFetcher.data.searchedProducts.length === 0 ? (
+                            <div style={{ padding: "16px", textAlign: "center", color: "#6B7280", fontSize: "13px" }}>
+                              검색 결과가 없습니다.
+                            </div>
+                          ) : (
+                            searchFetcher.data.searchedProducts.map((sp) => (
+                              <div
+                                key={sp.productId}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "8px 10px",
+                                  borderRadius: "6px",
+                                  background: dealForm.productId === sp.productId ? "#EFF6FF" : "#F9FAFB",
+                                  border: dealForm.productId === sp.productId ? "1px solid #3B82F6" : "1px solid #E5E7EB",
+                                  marginBottom: "6px",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  {sp.imageUrl && (
+                                    <img
+                                      src={sp.imageUrl}
+                                      alt=""
+                                      style={{ width: "32px", height: "32px", objectFit: "contain" }}
+                                    />
+                                  )}
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: "bold" }}>
+                                      {sp.title}
+                                    </div>
+                                    <div style={{ fontSize: "11px", color: "#6B7280" }}>
+                                      판매가 €{sp.price.toFixed(2)} {sp.compareAtPrice > sp.price && `(정상가 €${sp.compareAtPrice.toFixed(2)})`}
+                                    </div>
+                                  </div>
+                                </div>
+                                <Button size="slim" variant="primary" onClick={() => handleSelectDealProduct(sp)}>
+                                  선택
+                                </Button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </BlockStack>
+                  </div>
+                )}
 
                 <TextField
                   label="상품명 (한국어 필수)"
@@ -2391,9 +2875,8 @@ export default function AppManagementPage() {
                       type="number"
                       step="0.01"
                       value={dealForm.basePrice}
-                      onChange={(v) =>
-                        setDealForm({ ...dealForm, basePrice: v })
-                      }
+                      onChange={handleDealBasePriceChange}
+                      helpText="Shopify 등록 기준 원래 판매가"
                       autoComplete="off"
                     />
                   </div>
@@ -2403,9 +2886,8 @@ export default function AppManagementPage() {
                       type="number"
                       step="0.01"
                       value={dealForm.salePrice}
-                      onChange={(v) =>
-                        setDealForm({ ...dealForm, salePrice: v })
-                      }
+                      onChange={handleDealSalePriceChange}
+                      helpText="실제 결제 청구 금액"
                       autoComplete="off"
                     />
                   </div>
@@ -2414,13 +2896,26 @@ export default function AppManagementPage() {
                       label="할인율 표기 (%)"
                       type="number"
                       value={dealForm.discountRate}
-                      onChange={(v) =>
-                        setDealForm({ ...dealForm, discountRate: v })
-                      }
+                      onChange={handleDealDiscountRateChange}
+                      helpText="가격 입력 시 자동 계산"
                       autoComplete="off"
                     />
                   </div>
                 </InlineStack>
+
+                {/* Real Checkout Guarantee Banner */}
+                <div
+                  style={{
+                    background: "#F0FDF4",
+                    border: "1px solid #BBF7D0",
+                    borderRadius: "8px",
+                    padding: "10px 14px",
+                  }}
+                >
+                  <Text variant="bodySm" tone="success">
+                    💳 <strong>Shopify 실결제 연동</strong>: 특가 저장 시 Shopify 상점의 해당 상품 판매가가 즉시 <strong>€{Number(dealForm.salePrice || 0).toFixed(2)}</strong>(정상가 €{Number(dealForm.basePrice || 0).toFixed(2)})로 실시간 동기화되어, 모바일 앱 장바구니 및 체크아웃 결제 시 <strong>설정하신 특가 그대로 실결제</strong>됩니다.
+                  </Text>
+                </div>
 
                 <InlineStack gap="300">
                   <div style={{ flex: 1 }}>
@@ -2488,15 +2983,27 @@ export default function AppManagementPage() {
               </BlockStack>
             </Card>
           </div>
-        )}
+        </div>
+      )}
 
         {/* =================================================================
          * TAB 2.5: PER-PRODUCT TEMPERATURE, MHD DEAL & ATTRIBUTES
          * ================================================================= */}
-        {activeTab === "temperatures" && <ProductTemperatureManager />}
+        {visitedTabs.has("temperatures") && (
+          <div style={{ display: activeTab === "temperatures" ? "block" : "none" }}>
+            <ProductTemperatureManager />
+          </div>
+        )}
 
-        {activeTab === "product-rules" && <ProductExpiryManager />}
-        {activeTab === "product-attributes" && <BlockStack gap="400">
+        {visitedTabs.has("product-rules") && (
+          <div style={{ display: activeTab === "product-rules" ? "block" : "none" }}>
+            <ProductExpiryManager />
+          </div>
+        )}
+
+        {visitedTabs.has("product-attributes") && (
+          <div style={{ display: activeTab === "product-attributes" ? "block" : "none" }}>
+            <BlockStack gap="400">
           <ProductAttributesManager onSaved={() => { void revalidator.revalidate(); }} />
           <Button onClick={() => setShowLegacyRules(value => !value)}>{showLegacyRules ? "기존 수동 설정 닫기" : "기존 수동 설정 관리 (미연결 상품 포함)"}</Button>
           {showLegacyRules && (
@@ -2932,7 +3439,9 @@ export default function AppManagementPage() {
             </Card>
           </div>
           )}
-        </BlockStack>}
+            </BlockStack>
+          </div>
+        )}
 
         {/* =================================================================
          * TAB 3: CATEGORIES & STICKY GNB MANAGEMENT
@@ -3405,7 +3914,7 @@ export default function AppManagementPage() {
         )}
 
         {/* =================================================================
-         * TAB 4.5: GROUP BUYING, DIGITAL PROSPEKT FLYER & SUBSCRIPTIONS
+         * TAB 4.5: GROUP BUYING & SUBSCRIPTIONS
          * ================================================================= */}
         {activeTab === "campaigns" && (
           <BlockStack gap="400">
@@ -3781,212 +4290,6 @@ export default function AppManagementPage() {
                     );
                   })
                 )}
-              </BlockStack>
-            </Card>
-
-            {/* Weekly Prospekt Flyer Section with Product Search */}
-            <Card>
-              <BlockStack gap="400">
-                <Text variant="headingMd" as="h2">
-                  주간 디지털 전단지 (Prospekt 탭) 설정
-                </Text>
-                <Divider />
-                <InlineStack gap="300">
-                  <div style={{ flex: 1 }}>
-                    <TextField
-                      label="전단지 유효 기간 표기 (한국어)"
-                      value={prospekt.periodKo || ""}
-                      onChange={(v) =>
-                        setProspekt({ ...prospekt, periodKo: v })
-                      }
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <TextField
-                      label="전단지 유효 기간 표기 (독일어)"
-                      value={prospekt.periodDe || ""}
-                      onChange={(v) =>
-                        setProspekt({ ...prospekt, periodDe: v })
-                      }
-                      autoComplete="off"
-                    />
-                  </div>
-                </InlineStack>
-                <TextField
-                  label="전단지 메인 타이틀 (한국어)"
-                  value={prospekt.headlineKo || ""}
-                  onChange={(v) =>
-                    setProspekt({ ...prospekt, headlineKo: v })
-                  }
-                  autoComplete="off"
-                />
-
-                {/* Shopify Direct Product Selector for Prospekt */}
-                <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: "10px", padding: "14px" }}>
-                  <BlockStack gap="300">
-                    <Text variant="bodyMd" fontWeight="bold">
-                      전단지 대표 상품 직접 선택 ({Array.isArray(prospekt.selectedProducts) ? prospekt.selectedProducts.length : (Array.isArray(prospekt.productIds) ? prospekt.productIds.length : 0)}개 등록됨)
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      전단지 상단에 노출할 실제 쇼피파이 상품을 직접 검색하여 추가할 수 있습니다.
-                    </Text>
-
-                    <InlineStack gap="200">
-                      <div style={{ flex: 1 }}>
-                        <TextField
-                          label="쇼피파이 상품 검색하여 전단지에 추가"
-                          labelHidden
-                          placeholder="예: 신라면, 종가집 김치, 참이슬, 비비고 만두 등 검색어 입력"
-                          value={prospektSearchQuery}
-                          onChange={setProspektSearchQuery}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <Button
-                        loading={campaignSearchFetcher.state !== "idle"}
-                        onClick={() => {
-                          const fd = new FormData();
-                          fd.append("intent", "search_shopify_products");
-                          fd.append("query", prospektSearchQuery);
-                          campaignSearchFetcher.submit(fd, { method: "post" });
-                        }}
-                      >
-                        쇼피파이 상품 검색
-                      </Button>
-                    </InlineStack>
-
-                    {/* Search Results */}
-                    {campaignSearchFetcher.data?.searchedProducts && (
-                      <div
-                        style={{
-                          maxHeight: "220px",
-                          overflowY: "auto",
-                          border: "1px solid #D1D5DB",
-                          borderRadius: "8px",
-                          padding: "6px",
-                          background: "#FFFFFF",
-                        }}
-                      >
-                        <BlockStack gap="150">
-                          {campaignSearchFetcher.data.searchedProducts.map((sp) => {
-                            const currentIds = Array.isArray(prospekt.productIds) ? prospekt.productIds : [];
-                            const isAlreadyAdded = currentIds.includes(sp.productId);
-                            return (
-                              <div
-                                key={sp.productId}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  padding: "6px 10px",
-                                  borderRadius: "6px",
-                                  background: isAlreadyAdded ? "#EFF6FF" : "#F9FAFB",
-                                  border: isAlreadyAdded ? "1px solid #93C5FD" : "1px solid #E5E7EB",
-                                }}
-                              >
-                                <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
-                                  {sp.imageUrl && (
-                                    <img
-                                      src={sp.imageUrl}
-                                      alt=""
-                                      style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "4px" }}
-                                    />
-                                  )}
-                                  <Text variant="bodySm" as="span" truncate>
-                                    {sp.title} (€{sp.price.toFixed(2)})
-                                  </Text>
-                                </div>
-                                <Button
-                                  size="slim"
-                                  disabled={isAlreadyAdded}
-                                  variant={isAlreadyAdded ? "secondary" : "primary"}
-                                  onClick={() => {
-                                    const currentSelected = Array.isArray(prospekt.selectedProducts) ? prospekt.selectedProducts : [];
-                                    const currentIds = Array.isArray(prospekt.productIds) ? prospekt.productIds : [];
-                                    if (!currentIds.includes(sp.productId)) {
-                                      setProspekt({
-                                        ...prospekt,
-                                        productIds: [...currentIds, sp.productId],
-                                        selectedProducts: [...currentSelected, sp],
-                                      });
-                                    }
-                                  }}
-                                >
-                                  {isAlreadyAdded ? "추가됨" : "+ 전단지 추가"}
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </BlockStack>
-                      </div>
-                    )}
-
-                    {/* Selected Products Chips */}
-                    {Array.isArray(prospekt.selectedProducts) && prospekt.selectedProducts.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", paddingTop: "6px" }}>
-                        {prospekt.selectedProducts.map((prod, pIdx) => (
-                          <div
-                            key={prod.productId || pIdx}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "8px",
-                              padding: "4px 10px 4px 6px",
-                              background: "#FFFFFF",
-                              border: "1px solid #D1D5DB",
-                              borderRadius: "20px",
-                              fontSize: "12px",
-                            }}
-                          >
-                            {prod.imageUrl && (
-                              <img
-                                src={prod.imageUrl}
-                                alt=""
-                                style={{ width: "22px", height: "22px", objectFit: "contain", borderRadius: "50%" }}
-                              />
-                            )}
-                            <span style={{ fontWeight: 600 }}>{prod.title}</span>
-                            <button
-                              type="button"
-                              style={{
-                                border: "none",
-                                background: "none",
-                                cursor: "pointer",
-                                color: "#EF4444",
-                                fontWeight: "bold",
-                                fontSize: "14px",
-                                padding: "0 2px",
-                              }}
-                              onClick={() => {
-                                const nextProds = prospekt.selectedProducts.filter((_, i) => i !== pIdx);
-                                const nextIds = (prospekt.productIds || []).filter((id) => id !== prod.productId);
-                                setProspekt({ ...prospekt, selectedProducts: nextProds, productIds: nextIds });
-                              }}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </BlockStack>
-                </div>
-
-                <TextField
-                  label="전단지 보조 검색 키워드 (쉼표 구분)"
-                  value={(prospekt.keywords || []).join(", ")}
-                  onChange={(v) =>
-                    setProspekt({
-                      ...prospekt,
-                      keywords: v
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  autoComplete="off"
-                />
               </BlockStack>
             </Card>
 
@@ -4367,7 +4670,7 @@ export default function AppManagementPage() {
                     fetcher.submit(fd, { method: "post" });
                   }}
                 >
-                  공동구매 · 전단지 · 정기구독 설정 저장 및 앱 반영
+                  공동구매 · 정기구독 설정 저장 및 앱 반영
                 </Button>
               </BlockStack>
             </Card>
@@ -4491,6 +4794,24 @@ export default function AppManagementPage() {
               </BlockStack>
             </Card>
           </BlockStack>
+        )}
+
+        {/* =================================================================
+         * TAB 5.5: CUSTOMER INQUIRIES & RETURNS MANAGEMENT
+         * ================================================================= */}
+        {visitedTabs.has("customer-requests") && (
+          <div style={{ display: activeTab === "customer-requests" ? "block" : "none" }}>
+            <CustomerRequestsManager />
+          </div>
+        )}
+
+        {/* =================================================================
+         * TAB 5.6: B2B WHOLESALE APPLICATIONS MANAGEMENT
+         * ================================================================= */}
+        {visitedTabs.has("b2b-requests") && (
+          <div style={{ display: activeTab === "b2b-requests" ? "block" : "none" }}>
+            <B2bRequestsManager />
+          </div>
         )}
 
         {/* =================================================================

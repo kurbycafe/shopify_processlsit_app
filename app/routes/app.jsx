@@ -55,7 +55,6 @@ export default function App() {
         <s-link href="/app/recipe-blogs">레시피 커머스</s-link>
         <s-link href="/app/app-management">앱 관리</s-link>
         <s-link href="/app/notice">스토어 공지</s-link>
-        <s-link href="/app/customer-requests">고객 문의 · 반품 접수</s-link>
         <s-link href="/app/settings">시스템 연동 설정</s-link>
       </s-app-nav>
       <Outlet />

@@ -169,3 +169,21 @@ test("admin inbox includes actionable request types and preserves labeled photo 
   await assert.rejects(updateCustomerRequest({ db, shop, id: "request0", status: "CLOSED" }), { status: 404 });
   assert.deepEqual(await updateCustomerRequest({ db, shop, id: "request2", status: "REVIEWING" }), { success: true });
 });
+
+test("admin request lists support specific type filter like B2B and reject invalid types", async () => {
+  let queriedType = null;
+  const db = {
+    customerRequest: {
+      findMany: async ({ where }) => {
+        queriedType = where.type;
+        return [{ id: "req-b2b-1", type: "B2B", shop, status: "REQUESTED", payload: { companyName: "Test Co", email: "b2b@test.com" } }];
+      },
+    },
+  };
+  const b2bResult = await listCustomerRequests({ db, shop, type: "B2B", status: "REQUESTED" });
+  assert.equal(queriedType, "B2B");
+  assert.equal(b2bResult.requests.length, 1);
+  assert.equal(b2bResult.requests[0].type, "B2B");
+
+  await assert.rejects(listCustomerRequests({ db, shop, type: "INVALID_TYPE" }), { status: 400 });
+});
