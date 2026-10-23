@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select, Text, TextField } from "@shopify/polaris";
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
 
@@ -67,15 +67,16 @@ export default function ProductTemperatureManager() {
   }, [reloadKey]);
   useEffect(() => () => saveAbort.current?.abort(), []);
 
+  const deferredQuery = useDeferredValue(query);
   const counts = useMemo(() => items.reduce((result, item) => {
     result[item.storageTemp || "unset"]++;
     return result;
   }, { unset: 0, ambient: 0, chilled: 0, frozen: 0 }), [items]);
   const filtered = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase();
+    const term = deferredQuery.trim().toLocaleLowerCase();
     return items.filter(item => (!term || item.title.toLocaleLowerCase().includes(term) || item.id.split("/").pop().includes(term)) &&
       (temperature === "all" || (temperature === "unset" ? !item.storageTemp : item.storageTemp === temperature)));
-  }, [items, query, temperature]);
+  }, [items, deferredQuery, temperature]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);

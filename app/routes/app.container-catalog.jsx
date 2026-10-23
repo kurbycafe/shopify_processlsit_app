@@ -70,10 +70,10 @@ export const action = async ({ request }) => {
         return { poName, partnerId, items: [], error: "컨테이너에 포함된 상품 내역이 없습니다." };
       }
 
-      // 2. Query matching Shopify Variants in batches of 20
+      // 2. Query matching Shopify Variants in batches of 50
       const skus = items.map((i) => i.sku).filter(Boolean);
       const shopifyVariants = {};
-      const chunkSize = 20;
+      const chunkSize = 50;
 
       for (let i = 0; i < skus.length; i += chunkSize) {
         const chunk = skus.slice(i, i + chunkSize);

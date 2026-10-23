@@ -41,7 +41,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   if (request.method !== "POST") {
     return Response.json(
       { error: "POST 요청이 필요합니다." },
@@ -55,6 +55,8 @@ export const action = async ({ request }) => {
       shop: session.shop,
       id: form.get("id"),
       status: form.get("status"),
+      admin,
+      applyTags: form.get("applyTags") === "true",
     });
   } catch (error) {
     return Response.json(

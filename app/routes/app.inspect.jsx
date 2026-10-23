@@ -1017,6 +1017,7 @@ export default function Inspect() {
                     value={orderName}
                     onChange={setOrderName}
                     autoComplete="off"
+                    selectTextOnFocus
                     prefix={<Icon source={SearchIcon} />}
                     inputRef={orderSearchRef}
                     disabled={!!currentOrder}
@@ -1107,6 +1108,7 @@ export default function Inspect() {
                         value={barcode}
                         onChange={setBarcode}
                         autoComplete="off"
+                        selectTextOnFocus
                         prefix={<Icon source={BarcodeIcon} />}
                         inputRef={barcodeRef}
                         placeholder="바코드 스캐너를 찍거나 SKU를 입력하세요"

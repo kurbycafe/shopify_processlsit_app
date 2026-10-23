@@ -28,6 +28,9 @@ import { unpackRecipe } from "../utils/recipeData.js";
 import { handleRecipeAction } from "../utils/recipePersistence.server.js";
 export { unpackRecipe } from "../utils/recipeData.js";
 
+const BLOGS_CACHE_TTL_MS = 5 * 60 * 1000;
+const blogCache = new Map();
+
 // --- LOADER ---
 export async function loader({ request }) {
   const { admin, session } = await authenticate.admin(request);
@@ -82,47 +85,57 @@ export async function loader({ request }) {
 
   const recipes = rawRecipes.map(unpackRecipe);
 
-  // Fetch store blogs (to target where to post the article)
-  let blogs = [];
-  try {
-    const blogRes = await admin.graphql(
-      `#graphql
-      query getBlogs {
-        blogs(first: 30) {
-          nodes {
-            id
-            title
-            handle
+  // Fetch store blogs and shop URL with in-memory caching
+  const now = Date.now();
+  const cached = blogCache.get(shop);
+  let blogs = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.blogs : null;
+  let shopUrl = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.shopUrl : null;
+
+  if (!blogs) {
+    try {
+      const blogRes = await admin.graphql(
+        `#graphql
+        query getBlogs {
+          blogs(first: 30) {
+            nodes {
+              id
+              title
+              handle
+            }
           }
-        }
-      }`
-    );
-    const blogJson = await blogRes.json();
-    blogs = blogJson.data?.blogs?.nodes || [];
-  } catch (err) {
-    console.error("Error loading Shopify blogs:", err);
+        }`
+      );
+      const blogJson = await blogRes.json();
+      blogs = blogJson.data?.blogs?.nodes || [];
+    } catch (err) {
+      console.error("Error loading Shopify blogs:", err);
+      blogs = [];
+    }
   }
 
-  // Get active shop primary domain
-  let shopUrl = `https://${shop}`;
-  try {
-    const shopRes = await admin.graphql(
-      `#graphql
-      query getShop {
-        shop {
-          primaryDomain {
-            url
+  if (!shopUrl) {
+    shopUrl = `https://${shop}`;
+    try {
+      const shopRes = await admin.graphql(
+        `#graphql
+        query getShop {
+          shop {
+            primaryDomain {
+              url
+            }
           }
-        }
-      }`
-    );
-    const shopJson = await shopRes.json();
-    if (shopJson.data?.shop?.primaryDomain?.url) {
-      shopUrl = shopJson.data.shop.primaryDomain.url;
+        }`
+      );
+      const shopJson = await shopRes.json();
+      if (shopJson.data?.shop?.primaryDomain?.url) {
+        shopUrl = shopJson.data.shop.primaryDomain.url;
+      }
+    } catch (err) {
+      console.error("Error loading shop url:", err);
     }
-  } catch (err) {
-    console.error("Error loading shop url:", err);
   }
+
+  blogCache.set(shop, { blogs, shopUrl, timestamp: now });
 
   return { recipes, blogs, shopUrl };
 }

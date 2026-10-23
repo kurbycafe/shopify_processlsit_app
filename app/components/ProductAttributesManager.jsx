@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select, Text, TextField } from "@shopify/polaris";
 import { ATTRIBUTE_FIELDS, ATTRIBUTE_DEFAULTS } from "../utils/productAttributes.js";
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
@@ -75,9 +75,10 @@ export default function ProductAttributesManager({ onSaved } = {}) {
   return () => { current = false; controller.abort(); };
  }, [reloadKey]);
  useEffect(() => () => controllerRef.current?.abort(), []);
+ const deferredQuery = useDeferredValue(query);
  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date());
  const filtered = useMemo(() => {
-  const term = query.trim().toLowerCase();
+  const term = deferredQuery.trim().toLowerCase();
   return items.filter(item => {
    if (term && ![item.title, item.sku, item.id].some(value => String(value).toLowerCase().includes(term))) return false;
    const a = item.attributes;
@@ -90,7 +91,7 @@ export default function ProductAttributesManager({ onSaved } = {}) {
    if (filter === "pfand") return Number(a.pfand) > 0;
    return true;
   });
- }, [items, query, filter, today]);
+ }, [items, deferredQuery, filter, today]);
  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
  const currentPage = Math.min(page, pageCount);
  const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);

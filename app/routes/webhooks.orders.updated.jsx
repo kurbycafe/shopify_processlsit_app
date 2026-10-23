@@ -62,40 +62,42 @@ export const action = async ({ request }) => {
       });
 
       if (!detection.isCustomerHold && adminClient) {
-        const eventRes = await adminClient.graphql(
-          `#graphql
-          query checkOrderEvents($id: ID!) {
-            order(id: $id) {
-              cancelledAt
-              cancelReason
-              returnStatus
-              tags
-              events(first: 10) {
-                edges {
-                  node {
-                    message
-                    createdAt
+        try {
+          const eventRes = await adminClient.graphql(
+            `#graphql
+            query checkOrderEvents($id: ID!) {
+              order(id: $id) {
+                cancelledAt
+                cancelReason
+                returnStatus
+                tags
+                events(first: 10) {
+                  edges {
+                    node {
+                      message
+                      createdAt
+                    }
                   }
                 }
               }
-            }
-          }`,
-          { variables: { id: orderGid } }
-        );
+            }`,
+            { variables: { id: orderGid } }
+          );
 
-        const eventJson = await eventRes.json();
-        if (eventJson.errors?.length) throw new Error(eventJson.errors.map(error => error.message).join(", "));
-        const orderNode = eventJson.data?.order;
-
-        if (orderNode) {
-          const eventsList = (orderNode.events?.edges || []).map((e) => e.node);
-          detection = detectOrderCancellationStatus({
-            cancelledAt: orderNode.cancelledAt,
-            cancelReason: orderNode.cancelReason,
-            returnStatus: orderNode.returnStatus,
-            tags: orderNode.tags,
-            events: eventsList,
-          });
+          const eventJson = await eventRes.json();
+          if (!eventJson.errors?.length && eventJson.data?.order) {
+            const orderNode = eventJson.data.order;
+            const eventsList = (orderNode.events?.edges || []).map((e) => e.node);
+            detection = detectOrderCancellationStatus({
+              cancelledAt: orderNode.cancelledAt,
+              cancelReason: orderNode.cancelReason,
+              returnStatus: orderNode.returnStatus,
+              tags: orderNode.tags,
+              events: eventsList,
+            });
+          }
+        } catch (eventErr) {
+          console.warn(`[Webhook ${topic}] Event timeline check skipped for ${orderName}:`, eventErr.message);
         }
       }
 

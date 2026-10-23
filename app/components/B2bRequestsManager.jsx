@@ -93,9 +93,9 @@ export default function B2bRequestsManager() {
     );
   };
 
-  const handleUpdateStatus = (id, nextStatus) => {
+  const handleUpdateStatus = (id, nextStatus, applyTags = false) => {
     updateFetcher.submit(
-      { id, status: nextStatus },
+      { id, status: nextStatus, applyTags: String(applyTags) },
       { method: "post", action: "/app/customer-requests" }
     );
   };
@@ -456,15 +456,25 @@ export default function B2bRequestsManager() {
                     )}
 
                     {record.status !== "CLOSED" && (
-                      <Button
-                        size="slim"
-                        variant="primary"
-                        tone="success"
-                        loading={updateFetcher.state !== "idle"}
-                        onClick={() => handleUpdateStatus(record.id, "CLOSED")}
-                      >
-                        승인 및 완료 처리
-                      </Button>
+                      <InlineStack gap="150">
+                        <Button
+                          size="slim"
+                          variant="secondary"
+                          loading={updateFetcher.state !== "idle"}
+                          onClick={() => handleUpdateStatus(record.id, "CLOSED", false)}
+                        >
+                          단순 완료 처리
+                        </Button>
+                        <Button
+                          size="slim"
+                          variant="primary"
+                          tone="success"
+                          loading={updateFetcher.state !== "idle"}
+                          onClick={() => handleUpdateStatus(record.id, "CLOSED", true)}
+                        >
+                          승인 &amp; Shopify B2B 태그 부여
+                        </Button>
+                      </InlineStack>
                     )}
                   </div>
                 </BlockStack>

@@ -245,15 +245,35 @@ function findMatchingOverride(overrides, item) {
   );
 }
 
+
+const STOREFRONT_CACHE_TTL_MS = 30000;
+const storefrontConfigCache = new Map();
+
+export function invalidateStorefrontCache(rawShop = null) {
+  if (rawShop) {
+    const shop = resolveCanonicalShop(rawShop);
+    storefrontConfigCache.delete(shop);
+  } else {
+    storefrontConfigCache.clear();
+  }
+}
+
 /**
  * Fetches full storefront configuration formatted for mobile consumption & admin editor
  */
 export async function getStorefrontConfig(
   rawShop,
-  { db = prisma, includeInactive = false } = {}
+  { db = prisma, includeInactive = false, bypassCache = false } = {}
 ) {
   const shop = await ensureStorefrontSeeded(rawShop, db);
   const shopAliases = getShopAliases(shop);
+
+  if (!includeInactive && !bypassCache && db === prisma) {
+    const cached = storefrontConfigCache.get(shop);
+    if (cached && Date.now() - cached.timestamp < STOREFRONT_CACHE_TTL_MS) {
+      return structuredClone(cached.data);
+    }
+  }
 
   const [storeConfig, banners, hotDeals, categories, recipes] = await Promise.all([
     db.mobileStorefrontConfig.findFirst({
@@ -306,7 +326,7 @@ export async function getStorefrontConfig(
   const productOverrides = extended.productOverrides.map(item => { const copy = { ...item }; delete copy.storageTemp; return copy; });
   const threshold = storeConfig?.freeShippingThreshold == null ? null : Number(storeConfig.freeShippingThreshold);
 
-  return {
+  const result = {
     shop,
     configVersion: storeConfig?.configVersion || "1.0.0",
     updatedAt: storeConfig?.updatedAt || null,
@@ -449,6 +469,15 @@ export async function getStorefrontConfig(
     loyaltyPolicy: extended.loyaltyPolicy || LOYALTY_POLICY,
     giftCardVariants: extended.giftCardVariants || {},
   };
+
+  if (!includeInactive && db === prisma) {
+    storefrontConfigCache.set(shop, {
+      data: structuredClone(result),
+      timestamp: Date.now(),
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -458,6 +487,7 @@ export async function bumpStorefrontVersion(rawShop, db = prisma) {
   const shop = resolveCanonicalShop(rawShop);
   const newVersion = String(Date.now());
   await db.mobileStorefrontConfig.updateMany({where:{shop},data:{configVersion:newVersion}});
+  invalidateStorefrontCache(shop);
   return newVersion;
 }
 
@@ -466,6 +496,7 @@ export async function bumpStorefrontVersion(rawShop, db = prisma) {
  */
 export async function resetStorefrontToDefaults(rawShop, db = prisma) {
   const shop = resolveCanonicalShop(rawShop);
+  invalidateStorefrontCache(shop);
   const newVersion = String(Date.now());
 
   await db.mobileStorefrontConfig.upsert({

@@ -32,6 +32,13 @@ export function playSuccessBeep() {
     osc.connect(gain);
     gain.connect(ctx.destination);
 
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        gain.disconnect();
+      } catch (_) {}
+    };
+
     osc.start();
     osc.stop(ctx.currentTime + 0.22);
   } catch (e) {}
@@ -55,6 +62,13 @@ export function playErrorBuzz() {
     osc.connect(gain);
     gain.connect(ctx.destination);
 
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        gain.disconnect();
+      } catch (_) {}
+    };
+
     osc.start();
     osc.stop(ctx.currentTime + 0.3);
   } catch (e) {}
@@ -77,6 +91,13 @@ export function playWarningBeep() {
 
     osc.connect(gain);
     gain.connect(ctx.destination);
+
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        gain.disconnect();
+      } catch (_) {}
+    };
 
     osc.start();
     osc.stop(ctx.currentTime + 0.25);

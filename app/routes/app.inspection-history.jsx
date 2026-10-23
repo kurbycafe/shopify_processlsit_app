@@ -99,15 +99,12 @@ export const loader = async ({ request }) => {
       if (end) whereClause.createdAt.lte = end;
     }
 
-    // Aggregation for KPIs
-    const [totalCount, successCount, issueCount, printedCount, records] = await Promise.all([
-      prisma.inspectionRecord.count({ where: whereClause }),
-      prisma.inspectionRecord.count({ where: { ...whereClause, status: "SUCCESS" } }),
-      prisma.inspectionRecord.count({
-        where: { ...whereClause, status: { in: ["ISSUE_REPORTED", "FAILED", "PARTIAL"] } },
-      }),
-      prisma.inspectionRecord.count({
-        where: { ...whereClause, isLieferscheinPrinted: true },
+    // Aggregation for KPIs (Single grouped query replacing 4 separate count queries)
+    const [statusGroups, records] = await Promise.all([
+      prisma.inspectionRecord.groupBy({
+        by: ["status", "isLieferscheinPrinted"],
+        where: whereClause,
+        _count: { _all: true },
       }),
       prisma.inspectionRecord.findMany({
         where: whereClause,
@@ -117,6 +114,24 @@ export const loader = async ({ request }) => {
         include: { items: true },
       }),
     ]);
+
+    let totalCount = 0;
+    let successCount = 0;
+    let issueCount = 0;
+    let printedCount = 0;
+
+    for (const group of statusGroups) {
+      const count = group._count?._all || 0;
+      totalCount += count;
+      if (group.status === "SUCCESS") {
+        successCount += count;
+      } else if (["ISSUE_REPORTED", "FAILED", "PARTIAL"].includes(group.status)) {
+        issueCount += count;
+      }
+      if (group.isLieferscheinPrinted) {
+        printedCount += count;
+      }
+    }
 
     return {
       records: records || [],

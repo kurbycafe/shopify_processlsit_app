@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select, Text, TextField } from "@shopify/polaris";
 import { expiryInfo } from "../utils/productExpiry.js";
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
@@ -40,10 +40,11 @@ export default function ProductExpiryManager() {
   return()=>{current=false;controller.abort();};
  },[reload]);
  useEffect(()=>()=>saveAbort.current?.abort(),[]);
+ const deferredQuery = useDeferredValue(query);
  const today=new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Berlin"}).format(new Date());
  const rows=useMemo(()=>items.map(item=>({...item,expiry:expiryInfo(item.expiryRaw,today)})),[items,today]);
  const filtered=useMemo(()=>{
-  const term=query.trim().toLowerCase();
+  const term=deferredQuery.trim().toLowerCase();
   return rows.filter(item=>{
    if(term&&![item.title,item.sku,item.id].some(value=>String(value||"").toLowerCase().includes(term)))return false;
    if(stockOnly&&!(item.inventory>0))return false;
@@ -52,7 +53,7 @@ export default function ProductExpiryManager() {
    if(filter==="dated")return Boolean(info.date);
    return filter==="all"||info.status===filter;
   }).sort((a,b)=>(a.expiry.date||"9999-99-99").localeCompare(b.expiry.date||"9999-99-99")||a.title.localeCompare(b.title));
- },[rows,query,filter,stockOnly,nearDays]);
+ },[rows,deferredQuery,filter,stockOnly,nearDays]);
  const pageCount=Math.max(1,Math.ceil(filtered.length/50)),currentPage=Math.min(page,pageCount);
  const visible=filtered.slice((currentPage-1)*50,currentPage*50),checked=visible.filter(item=>selected.includes(item.id)).length;
  const busy=saving||status!=="ready";

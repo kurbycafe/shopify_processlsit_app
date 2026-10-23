@@ -103,11 +103,84 @@ export async function listCustomerRequests({ db, shop, status = "REQUESTED", typ
   });
   return { requests: records.slice(0, 25), nextCursor: records.length > 25 ? records[24].id : null };
 }
-export async function updateCustomerRequest({ db, shop, id, status }) {
+export async function updateCustomerRequest({ db, shop, id, status, admin = null, applyTags = false }) {
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id || "") || !STATUSES.has(status)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request update.");
+  
   const result = await db.customerRequest.updateMany({ where: { id, shop, type: { in: REVIEW_TYPES } }, data: { status } });
   if (result.count !== 1) throw new MobileApiError(404, "NOT_FOUND", "Customer request not found.");
-  return { success: true };
+
+  let customerTagged = false;
+  let taggedEmail = null;
+
+  if (admin && applyTags && status === "CLOSED" && typeof db.customerRequest?.findFirst === "function") {
+    try {
+      const record = await db.customerRequest.findFirst({
+        where: { id, shop },
+        select: { id: true, payload: true, customerId: true, type: true }
+      });
+      if (record && record.type === "B2B") {
+        const email = record.payload?.email;
+        taggedEmail = email || null;
+        let targetGid = record.customerId;
+
+        let existingTags = [];
+        if (!targetGid && email) {
+          const queryRes = await admin.graphql(
+            `#graphql
+            query findCustomerForB2b($query: String!) {
+              customers(first: 1, query: $query) {
+                edges {
+                  node {
+                    id
+                    tags
+                  }
+                }
+              }
+            }`,
+            { variables: { query: `email:${email}` } }
+          );
+          const queryJson = await queryRes.json();
+          targetGid = queryJson?.data?.customers?.edges?.[0]?.node?.id || null;
+          existingTags = queryJson?.data?.customers?.edges?.[0]?.node?.tags || [];
+        }
+
+        const requiredTags = ["b2b", "wholesale", "b2b-approved"];
+        const missingTags = requiredTags.filter((t) => !existingTags.includes(t));
+
+        if (targetGid && missingTags.length > 0) {
+          await admin.graphql(
+            `#graphql
+            mutation addB2bCustomerTags($id: ID!, $tags: [String!]!) {
+              tagsAdd(id: $id, tags: $tags) {
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }`,
+            {
+              variables: {
+                id: targetGid,
+                tags: missingTags,
+              },
+            }
+          );
+          customerTagged = true;
+        } else if (targetGid) {
+          customerTagged = true;
+        }
+      }
+    } catch (tagErr) {
+      console.warn("[B2B Approval] Shopify customer tagging skipped or failed:", tagErr.message);
+    }
+  }
+
+  const response = { success: true };
+  if (customerTagged) {
+    response.customerTagged = true;
+    response.taggedEmail = taggedEmail;
+  }
+  return response;
 }
 
 async function optionalCustomerId(request, shop, verify) {

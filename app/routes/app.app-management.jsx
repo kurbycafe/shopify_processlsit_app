@@ -1178,6 +1178,146 @@ export const action = async ({ request }) => {
       };
     }
 
+
+    if (intent === "reorder_banner") {
+      const bannerId = String(formData.get("bannerId") || "").trim();
+      const direction = String(formData.get("direction") || "").trim();
+      const banners = await prisma.mobileBanner.findMany({
+        where: { shop },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      });
+      const currentIndex = banners.findIndex((b) => b.id === bannerId);
+      if (currentIndex !== -1) {
+        const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex >= 0 && targetIndex < banners.length) {
+          const currentBanner = banners[currentIndex];
+          const targetBanner = banners[targetIndex];
+          await prisma.$transaction([
+            prisma.mobileBanner.update({
+              where: { id: currentBanner.id },
+              data: { sortOrder: targetBanner.sortOrder },
+            }),
+            prisma.mobileBanner.update({
+              where: { id: targetBanner.id },
+              data: { sortOrder: currentBanner.sortOrder },
+            }),
+          ]);
+          await bumpStorefrontVersion(shop);
+        }
+      }
+      return { success: true };
+    }
+
+    if (intent === "reorder_deal") {
+      const dealId = String(formData.get("dealId") || "").trim();
+      const direction = String(formData.get("direction") || "").trim();
+      const deals = await prisma.mobileHotDeal.findMany({
+        where: { shop },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      });
+      const currentIndex = deals.findIndex((d) => d.id === dealId);
+      if (currentIndex !== -1) {
+        const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex >= 0 && targetIndex < deals.length) {
+          const currentDeal = deals[currentIndex];
+          const targetDeal = deals[targetIndex];
+          await prisma.$transaction([
+            prisma.mobileHotDeal.update({
+              where: { id: currentDeal.id },
+              data: { sortOrder: targetDeal.sortOrder },
+            }),
+            prisma.mobileHotDeal.update({
+              where: { id: targetDeal.id },
+              data: { sortOrder: currentDeal.sortOrder },
+            }),
+          ]);
+          await bumpStorefrontVersion(shop);
+        }
+      }
+      return { success: true };
+    }
+
+    if (intent === "reorder_category") {
+      const categoryId = String(formData.get("categoryId") || "").trim();
+      const direction = String(formData.get("direction") || "").trim();
+      const categories = await prisma.mobileCategoryConfig.findMany({
+        where: { shop },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      });
+      const currentIndex = categories.findIndex((c) => c.id === categoryId);
+      if (currentIndex !== -1) {
+        const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex >= 0 && targetIndex < categories.length) {
+          const currentCat = categories[currentIndex];
+          const targetCat = categories[targetIndex];
+          await prisma.$transaction([
+            prisma.mobileCategoryConfig.update({
+              where: { id: currentCat.id },
+              data: { sortOrder: targetCat.sortOrder },
+            }),
+            prisma.mobileCategoryConfig.update({
+              where: { id: targetCat.id },
+              data: { sortOrder: currentCat.sortOrder },
+            }),
+          ]);
+          await bumpStorefrontVersion(shop);
+        }
+      }
+      return { success: true };
+    }
+
+    if (intent === "sync_expired_deals") {
+      const now = new Date();
+      const expiredDeals = await prisma.mobileHotDeal.findMany({
+        where: {
+          shop,
+          isActive: true,
+          dealEndsAt: { not: null, lte: now },
+        },
+      });
+
+      let restoredCount = 0;
+      for (const deal of expiredDeals) {
+        if (admin?.graphql && deal.productId && deal.variantId && deal.basePrice) {
+          try {
+            await admin.graphql(
+              `#graphql
+              mutation RestoreExpiredDealPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                  productVariants { id price compareAtPrice }
+                  userErrors { field message }
+                }
+              }`,
+              {
+                variables: {
+                  productId: deal.productId,
+                  variants: [{ id: deal.variantId, price: Number(deal.basePrice).toFixed(2), compareAtPrice: null }],
+                },
+              }
+            );
+          } catch (syncErr) {
+            console.warn(`[SyncExpiredDeals] Price restore skipped for ${deal.id}:`, syncErr.message);
+          }
+        }
+        await prisma.mobileHotDeal.update({
+          where: { id: deal.id },
+          data: { isActive: false },
+        });
+        restoredCount++;
+      }
+
+      if (restoredCount > 0) {
+        await bumpStorefrontVersion(shop);
+      }
+
+      return {
+        success: true,
+        message: restoredCount > 0
+          ? `기한이 만료된 특가 상품 ${restoredCount}건이 비활성화되고 쇼피파이 정상가로 안전하게 복구되었습니다.`
+          : "기한이 만료된 특가 상품이 없습니다.",
+      };
+    }
+
     return { success: false, message: "알 수 없는 요청입니다." };
   } catch (error) {
     console.error("[app.app-management] Action failed:", error);
@@ -2145,7 +2285,7 @@ export default function AppManagementPage() {
                 <Divider />
 
                 <BlockStack gap="300">
-                  {(config.banners || []).map((b) => (
+                  {(config.banners || []).map((b, idx) => (
                     <div
                       key={b.id}
                       style={{
@@ -2211,6 +2351,70 @@ export default function AppManagementPage() {
                             {b.sub?.ko}
                           </Text>
                         </div>
+                        <InlineStack gap="100">
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === 0}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_banner");
+                              fd.append("bannerId", b.id);
+                              fd.append("direction", "up");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="위로 이동"
+                          >
+                            ▲
+                          </Button>
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === (config.banners || []).length - 1}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_banner");
+                              fd.append("bannerId", b.id);
+                              fd.append("direction", "down");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="아래로 이동"
+                          >
+                            ▼
+                          </Button>
+                        </InlineStack>
+                        <InlineStack gap="100">
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === 0}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_banner");
+                              fd.append("bannerId", b.id);
+                              fd.append("direction", "up");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="위로 이동"
+                          >
+                            ▲
+                          </Button>
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === (config.banners || []).length - 1}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_banner");
+                              fd.append("bannerId", b.id);
+                              fd.append("direction", "down");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="아래로 이동"
+                          >
+                            ▼
+                          </Button>
+                        </InlineStack>
                         <InlineStack gap="200">
                           <Button size="slim" onClick={() => handleEditBanner(b)}>
                             수정
@@ -2447,7 +2651,7 @@ export default function AppManagementPage() {
                   <Divider />
 
                   <BlockStack gap="300">
-                    {(config.hotDeals || []).map((deal) => (
+                    {(config.hotDeals || []).map((deal, idx) => (
                       <div
                         key={deal.id}
                         style={{
@@ -2513,6 +2717,70 @@ export default function AppManagementPage() {
                             {Number(deal.salePrice).toFixed(2)}
                           </Text>
                         </div>
+                        <InlineStack gap="100">
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === 0}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_deal");
+                              fd.append("dealId", deal.id);
+                              fd.append("direction", "up");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="위로 이동"
+                          >
+                            ▲
+                          </Button>
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === (config.hotDeals || []).length - 1}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_deal");
+                              fd.append("dealId", deal.id);
+                              fd.append("direction", "down");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="아래로 이동"
+                          >
+                            ▼
+                          </Button>
+                        </InlineStack>
+                        <InlineStack gap="100">
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === 0}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_deal");
+                              fd.append("dealId", deal.id);
+                              fd.append("direction", "up");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="위로 이동"
+                          >
+                            ▲
+                          </Button>
+                          <Button
+                            size="slim"
+                            variant="tertiary"
+                            disabled={idx === (config.hotDeals || []).length - 1}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.append("intent", "reorder_deal");
+                              fd.append("dealId", deal.id);
+                              fd.append("direction", "down");
+                              fetcher.submit(fd, { method: "post" });
+                            }}
+                            accessibilityLabel="아래로 이동"
+                          >
+                            ▼
+                          </Button>
+                        </InlineStack>
                         <InlineStack gap="200">
                           <Button
                             size="slim"
@@ -2568,6 +2836,7 @@ export default function AppManagementPage() {
                         value={productSearchQuery}
                         onChange={setProductSearchQuery}
                         autoComplete="off"
+                        onKeyDown={(e) => { if (e.key === "Enter" && productSearchQuery.trim()) { e.preventDefault(); const fd = new FormData(); fd.append("intent", "search_shopify_products"); fd.append("query", productSearchQuery); searchFetcher.submit(fd, { method: "post" }); } }}
                       />
                     </div>
                     <Button
@@ -3462,7 +3731,7 @@ export default function AppManagementPage() {
                 </Text>
                 <Divider />
                 <BlockStack gap="200">
-                  {(config.categories || []).map((cat) => (
+                  {(config.categories || []).map((cat, idx) => (
                     <div
                       key={cat.id}
                       style={{
@@ -3527,12 +3796,44 @@ export default function AppManagementPage() {
                           </div>
                         </div>
                       </div>
-                      <Button
-                        size="slim"
-                        onClick={() => handleEditCategory(cat)}
-                      >
-                        수정
-                      </Button>
+                      <InlineStack gap="100">
+                        <Button
+                          size="slim"
+                          variant="tertiary"
+                          disabled={idx === 0}
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.append("intent", "reorder_category");
+                            fd.append("categoryId", cat.id);
+                            fd.append("direction", "up");
+                            fetcher.submit(fd, { method: "post" });
+                          }}
+                          accessibilityLabel="위로 이동"
+                        >
+                          ▲
+                        </Button>
+                        <Button
+                          size="slim"
+                          variant="tertiary"
+                          disabled={idx === (config.categories || []).length - 1}
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.append("intent", "reorder_category");
+                            fd.append("categoryId", cat.id);
+                            fd.append("direction", "down");
+                            fetcher.submit(fd, { method: "post" });
+                          }}
+                          accessibilityLabel="아래로 이동"
+                        >
+                          ▼
+                        </Button>
+                        <Button
+                          size="slim"
+                          onClick={() => handleEditCategory(cat)}
+                        >
+                          수정
+                        </Button>
+                      </InlineStack>
                     </div>
                   ))}
                 </BlockStack>

@@ -13,6 +13,7 @@ import {
   Select,
   ButtonGroup,
   Button,
+  TextField,
 } from "@shopify/polaris";
 import {
   PrintIcon,
@@ -227,6 +228,18 @@ export default function PickListPage() {
   // Warehouse Tabs: "ALL" | "STORE" | "NEW_ONLY" | "NO_BIN"
   const [warehouseTab, setWarehouseTab] = useState("ALL");
   const [selectedLocation, setSelectedLocation] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const matchesSearch = useCallback((item, query) => {
+    if (!query || !query.trim()) return true;
+    const q = query.toLowerCase().trim();
+    const title = (item?.productName || "").toLowerCase();
+    const sku = (item?.sku || "").toLowerCase();
+    const barcode = (item?.barcode || "").toLowerCase();
+    const bin = (item?.binLocation || "").toLowerCase();
+    const orders = Array.isArray(item?.orderNumbers) ? item.orderNumbers.join(" ").toLowerCase() : "";
+    return title.includes(q) || sku.includes(q) || barcode.includes(q) || bin.includes(q) || orders.includes(q);
+  }, []);
 
   // Segregate and sort each warehouse category in ascending Regal order (server pre-computed when available)
   const { storeItems, newOnlyItems, noBinItems } = useMemo(() => {
@@ -311,35 +324,28 @@ export default function PickListPage() {
     filteredNoBin,
     filteredNoBinQty,
   } = useMemo(() => {
-    if (selectedLocation === "ALL") {
-      return {
-        filteredStore: storeItems,
-        filteredStoreQty: storeQty,
-        filteredNewOnly: newOnlyItems,
-        filteredNewOnlyQty: newOnlyQty,
-        filteredNoBin: noBinItems,
-        filteredNoBinQty: noBinQty,
-      };
-    }
+    const applySearch = (list) => {
+      if (!searchQuery.trim()) return list;
+      return list.filter((i) => matchesSearch(i, searchQuery));
+    };
 
-    const fStore = storeItems.filter((i) => i?.binLocation === selectedLocation);
-    const fStoreQty = fStore.reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+    const baseStore = selectedLocation === "ALL" ? storeItems : storeItems.filter((i) => i?.binLocation === selectedLocation);
+    const baseNewOnly = selectedLocation === "ALL" ? newOnlyItems : newOnlyItems.filter((i) => i?.binLocation === selectedLocation);
+    const baseNoBin = selectedLocation === "ALL" ? noBinItems : noBinItems.filter((i) => i?.binLocation === selectedLocation);
 
-    const fNew = newOnlyItems.filter((i) => i?.binLocation === selectedLocation);
-    const fNewQty = fNew.reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
-
-    const fNoBin = noBinItems.filter((i) => i?.binLocation === selectedLocation);
-    const fNoBinQty = fNoBin.reduce((sum, i) => sum + (i?.orderedQty || 0), 0);
+    const fStore = applySearch(baseStore);
+    const fNew = applySearch(baseNewOnly);
+    const fNoBin = applySearch(baseNoBin);
 
     return {
       filteredStore: fStore,
-      filteredStoreQty: fStoreQty,
+      filteredStoreQty: fStore.reduce((sum, i) => sum + (i?.orderedQty || 0), 0),
       filteredNewOnly: fNew,
-      filteredNewOnlyQty: fNewQty,
+      filteredNewOnlyQty: fNew.reduce((sum, i) => sum + (i?.orderedQty || 0), 0),
       filteredNoBin: fNoBin,
-      filteredNoBinQty: fNoBinQty,
+      filteredNoBinQty: fNoBin.reduce((sum, i) => sum + (i?.orderedQty || 0), 0),
     };
-  }, [selectedLocation, storeItems, storeQty, newOnlyItems, newOnlyQty, noBinItems, noBinQty]);
+  }, [selectedLocation, storeItems, newOnlyItems, noBinItems, searchQuery, matchesSearch]);
 
   // Items to display based on selected warehouse tab and sub-location filter
   const displayedItems = useMemo(() => {
@@ -347,9 +353,12 @@ export default function PickListPage() {
     if (warehouseTab === "NEW_ONLY") return filteredNewOnly;
     if (warehouseTab === "NO_BIN") return filteredNoBin;
 
-    if (selectedLocation === "ALL") return items;
-    return items.filter((i) => i && i.binLocation === selectedLocation);
-  }, [warehouseTab, selectedLocation, items, filteredStore, filteredNewOnly, filteredNoBin]);
+    let base = selectedLocation === "ALL" ? items : items.filter((i) => i && i.binLocation === selectedLocation);
+    if (searchQuery.trim()) {
+      base = base.filter((i) => matchesSearch(i, searchQuery));
+    }
+    return base;
+  }, [warehouseTab, selectedLocation, items, filteredStore, filteredNewOnly, filteredNoBin, searchQuery, matchesSearch]);
 
   const handlePrint = useCallback(() => {
     const now = new Date();
@@ -582,6 +591,19 @@ export default function PickListPage() {
               </ButtonGroup>
 
               <InlineStack gap="200" blockAlign="center">
+                <div style={{ minWidth: "220px" }}>
+                  <TextField
+                    label="품목 검색"
+                    labelHidden
+                    placeholder="품목 / SKU / 바코드 / 레갈 검색"
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    autoComplete="off"
+                    clearButton
+                    onClearButtonClick={() => setSearchQuery("")}
+                  />
+                </div>
+
                 <Select
                   label="온도대"
                   labelInline

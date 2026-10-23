@@ -32,10 +32,11 @@ function getCorsHeaders(request) {
     "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Shop-Domain, X-Requested-With",
+      "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
+    "Access-Control-Expose-Headers": "ETag",
     "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Vary": "Origin, If-None-Match",
+    "Cache-Control": "public, max-age=15, stale-while-revalidate=60",
     "Content-Type": "application/json; charset=utf-8",
   };
 }
@@ -49,15 +50,48 @@ export const loader = async ({ request }) => {
   try {
     const shop = customerShop();
     const config = await getStorefrontConfig(shop, { includeInactive: false });
+    const etag = `W/"${config.configVersion || '1.0.0'}"`;
+
+    const clientEtag = request.headers.get("if-none-match");
+    if (clientEtag && (clientEtag === etag || clientEtag === `"${config.configVersion}"`)) {
+      return new Response(null, {
+        status: 304,
+        headers: {
+          ...corsHeaders,
+          ETag: etag,
+        },
+      });
+    }
+
     return Response.json(
       {
         success: true,
         data: config,
       },
-      { headers: corsHeaders }
+      {
+        headers: {
+          ...corsHeaders,
+          ETag: etag,
+        },
+      }
     );
   } catch (error) {
     console.error("[Storefront config] Database read failed", error?.name);
-    return Response.json({success:false,error:{code:"CONFIG_UNAVAILABLE",message:"Storefront configuration is temporarily unavailable."}}, {status:503,headers:corsHeaders});
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "CONFIG_UNAVAILABLE",
+          message: "Storefront configuration is temporarily unavailable.",
+        },
+      },
+      {
+        status: 503,
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+      }
+    );
   }
 };

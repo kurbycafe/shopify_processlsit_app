@@ -2,14 +2,23 @@ import { useEffect, useRef } from "react";
 import { Outlet, useLoaderData, useFetcher, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
-import { authenticate } from "../shopify.server";
+import shopify, { authenticate } from "../shopify.server";
 
 import operationsStyles from "../styles/operations.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: operationsStyles }];
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  if (session?.shop) {
+    try {
+      // Proactively ensure the offline session & token are fresh in DB for background webhooks
+      await shopify.unauthenticated.admin(session.shop);
+    } catch (offlineErr) {
+      console.warn("[App Root] Offline session health check blip:", offlineErr?.message);
+    }
+  }
 
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };

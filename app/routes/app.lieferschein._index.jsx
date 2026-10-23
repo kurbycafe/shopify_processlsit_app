@@ -6,7 +6,7 @@ import prisma from "../db.server";
 
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import styles from "../styles/app.lieferschein.css?url";
-import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination } from "@shopify/polaris";
+import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination, Button, Badge, Banner } from "@shopify/polaris";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
@@ -20,10 +20,10 @@ const jsonResponse = (data) =>
 function checkIsB2B(shippingAddress) {
   if (!shippingAddress) return false;
 
-  const company = (shippingAddress.company || "").trim();
-  const name = (shippingAddress.name || "").trim();
+  const company = String(shippingAddress.company || "").trim();
+  const name = String(shippingAddress.name || "").trim();
 
-  if (company) return true; // 회사명 필드가 입력된 경우 B2B로 판별
+  if (company) return true;
 
   const nameUpper = name.toUpperCase();
   const b2bPatterns = [
@@ -45,54 +45,69 @@ function checkIsB2B(shippingAddress) {
 }
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const intent = formData.get("intent");
+  try {
+    const { session } = await authenticate.admin(request);
+    const formData = await request.formData();
+    const intent = formData.get("intent");
 
-  if (intent === "mark_multiple_as_printed") {
-    const payload = JSON.parse(formData.get("ordersPayload") || "[]");
+    if (intent === "mark_multiple_as_printed") {
+      let payload = [];
+      try {
+        payload = JSON.parse(formData.get("ordersPayload") || "[]");
+      } catch {
+        payload = [];
+      }
 
-    await Promise.all(
-      payload.map((order) =>
-        prisma.inspectionRecord.upsert({
-          where: { orderId: order.id },
-          update: { isLieferscheinPrinted: true, lieferscheinPrintedAt: new Date() },
+      if (Array.isArray(payload) && payload.length > 0) {
+        const now = new Date();
+        await Promise.all(
+          payload.filter(o => o && o.id).map((order) =>
+            prisma.inspectionRecord.upsert({
+              where: { orderId: order.id },
+              update: { isLieferscheinPrinted: true, lieferscheinPrintedAt: now },
+              create: {
+                orderId: order.id,
+                orderName: order.name || "N/A",
+                shop: session.shop,
+                status: "PENDING",
+                isLieferscheinPrinted: true,
+                lieferscheinPrintedAt: now,
+              },
+            })
+          )
+        );
+      }
+
+      return jsonResponse({ success: true });
+    }
+
+    if (intent === "reset_print_status") {
+      const orderId = formData.get("orderId");
+      const orderName = formData.get("orderName") || "N/A";
+
+      if (orderId) {
+        await prisma.inspectionRecord.upsert({
+          where: { orderId },
+          update: { isLieferscheinPrinted: false, lieferscheinPrintedAt: null },
           create: {
-            orderId: order.id,
-            orderName: order.name,
+            orderId,
+            orderName,
             shop: session.shop,
             status: "PENDING",
-            isLieferscheinPrinted: true,
-            lieferscheinPrintedAt: new Date(),
+            isLieferscheinPrinted: false,
+            lieferscheinPrintedAt: null,
           },
-        })
-      )
-    );
+        });
+      }
+
+      return jsonResponse({ success: true });
+    }
 
     return jsonResponse({ success: true });
+  } catch (err) {
+    console.error("Action error in lieferschein._index:", err);
+    return jsonResponse({ success: false, error: err.message }, { status: 500 });
   }
-
-  if (intent === "reset_print_status") {
-    const orderId = formData.get("orderId");
-    const orderName = formData.get("orderName") || "N/A";
-
-    await prisma.inspectionRecord.upsert({
-      where: { orderId },
-      update: { isLieferscheinPrinted: false, lieferscheinPrintedAt: null },
-      create: {
-        orderId,
-        orderName,
-        shop: session.shop,
-        status: "PENDING",
-        isLieferscheinPrinted: false,
-        lieferscheinPrintedAt: null,
-      },
-    });
-
-    return jsonResponse({ success: true });
-  }
-
-  return null;
 };
 
 export const loader = async ({ request }) => {
@@ -119,7 +134,8 @@ export const loader = async ({ request }) => {
 
     const after = url.searchParams.get("after") || null;
     const before = url.searchParams.get("before") || null;
-    const limit = 100;
+    const parsedLimit = parseInt(url.searchParams.get("limit") || "100", 10);
+    const limit = [30, 50, 100].includes(parsedLimit) ? parsedLimit : 100;
 
     const variables = {
       query: shopifyQuery || null,
@@ -164,10 +180,6 @@ export const loader = async ({ request }) => {
                 customer {
                   numberOfOrders
                 }
-                totalPriceSet { shopMoney { amount currencyCode } }
-                subtotalPriceSet { shopMoney { amount currencyCode } }
-                totalTaxSet { shopMoney { amount currencyCode } }
-                totalShippingPriceSet { shopMoney { amount currencyCode } }
                 shippingLine {
                   title
                 }
@@ -181,41 +193,10 @@ export const loader = async ({ request }) => {
                   edges {
                     node {
                       id
-                      title
-                      name
-                      sku
                       quantity
-                      originalUnitPriceSet { shopMoney { amount currencyCode } }
-                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
-                      originalTotalSet { shopMoney { amount currencyCode } }
-                      discountedTotalSet { shopMoney { amount currencyCode } }
-                      appliedDiscount {
-                        title
-                        description
-                        value
-                        valueType
-                        amountSet { shopMoney { amount currencyCode } }
-                      }
-                      weight { value unit }
                       variant {
                         id
-                        title
-                        sku
-                        barcode
-                        inventoryItem {
-                          measurement {
-                            weight {
-                              value
-                              unit
-                            }
-                          }
-                        }
-                        image { url src } 
                         product {
-                          featuredImage { url src } 
-                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                          position: metafield(namespace: "custom", key: "position") { value }
                           producttype: metafield(namespace: "custom", key: "producttype") { value }
                         }
                       }
@@ -259,25 +240,9 @@ export const loader = async ({ request }) => {
                 cancelReason
                 returnStatus
                 tags
-                events(first: 10) {
-                  edges {
-                    node {
-                      id
-                      message
-                      createdAt
-                    }
-                  }
-                }
-                displayFulfillmentStatus
-                paymentGatewayNames
                 customer {
                   numberOfOrders
                 }
-                totalPriceSet { shopMoney { amount currencyCode } }
-                subtotalPriceSet { shopMoney { amount currencyCode } }
-                totalTaxSet { shopMoney { amount currencyCode } }
-                totalShippingPriceSet { shopMoney { amount currencyCode } }
-                totalDiscountsSet { shopMoney { amount currencyCode } }
                 shippingLines(first: 1) {
                   edges {
                     node {
@@ -295,31 +260,10 @@ export const loader = async ({ request }) => {
                   edges {
                     node {
                       id
-                      title
                       quantity
-                      originalUnitPriceSet { shopMoney { amount currencyCode } }
-                      discountedUnitPriceSet { shopMoney { amount currencyCode } }
-                      originalTotalSet { shopMoney { amount currencyCode } }
-                      discountedTotalSet { shopMoney { amount currencyCode } }
                       variant {
                         id
-                        title
-                        sku
-                        barcode
-                        inventoryItem {
-                          measurement {
-                            weight {
-                              value
-                              unit
-                            }
-                          }
-                        }
-                        image { url src } 
                         product {
-                          featuredImage { url src } 
-                          germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
-                          expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
-                          position: metafield(namespace: "custom", key: "position") { value }
                           producttype: metafield(namespace: "custom", key: "producttype") { value }
                         }
                       }
@@ -374,75 +318,40 @@ export const loader = async ({ request }) => {
       const node = edge.node;
       const shippingTitle = node.shippingLines?.edges?.[0]?.node?.title || node.shippingLine?.title || "Standard Delivery";
 
-      const rawItems = (node.lineItems?.edges || []).map((itemEdge) => {
+      let totalOrderQty = 0;
+      let hasIcePackage = false;
+      let isDryOnly = true;
+      let hasChilled = false;
+      let hasFrozen = false;
+
+      const lineItemEdges = node.lineItems?.edges || [];
+      const lineItemCount = lineItemEdges.length;
+
+      if (lineItemCount === 0) {
+        isDryOnly = false;
+      }
+
+      for (const itemEdge of lineItemEdges) {
         const item = itemEdge.node;
-        const variant = item.variant;
-        const product = variant?.product;
+        const qty = item.quantity || 0;
+        totalOrderQty += qty;
 
-        const posRaw = product?.position?.value || "";
-        const posUpper = posRaw.trim().toUpperCase();
+        const variantGid = item.variant?.id || "";
+        if (variantGid.endsWith("/54301230268745")) {
+          hasIcePackage = true;
+        }
 
-        let sortKey = "500_" + posUpper;
-        if (!posUpper) sortKey = "999_ZZZZZ";
-        else if (posUpper.includes("!")) sortKey = "000_" + posUpper;
-        else if (posUpper.includes("L-A")) sortKey = "100_" + posUpper;
-        else if (posUpper.includes("L-B")) sortKey = "200_" + posUpper;
-        else if (posUpper.includes("L-C")) sortKey = "300_" + posUpper;
-        else if (posUpper.includes("L-D")) sortKey = "400_" + posUpper;
-
-        const itemTitle = (item.title || item.name || "").replace(" - Default Title", "");
-        const titleKey = itemTitle.replace(/["']/g, "").trim().toUpperCase();
-
-        const weightValue = variant?.inventoryItem?.measurement?.weight?.value ?? item.weight?.value ?? 0;
-        const weightUnit = variant?.inventoryItem?.measurement?.weight?.unit ?? item.weight?.unit ?? "GRAMS";
-        let grams = 0;
-        if (weightUnit === "GRAMS") grams = weightValue;
-        else if (weightUnit === "KILOGRAMS") grams = weightValue * 1000;
-        else if (weightUnit === "POUNDS") grams = weightValue * 453.592;
-        else if (weightUnit === "OUNCES") grams = weightValue * 28.3495;
-
-        const variantGid = variant?.id || "";
-        const isIcePackage = variantGid.endsWith("/54301230268745");
-        const imageUrl = variant?.image?.url || variant?.image?.src || item.image?.url || item.image?.src || product?.featuredImage?.url || product?.featuredImage?.src || null;
-
-        const priceOriginal = item.originalUnitPriceSet?.shopMoney?.amount || "0.00";
-        const priceDiscounted = item.discountedUnitPriceSet?.shopMoney?.amount || priceOriginal;
-        const totalOriginal = item.originalTotalSet?.shopMoney?.amount || "0.00";
-        const totalDiscounted = item.discountedTotalSet?.shopMoney?.amount || totalOriginal;
-
-        return {
-          id: item.id,
-          title: itemTitle,
-          quantity: item.quantity || 0,
-          sku: item.sku || variant?.sku || "",
-          weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
-          gramsTotal: grams * (item.quantity || 0),
-          barcode: variant?.barcode || "",
-          variantTitle: variant?.title === "Default Title" ? "" : (variant?.title || ""),
-          imageUrl,
-          isIcePackage,
-          germanTranslation: product?.germanTranslation?.value || "",
-          expiryDate: product?.expiryDate?.value || "",
-          position: posRaw,
-          productType: normalizeProductType(product?.producttype?.value),
-          _finalSortString: `${sortKey}___:::___${titleKey}`,
-          priceOriginal,
-          priceDiscounted,
-          totalOriginal,
-          totalDiscounted,
-        };
-      });
-
-      const sortedItems = [...rawItems].sort((a, b) =>
-        a._finalSortString.localeCompare(b._finalSortString)
-      );
-      const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
-      const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
-      const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
-
-      const isDryOnly = sortedItems.length > 0 && sortedItems.every(item => item.productType === "t");
-      const hasChilled = sortedItems.some(item => item.productType === "k");
-      const hasFrozen = sortedItems.some(item => item.productType === "tk");
+        const pType = normalizeProductType(item.variant?.product?.producttype?.value);
+        if (pType === "k") {
+          hasChilled = true;
+          isDryOnly = false;
+        } else if (pType === "tk") {
+          hasFrozen = true;
+          isDryOnly = false;
+        } else if (pType !== "t") {
+          isDryOnly = false;
+        }
+      }
 
       const detection = isDraftMode
         ? {
@@ -477,15 +386,12 @@ export const loader = async ({ request }) => {
         email: node.email || "-",
         note: node.note || "",
         financialStatus: isDraftMode ? (node.status === "COMPLETED" ? "PAID" : "PENDING") : (node.displayFinancialStatus || "UNKNOWN"),
-        paymentGatewayNames: node.paymentGatewayNames || [],
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,
         shippingAddress: node.shippingAddress || null,
         hasIcePackage,
-        totalWeightKg: (totalGrams / 1000).toFixed(3),
         totalOrderQty,
-        items: sortedItems,
-        isFirstPurchase: (node.customer?.numberOfOrders ?? 0) === 1,
+        items: new Array(lineItemCount).fill(null),
         isDryOnly,
         hasChilled,
         hasFrozen,
@@ -494,12 +400,6 @@ export const loader = async ({ request }) => {
         hasReturnRequest,
         isCustomerHold,
         cancelReason: detection.cancelReason || node.cancelReason || null,
-        totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
-        subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
-        totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",
-        totalShipping: node.totalShippingPriceSet?.shopMoney?.amount || "0.00",
-        totalDiscounts: node.totalDiscountsSet?.shopMoney?.amount || "0.00",
-        currencyCode: node.totalPriceSet?.shopMoney?.currencyCode || "EUR",
       };
     });
 
@@ -569,15 +469,39 @@ export default function AdditionalPage() {
 
   const [orders, setOrders] = useState([]);
 
-  // 필터 상태 관리 (State)
-  const [paymentFilter, setPaymentFilter] = useState("ALL");
-  const [regionFilter, setRegionFilter] = useState("ALL");
-  const [complexityFilter, setComplexityFilter] = useState("ALL");
-  const [printFilter, setPrintFilter] = useState("UNPRINTED"); // default 값 미출력
-  const [sortOrder, setSortOrder] = useState("DATE_DESC");
+  // 필터 상태 관리 (State) - URL Query 파라미터 동기화로 뒤로가기 시 필터 보존
+  const [paymentFilter, setPaymentFilter] = useState(searchParams.get("payment") || "ALL");
+  const [regionFilter, setRegionFilter] = useState(searchParams.get("region") || "ALL");
+  const [complexityFilter, setComplexityFilter] = useState(searchParams.get("complexity") || "ALL");
+  const [printFilter, setPrintFilter] = useState(searchParams.get("print") || "UNPRINTED");
+  const [sortOrder, setSortOrder] = useState(searchParams.get("sort") || "DATE_DESC");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("query") || "");
-  const [tempFilter, setTempFilter] = useState("ALL");
+  const [tempFilter, setTempFilter] = useState(searchParams.get("temp") || "ALL");
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+  const pageSize = searchParams.get("limit") || "100";
+
+  const updateUrlFilter = (key, value, defaultValue = "ALL") => {
+    const params = new URLSearchParams(searchParams);
+    if (value && value !== defaultValue) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+    setSearchParams(params, { replace: true });
+  };
+
+  const handlePageSizeChange = (value) => {
+    const params = new URLSearchParams(searchParams);
+    if (value === "100") {
+      params.delete("limit");
+    } else {
+      params.set("limit", value);
+    }
+    params.delete("after");
+    params.delete("before");
+    setSelectedOrderIds([]);
+    setSearchParams(params);
+  };
 
   const handleOrderTypeChange = (value) => {
     const params = new URLSearchParams(searchParams);
@@ -613,7 +537,7 @@ export default function AdditionalPage() {
 
   // 주문 필터링 로직
   const filteredOrders = useMemo(() => {
-    let result = [...orders];
+    let result = Array.isArray(orders) ? [...orders] : [];
 
     // 0. 결제 상태 필터
     if (paymentFilter === "PAID") {
@@ -631,9 +555,9 @@ export default function AdditionalPage() {
 
     // 2. 상품 및 수량 필터
     if (complexityFilter === "SINGLE") {
-      result = result.filter(o => o.items.length === 1 && o.totalOrderQty === 1);
+      result = result.filter(o => (o.items?.length || 0) === 1 && (o.totalOrderQty || 0) === 1);
     } else if (complexityFilter === "COMPLEX") {
-      result = result.filter(o => o.items.length >= 15);
+      result = result.filter(o => (o.items?.length || 0) >= 15);
     }
 
     // 3.5 인쇄 상태 필터 (검색어가 입력된 경우 검색 대상이 숨겨지지 않도록 예외 처리)
@@ -659,24 +583,24 @@ export default function AdditionalPage() {
       const isDigitsOnly = /^\d+$/.test(cleanQ);
 
       result = result.filter(o => {
-        const orderNameClean = o.name.toLowerCase().replace(/^#/, "");
+        const orderNameClean = (o.name || "").toLowerCase().replace(/^#/, "");
         if (isDigitsOnly) {
           return orderNameClean === cleanQ;
         }
         return (
           orderNameClean === cleanQ ||
-          o.name.toLowerCase().includes(q) ||
-          o.email.toLowerCase().includes(q) ||
-          (o.shippingAddress?.name && o.shippingAddress.name.toLowerCase().includes(q))
+          (o.name || "").toLowerCase().includes(q) ||
+          (o.email || "").toLowerCase().includes(q) ||
+          ((o.shippingAddress?.name || "").toLowerCase().includes(q))
         );
       });
     }
 
     // 4. 정렬 로직
     if (sortOrder === "QTY_ASC") {
-      result.sort((a, b) => a.totalOrderQty - b.totalOrderQty);
+      result.sort((a, b) => (a.totalOrderQty || 0) - (b.totalOrderQty || 0));
     } else if (sortOrder === "QTY_DESC") {
-      result.sort((a, b) => b.totalOrderQty - a.totalOrderQty);
+      result.sort((a, b) => (b.totalOrderQty || 0) - (a.totalOrderQty || 0));
     }
 
     return result;
@@ -692,11 +616,11 @@ export default function AdditionalPage() {
 
   if (loaderData?.error) {
     return (
-      <div className="error-container">
-        <div className="error-box">
-          <strong>오류 발생:</strong> {loaderData.error}
-        </div>
-      </div>
+      <Box padding="400">
+        <Banner tone="critical" title="주문 목록을 불러오지 못했습니다">
+          <p>{loaderData.error}</p>
+        </Banner>
+      </Box>
     );
   }
 
@@ -719,7 +643,12 @@ export default function AdditionalPage() {
   };
 
   const handleBulkPrint = () => {
-    if (selectedOrderIds.length === 0) return;
+    if (!selectedOrderIds || selectedOrderIds.length === 0) return;
+
+    if (selectedOrderIds.length > 100) {
+      alert(`[PDF 인쇄 한도 안내]\n브라우저의 PDF 렌더러 메모리 초과 및 쇼피파이 통신 타임아웃을 방지하기 위해 1회 최대 인쇄 수량은 100건(권장 50건)으로 제한됩니다.\n\n현재 선택: ${selectedOrderIds.length}건\n\n100건 이하로 나누어 선택 후 출력해주세요.`);
+      return;
+    }
 
     const holdOrders = orders.filter(o => selectedOrderIds.includes(o.id) && o.isCustomerHold);
     if (holdOrders.length > 0) {
@@ -729,21 +658,35 @@ export default function AdditionalPage() {
     }
 
     // Open printing detailed page in a new window/tab
-    const idList = selectedOrderIds.map(id => {
-      const o = orders.find(ord => ord.id === id);
-      const numId = id.split("/").pop();
-      return o?.isDraft ? `draft-${numId}` : numId;
-    });
-    const tokens = selectedOrderIds.map(id => {
-      const o = orders.find(ord => ord.id === id);
-      return o?.printToken || "";
-    });
-    window.open(`/print/lieferschein/${idList.join(",")}?shop=${shop}&tokens=${tokens.join(",")}`, "_blank");
+    const validOrders = [];
+    const idList = [];
+    const tokens = [];
 
-    // Prepare payload to mark as printed
-    const selectedPayload = filteredOrders
-      .filter(o => selectedOrderIds.includes(o.id))
-      .map(o => ({ id: o.id, name: o.name }));
+    for (const id of selectedOrderIds) {
+      const o = orders.find(ord => ord.id === id);
+      if (!o || !o.printToken) continue;
+      const numId = id ? String(id).split("/").pop() : "";
+      if (!numId) continue;
+      idList.push(o.isDraft ? `draft-${numId}` : numId);
+      tokens.push(o.printToken);
+      validOrders.push(o);
+    }
+
+    if (idList.length === 0) {
+      alert("출력할 수 있는 유효한 주문이 없습니다.");
+      return;
+    }
+
+    const printUrl = `/print/lieferschein/${idList.join(",")}?shop=${encodeURIComponent(shop)}&tokens=${tokens.join(",")}`;
+    const printWindow = window.open(printUrl, "_blank");
+
+    if (!printWindow || printWindow.closed || typeof printWindow.closed === "undefined") {
+      alert("브라우저 팝업이 차단되어 인쇄 창을 열지 못했습니다.\n주소창 우측에서 팝업 허용을 활성화한 후 다시 클릭해주세요.\n\n(인쇄 완료 처리는 취소되었습니다.)");
+      return;
+    }
+
+    // Prepare payload to mark as printed ONLY for successfully launched valid orders
+    const selectedPayload = validOrders.map(o => ({ id: o.id, name: o.name }));
 
     // Send action to mark as printed
     fetcher.submit(
@@ -754,21 +697,24 @@ export default function AdditionalPage() {
       { method: "POST" }
     );
 
+    const nowStr = new Date().toLocaleString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+
     // Update local state immediately for visual feedback
+    const validIdSet = new Set(validOrders.map(o => o.id));
     setOrders(prevOrders =>
       prevOrders.map(order => {
-        if (selectedOrderIds.includes(order.id)) {
+        if (validIdSet.has(order.id)) {
           return {
             ...order,
             isPrinted: true,
-            printedAt: new Date().toLocaleString("de-DE", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit"
-            })
+            printedAt: nowStr
           };
         }
         return order;
@@ -829,7 +775,7 @@ export default function AdditionalPage() {
                       { label: '결제 대기 (Pending)', value: 'PENDING' },
                     ]}
                     value={paymentFilter}
-                    onChange={setPaymentFilter}
+                    onChange={(val) => { setPaymentFilter(val); updateUrlFilter("payment", val, "ALL"); }}
                   />
                 </Box>
                 <Box minWidth="150px">
@@ -841,7 +787,7 @@ export default function AdditionalPage() {
                       { label: '해외 배송만 (International)', value: 'INTERNATIONAL' },
                     ]}
                     value={regionFilter}
-                    onChange={setRegionFilter}
+                    onChange={(val) => { setRegionFilter(val); updateUrlFilter("region", val, "ALL"); }}
                   />
                 </Box>
                 <Box minWidth="160px">
@@ -853,7 +799,7 @@ export default function AdditionalPage() {
                       { label: '다품종 대량 (15종↑)', value: 'COMPLEX' },
                     ]}
                     value={complexityFilter}
-                    onChange={setComplexityFilter}
+                    onChange={(val) => { setComplexityFilter(val); updateUrlFilter("complexity", val, "ALL"); }}
                   />
                 </Box>
                 <Box minWidth="150px">
@@ -866,7 +812,7 @@ export default function AdditionalPage() {
                       { label: '냉동 포함 (Frozen)', value: 'FROZEN' },
                     ]}
                     value={tempFilter}
-                    onChange={setTempFilter}
+                    onChange={(val) => { setTempFilter(val); updateUrlFilter("temp", val, "ALL"); }}
                   />
                 </Box>
                 {/* 인쇄 상태 필터 UI 추가 */}
@@ -879,7 +825,7 @@ export default function AdditionalPage() {
                       { label: '출력 완료', value: 'PRINTED' },
                     ]}
                     value={printFilter}
-                    onChange={setPrintFilter}
+                    onChange={(val) => { setPrintFilter(val); updateUrlFilter("print", val, "UNPRINTED"); }}
                   />
                 </Box>
                 <Box minWidth="140px">
@@ -891,7 +837,19 @@ export default function AdditionalPage() {
                       { label: '수량 많은 순', value: 'QTY_DESC' },
                     ]}
                     value={sortOrder}
-                    onChange={setSortOrder}
+                    onChange={(val) => { setSortOrder(val); updateUrlFilter("sort", val, "DATE_DESC"); }}
+                  />
+                </Box>
+                <Box minWidth="130px">
+                  <Select
+                    label="표시 개수"
+                    options={[
+                      { label: '100개씩 (기본 - 당일 전체)', value: '100' },
+                      { label: '50개씩 (안정 분할 인쇄)', value: '50' },
+                      { label: '30개씩 (초고속)', value: '30' },
+                    ]}
+                    value={pageSize}
+                    onChange={handlePageSizeChange}
                   />
                 </Box>
               </InlineStack>
@@ -899,26 +857,19 @@ export default function AdditionalPage() {
           </Card>
         </Box>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBlockStart: "20px", marginBlockEnd: "10px" }}>
-          <div style={{ fontSize: "15px", color: "#1e293b", fontWeight: "bold" }}>
-            {currentOrderType === "DRAFT_ORDERS" ? "주문 초안 목록" : "주문 목록"} (필터 결과: <span style={{ color: "#008060" }}>{filteredOrders.length}</span>건 / 전체: {orders.length}건)
-          </div>
+          <Text variant="headingSm" as="h2">
+            {currentOrderType === "DRAFT_ORDERS" ? "주문 초안 목록" : "주문 목록"}{" "}
+            <Text as="span" tone="subdued">
+              (필터 결과: {filteredOrders.length}건 / 전체: {orders.length}건)
+            </Text>
+          </Text>
           {selectedOrderIds.length > 0 && (
-            <button
+            <Button
+              variant="primary"
               onClick={handleBulkPrint}
-              style={{
-                padding: "6px 12px",
-                fontSize: "13px",
-                borderRadius: "6px",
-                border: "none",
-                background: "#008060",
-                color: "#ffffff",
-                fontWeight: "bold",
-                cursor: "pointer",
-                boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
-              }}
             >
               선택한 주문 인쇄 ({selectedOrderIds.length}건)
-            </button>
+            </Button>
           )}
         </div>
 
@@ -982,129 +933,87 @@ export default function AdditionalPage() {
                     <td className="order-name">
                       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                         <Link
-                          to={order.isDraft ? `/app/lieferschein/draft-${order.id.split('/').pop()}` : `/app/lieferschein/${order.id.split('/').pop()}`}
+                          to={order.isDraft ? `/app/lieferschein/draft-${order.id ? String(order.id).split('/').pop() : ''}` : `/app/lieferschein/${order.id ? String(order.id).split('/').pop() : ''}`}
                           style={{
-                            color: order.isCustomerHold ? "#dc2626" : "#008060",
+                            color: order.isCustomerHold ? "#d72c0d" : "#005bd3",
                             textDecoration: "underline",
-                            fontWeight: "bold",
+                            fontWeight: "600",
                           }}
                         >
                           {order.name}
                         </Link>
                         {order.isDraft && (
-                          <span style={{
-                            fontSize: "10px",
-                            background: "#e0e7ff",
-                            color: "#3730a3",
-                            border: "1px solid #c7d2fe",
-                            padding: "1px 5px",
-                            borderRadius: "4px",
-                            fontWeight: "bold",
-                            display: "inline-block",
-                            width: "fit-content"
-                          }}>
-                            초안 {order.draftStatus ? `(${order.draftStatus})` : ""}
-                          </span>
+                          <Badge tone="info">초안 {order.draftStatus ? `(${order.draftStatus})` : ""}</Badge>
                         )}
                         {order.isCustomerHold && (
-                          <span style={{
-                            fontSize: "11px",
-                            background: "#fee2e2",
-                            color: "#b91c1c",
-                            border: "1px solid #f87171",
-                            padding: "1px 6px",
-                            borderRadius: "4px",
-                            fontWeight: "bold",
-                            display: "inline-block",
-                            width: "fit-content"
-                          }}>
-                            {order.hasReturnRequest ? "반품 요청" : "취소 요청"}
-                          </span>
+                          <Badge tone="critical">{order.hasReturnRequest ? "반품 요청" : "취소 요청"}</Badge>
                         )}
                       </div>
                     </td>
                     <td>
                       <div style={{ fontWeight: "500" }}>{order.shippingAddress?.name || order.billingAddress?.name || "-"}</div>
-                      {order.shippingAddress?.company && <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>{order.shippingAddress.company}</div>}
+                      {order.shippingAddress?.company && <div style={{ fontSize: "11px", color: "#6d7175", marginTop: "2px" }}>{order.shippingAddress.company}</div>}
                     </td>
 
                     <td>
                       {order.isDraft ? (
-                        <span style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                        <Badge tone="attention">
                           {order.draftStatus === "COMPLETED" ? "주문완료" : order.draftStatus === "INVOICED" ? "청구서발송" : "초안대기"}
-                        </span>
+                        </Badge>
                       ) : isPaid ? (
-                        <span style={{ fontSize: "11px", background: "#dcfce7", color: "#166534", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>결제완료</span>
+                        <Badge tone="success">결제완료</Badge>
                       ) : (
-                        <span style={{ fontSize: "11px", background: "#fef08a", color: "#854d0e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>{order.financialStatus}</span>
+                        <Badge tone="attention">{order.financialStatus || "대기"}</Badge>
                       )}
                     </td>
 
-                    <td>{order.createdAt}</td>
+                    <td>{order.createdAt || "-"}</td>
                     <td>
-                      <strong>{order.items.length}</strong>종 / 총 <strong>{order.totalOrderQty}</strong>개
+                      <strong>{order.items?.length || 0}</strong>종 / 총 <strong>{order.totalOrderQty || 0}</strong>개
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                        {isInternational && <span style={{ fontSize: "11px", background: "#fef08a", color: "#854d0e", padding: "2px 6px", borderRadius: "4px" }}>해외</span>}
-                        {(order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER")) && (
-                          <span style={{ fontSize: "11px", background: "#fecaca", color: "#991b1b", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>EXPRESS</span>
+                      <InlineStack gap="100" wrap={true}>
+                        {isInternational && <Badge tone="attention">해외</Badge>}
+                        {(order.shippingMethod && (order.shippingMethod.toUpperCase().includes("EXPRESS") || order.shippingMethod.toUpperCase().includes("SAVER"))) && (
+                          <Badge tone="critical">EXPRESS</Badge>
                         )}
-                        {order.isB2B && <span style={{ fontSize: "11px", background: "#dbeafe", color: "#1e40af", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>B2B</span>}
+                        {order.isB2B && <Badge tone="info">B2B</Badge>}
                         {order.hasCombinedShipping && (
-                          <span
-                            title={`합포장 주문 목록: ${order.combinedOrderNames.join(", ")}`}
-                            style={{ fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold", cursor: "help" }}
-                          >
-                            합포장 ({order.combinedCount}건: {order.combinedOrderNames.filter(name => name !== order.name).join(", ")})
+                          <span title={`합포장 주문 목록: ${(order.combinedOrderNames || []).join(", ")}`}>
+                            <Badge tone="warning">합포장 ({order.combinedCount}건)</Badge>
                           </span>
                         )}
                         {order.isDryOnly ? (
-                          <span style={{ fontSize: "11px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "2px 6px", borderRadius: "4px" }}>상온</span>
+                          <Badge tone="success">상온</Badge>
                         ) : (
                           <>
-                            {order.hasChilled && (
-                              <span style={{ fontSize: "11px", background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>냉장</span>
-                            )}
-                            {order.hasFrozen && (
-                              <span style={{ fontSize: "11px", background: "#faf5ff", color: "#6b21a8", border: "1px solid #e9d5ff", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>냉동</span>
-                            )}
-                            {order.hasIcePackage && (
-                              <span style={{ fontSize: "11px", background: "#ecfeff", color: "#0891b2", border: "1px solid #c5f2f7", padding: "2px 6px", borderRadius: "4px" }}>아이스팩</span>
-                            )}
+                            {order.hasChilled && <Badge tone="info">냉장</Badge>}
+                            {order.hasFrozen && <Badge tone="attention">냉동</Badge>}
+                            {order.hasIcePackage && <Badge tone="subdued">아이스팩</Badge>}
                           </>
                         )}
-                      </div>
+                      </InlineStack>
                     </td>
                     <td>
                       {order.isPrinted ? (
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <span className="status-badge-printed">인쇄 완료</span>
+                            <Badge tone="subdued">인쇄 완료</Badge>
                             {order.printedAt && (
-                              <span style={{ fontSize: "10px", color: "#64748b", whiteSpace: "nowrap", fontFamily: "monospace" }}>
+                              <span style={{ fontSize: "10px", color: "#6d7175", whiteSpace: "nowrap", fontFamily: "monospace" }}>
                                 {order.printedAt}
                               </span>
                             )}
                           </div>
-                          <button
+                          <Button
+                            size="micro"
                             onClick={() => handleResetPrint(order.id, order.name)}
-                            style={{
-                              padding: "2px 6px",
-                              fontSize: "11px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              background: "#f8fafc",
-                              cursor: "pointer",
-                              color: "#475569"
-                            }}
-                            className="no-print"
                           >
                             대기전환
-                          </button>
+                          </Button>
                         </div>
                       ) : (
-                        <span className="status-badge-ready">대기중</span>
+                        <Badge tone="new">대기중</Badge>
                       )}
                     </td>
                   </tr>

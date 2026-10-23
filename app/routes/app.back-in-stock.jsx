@@ -71,20 +71,7 @@ export const loader = async ({ request }) => {
     return Response.json({ drawerSubscribers });
   }
 
-  // --- 1. Global KPI Aggregations ---
-  const pendingSubscribersCount = await prisma.backInStockSubscription.count({
-    where: { shop, status: "PENDING" },
-  });
-
-  const notifiedCount = await prisma.backInStockSubscription.count({
-    where: { shop, status: "NOTIFIED" },
-  });
-
-  const cancelledCount = await prisma.backInStockSubscription.count({
-    where: { shop, status: "CANCELLED" },
-  });
-
-  // Group by variant to get product-level aggregates
+  // --- 1. Global KPI Aggregations (Single grouped query, in-memory variant calculation) ---
   const allVariantGroups = await prisma.backInStockSubscription.groupBy({
     by: ["variantId", "status"],
     where: { shop },
@@ -92,29 +79,26 @@ export const loader = async ({ request }) => {
     orderBy: { _count: { id: "desc" } },
   });
 
-  // Calculate pending count per variant (Unsent)
-  const pendingVariantGroups = await prisma.backInStockSubscription.groupBy({
-    by: ["variantId"],
-    where: { shop, status: "PENDING" },
-    _count: { id: true },
-  });
+  let pendingSubscribersCount = 0;
+  let notifiedCount = 0;
+  let cancelledCount = 0;
   const pendingMap = new Map();
-  pendingVariantGroups.forEach((g) => {
-    const rawId = g.variantId.replace("gid://shopify/ProductVariant/", "");
-    pendingMap.set(rawId, (pendingMap.get(rawId) || 0) + g._count.id);
-  });
-
-  // Calculate notified count per variant (Sent)
-  const notifiedVariantGroups = await prisma.backInStockSubscription.groupBy({
-    by: ["variantId"],
-    where: { shop, status: "NOTIFIED" },
-    _count: { id: true },
-  });
   const notifiedMap = new Map();
-  notifiedVariantGroups.forEach((g) => {
-    const rawId = g.variantId.replace("gid://shopify/ProductVariant/", "");
-    notifiedMap.set(rawId, (notifiedMap.get(rawId) || 0) + g._count.id);
-  });
+
+  for (const g of allVariantGroups) {
+    const count = g._count?.id || 0;
+    const rawId = g.variantId ? g.variantId.replace("gid://shopify/ProductVariant/", "") : "";
+
+    if (g.status === "PENDING") {
+      pendingSubscribersCount += count;
+      if (rawId) pendingMap.set(rawId, (pendingMap.get(rawId) || 0) + count);
+    } else if (g.status === "NOTIFIED") {
+      notifiedCount += count;
+      if (rawId) notifiedMap.set(rawId, (notifiedMap.get(rawId) || 0) + count);
+    } else if (g.status === "CANCELLED") {
+      cancelledCount += count;
+    }
+  }
 
   let highDemandProductsCount = 0;
   let arrivingSoonCount = 0;

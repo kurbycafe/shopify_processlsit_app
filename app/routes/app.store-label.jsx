@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useFetcher } from "react-router";
 import { Page, Layout, Card, BlockStack, InlineStack, Text, Button, Modal, ResourceList, ResourceItem, Avatar, Badge, Select, Checkbox } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
@@ -189,27 +189,34 @@ function formatWeight(weight, weightUnit) {
 }
 
 function Code128({ value, height = 16, moduleWidth = 0.72, fontSize = 5.1, showText = true }) {
-  if (!value) return null;
-  const encoded = encodeCode128(value);
-  const quietZone = 4;
-  const totalWidth = encoded.length * moduleWidth;
-  let x = quietZone;
-  const rects = [];
+  const barcodeData = useMemo(() => {
+    if (!value) return null;
+    const encoded = encodeCode128(value);
+    const qZone = 4;
+    const tWidth = encoded.length * moduleWidth;
+    let x = qZone;
+    const rList = [];
 
-  for (let index = 0; index < encoded.length; index += 1) {
-    if (encoded[index] === "1") {
+    for (let index = 0; index < encoded.length; index += 1) {
+      if (encoded[index] === "1") {
+        let width = 0;
+        while (index < encoded.length && encoded[index] === "1") { width += 1; index += 1; }
+        index -= 1;
+        rList.push(<rect key={x} x={x} y={0} width={width * moduleWidth} height={height} fill="#111" />);
+        x += width * moduleWidth;
+        continue;
+      }
       let width = 0;
-      while (index < encoded.length && encoded[index] === "1") { width += 1; index += 1; }
+      while (index < encoded.length && encoded[index] === "0") { width += 1; index += 1; }
       index -= 1;
-      rects.push(<rect key={x} x={x} y={0} width={width * moduleWidth} height={height} fill="#111" />);
       x += width * moduleWidth;
-      continue;
     }
-    let width = 0;
-    while (index < encoded.length && encoded[index] === "0") { width += 1; index += 1; }
-    index -= 1;
-    x += width * moduleWidth;
-  }
+
+    return { rects: rList, totalWidth: tWidth, quietZone: qZone };
+  }, [value, height, moduleWidth]);
+
+  if (!barcodeData) return null;
+  const { rects, totalWidth, quietZone } = barcodeData;
 
   return (
     <div className="store-label-barcode">

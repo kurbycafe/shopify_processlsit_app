@@ -1533,7 +1533,11 @@ export default function OrderPrintDetailPage() {
                           </div>
                         ))}
                       </BlockStack>
-                      <Button onClick={handleSaveAddress} loading={fetcher.state === "submitting" && fetcher.formData?.get("intent") === "save_address"}>
+                      <Button
+                        onClick={handleSaveAddress}
+                        disabled={fetcher.state !== "idle"}
+                        loading={fetcher.state === "submitting" && fetcher.formData?.get("intent") === "save_address"}
+                      >
                         주소 및 설정 저장
                       </Button>
                       {order.invoice?.invoiceNumber ? (
@@ -1546,6 +1550,7 @@ export default function OrderPrintDetailPage() {
                         <Button
                           fullWidth
                           onClick={() => handleIssueInvoice(order)}
+                          disabled={fetcher.state !== "idle"}
                           loading={fetcher.state === "submitting" && fetcher.formData?.get("intent") === "issue_invoice"}
                         >
                           Rechnung 정식 발행 (일련번호 채번)
