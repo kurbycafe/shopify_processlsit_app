@@ -48,3 +48,16 @@ test("order update retries invoice failure while independently processing a canc
   assert.equal((await action({ request: {} })).status, 503);
   assert.equal(invoices, 1); assert.equal(alerts, 1);
 });
+
+test("order update acknowledges normal order with 200 even when admin client is unavailable", async () => {
+  const action = loadAction("webhooks.orders.updated.jsx", {
+    authenticate: { webhook: async () => ({ shop: "s.myshopify.com", topic: "orders/updated", payload: { id: 99, tags: "some_tag" } }) },
+    unauthenticated: { admin: async () => { throw new Error("Session expired"); } },
+    prisma: { inspectionRecord: { findUnique: async () => null } },
+    autoIssueInvoiceOnFulfillment: async () => null,
+    detectOrderCancellationStatus,
+    sendCancellationAlertOnce: async () => true,
+  });
+  const res = await action({ request: {} });
+  assert.equal(res.status, 200);
+});

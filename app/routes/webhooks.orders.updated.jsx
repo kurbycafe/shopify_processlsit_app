@@ -98,7 +98,6 @@ export const action = async ({ request }) => {
           });
         }
       }
-      if (!detection.isCustomerHold && !adminClient) throw new Error("Admin unavailable for cancellation verification");
 
       if (detection.isCustomerHold) {
         const customer = payload.customer || {};

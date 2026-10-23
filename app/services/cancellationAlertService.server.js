@@ -13,7 +13,23 @@ export async function sendCancellationAlertOnce({ orderId, shop, orderName, ...e
     const existing = await tx.inspectionRecord.findUnique({ where: { orderId }, select: { shop: true, isCancelAlertSent: true } });
     if (existing && existing.shop !== shop) throw new Error("Order belongs to a different shop");
     if (existing?.isCancelAlertSent) return false;
-    const delivery = await sendEmail({ ...email, orderName, shopDomain: shop });
+    let delivery;
+    try {
+      delivery = await sendEmail({ ...email, orderName, shopDomain: shop });
+    } catch (sendErr) {
+      const msg = sendErr?.message || "";
+      if (
+        msg.includes("unauthorized") ||
+        msg.includes("API Key is not enabled") ||
+        msg.includes("설정되지 않았습니다") ||
+        msg.includes("not configured")
+      ) {
+        console.warn(`[CancellationAlert] Email credentials unauthorized or unconfigured (${msg}). Recording alert without email to prevent retry storm.`);
+        delivery = { skipped: true, reason: msg };
+      } else {
+        throw sendErr;
+      }
+    }
     if (Array.isArray(delivery) && delivery.length === 0) throw new Error("Cancellation email was not dispatched");
     await tx.inspectionRecord.upsert({
       where: { orderId },
