@@ -34,7 +34,7 @@ try {
       const input = request.postDataJSON(); changes.push(input);
       if (failNext) { failNext = false; return route.fulfill({ status: 503, json: { success: false, message: "테스트 저장 실패" } }); }
       for (const item of products) if (input.productIds.includes(item.id)) item.storageTemp = input.storageTemp;
-      return route.fulfill({ json: { success: true, ...input, updatedCount: input.productIds.length, configVersion: "test-v2" } });
+      return route.fulfill({ json: { success: true, ...input, updatedCount: input.productIds.length, saveId: "test-v2" } });
     }
     const next = new URL(request.url()).searchParams.has("after");
     return route.fulfill({ json: { success: true, items: next ? products.slice(100) : products.slice(0, 100), pageInfo: { hasNextPage: !next, endCursor: next ? null : "next" } } });
@@ -43,6 +43,7 @@ try {
   await page.getByText("조회 상품 105개", { exact: true }).waitFor({ timeout: 30000 });
   await page.waitForFunction(() => !document.body.innerText.includes("Shopify 상품을 불러오는 중입니다."));
   await page.getByLabel("현재 보관 온도", { exact: true }).selectOption("unset");
+  await page.getByRole("button", { name: "다음", exact: true }).click();
   await page.getByLabel("테스트 상품 105 선택", { exact: true }).check();
   await page.getByLabel("변경할 온도", { exact: true }).selectOption("chilled");
   await page.getByRole("button", { name: "선택 상품 일괄 변경", exact: true }).click();
@@ -55,7 +56,7 @@ try {
   await page.getByLabel("상품 검색", { exact: true }).fill("");
   await page.getByLabel("현재 보관 온도", { exact: true }).selectOption("all");
   await page.getByLabel("현재 페이지 전체 선택", { exact: true }).check();
-  assert.equal(await page.locator("tbody input[type=checkbox]:checked").count(), 50);
+  assert.equal(await page.locator("tbody input[type=checkbox]:checked").count(), 25);
   await page.getByRole("button", { name: "다음", exact: true }).click();
   assert.equal(await page.locator("tbody input[type=checkbox]:checked").count(), 0);
   await page.getByLabel("상품 검색", { exact: true }).fill("001");

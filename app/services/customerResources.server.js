@@ -1,3 +1,4 @@
+import { customerProductTemperatures } from "./customerProductTemperatures.server.js";
 import { customerLoyalty } from "./customerLoyalty.server.js";
 import {customerCommunity,customerComments,customerReaction,customerRequestHistory,customerAttendance,customerDeleteRequest,requireCustomer} from "./customerCommunity.server.js";
 import {getStorefrontConfig} from "./mobileStorefront.server.js";
@@ -43,6 +44,7 @@ async function readJsonPayload(request, maxBytes = 8192) {
 
 export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
+  if(resource==="product-temperatures")return customerProductTemperatures({request,shop,graphql});
   if(resource==="community-posts")return customerCommunity({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,250000)});
   if(resource==="community-comments")return customerComments({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,4096)});
   if(resource==="community-reactions")return customerReaction({db,shop,request,verify,input:await readJsonPayload(request,2048)});

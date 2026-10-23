@@ -1,3 +1,4 @@
+import { normalizeProductType } from "../utils/productTemperatures.js";
 import { executeGraphQLWithRetry } from '../utils/shopifyApi.js';
 import { parseWarehouseInfo, compareRegalAscending } from '../utils/warehouseHelpers.js';
 const LINE_FIELDS = `id quantity name variant { id sku barcode inventoryQuantity product { title producttype: metafield(namespace: "custom", key: "producttype") { value } } }`;
@@ -67,8 +68,8 @@ export async function loadProcessingList({ admin, fetchBins, query = executeGrap
 
  const bins = {};
  for (const result of await Promise.all(binTasks)) { if (result.error) throw result.error; Object.assign(bins, result.value); }
- return { views: { ALL: aggregateProcessingOrders(orders, bins), DRY_ONLY: aggregateProcessingOrders(orders.filter(order => order.lineItems.nodes.every(line => {
-  const type = (line.variant?.product?.producttype?.value || 't').trim().toLowerCase(); return type === 't' || type === '';
+ return { views: { ALL: aggregateProcessingOrders(orders, bins), DRY_ONLY: aggregateProcessingOrders(orders.filter(order => order.lineItems.nodes.length > 0 && order.lineItems.nodes.every(line => {
+  return normalizeProductType(line.variant?.product?.producttype?.value) === 't';
  })), bins) }, fetchedAt: new Date().toISOString() };
 }
 export function aggregateProcessingOrders(orders, bins) {

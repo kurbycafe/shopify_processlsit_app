@@ -1,6 +1,4 @@
 import { authenticate } from "../shopify.server.js";
-import prisma from "../db.server.js";
-import { resolveCanonicalShop } from "../services/mobileStorefront.server.js";
 import { listTemperatureProducts, saveProductTemperatures, TemperatureError } from "../services/productTemperatures.server.js";
 
 function failure(error) {
@@ -9,20 +7,20 @@ function failure(error) {
     { status, headers: { "Cache-Control": "no-store" } });
 }
 export async function loader({ request }) {
-  const { session, admin } = await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
   try {
-    const result = await listTemperatureProducts({ admin, db: prisma, shop: resolveCanonicalShop(session.shop),
+    const result = await listTemperatureProducts({ admin,
       after: new URL(request.url).searchParams.get("after") || null });
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }
 export async function action({ request }) {
-  const { session, admin } = await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
   if (request.method !== "POST") return Response.json({ success: false, message: "POST 요청이 필요합니다." }, { status: 405, headers: { Allow: "POST" } });
   try {
     let input;
     try { input = await request.json(); } catch { throw new TemperatureError(400, "저장 요청 형식이 올바르지 않습니다."); }
-    const result = await saveProductTemperatures({ admin, db: prisma, shop: resolveCanonicalShop(session.shop), input });
+    const result = await saveProductTemperatures({ admin, input });
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }

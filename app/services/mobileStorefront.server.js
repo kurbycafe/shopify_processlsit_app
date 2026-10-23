@@ -1,4 +1,3 @@
-import { mergeTemperatureOverrides, temperatureSettingsWithLegacy, temperatureSkuBindings } from "../utils/productTemperatures.js";
 import prisma from "../db.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
 import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
@@ -73,7 +72,6 @@ export const DEFAULT_EXTENDED_SETTINGS = {
     "showB2bBanner": false
   },
   "productOverrides": [],
-  "productTemperatures": {},
   "groupBuying": [],
   "prospekt": {},
   "subscriptionPlans": [],
@@ -196,8 +194,6 @@ export function parseExtendedSettings(rawJson) {
       ...(parsed.coldChain || {}),
     },
     shippingPolicyConfigured: parsed.shippingPolicyConfigured !== false,
-    productTemperatureSkus: temperatureSkuBindings(parsed.productTemperatureSkus),
-    productTemperatures: temperatureSettingsWithLegacy(Array.isArray(parsed.productOverrides) ? parsed.productOverrides : [], parsed.productTemperatures),
     productOverrides: Array.isArray(parsed.productOverrides)
       ? parsed.productOverrides
       : structuredClone(DEFAULT_EXTENDED_SETTINGS.productOverrides),
@@ -307,7 +303,7 @@ export async function getStorefrontConfig(
       });
 
   const extended = parseExtendedSettings(storeConfig?.tickersJson);
-  const productOverrides = mergeTemperatureOverrides(extended.productOverrides, extended.productTemperatures, extended.productTemperatureSkus);
+  const productOverrides = extended.productOverrides.map(item => { const copy = { ...item }; delete copy.storageTemp; return copy; });
   const threshold = storeConfig?.freeShippingThreshold == null ? null : Number(storeConfig.freeShippingThreshold);
 
   return {
@@ -399,7 +395,7 @@ export async function getStorefrontConfig(
         badgeKo: d.badgeKo || "오늘만 특가",
         badgeDe: d.badgeDe || "",
         badgeEn: d.badgeEn || "",
-        storageTemp: matchedOverride?.storageTemp || "",
+        storageTemp: "",
         isMhdDeal: Boolean(matchedOverride?.isMhdDeal),
         mhdDate: matchedOverride?.mhdDate || "",
         ageRestriction: matchedOverride?.ageRestriction || "",

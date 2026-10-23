@@ -330,25 +330,12 @@ export default function ContainerCatalog() {
     const showRetail = showRetailPrice;
     const showExp = showExpiry;
 
-    function getStorageBadge(productTypeVal, title) {
-      const pType = (productTypeVal || "").trim().toLowerCase();
-      if (pType === "tk" || pType === "frozen" || pType.includes("냉동")) {
-        return `<span class="storage-badge frozen">냉동 (-18℃)</span>`;
-      }
-      if (pType === "k" || pType === "chilled" || pType.includes("냉장")) {
-        return `<span class="storage-badge chilled">냉장 (1~5℃)</span>`;
-      }
-      if (pType === "t" || pType === "dry" || pType === "ambient" || pType.includes("상온") || pType.includes("실온")) {
-        return `<span class="storage-badge ambient">실온</span>`;
-      }
-
-      const t = (title || "").toLowerCase();
-      if (t.includes("냉동") || t.includes("만두") || t.includes("치킨") || t.includes("핫도그") || t.includes("강정") || t.includes("바오") || t.includes("피자") || t.includes("떡볶이") || t.includes("아이스") || t.includes("대용량")) {
-        return `<span class="storage-badge frozen">냉동 (-18℃)</span>`;
-      } else if (t.includes("냉장") || t.includes("김치") || t.includes("단무지") || t.includes("어묵") || t.includes("두부") || t.includes("핫바")) {
-        return `<span class="storage-badge chilled">냉장 (1~5℃)</span>`;
-      }
-      return `<span class="storage-badge ambient">실온</span>`;
+    function getStorageBadge(productTypeVal) {
+      const code = typeof productTypeVal === "string" ? productTypeVal.trim().toLowerCase() : "";
+      if (code === "tk") return '<span class="storage-badge frozen">냉동 (-18℃)</span>';
+      if (code === "k") return '<span class="storage-badge chilled">냉장 (1~5℃)</span>';
+      if (code === "t") return '<span class="storage-badge ambient">실온</span>';
+      return "";
     }
 
     let rowsHtml = "";

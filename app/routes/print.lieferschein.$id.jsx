@@ -1,3 +1,4 @@
+import { normalizeProductType } from "../utils/productTemperatures.js";
 import { useLoaderData, useFetcher } from "react-router";
 import { useState, useEffect, useCallback } from "react";
 import { authenticate, unauthenticated, verifyPrintToken } from "../shopify.server";
@@ -577,7 +578,7 @@ export const loader = async ({ request, params }) => {
           germanTranslation: product?.germanTranslation?.value || "",
           expiryDate: product?.expiryDate?.value || "",
           position: posRaw,
-          productType: (product?.producttype?.value || "t").trim().toLowerCase(),
+          productType: normalizeProductType(product?.producttype?.value),
           _finalSortString: `${sortKey}___:::___${titleKey}`,
           priceOriginal,
           priceDiscounted,
@@ -595,7 +596,7 @@ export const loader = async ({ request, params }) => {
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
       const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
 
-      const isDryOnly = sortedItems.every(item => item.productType === "t" || !item.productType);
+      const isDryOnly = sortedItems.length > 0 && sortedItems.every(item => item.productType === "t");
       const hasChilled = sortedItems.some(item => item.productType === "k");
       const hasFrozen = sortedItems.some(item => item.productType === "tk");
 

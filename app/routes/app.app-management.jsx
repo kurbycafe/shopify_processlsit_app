@@ -1,4 +1,4 @@
-import { saveStorefrontConfigPreservingTemperatures } from "../services/productTemperatures.server.js";
+import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import { useState, useEffect } from "react";
 import { useLoaderData, useFetcher } from "react-router";
@@ -592,7 +592,6 @@ export const action = async ({ request }) => {
           productNameDe: data.productNameDe || data.productNameKo,
           productNameEn: data.productNameEn || data.productNameKo,
           imageUrl: data.imageUrl,
-          storageTemp: matchIdx >= 0 ? overrides[matchIdx].storageTemp || "" : "",
           isMhdDeal,
           mhdDate,
           mhdPrice: isMhdDeal ? salePrice : null,
@@ -602,7 +601,7 @@ export const action = async ({ request }) => {
         } else {
           overrides.unshift(overrideEntry);
         }
-        await saveStorefrontConfigPreservingTemperatures(prisma, {
+        await saveStorefrontConfig(prisma, {
           where: { shop },
           update: {
             tickersJson: { ...ext, productOverrides: overrides },
@@ -666,8 +665,6 @@ export const action = async ({ request }) => {
         };
       }
 
-      const previousOverride = overrides.find(o => o?.id === overrideId || (productId && o?.productId === productId));
-      const storageTemp = previousOverride?.productId === productId ? previousOverride.storageTemp || "" : "";
       const mhdDate = String(formData.get("mhdDate") || "").trim();
       const isMhdDeal =
         formData.get("isMhdDeal") === "true" || Boolean(mhdDate);
@@ -686,7 +683,6 @@ export const action = async ({ request }) => {
         productNameEn:
           String(formData.get("productNameEn") || "").trim() || productNameKo,
         imageUrl: String(formData.get("imageUrl") || "").trim(),
-        storageTemp,
         isMhdDeal,
         mhdDate,
         mhdPrice: mhdPriceRaw > 0 ? mhdPriceRaw : null,
@@ -718,7 +714,7 @@ export const action = async ({ request }) => {
         productOverrides: overrides,
       };
       const newVersion = String(Date.now());
-      await saveStorefrontConfigPreservingTemperatures(prisma, {
+      await saveStorefrontConfig(prisma, {
         where: { shop },
         update: {
           tickersJson: nextExtended,
@@ -750,7 +746,7 @@ export const action = async ({ request }) => {
       const nextOverrides = (ext.productOverrides || []).filter(
         (o) => o.id !== overrideId
       );
-      await saveStorefrontConfigPreservingTemperatures(prisma, {
+      await saveStorefrontConfig(prisma, {
         where: { shop },
         update: {
           tickersJson: { ...ext, productOverrides: nextOverrides },
@@ -974,7 +970,7 @@ export const action = async ({ request }) => {
       };
 
       const newVersion = String(Date.now());
-      await saveStorefrontConfigPreservingTemperatures(prisma, {
+      await saveStorefrontConfig(prisma, {
         where: { shop },
         update: {
           freeShippingThreshold,
@@ -1091,7 +1087,6 @@ export default function AppManagementPage() {
     badgeKo: "오늘만 특가",
     badgeDe: "Tagesdeal",
     badgeEn: "Daily Deal",
-    storageTemp: "ambient",
     isMhdDeal: false,
     mhdDate: "",
     sortOrder: String((config.hotDeals?.length || 0) + 1),
@@ -1108,7 +1103,6 @@ export default function AppManagementPage() {
     productNameDe: "",
     productNameEn: "",
     imageUrl: "",
-    storageTemp: "chilled",
     isMhdDeal: false,
     mhdDate: "",
     mhdPrice: "",
@@ -1288,7 +1282,6 @@ export default function AppManagementPage() {
       badgeKo: d.badgeKo || d.badge?.ko || "오늘만 특가",
       badgeDe: d.badgeDe || d.badge?.de || "",
       badgeEn: d.badgeEn || d.badge?.en || "",
-      storageTemp: d.storageTemp || "ambient",
       isMhdDeal: Boolean(d.isMhdDeal),
       mhdDate: d.mhdDate || "",
       sortOrder: String(d.sortOrder || 1),
@@ -1307,7 +1300,6 @@ export default function AppManagementPage() {
       productNameDe: po.productNameDe || "",
       productNameEn: po.productNameEn || "",
       imageUrl: po.imageUrl || "",
-      storageTemp: po.storageTemp || "ambient",
       isMhdDeal: Boolean(po.isMhdDeal),
       mhdDate: po.mhdDate || "",
       mhdPrice: po.mhdPrice ? String(po.mhdPrice) : "",
@@ -2177,21 +2169,7 @@ export default function AppManagementPage() {
                             <Badge tone={deal.isActive ? "success" : "enabled"}>
                               {deal.badge?.ko || "특가"}
                             </Badge>
-                            <Badge
-                              tone={
-                                deal.storageTemp === "frozen"
-                                  ? "info"
-                                  : deal.storageTemp === "chilled"
-                                    ? "attention"
-                                    : "new"
-                              }
-                            >
-                              {deal.storageTemp === "frozen"
-                                ? "냉동 보관"
-                                : deal.storageTemp === "chilled"
-                                  ? "냉장 보관"
-                                  : "상온 보관"}
-                            </Badge>
+
                             {deal.mhdDate && (
                               <Badge tone="warning">{`MHD ${deal.mhdDate}`}</Badge>
                             )}
@@ -2350,7 +2328,6 @@ export default function AppManagementPage() {
                           badgeKo: "오늘만 특가",
                           badgeDe: "Tagesdeal",
                           badgeEn: "Daily Deal",
-                          storageTemp: "ambient",
                           isMhdDeal: false,
                           mhdDate: "",
                           sortOrder: String((config.hotDeals?.length || 0) + 1),
@@ -2541,7 +2518,6 @@ export default function AppManagementPage() {
                           productNameDe: "",
                           productNameEn: "",
                           imageUrl: "",
-                          storageTemp: "chilled",
                           isMhdDeal: false,
                           mhdDate: "",
                           mhdPrice: "",
@@ -3458,7 +3434,6 @@ export default function AppManagementPage() {
                           targetCount: 20,
                           currentCount: 15,
                           endsInHours: 24,
-                          storageTemp: "ambient",
                           imageUrl: "",
                           isActive: true,
                         },
@@ -3720,22 +3695,7 @@ export default function AppManagementPage() {
                                 autoComplete="off"
                               />
                             </div>
-                            <div style={{ flex: 1 }}>
-                              <Select
-                                label="보관 온도"
-                                options={[
-                                  { label: "상온", value: "ambient" },
-                                  { label: "냉장", value: "chilled" },
-                                  { label: "냉동", value: "frozen" },
-                                ]}
-                                value={gb.storageTemp || "ambient"}
-                                onChange={(v) => {
-                                  const next = [...groupBuying];
-                                  next[idx] = { ...next[idx], storageTemp: v };
-                                  setGroupBuying(next);
-                                }}
-                              />
-                            </div>
+
                           </InlineStack>
 
                           <InlineStack gap="300">

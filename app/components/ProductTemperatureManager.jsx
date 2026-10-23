@@ -3,7 +3,7 @@ import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select,
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
 
 const ENDPOINT = "/app/product-temperatures";
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
 const TEMPERATURE_OPTIONS = [
   { label: "전체 온도", value: "all" }, { label: "미설정", value: "unset" },
   ...Object.entries(TEMPERATURE_LABELS).map(([value, label]) => ({ value, label })),
@@ -91,7 +91,7 @@ export default function ProductTemperatureManager() {
       const data = await resultJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ productIds: ids, storageTemp: targetTemp }) }));
-      if (data.updatedCount !== ids.length || data.storageTemp !== targetTemp || !data.configVersion ||
+      if (data.updatedCount !== ids.length || data.storageTemp !== targetTemp || !data.saveId ||
           !Array.isArray(data.productIds) || ids.some(id => !data.productIds.includes(id))) throw new Error("저장 결과를 확인하지 못했습니다. 상품을 다시 조회해주세요.");
       const changed = new Set(ids);
       setItems(previous => previous.map(item => changed.has(item.id) ? { ...item, storageTemp: data.storageTemp } : item));
@@ -110,7 +110,7 @@ export default function ProductTemperatureManager() {
       <InlineStack align="space-between" blockAlign="center" gap="300">
         <BlockStack gap="100">
           <Text as="h2" variant="headingMd">상품 온도 관리</Text>
-          <Text as="p" tone="subdued">Shopify 상품의 사진·이름·재고를 확인하고 보관 온도를 일괄 지정하세요.</Text>
+          <Text as="p" tone="subdued">Shopify custom.producttype 기준입니다. t = 상온 · k = 냉장 · tk = 냉동. 일괄 변경 시 이 메타필드에 저장합니다.</Text>
         </BlockStack>
         <Button onClick={() => setReloadKey(value => value + 1)} disabled={saving} loading={loadStatus === "loading"}>상품 새로고침</Button>
       </InlineStack>
@@ -157,7 +157,7 @@ export default function ProductTemperatureManager() {
               : <span style={{ color: "#6d7175", fontSize: "12px" }}>사진 없음</span>}</td>
             <td style={{ padding: "12px" }}><Text as="p" fontWeight="semibold">{item.title}</Text><Text as="p" variant="bodySm" tone="subdued">{"ID " + item.id.split("/").pop()}</Text></td>
             <td style={{ padding: "12px", textAlign: "right", whiteSpace: "nowrap" }}>{item.tracksInventory ? (item.inventory === null ? "확인 불가" : item.inventory.toLocaleString("ko-KR") + "개") : "재고 추적 안 함"}</td>
-            <td style={{ padding: "12px" }}><Badge tone={item.storageTemp ? "info" : "attention"}>{TEMPERATURE_LABELS[item.storageTemp] || "미설정"}</Badge></td>
+            <td style={{ padding: "12px" }}>{item.storageTemp ? <Badge tone="info">{TEMPERATURE_LABELS[item.storageTemp]}</Badge> : "—"}</td>
           </tr>)}</tbody>
         </table>
         {!visible.length && <div style={{ padding: "36px 16px", textAlign: "center", color: "#6d7175" }} role="status">{loadStatus === "loading" ? "상품 목록을 불러오는 중입니다." : loadStatus === "error" ? "조회가 완료되지 않았습니다. 다시 조회해주세요." : "조건에 맞는 상품이 없습니다."}</div>}
