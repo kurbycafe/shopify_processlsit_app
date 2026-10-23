@@ -1,3 +1,4 @@
+import { mergeTemperatureOverrides, temperatureSettingsWithLegacy, temperatureSkuBindings } from "../utils/productTemperatures.js";
 import prisma from "../db.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
 import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
@@ -72,6 +73,7 @@ export const DEFAULT_EXTENDED_SETTINGS = {
     "showB2bBanner": false
   },
   "productOverrides": [],
+  "productTemperatures": {},
   "groupBuying": [],
   "prospekt": {},
   "subscriptionPlans": [],
@@ -193,6 +195,9 @@ export function parseExtendedSettings(rawJson) {
       ...DEFAULT_EXTENDED_SETTINGS.coldChain,
       ...(parsed.coldChain || {}),
     },
+    shippingPolicyConfigured: parsed.shippingPolicyConfigured !== false,
+    productTemperatureSkus: temperatureSkuBindings(parsed.productTemperatureSkus),
+    productTemperatures: temperatureSettingsWithLegacy(Array.isArray(parsed.productOverrides) ? parsed.productOverrides : [], parsed.productTemperatures),
     productOverrides: Array.isArray(parsed.productOverrides)
       ? parsed.productOverrides
       : structuredClone(DEFAULT_EXTENDED_SETTINGS.productOverrides),
@@ -234,12 +239,12 @@ export function parseExtendedSettings(rawJson) {
 function findMatchingOverride(overrides, item) {
   if (!Array.isArray(overrides) || overrides.length === 0 || !item) return null;
   const pId = String(item.productId || item.id || "").trim();
-  const nameKo = String(item.productNameKo || item.name || "").trim();
+  const sku = String(item.sku || "").trim();
   return (
     overrides.find(
       (o) =>
         (o.productId && pId && o.productId === pId) ||
-        (o.keyword && nameKo && nameKo.includes(o.keyword))
+        (o.sku && sku && o.sku === sku)
     ) || null
   );
 }
@@ -302,6 +307,7 @@ export async function getStorefrontConfig(
       });
 
   const extended = parseExtendedSettings(storeConfig?.tickersJson);
+  const productOverrides = mergeTemperatureOverrides(extended.productOverrides, extended.productTemperatures, extended.productTemperatureSkus);
   const threshold = storeConfig?.freeShippingThreshold == null ? null : Number(storeConfig.freeShippingThreshold);
 
   return {
@@ -310,7 +316,7 @@ export async function getStorefrontConfig(
     updatedAt: storeConfig?.updatedAt || null,
     source: "database",
     store: {
-      freeShippingThreshold: Number.isFinite(threshold) ? threshold : null,
+      freeShippingThreshold: extended.shippingPolicyConfigured !== false && Number.isFinite(threshold) ? threshold : null,
       shippingNotice: withLangFallback(
         storeConfig?.shippingNoticeKo || "",
         storeConfig?.shippingNoticeDe,
@@ -323,7 +329,8 @@ export async function getStorefrontConfig(
       cartPage: extended.cartPage,
       myPage: extended.myPage,
     },
-    productOverrides: extended.productOverrides,
+    productOverrides,
+    ...(includeInactive ? { productRules: extended.productOverrides } : {}),
     groupBuying: includeInactive
       ? extended.groupBuying
       : extended.groupBuying.filter((g) => g.isActive !== false),
@@ -363,7 +370,7 @@ export async function getStorefrontConfig(
           ? Math.round(((basePrice - salePrice) / basePrice) * 100)
           : 0);
       const matchedOverride = findMatchingOverride(
-        extended.productOverrides,
+        productOverrides,
         d
       );
       return {
@@ -392,13 +399,7 @@ export async function getStorefrontConfig(
         badgeKo: d.badgeKo || "오늘만 특가",
         badgeDe: d.badgeDe || "",
         badgeEn: d.badgeEn || "",
-        storageTemp:
-          matchedOverride?.storageTemp ||
-          (d.productNameKo.includes("냉동") || d.productNameKo.includes("만두")
-            ? "frozen"
-            : d.productNameKo.includes("김치") || d.productNameKo.includes("신선")
-              ? "chilled"
-              : "ambient"),
+        storageTemp: matchedOverride?.storageTemp || "",
         isMhdDeal: Boolean(matchedOverride?.isMhdDeal),
         mhdDate: matchedOverride?.mhdDate || "",
         ageRestriction: matchedOverride?.ageRestriction || "",

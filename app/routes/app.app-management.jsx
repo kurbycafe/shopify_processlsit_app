@@ -1,3 +1,5 @@
+import { saveStorefrontConfigPreservingTemperatures } from "../services/productTemperatures.server.js";
+import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import { useState, useEffect } from "react";
 import { useLoaderData, useFetcher } from "react-router";
 import {
@@ -563,9 +565,8 @@ export const action = async ({ request }) => {
         await prisma.mobileHotDeal.create({ data });
       }
 
-      // Also sync storageTemp / MHD / Pfand / Age override if provided on the hot deal form
-      const storageTemp = String(formData.get("storageTemp") || "").trim();
-      if (storageTemp) {
+      // MHD changes preserve temperature; the dedicated board owns temperature edits.
+      if (data.productId) {
         const existingConfig = await prisma.mobileStorefrontConfig.findUnique({
           where: { shop },
         });
@@ -575,8 +576,7 @@ export const action = async ({ request }) => {
           : [];
         const matchIdx = overrides.findIndex(
           (o) =>
-            (o.productId && o.productId === data.productId) ||
-            (o.keyword && data.productNameKo.includes(o.keyword))
+            o.productId && o.productId === data.productId
         );
         const mhdDate = String(formData.get("mhdDate") || "").trim();
         const isMhdDeal =
@@ -592,9 +592,7 @@ export const action = async ({ request }) => {
           productNameDe: data.productNameDe || data.productNameKo,
           productNameEn: data.productNameEn || data.productNameKo,
           imageUrl: data.imageUrl,
-          storageTemp: ["ambient", "chilled", "frozen"].includes(storageTemp)
-            ? storageTemp
-            : "ambient",
+          storageTemp: matchIdx >= 0 ? overrides[matchIdx].storageTemp || "" : "",
           isMhdDeal,
           mhdDate,
           mhdPrice: isMhdDeal ? salePrice : null,
@@ -604,7 +602,7 @@ export const action = async ({ request }) => {
         } else {
           overrides.unshift(overrideEntry);
         }
-        await prisma.mobileStorefrontConfig.upsert({
+        await saveStorefrontConfigPreservingTemperatures(prisma, {
           where: { shop },
           update: {
             tickersJson: { ...ext, productOverrides: overrides },
@@ -626,7 +624,7 @@ export const action = async ({ request }) => {
 
       return {
         success: true,
-        message: "오늘의 특가 상품 및 온도/MHD 설정이 모바일 앱에 즉시 적용되었습니다.",
+        message: "오늘의 특가 상품과 MHD 설정이 저장되었습니다.",
       };
     }
 
@@ -668,10 +666,8 @@ export const action = async ({ request }) => {
         };
       }
 
-      const rawTemp = String(formData.get("storageTemp") || "ambient").trim();
-      const storageTemp = ["ambient", "chilled", "frozen"].includes(rawTemp)
-        ? rawTemp
-        : "ambient";
+      const previousOverride = overrides.find(o => o?.id === overrideId || (productId && o?.productId === productId));
+      const storageTemp = previousOverride?.productId === productId ? previousOverride.storageTemp || "" : "";
       const mhdDate = String(formData.get("mhdDate") || "").trim();
       const isMhdDeal =
         formData.get("isMhdDeal") === "true" || Boolean(mhdDate);
@@ -722,7 +718,7 @@ export const action = async ({ request }) => {
         productOverrides: overrides,
       };
       const newVersion = String(Date.now());
-      await prisma.mobileStorefrontConfig.upsert({
+      await saveStorefrontConfigPreservingTemperatures(prisma, {
         where: { shop },
         update: {
           tickersJson: nextExtended,
@@ -741,13 +737,7 @@ export const action = async ({ request }) => {
 
       return {
         success: true,
-        message: `상품별 설정([${productNameKo}] - ${
-          storageTemp === "frozen"
-            ? "냉동"
-            : storageTemp === "chilled"
-              ? "냉장"
-              : "상온"
-        }${mhdDate ? ` / MHD: ${mhdDate}` : ""})이 모바일 앱에 즉시 반영되었습니다.`,
+        message: `상품 속성([${productNameKo}])이 저장되었습니다. 보관 온도는 별도 설정을 유지합니다.`, 
       };
     }
 
@@ -760,7 +750,7 @@ export const action = async ({ request }) => {
       const nextOverrides = (ext.productOverrides || []).filter(
         (o) => o.id !== overrideId
       );
-      await prisma.mobileStorefrontConfig.upsert({
+      await saveStorefrontConfigPreservingTemperatures(prisma, {
         where: { shop },
         update: {
           tickersJson: { ...ext, productOverrides: nextOverrides },
@@ -970,6 +960,7 @@ export const action = async ({ request }) => {
 
       const nextExtended = {
         ...currentExtended,
+        shippingPolicyConfigured: true,
         tickers: nextTickers,
         hotDealSettings: nextHotDealSettings,
         coldChain: nextColdChain,
@@ -983,7 +974,7 @@ export const action = async ({ request }) => {
       };
 
       const newVersion = String(Date.now());
-      await prisma.mobileStorefrontConfig.upsert({
+      await saveStorefrontConfigPreservingTemperatures(prisma, {
         where: { shop },
         update: {
           freeShippingThreshold,
@@ -1028,7 +1019,8 @@ const TOP_MENU_TABS = [
   { id: "overview", label: "홈 화면 종합" },
   { id: "banners", label: "홈 배너 관리" },
   { id: "hotdeals", label: "오늘의 특가" },
-  { id: "product-rules", label: "상품별 온도 · MHD 설정" },
+  { id: "temperatures", label: "상품 온도 관리" },
+  { id: "product-rules", label: "MHD · 상품 속성" },
   { id: "categories", label: "카테고리 · GNB" },
   { id: "shipping", label: "콜드체인 · 배송바" },
   { id: "campaigns", label: "공동구매 · 전단지 · 구독" },
@@ -1042,6 +1034,7 @@ const TOP_MENU_TABS = [
 
 export default function AppManagementPage() {
   const { config } = useLoaderData();
+  const productRules = config.productRules || config.productOverrides || [];
   const fetcher = useFetcher();
   const searchFetcher = useFetcher();
   const campaignSearchFetcher = useFetcher();
@@ -1248,7 +1241,7 @@ export default function AppManagementPage() {
   const activeBannerCount = (config.banners || []).filter((b) => b.isActive).length;
   const activeDealCount = (config.hotDeals || []).filter((d) => d.isActive).length;
   const activeCategoryCount = (config.categories || []).filter((c) => c.isActive).length;
-  const productOverrideCount = (config.productOverrides || []).length;
+  const productOverrideCount = productRules.length;
 
   const handleEditBanner = (b) => {
     setEditingBanner(b.id);
@@ -1690,16 +1683,16 @@ export default function AppManagementPage() {
                     }}
                   >
                     <Text variant="headingMd" as="h3">
-                      상품별 보관 온도 · MHD 임박특가 설정
+                      상품 온도 · MHD 관리
                     </Text>
                     <Badge tone="info">{`설정됨 ${productOverrideCount}건`}</Badge>
                   </div>
                   <Text variant="bodyMd" tone="subdued" as="p">
-                    개별 상품의 상온·냉장·냉동 보관 온도와 유통기한 임박 특가(MHD 날짜 배지), 무료배송 채우기 추천, 성인인증(18+) 속성을 관리합니다.
+                    상품 온도는 사진·재고 목록에서 일괄 관리하고, MHD 날짜와 상품 속성은 별도 화면에서 관리합니다.
                   </Text>
                 </div>
                 <div>
-                  <Button onClick={() => setActiveTab("product-rules")}>설정</Button>
+                  <InlineStack gap="200"><Button onClick={() => setActiveTab("temperatures")}>온도 관리</Button><Button onClick={() => setActiveTab("product-rules")}>MHD · 속성</Button></InlineStack>
                 </div>
               </div>
 
@@ -2449,18 +2442,6 @@ export default function AppManagementPage() {
 
                 <InlineStack gap="300">
                   <div style={{ flex: 1 }}>
-                    <Select
-                      label="상품 보관 온도 구분 (장바구니 그룹핑 연동)"
-                      options={[
-                        { label: "상온 보관 (Ambient)", value: "ambient" },
-                        { label: "냉장 보관 (Chilled)", value: "chilled" },
-                        { label: "냉동 보관 (Frozen)", value: "frozen" },
-                      ]}
-                      value={dealForm.storageTemp || "ambient"}
-                      onChange={(v) =>
-                        setDealForm({ ...dealForm, storageTemp: v })
-                      }
-                    />
                   </div>
                   <div style={{ flex: 1 }}>
                     <TextField
@@ -2530,6 +2511,8 @@ export default function AppManagementPage() {
         {/* =================================================================
          * TAB 2.5: PER-PRODUCT TEMPERATURE, MHD DEAL & ATTRIBUTES
          * ================================================================= */}
+        {activeTab === "temperatures" && <ProductTemperatureManager />}
+
         {activeTab === "product-rules" && (
           <div
             style={{
@@ -2544,7 +2527,7 @@ export default function AppManagementPage() {
                 <BlockStack gap="400">
                   <InlineStack align="space-between">
                     <Text variant="headingMd" as="h2">
-                      상품별 보관 온도 · MHD 임박특가 · 속성 목록 ({(config.productOverrides || []).length}건)
+                      MHD 임박특가 · 상품 속성 목록 ({productRules.length}건)
                     </Text>
                     <Button
                       size="slim"
@@ -2579,12 +2562,12 @@ export default function AppManagementPage() {
                     </Button>
                   </InlineStack>
                   <Text variant="bodySm" tone="subdued" as="p">
-                    여기서 각 상품에 지정한 보관 온도(상온/냉장/냉동)는 모바일 장바구니에서 자동으로 온도대별 그룹으로 묶여 표시되며, 유통기한 임박 특가(MHD) 날짜를 지정하면 상품 카드와 특가 탭의 [임박특가(MHD)] 코너에 즉시 날짜 배지와 함께 노출됩니다.
+                    MHD 날짜·추천·연령 제한·보증금 등 상품 속성을 관리합니다. 보관 온도는 상단 상품 온도 관리에서 별도로 설정하며, 여기서 속성을 저장해도 지정한 온도는 유지됩니다.
                   </Text>
                   <Divider />
 
                   <BlockStack gap="300">
-                    {(config.productOverrides || []).map((po) => (
+                    {productRules.map((po) => (
                       <div
                         key={po.id}
                         style={{
@@ -2633,21 +2616,6 @@ export default function AppManagementPage() {
                               marginBottom: "4px",
                             }}
                           >
-                            <Badge
-                              tone={
-                                po.storageTemp === "frozen"
-                                  ? "info"
-                                  : po.storageTemp === "chilled"
-                                    ? "attention"
-                                    : "new"
-                              }
-                            >
-                              {po.storageTemp === "frozen"
-                                ? "냉동 보관"
-                                : po.storageTemp === "chilled"
-                                  ? "냉장 보관"
-                                  : "상온 보관"}
-                            </Badge>
                             {po.isMhdDeal && po.mhdDate && (
                               <Badge tone="critical">{`MHD ${po.mhdDate}`}</Badge>
                             )}
@@ -2706,7 +2674,7 @@ export default function AppManagementPage() {
               <Card>
                 <BlockStack gap="300">
                   <Text variant="headingMd" as="h2">
-                    쇼피파이 상품 검색 후 온도·MHD 설정 불러오기
+                    Shopify 상품 검색 후 MHD·속성 설정 불러오기
                   </Text>
                   <InlineStack gap="200">
                     <div style={{ flex: 1 }}>
@@ -2793,8 +2761,8 @@ export default function AppManagementPage() {
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">
                   {overrideForm.overrideId
-                    ? "상품별 온도 · MHD · 속성 수정"
-                    : "새 상품별 온도 · MHD · 속성 등록"}
+                    ? "MHD · 상품 속성 수정"
+                    : "새 MHD · 상품 속성 등록"}
                 </Text>
                 <Divider />
 
@@ -2841,28 +2809,6 @@ export default function AppManagementPage() {
                     setOverrideForm({ ...overrideForm, imageUrl: v })
                   }
                   autoComplete="off"
-                />
-
-                <Select
-                  label="보관 온도 구분 (장바구니 상온/냉장/냉동 분리 표시 및 목요일 마감 연동)"
-                  options={[
-                    {
-                      label: "상온 보관 상품 (Ambient - 일반 택배)",
-                      value: "ambient",
-                    },
-                    {
-                      label: "냉장 보관 상품 (Chilled - 아이스팩 동봉 및 목요일 마감 적용)",
-                      value: "chilled",
-                    },
-                    {
-                      label: "냉동 보관 상품 (Frozen - 아이스팩 동봉 및 목요일 14시 마감 적용)",
-                      value: "frozen",
-                    },
-                  ]}
-                  value={overrideForm.storageTemp}
-                  onChange={(v) =>
-                    setOverrideForm({ ...overrideForm, storageTemp: v })
-                  }
                 />
 
                 <Divider />
@@ -2995,7 +2941,7 @@ export default function AppManagementPage() {
                     fetcher.submit(fd, { method: "post" });
                   }}
                 >
-                  상품별 온도 · MHD · 속성 저장 및 앱 즉시 반영
+                  MHD · 상품 속성 저장
                 </Button>
               </BlockStack>
             </Card>
@@ -3528,7 +3474,7 @@ export default function AppManagementPage() {
 
                 {groupBuying.length === 0 ? (
                   <div style={{ padding: "24px", textAlign: "center", color: "#6B7280" }}>
-                    등록된 공동구매 캠페인이 없습니다. 상단의 "+ 신규 공동구매 캠페인 추가" 버튼을 눌러 상품을 연결하세요.
+                    등록된 공동구매 캠페인이 없습니다. 상단의 &quot;+ 신규 공동구매 캠페인 추가&quot; 버튼을 눌러 상품을 연결하세요.
                   </div>
                 ) : (
                   groupBuying.map((gb, idx) => {
@@ -4122,7 +4068,7 @@ export default function AppManagementPage() {
 
                 {subscriptionPlans.length === 0 ? (
                   <div style={{ padding: "24px", textAlign: "center", color: "#6B7280" }}>
-                    등록된 정기배송 구독 플랜이 없습니다. 상단의 "+ 신규 구독 플랜 추가" 버튼을 눌러 상품을 연결하세요.
+                    등록된 정기배송 구독 플랜이 없습니다. 상단의 &quot;+ 신규 구독 플랜 추가&quot; 버튼을 눌러 상품을 연결하세요.
                   </div>
                 ) : (
                   subscriptionPlans.map((plan, idx) => {
