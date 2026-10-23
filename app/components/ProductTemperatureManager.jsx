@@ -3,7 +3,7 @@ import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select,
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
 
 const ENDPOINT = "/app/product-temperatures";
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 50;
 const TEMPERATURE_OPTIONS = [
   { label: "전체 온도", value: "all" }, { label: "미설정", value: "unset" },
   ...Object.entries(TEMPERATURE_LABELS).map(([value, label]) => ({ value, label })),
@@ -12,7 +12,12 @@ async function resultJson(response) {
   if (response.status === 401 || response.status === 403) throw new Error("로그인이 만료되었거나 권한이 없습니다. 앱을 다시 열어주세요.");
   let result;
   try { result = await response.json(); } catch { throw new Error("서버 응답을 읽지 못했습니다. 앱을 다시 열거나 새로고침해주세요."); }
-  if (!response.ok || result.success !== true) throw new Error(result.message || "요청에 실패했습니다. 다시 시도해주세요.");
+  if (!response.ok || result.success !== true) {
+    const error = new Error(result.message || "요청에 실패했습니다. 다시 시도해주세요.");
+    error.details = result.details;
+    error.status = response.status;
+    throw error;
+  }
   return result;
 }
 
@@ -27,6 +32,7 @@ export default function ProductTemperatureManager() {
   const [selected, setSelected] = useState([]);
   const [targetTemp, setTargetTemp] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(null);
   const [saveError, setSaveError] = useState("");
   const [success, setSuccess] = useState("");
   const [loadedAt, setLoadedAt] = useState(null);
@@ -79,29 +85,54 @@ export default function ProductTemperatureManager() {
   const resetSelection = () => { setSelected([]); setSuccess(""); setSaveError(""); };
   const changeQuery = value => { setQuery(value); setPage(1); resetSelection(); };
   const changeFilter = value => { setTemperature(value); setPage(1); resetSelection(); };
-  const changePage = value => { setPage(value); resetSelection(); };
+  const changePage = value => { setPage(value); };
 
   const save = async () => {
     if (saveRunning.current || busy || !selected.length || !targetTemp) return;
     saveRunning.current = true;
     const controller = new AbortController(); saveAbort.current = controller;
     const ids = [...selected];
-    setSaving(true); setSaveError(""); setSuccess("");
+    setSaving(true); setSaveError(""); setSuccess(""); setSaveProgress({ completed: 0, total: ids.length });
+    const completed = new Set();
+    let activeBatch = [];
+    const applyConfirmed = confirmedIds => {
+      for (const id of confirmedIds) if (ids.includes(id)) completed.add(id);
+      setItems(previous => previous.map(item => completed.has(item.id) ? { ...item, storageTemp: targetTemp, temperatureUncertain: false } : item));
+      setSelected(previous => previous.filter(id => !completed.has(id)));
+      setSaveProgress({ completed: completed.size, total: ids.length });
+    };
     try {
-      const data = await resultJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ productIds: ids, storageTemp: targetTemp }) }));
-      if (data.updatedCount !== ids.length || data.storageTemp !== targetTemp || !data.saveId ||
-          !Array.isArray(data.productIds) || ids.some(id => !data.productIds.includes(id))) throw new Error("저장 결과를 확인하지 못했습니다. 상품을 다시 조회해주세요.");
-      const changed = new Set(ids);
-      setItems(previous => previous.map(item => changed.has(item.id) ? { ...item, storageTemp: data.storageTemp } : item));
-      setSelected([]);
-      setSuccess(data.updatedCount + "개 상품을 " + TEMPERATURE_LABELS[data.storageTemp] + "으로 저장했습니다.");
+      // Selection is unlimited. Keep individual HTTP requests short and within Shopify's limit.
+      for (let offset = 0; offset < ids.length; offset += 25) {
+        const batch = ids.slice(offset, offset + 25);
+        activeBatch = batch;
+        const data = await resultJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ productIds: batch, storageTemp: targetTemp }) }));
+        if (data.updatedCount !== batch.length || data.storageTemp !== targetTemp || !data.saveId ||
+            !Array.isArray(data.productIds) || batch.some(id => !data.productIds.includes(id))) {
+          const error = new Error("저장 결과를 확인하지 못했습니다. 상품을 다시 조회해주세요.");
+          error.details = { storageTemp: targetTemp, uncertainProductIds: batch, updatedProductIds: [] };
+          throw error;
+        }
+        applyConfirmed(batch);
+      }
+      setSuccess(completed.size + "개 상품을 " + TEMPERATURE_LABELS[targetTemp] + "으로 저장했습니다.");
     } catch (error) {
-      if (error.name !== "AbortError") setSaveError(error.message);
+      if (error.name !== "AbortError") {
+        const details = error.details?.storageTemp ? error.details : (!error.status || error.status >= 500 ? { storageTemp: targetTemp, uncertainProductIds: activeBatch } : null);
+        if (details?.storageTemp === targetTemp) {
+          if (Array.isArray(details.updatedProductIds)) applyConfirmed(details.updatedProductIds);
+          if (Array.isArray(details.uncertainProductIds) && details.uncertainProductIds.length) {
+            const uncertain = new Set(details.uncertainProductIds.filter(id => ids.includes(id) && !completed.has(id)));
+            setItems(previous => previous.map(item => uncertain.has(item.id) ? { ...item, storageTemp: "", temperatureUncertain: true } : item));
+          }
+        }
+        setSaveError((completed.size ? completed.size + "개 상품은 저장되었고 " + (ids.length - completed.size) + "개 상품 처리가 중단되었습니다. " : "") + error.message);
+      }
     } finally {
       saveRunning.current = false;
-      if (!controller.signal.aborted) setSaving(false);
+      if (!controller.signal.aborted) { setSaving(false); setSaveProgress(null); }
     }
   };
 
@@ -130,21 +161,26 @@ export default function ProductTemperatureManager() {
 
     <Card><BlockStack gap="300">
       {success && <Banner tone="success"><p role="status">{success}</p></Banner>}
-      {saveError && <Banner tone="critical"><p>{saveError} 선택한 상품은 유지됩니다. 저장 여부가 불확실하면 상품을 새로고침해 확인해주세요.</p></Banner>}
+      {saveError && <Banner tone="critical"><p>{saveError} 완료되지 않은 상품은 선택 상태로 유지됩니다.</p></Banner>}
+      {saveProgress && <p role="status">{"저장 중 " + saveProgress.completed + " / " + saveProgress.total + "개"}</p>}
       <InlineStack gap="300" blockAlign="end" align="space-between">
-        <BlockStack gap="100"><Text as="h3" variant="headingSm">{selected.length + "개 선택됨"}</Text><Text as="p" variant="bodySm" tone="subdued">전체 선택은 현재 페이지의 상품만 선택합니다.</Text></BlockStack>
+        <BlockStack gap="100"><Text as="h3" variant="headingSm">{selected.length + "개 선택됨"}</Text><Text as="p" variant="bodySm" tone="subdued">페이지를 이동해도 선택이 유지됩니다. 검색 결과 전체 선택으로 모든 페이지의 상품을 선택할 수 있습니다.</Text></BlockStack>
         <InlineStack gap="200" blockAlign="end">
           <Select label="변경할 온도" value={targetTemp} disabled={busy} onChange={setTargetTemp}
             options={[{ label: "온도 선택", value: "" }, ...Object.entries(TEMPERATURE_LABELS).map(([value, label]) => ({ value, label }))]} />
           <Button variant="primary" loading={saving} disabled={busy || !selected.length || !targetTemp} onClick={save}>선택 상품 일괄 변경</Button>
         </InlineStack>
       </InlineStack>
+      <InlineStack gap="200">
+        <Button disabled={busy || !filtered.length} onClick={() => { setSelected(filtered.map(item => item.id)); setSaveError(""); setSuccess(""); }}>{"검색 결과 전체 " + filtered.length + "개 선택"}</Button>
+        <Button disabled={busy || !selected.length} onClick={resetSelection}>선택 해제</Button>
+      </InlineStack>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "620px" }}>
           <thead><tr style={{ borderBottom: "2px solid #e1e3e5", background: "#f6f6f7", textAlign: "left" }}>
             <th scope="col" style={{ width: "50px", padding: "12px" }}><Checkbox label="현재 페이지 전체 선택" labelHidden
               checked={allChecked ? true : selectedVisible ? "indeterminate" : false} disabled={busy || !visible.length}
-              onChange={value => setSelected(value ? visible.map(item => item.id) : [])} /></th>
+              onChange={value => setSelected(previous => value ? [...new Set([...previous, ...visible.map(item => item.id)])] : previous.filter(id => !visible.some(item => item.id === id)))} /></th>
             <th scope="col" style={{ padding: "12px", width: "88px" }}>사진</th>
             <th scope="col" style={{ padding: "12px" }}>상품 이름</th>
             <th scope="col" style={{ padding: "12px", textAlign: "right" }}>재고량</th>
@@ -157,7 +193,7 @@ export default function ProductTemperatureManager() {
               : <span style={{ color: "#6d7175", fontSize: "12px" }}>사진 없음</span>}</td>
             <td style={{ padding: "12px" }}><Text as="p" fontWeight="semibold">{item.title}</Text><Text as="p" variant="bodySm" tone="subdued">{"ID " + item.id.split("/").pop()}</Text></td>
             <td style={{ padding: "12px", textAlign: "right", whiteSpace: "nowrap" }}>{item.tracksInventory ? (item.inventory === null ? "확인 불가" : item.inventory.toLocaleString("ko-KR") + "개") : "재고 추적 안 함"}</td>
-            <td style={{ padding: "12px" }}>{item.storageTemp ? <Badge tone="info">{TEMPERATURE_LABELS[item.storageTemp]}</Badge> : "—"}</td>
+            <td style={{ padding: "12px" }}>{item.temperatureUncertain ? "확인 필요" : item.storageTemp ? <Badge tone="info">{TEMPERATURE_LABELS[item.storageTemp]}</Badge> : "—"}</td>
           </tr>)}</tbody>
         </table>
         {!visible.length && <div style={{ padding: "36px 16px", textAlign: "center", color: "#6d7175" }} role="status">{loadStatus === "loading" ? "상품 목록을 불러오는 중입니다." : loadStatus === "error" ? "조회가 완료되지 않았습니다. 다시 조회해주세요." : "조건에 맞는 상품이 없습니다."}</div>}

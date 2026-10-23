@@ -3,7 +3,7 @@ import { listTemperatureProducts, saveProductTemperatures, TemperatureError } fr
 
 function failure(error) {
   const status = error instanceof TemperatureError ? error.status : 503;
-  return Response.json({ success: false, message: error instanceof TemperatureError ? error.message : "상품 온도 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요." },
+  return Response.json({ success: false, message: error instanceof TemperatureError ? error.message : "상품 온도 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.", ...(error instanceof TemperatureError ? { details: error.details } : {}) },
     { status, headers: { "Cache-Control": "no-store" } });
 }
 export async function loader({ request }) {

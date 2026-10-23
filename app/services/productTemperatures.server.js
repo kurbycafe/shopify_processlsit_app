@@ -16,7 +16,7 @@ export const TEMPERATURE_PRODUCT_IDS_QUERY = `#graphql
 `;
 
 export class TemperatureError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, details = {}) { super(message); this.status = status; this.details = details; }
 }
 function extended(raw) {
   if (raw == null) return {};
@@ -56,10 +56,12 @@ export async function listTemperatureProducts({ admin, after = null }) {
 }
 
 export function validateTemperatureChange(input) {
-  if (!input || !Array.isArray(input.productIds) || input.productIds.length < 1 || input.productIds.length > 25 ||
-      input.productIds.some(id => !isProductId(id)) || !TEMPERATURE_VALUES.includes(input.storageTemp)) {
-    throw new TemperatureError(400, "상품을 1~25개 선택하고 상온·냉장·냉동 중 하나를 지정해주세요.");
+  if (!input || !Array.isArray(input.productIds) || !input.productIds.length) {
+    throw new TemperatureError(400, "변경할 상품을 선택해주세요.");
   }
+  if (input.productIds.length > 250) throw new TemperatureError(400, "한 번에 최대 250개 상품을 선택할 수 있습니다.");
+  if (input.productIds.some(id => !isProductId(id))) throw new TemperatureError(400, "선택한 상품 ID가 올바르지 않습니다. 상품 목록을 새로고침해주세요.");
+  if (!TEMPERATURE_VALUES.includes(input.storageTemp)) throw new TemperatureError(400, "변경할 온도를 상온·냉장·냉동 중에서 선택해주세요.");
   return { productIds: [...new Set(input.productIds)], storageTemp: input.storageTemp };
 }
 
@@ -83,14 +85,36 @@ export async function saveProductTemperatures({ admin, input }) {
       ...(current?.type ? { type: current.type } : {}),
       compareDigest: current?.compareDigest ?? null };
   });
-  // One atomic Shopify mutation; never retry an uncertain write.
-  const result = await graphql(admin, TEMPERATURE_SET_MUTATION, { metafields });
-  const receipt = result.metafieldsSet;
-  if (receipt?.userErrors?.length) throw new TemperatureError(409, "Shopify 저장에 실패했습니다. 다른 관리자의 변경 여부와 custom.producttype 정의를 확인하고 새로고침해주세요.");
-  const saved = receipt?.metafields;
-  if (!Array.isArray(saved) || saved.length !== productIds.length ||
-      productIds.some(id => !saved.some(field => field.owner?.id === id && field.namespace === "custom" && field.key === "producttype" && field.value === value))) {
-    throw new TemperatureError(502, "Shopify 저장 결과를 확인하지 못했습니다. 목록을 새로고침하여 실제 값을 확인해주세요.");
+  const updatedProductIds = [];
+  // Each Shopify request is atomic for at most 25 fields. Stop on the first failure.
+  for (let offset = 0; offset < metafields.length; offset += 25) {
+    const batch = metafields.slice(offset, offset + 25);
+    const batchIds = batch.map(field => field.ownerId);
+    let uncertain = true;
+    try {
+      const result = await graphql(admin, TEMPERATURE_SET_MUTATION, { metafields: batch });
+      const receipt = result.metafieldsSet;
+      if (receipt?.userErrors?.length) {
+        uncertain = false; // Shopify explicitly rejected this entire atomic batch.
+        throw new TemperatureError(409, "Shopify가 저장을 거부했습니다. 다른 관리자의 변경 여부와 custom.producttype 정의를 확인해주세요.");
+      }
+      const saved = receipt?.metafields;
+      if (!Array.isArray(saved) || saved.length !== batchIds.length ||
+          batchIds.some(id => !saved.some(field => field.owner?.id === id && field.namespace === "custom" && field.key === "producttype" && field.value === value))) {
+        throw new TemperatureError(502, "Shopify 저장 결과를 확인하지 못했습니다.");
+      }
+      updatedProductIds.push(...batchIds);
+    } catch (error) {
+      const uncertainProductIds = uncertain ? batchIds : [];
+      const pendingProductIds = productIds.filter(id => !updatedProductIds.includes(id));
+      const message = updatedProductIds.length
+        ? updatedProductIds.length + "개 상품은 저장되었고 " + pendingProductIds.length + "개 상품 처리가 중단되었습니다. "
+        : "저장이 완료되지 않았습니다. ";
+      throw new TemperatureError(error instanceof TemperatureError ? error.status : 502,
+        message + (error instanceof TemperatureError ? error.message : "Shopify 연결을 확인해주세요.") +
+        (uncertain ? " 저장 여부가 불확실한 상품은 새로고침하여 확인해주세요." : " 미저장 상품을 확인한 뒤 다시 시도해주세요."),
+        { updatedProductIds: [...updatedProductIds], uncertainProductIds, pendingProductIds, storageTemp });
+    }
   }
   return { success: true, productIds, storageTemp, productTypeValue: value, updatedCount: productIds.length, saveId: randomUUID() };
 }

@@ -25,8 +25,8 @@ test("pagination and Shopify failures do not silently truncate listing", async (
  await assert.rejects(listTemperatureProducts({admin:{graphql:async()=>response({products:{nodes:[],pageInfo:{hasNextPage:true,endCursor:"same"}}})},after:"same"}),e=>e.status===502);
  await assert.rejects(listTemperatureProducts({admin:{graphql:async()=>Response.json({errors:[{message:"denied"}]})}}),e=>e.status===502);
 });
-test("bulk operation is limited to one atomic 25-field mutation",()=>{
- for(const input of [{productIds:[],storageTemp:"chilled"},{productIds:Array(26).fill(id(1)),storageTemp:"chilled"},{productIds:["gid://shopify/Customer/1"],storageTemp:"chilled"},{productIds:[id(1)],storageTemp:"cold"}])assert.throws(()=>validateTemperatureChange(input));
+test("bulk validates 250-product selection and rejects invalid fields",()=>{
+ for(const input of [{productIds:[],storageTemp:"chilled"},{productIds:Array(251).fill(id(1)),storageTemp:"chilled"},{productIds:["gid://shopify/Customer/1"],storageTemp:"chilled"},{productIds:[id(1)],storageTemp:"cold"}])assert.throws(()=>validateTemperatureChange(input));
 });
 test("bulk writes exact custom.producttype with compareDigest and never writes local settings", async()=>{
  const calls=[];
@@ -85,4 +85,51 @@ test("CMS overrides retain MHD but cannot publish legacy temperature",async()=>{
  const config=await getStorefrontConfig("shop.myshopify.com",{db,includeInactive:true});
  assert.equal(config.productOverrides[0].storageTemp,undefined);assert.equal(config.productOverrides[0].mhdDate,"2027-01-01");
  assert.equal(config.store.freeShippingThreshold,0);
+});
+
+test("43 selected products save as 25 and 18 fields without exceeding Shopify limit",async()=>{
+ const batches=[];
+ const productIds=Array.from({length:43},(_,index)=>id(index+1));
+ const admin={graphql:async(_,{variables})=>{
+ if(variables.ids)return response({nodes:variables.ids.map(id=>({id,producttype:null}))});
+ batches.push(variables.metafields);
+ return response({metafieldsSet:{userErrors:[],metafields:variables.metafields.map(field=>({...field,owner:{id:field.ownerId}}))}});
+ }};
+ const result=await saveProductTemperatures({admin,input:{productIds,storageTemp:"chilled"}});
+ assert.deepEqual(batches.map(batch=>batch.length),[25,18]);
+ assert.equal(result.updatedCount,43);assert.deepEqual(result.productIds,productIds);
+ assert.ok(batches.flat().every(field=>field.namespace==="custom" && field.key==="producttype" && field.value==="k"));
+});
+test("250 selected products fit ten requests and a missing last product prevents all writes",async()=>{
+ const productIds=Array.from({length:250},(_,index)=>id(index+1));
+ let writes=0,missing=false;
+ const admin={graphql:async(_,{variables})=>{
+ if(variables.ids)return response({nodes:variables.ids.map((id,index)=>missing && index===249?null:{id,producttype:null})});
+ writes++;assert.ok(variables.metafields.length<=25);
+ return response({metafieldsSet:{userErrors:[],metafields:variables.metafields.map(field=>({...field,owner:{id:field.ownerId}}))}});
+ }};
+ assert.equal((await saveProductTemperatures({admin,input:{productIds,storageTemp:"ambient"}})).updatedCount,250);assert.equal(writes,10);
+ writes=0;missing=true;
+ await assert.rejects(saveProductTemperatures({admin,input:{productIds,storageTemp:"ambient"}}),e=>e.status===400);assert.equal(writes,0);
+});
+test("a later rejected or uncertain batch reports only confirmed saves and stops",async()=>{
+ const productIds=Array.from({length:60},(_,index)=>id(index+1));
+ for(const mode of ["rejected","timeout","receipt"]){
+ let writes=0;
+ const admin={graphql:async(_,{variables})=>{
+ if(variables.ids)return response({nodes:variables.ids.map(id=>({id,producttype:null}))});
+ writes++;
+ if(writes===2){
+ if(mode==="timeout")throw Error("timeout");
+ return response({metafieldsSet:{userErrors:mode==="rejected"?[{code:"INVALID_COMPARE_DIGEST"}]:[],metafields:[]}});}
+ return response({metafieldsSet:{userErrors:[],metafields:variables.metafields.map(field=>({...field,owner:{id:field.ownerId}}))}});
+ }};
+ await assert.rejects(saveProductTemperatures({admin,input:{productIds,storageTemp:"frozen"}}),error=>{
+ assert.deepEqual(error.details.updatedProductIds,productIds.slice(0,25));
+ assert.deepEqual(error.details.pendingProductIds,productIds.slice(25));
+ assert.deepEqual(error.details.uncertainProductIds,mode==="rejected"?[]:productIds.slice(25,50));
+ assert.match(error.message,/25개 상품은 저장/);
+ return true;});
+ assert.equal(writes,2);
+ }
 });
