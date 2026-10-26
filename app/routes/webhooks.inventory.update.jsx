@@ -1,3 +1,5 @@
+import db from "../db.server.js";
+import { queueRestockPush } from "../services/mobileNotificationEvents.server.js";
 import { authenticate, unauthenticated } from "../shopify.server";
 import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server.js";
 
@@ -56,6 +58,11 @@ export const action = async ({ request }) => {
         : `https://${cleanShop}`;
       const sku = variant.sku || null;
 
+      let mobileFailed = false;
+      try {
+        const mobile = await queueRestockPush({ db, shop: cleanShop, variantId: variantGid, productId: variant.product.id, productTitle });
+        mobileFailed = mobile.more;
+      } catch { mobileFailed = true; }
       // 2. Atomically notify subscribers via subscriptionService
       const result = await notifyPendingSubscribersForVariant({
         shop: cleanShop,
@@ -66,7 +73,7 @@ export const action = async ({ request }) => {
         sku,
         dispatchDate: new Date(),
       });
-      if (!result.success) return new Response(null, { status: 503 });
+      if (!result.success || mobileFailed) return new Response(null, { status: 503 });
 
       if (result.total > 0) {
         console.log(

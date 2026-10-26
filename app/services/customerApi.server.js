@@ -18,7 +18,7 @@ const POST_RESOURCES = new Set([
 const GET_POST_RESOURCES = new Set([
   "community-posts", "community-comments", "attendance", "loyalty",
   "notification-preferences",
-  "photo-reviews",
+  "photo-reviews", "notifications",
 ]);
 
 export function customerShop(env = process.env) {

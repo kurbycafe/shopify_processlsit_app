@@ -6,6 +6,7 @@ import {
   optimizeShopifyImageUrl,
   parseExtendedSettings,
   getStorefrontConfig,
+  recordSearchKeyword,
 } from "../app/services/mobileStorefront.server.js";
 
 test("resolveCanonicalShop maps dawayo aliases to canonical shop while isolating other tenants", () => {
@@ -148,5 +149,35 @@ test("parseExtendedSettings preserves custom per-product storageTemp and MHD Dea
   assert.equal(parsed.productOverrides[0].isCartFiller, true);
   assert.equal(parsed.productOverrides[0].ageRestriction, "18+");
   assert.equal(parsed.productOverrides[0].pfand, 0.25);
+});
+
+test("recordSearchKeyword accumulates customer search counts and ranks by highest frequency", async () => {
+  let storeConfig = { id: "cfg-1", shop: "dawayo.de", tickersJson: {} };
+  const mockDb = {
+    mobileStorefrontConfig: {
+      findFirst: async () => storeConfig,
+      update: async ({ data }) => {
+        storeConfig = { ...storeConfig, ...data };
+        return storeConfig;
+      },
+      create: async ({ data }) => {
+        storeConfig = { id: "cfg-1", ...data };
+        return storeConfig;
+      },
+    },
+  };
+
+  await recordSearchKeyword("dawayo.de", "김치찌개", { db: mockDb });
+  await recordSearchKeyword("dawayo.de", "삼겹살", { db: mockDb });
+  const r3 = await recordSearchKeyword("dawayo.de", "삼겹살", { db: mockDb });
+
+  assert.equal(r3.recorded, true);
+  assert.equal(r3.searchRankings.length, 2);
+  assert.equal(r3.searchRankings[0].keyword, "삼겹살");
+  assert.equal(r3.searchRankings[0].count, 2);
+  assert.equal(r3.searchRankings[0].rank, 1);
+  assert.equal(r3.searchRankings[1].keyword, "김치찌개");
+  assert.equal(r3.searchRankings[1].count, 1);
+  assert.equal(r3.searchRankings[1].rank, 2);
 });
 

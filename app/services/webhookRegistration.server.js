@@ -40,6 +40,12 @@ export async function ensureRequiredWebhooks(admin, appUrl) {
   if (!appUrl) return [];
 
   const neededWebhooks = [
+    { topic: "ORDERS_CREATE", callbackUrl: `${appUrl}/webhooks/orders/updated` },
+    { topic: "ORDERS_PAID", callbackUrl: `${appUrl}/webhooks/orders/updated` },
+    { topic: "FULFILLMENTS_CREATE", callbackUrl: `${appUrl}/webhooks/mobile-fulfillment` },
+    { topic: "FULFILLMENTS_UPDATE", callbackUrl: `${appUrl}/webhooks/mobile-fulfillment` },
+    { topic: "FULFILLMENT_EVENTS_CREATE", callbackUrl: `${appUrl}/webhooks/mobile-fulfillment` },
+    { topic: "INVENTORY_LEVELS_UPDATE", callbackUrl: `${appUrl}/webhooks/inventory/update` },
     {
       topic: "ORDERS_CANCELLED",
       callbackUrl: `${appUrl}/webhooks/orders/cancelled`,

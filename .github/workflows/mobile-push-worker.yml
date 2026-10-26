@@ -1,0 +1,28 @@
+name: Mobile push outbox
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: mobile-push-outbox
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: vars.MOBILE_PUSH_WORKER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Process authenticated notification outbox
+        env:
+          WORKER_URL: ${{ vars.MOBILE_PUSH_WORKER_URL }}
+          WORKER_SECRET: ${{ secrets.PUSH_WORKER_SECRET }}
+        shell: bash
+        run: |
+          test -n "$WORKER_URL"
+          test "${#WORKER_SECRET}" -ge 32
+          case "$WORKER_URL" in https://*) ;; *) exit 1 ;; esac
+          for batch in 1 2 3; do
+            curl --fail --silent --show-error --max-time 55 \
+              -X POST -H "Authorization: Bearer $WORKER_SECRET" "$WORKER_URL"
+          done

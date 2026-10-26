@@ -1,3 +1,5 @@
+import { customerNotificationInbox } from "./mobileNotificationQueue.server.js";
+import { saveMobileRestockInterest } from "./mobileNotificationEvents.server.js";
 import { customerProductTemperatures } from "./customerProductTemperatures.server.js";
 import { customerLoyalty } from "./customerLoyalty.server.js";
 import {customerCommunity,customerComments,customerReaction,customerRequestHistory,customerAttendance,customerDeleteRequest,requireCustomer} from "./customerCommunity.server.js";
@@ -44,6 +46,7 @@ async function readJsonPayload(request, maxBytes = 8192) {
 
 export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
+  if (resource === "notifications") return customerNotificationInbox({ db, shop, customerId: await requireCustomer(verify, request, shop), request, input: request.method === "GET" ? undefined : await readJsonPayload(request, 2048) });
   if(resource==="product-temperatures")return customerProductTemperatures({request,shop,graphql});
   if(resource==="community-posts")return customerCommunity({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,250000)});
   if(resource==="community-comments")return customerComments({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,4096)});
@@ -64,8 +67,10 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     if (payload.errors?.length || !payload.data) throw new MobileApiError(502, "SHOPIFY_UNAVAILABLE", "Product lookup is unavailable.");
     const variant = payload.data.productVariant;
     if (!variant || variant.product.status !== "ACTIVE" || !variant.product.onlineStoreUrl) throw new MobileApiError(404, "PRODUCT_NOT_FOUND", "Product not found.");
+    const pushCustomerId = request.headers.get("authorization") ? await requireCustomer(verify, request, shop) : null;
     await subscribe({ shop, email, channel: "EMAIL", variantId: variant.id, productId: variant.product.id,
       productTitle: variant.product.title, variantTitle: variant.title, sku: variant.sku });
+    if (pushCustomerId) await saveMobileRestockInterest({ db, shop, customerId: pushCustomerId, variant });
     // Do not reveal whether another visitor has already subscribed this email.
     return { accepted: true };
   }
@@ -149,7 +154,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     return saveReturnRequest({ db, shop, request, customerQuery, input: await readJsonPayload(request, 8192) });
   }
   if (resource === "support-request") {
-    return saveSupportRequest({ db, shop, request, verify, input: await readJsonPayload(request, 16384) });
+    return saveSupportRequest({ db, shop, request, verify, input: await readJsonPayload(request, 620000) });
   }
   if (resource === "subscription-request") {
     const input=await readJsonPayload(request,8192);

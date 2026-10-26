@@ -91,14 +91,14 @@ test("notification preferences authenticate, preserve unsupplied fields and isol
       rows.set(key, next); return next;
     },
   };
-  const resolve = createCustomerResolver({ db: { customerNotificationPreference: model }, verify: async () => customerId });
+  const resolve = createCustomerResolver({ db: { customerNotificationPreference: model, customerRequest: model }, verify: async () => customerId });
   const first = await resolve({ request: req(preferences), resource: "notification-preferences", shop });
   assert.equal(first.accepted, true);
   const patch = await resolve({ request: req({ marketing: true }), resource: "notification-preferences", shop });
-  assert.deepEqual(patch.preferences, { ...preferences, marketing: true });
-  const other = createCustomerResolver({ db: { customerNotificationPreference: model }, verify: async () => "gid://shopify/Customer/6" });
+  assert.deepEqual(patch.preferences, { ...preferences, marketing: true, supportReplies: false, restockUpdates: false, quietEnabled: true, quietStart: 22, quietEnd: 8, timeZone: "Europe/Berlin", protocolVersion: 2 });
+  const other = createCustomerResolver({ db: { customerNotificationPreference: model, customerRequest: model }, verify: async () => "gid://shopify/Customer/6" });
   const isolated = await other({ request: req(null, "GET"), resource: "notification-preferences", shop });
-  assert.deepEqual(isolated.preferences, { pushEnabled: false, orderUpdates: false, events: false, marketing: false });
+  assert.deepEqual(isolated.preferences, { pushEnabled: false, orderUpdates: false, events: false, marketing: false, supportReplies: false, restockUpdates: false, quietEnabled: true, quietStart: 22, quietEnd: 8, timeZone: "Europe/Berlin", protocolVersion: 2 });
   for (const input of [{ marketing: "yes" }, { unknown: true }, {}, JSON.parse('{"__proto__":true}')]) {
     await assert.rejects(resolve({ request: req(input), resource: "notification-preferences", shop }), { status: 400 });
   }
@@ -186,4 +186,34 @@ test("admin request lists support specific type filter like B2B and reject inval
   assert.equal(b2bResult.requests[0].type, "B2B");
 
   await assert.rejects(listCustomerRequests({ db, shop, type: "INVALID_TYPE" }), { status: 400 });
+});
+
+test("admin reply updates customer request payload with reply, adminReply, and repliedAt", async () => {
+  let savedUpdate = null;
+  const db = {
+    customerRequest: {
+      findFirst: async ({ where }) => ({
+        id: where.id,
+        payload: { category: "claim", claimType: "delay", orderId: "#1005", message: "냉동식품 지연 문의" },
+      }),
+      updateMany: async ({ where, data }) => {
+        savedUpdate = { where, data };
+        return { count: 1 };
+      },
+    },
+  };
+  const result = await updateCustomerRequest({
+    db,
+    shop,
+    id: "req-claim-1",
+    status: "CLOSED",
+    reply: "안녕하세요 고객님, 재발송 및 포인트 보상이 완료되었습니다.",
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.reply, "안녕하세요 고객님, 재발송 및 포인트 보상이 완료되었습니다.");
+  assert.ok(result.repliedAt);
+  assert.equal(savedUpdate.data.status, "CLOSED");
+  assert.equal(savedUpdate.data.payload.claimType, "delay");
+  assert.equal(savedUpdate.data.payload.reply, "안녕하세요 고객님, 재발송 및 포인트 보상이 완료되었습니다.");
+  assert.equal(savedUpdate.data.payload.adminReply, "안녕하세요 고객님, 재발송 및 포인트 보상이 완료되었습니다.");
 });

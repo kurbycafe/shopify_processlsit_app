@@ -49,12 +49,14 @@ export const action = async ({ request }) => {
     );
   }
   const form = await request.formData();
+  const replyValue = form.has("reply") ? String(form.get("reply") ?? "") : undefined;
   try {
     return await updateCustomerRequest({
       db: prisma,
       shop: session.shop,
       id: form.get("id"),
       status: form.get("status"),
+      reply: replyValue,
       admin,
       applyTags: form.get("applyTags") === "true",
     });

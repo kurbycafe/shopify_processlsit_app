@@ -12,7 +12,7 @@ export const loader = async ({ request }) => {
     const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
     const [, alerted] = await Promise.all([
       webhookChecks(`${session.shop}:${appUrl}`, () => ensureRequiredWebhooks(admin, appUrl),
-        results => results.length === 2 && results.every(result => ['REGISTERED', 'ALREADY_EXISTS'].includes(result.status))),
+        results => results.length === 9 && results.every(result => ['REGISTERED', 'ALREADY_EXISTS'].includes(result.status))),
       requestChecks(session.shop, () => checkAndAlertCustomerRequests(admin, session.shop)),
     ]);
     return Response.json({ success: true, alertedCount: alerted.length, alertedOrders: alerted }, { headers: { "Cache-Control": "private, no-store" } });

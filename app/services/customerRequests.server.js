@@ -1,3 +1,6 @@
+import { pushCustomer, publicPushPreferences, readPushPreferences, savePushPreferences } from "./mobilePushPolicy.server.js";
+import { registerMobileDevice } from "./mobilePushDevices.server.js";
+import { queueSupportReplyPush } from "./mobileNotificationEvents.server.js";
 import { reviewReward } from "./customerLoyalty.server.js";
 import {customerReaction,requireCustomer,reviewImage,reactionCounts} from "./customerCommunity.server.js";
 import { createHash } from "node:crypto";
@@ -6,7 +9,6 @@ import { MobileApiError } from "./mobileApi.server.js";
 export const CUSTOMER_RETURN_ORDER_QUERY = `query ProcesslistReturnOrder($search: String!) {
   customer { id orders(first: 5, query: $search) { nodes { id name } } }
 }`;
-const DEFAULT_PREFERENCES = Object.freeze({ pushEnabled: false, orderUpdates: false, events: false, marketing: false });
 const STATUSES = new Set(["REQUESTED", "REVIEWING", "CLOSED"]);
 const REVIEW_TYPES = ["B2B", "RETURN", "SUPPORT", "CLAIM", "SUBSCRIPTION", "PHOTO_REVIEW", "COMMUNITY_POST", "COMMUNITY_COMMENT", "ACCOUNT_DELETE"];
 
@@ -73,23 +75,9 @@ export async function saveReturnRequest({ db, shop, request, customerQuery, inpu
 }
 
 export async function customerNotificationPreferences({ db, shop, request, verify, input }) {
-  if (!verify) throw new MobileApiError(503, "NOT_CONFIGURED", "Customer authentication is unavailable.");
-  const customerId = identity(await verify(request, shop));
-  const model = db.customerNotificationPreference;
-  if (!model?.findUnique || !model?.upsert) throw new MobileApiError(503, "NOT_CONFIGURED", "Notification settings are unavailable.");
-  const select = { pushEnabled: true, orderUpdates: true, events: true, marketing: true, updatedAt: true };
-  const present = (record) => ({ preferences: Object.fromEntries(Object.keys(DEFAULT_PREFERENCES).map((key) => [key, record?.[key] ?? false])),
-    updatedAt: record?.updatedAt || null });
-  const where = { shop_customerId: { shop, customerId } };
-  if (input === undefined) return present(await model.findUnique({ where, select }));
-  const keys = Object.keys(input);
-  if (!keys.length || keys.some((key) => !Object.hasOwn(DEFAULT_PREFERENCES, key) || typeof input[key] !== "boolean")) {
-    throw new MobileApiError(400, "INVALID_INPUT", "Only supported boolean notification preferences are accepted.");
-  }
-  // Separate columns let PostgreSQL merge concurrent partial updates atomically.
-  const patch = Object.fromEntries(keys.map((key) => [key, input[key]]));
-  const record = await model.upsert({ where, create: { shop, customerId, ...DEFAULT_PREFERENCES, ...patch }, update: patch, select });
-  return { accepted: true, ...present(record) };
+  const customerId = await pushCustomer(verify, request, shop);
+  const preferences = input === undefined ? publicPushPreferences(await readPushPreferences(db, shop, customerId)) : await savePushPreferences(db, shop, customerId, input);
+  return { ...(input === undefined ? {} : { accepted: true }), preferences: { ...preferences, protocolVersion: 2 } };
 }
 
 export async function listCustomerRequests({ db, shop, status = "REQUESTED", type = null, after = null }) {
@@ -103,10 +91,31 @@ export async function listCustomerRequests({ db, shop, status = "REQUESTED", typ
   });
   return { requests: records.slice(0, 25), nextCursor: records.length > 25 ? records[24].id : null };
 }
-export async function updateCustomerRequest({ db, shop, id, status, admin = null, applyTags = false }) {
+export async function updateCustomerRequest({ db, shop, id, status, reply = undefined, admin = null, applyTags = false }) {
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id || "") || !STATUSES.has(status)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request update.");
-  
-  const result = await db.customerRequest.updateMany({ where: { id, shop, type: { in: REVIEW_TYPES } }, data: { status } });
+
+  let nextPayload = undefined;
+  let repliedAt = null;
+  let cleanReply = null;
+  if (reply !== undefined && reply !== null) {
+    cleanReply = text(reply, 4000, false);
+    const existing = typeof db.customerRequest?.findFirst === "function"
+      ? await db.customerRequest.findFirst({ where: { id, shop, type: { in: REVIEW_TYPES } }, select: { payload: true } })
+      : null;
+    const basePayload = existing?.payload && typeof existing.payload === "object" && !Array.isArray(existing.payload)
+      ? existing.payload
+      : {};
+    repliedAt = cleanReply ? new Date().toISOString() : null;
+    nextPayload = {
+      ...basePayload,
+      reply: cleanReply || null,
+      adminReply: cleanReply || null,
+      repliedAt,
+    };
+  }
+
+  const updateData = nextPayload !== undefined ? { status, payload: nextPayload } : { status };
+  const result = await db.customerRequest.updateMany({ where: { id, shop, type: { in: REVIEW_TYPES } }, data: updateData });
   if (result.count !== 1) throw new MobileApiError(404, "NOT_FOUND", "Customer request not found.");
 
   let customerTagged = false;
@@ -175,7 +184,12 @@ export async function updateCustomerRequest({ db, shop, id, status, admin = null
     }
   }
 
+  if (cleanReply) await queueSupportReplyPush({ db, shop, id, reply: cleanReply });
   const response = { success: true };
+  if (nextPayload !== undefined) {
+    response.reply = cleanReply || null;
+    response.repliedAt = repliedAt;
+  }
   if (customerTagged) {
     response.customerTagged = true;
     response.taggedEmail = taggedEmail;
@@ -207,9 +221,10 @@ export async function saveSupportRequest({ db, shop, request, verify, input }) {
   }
   const orderId = text(input.orderId, 100, category === "claim");
   const claimType = category === "claim" ? text(input.claimType || "damage", 50) : null;
-  const rawPhotos = Array.isArray(input.photos) ? input.photos.slice(0, 3) : [];
-  const photos = rawPhotos.filter(p => typeof p === "string" && (p.startsWith("data:image/") || p.startsWith("https://")));
-  const photoCount = photos.length || (Number.isInteger(input.photoCount) ? Math.min(3, Math.max(0, input.photoCount)) : 0);
+  if (input.photos !== undefined && (!Array.isArray(input.photos) || input.photos.length > 3)) throw new MobileApiError(400, "INVALID_INPUT", "Attach up to three supported photos.");
+  const photos = (input.photos || []).map(photo => reviewImage(photo));
+  if (photos.some(photo => !photo)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid photo.");
+  const photoCount = photos.length;
   const customerId = await optionalCustomerId(request, shop, verify);
   const type = category === "claim" ? "CLAIM" : "SUPPORT";
   const payload = { category, claimType, orderId: orderId || null, email: email || null, message, photoCount, photos };
@@ -251,20 +266,7 @@ export async function saveSubscriptionRequest({ db, shop, request, verify, input
 }
 
 export async function registerPushToken({ db, shop, request, verify, input }) {
-  const token = text(input.token, 512, true);
-  if (token.length < 8) throw new MobileApiError(400, "INVALID_TOKEN", "Invalid push device token.");
-  const platform = ["ios", "android", "web"].includes(input.platform) ? input.platform : "web";
-  const email = text(input.email, 254).toLowerCase();
-  const customerId = await optionalCustomerId(request, shop, verify);
-  const payload = { token, platform, email: email || null, registeredAt: new Date().toISOString() };
-  const key = requestKey([shop, "PUSH_TOKEN", token]);
-  const record = await requestModel(db).upsert({
-    where: { requestKey: key },
-    create: { shop, customerId, type: "PUSH_TOKEN", requestKey: key, payload },
-    update: { customerId: customerId || undefined, payload },
-    select: { id: true, createdAt: true, updatedAt: true, status: true },
-  });
-  return { accepted: true, registrationId: record.id, platform, updatedAt: record.updatedAt || record.createdAt };
+  return registerMobileDevice({ db, shop, request, verify, input });
 }
 
 export async function customerPhotoReviews({ db, shop, request, verify, input, loyalty, customerQuery }) {

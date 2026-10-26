@@ -1,3 +1,4 @@
+import { queueOrderPush } from "../services/mobileNotificationEvents.server.js";
 import { authenticate, unauthenticated } from "../shopify.server";
 import prisma from "../db.server";
 import { sendCancellationAlertOnce } from "../services/cancellationAlertService.server.js";
@@ -138,5 +139,6 @@ export const action = async ({ request }) => {
     console.error(`[Webhook ${topic}] Error processing cancellation check for ${orderName}:`, err.message);
   }
 
+  try { await queueOrderPush({ db: prisma, shop, payload, topic }); } catch { processingFailed = true; }
   return new Response(null, { status: processingFailed ? 503 : 200 });
 };

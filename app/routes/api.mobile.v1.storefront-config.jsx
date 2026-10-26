@@ -1,4 +1,4 @@
-import { getStorefrontConfig } from "../services/mobileStorefront.server.js";
+import { getStorefrontConfig, recordSearchKeyword } from "../services/mobileStorefront.server.js";
 import { customerShop } from "../services/customerApi.server.js";
 
 function getCorsHeaders(request) {
@@ -30,7 +30,7 @@ function getCorsHeaders(request) {
 
   return {
     "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
       "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
     "Access-Control-Expose-Headers": "ETag",
@@ -87,6 +87,50 @@ export const loader = async ({ request }) => {
       },
       {
         status: 503,
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+      }
+    );
+  }
+};
+
+export const action = async ({ request }) => {
+  const corsHeaders = getCorsHeaders(request);
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  try {
+    const body = await request.json().catch(() => ({}));
+    const keyword = String(body?.keyword || body?.term || "").trim();
+    const shop = customerShop();
+    const recorded = await recordSearchKeyword(shop, keyword);
+    return Response.json(
+      {
+        success: true,
+        data: recorded,
+      },
+      {
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("[Storefront search keyword] Record failed", error?.name);
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "SEARCH_RECORD_FAILED",
+          message: "Could not record search keyword.",
+        },
+      },
+      {
+        status: 500,
         headers: {
           ...corsHeaders,
           "Cache-Control": "no-cache, no-store, must-revalidate",

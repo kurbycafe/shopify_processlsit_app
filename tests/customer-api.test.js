@@ -171,13 +171,9 @@ test('support-request, subscription-request, push-token, and photo-reviews persi
   assert.equal(subRes.accepted, true);
   assert.ok(subRes.subscriptionId);
 
-  const pushRes = await resolver({
-    request: postJson({ token: 'fcm_device_token_12345', platform: 'android', email: 'user@dawayo.de' }),
-    resource: 'push-token',
-    shop,
-  });
-  assert.equal(pushRes.accepted, true);
-  assert.equal(pushRes.platform, 'android');
+  // Legacy anonymous token registration is no longer accepted; the installation
+  // secret, binding ID, authenticated customer and saved consent are required.
+  await assert.rejects(resolver({ request: postJson({ token: 'fcm_device_token_12345', platform: 'android' }), resource: 'push-token', shop }), { status: 400 });
 
   const reviewPost = await resolver({
     request: postJson({ dishName: 'Kimchi Jjigae', comment: 'Delicious!', rating: 5, userName: 'Tester' }),

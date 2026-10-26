@@ -9,7 +9,7 @@ function loadAction(filename, dependencies) {
   const source = readFileSync(new URL(`../app/routes/${filename}`, import.meta.url), "utf8")
     .replace(/^import[\s\S]*?;\r?\n/gm, "")
     .replace("export const action", "const action");
-  return new Script(`${source}\naction`).runInContext(createContext({ Response, Date, console: { log() {}, warn() {}, error() {} }, ...dependencies }));
+  return new Script(`${source}\naction`).runInContext(createContext({ Response, Date, db: {}, queueOrderPush: async () => {}, queueRestockPush: async () => ({ more: false }), console: { log() {}, warn() {}, error() {} }, ...dependencies }));
 }
 
 test("inventory webhook responds 503 for API and dispatch failures so Shopify can retry", async () => {

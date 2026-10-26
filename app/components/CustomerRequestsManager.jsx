@@ -55,22 +55,24 @@ const TYPE_TONES = {
 export default function CustomerRequestsManager() {
   const fetcher = useFetcher();
   const updateFetcher = useFetcher();
+  const loadRequests = fetcher.load;
 
   const [statusFilter, setStatusFilter] = useState("REQUESTED");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [currentCursor, setCurrentCursor] = useState(null);
+  const [replyDrafts, setReplyDrafts] = useState({});
 
   const prevUpdateState = useRef(updateFetcher.state);
 
   // Load requests on mount and when statusFilter changes
   useEffect(() => {
-    fetcher.load(
+    loadRequests(
       `/app/customer-requests?status=${encodeURIComponent(statusFilter)}`
     );
     setCurrentCursor(null);
-  }, [statusFilter, fetcher]);
+  }, [statusFilter, loadRequests]);
 
   // Re-fetch when update finishes
   useEffect(() => {
@@ -79,14 +81,14 @@ export default function CustomerRequestsManager() {
       updateFetcher.state === "idle" &&
       updateFetcher.data?.success
     ) {
-      fetcher.load(
+      loadRequests(
         `/app/customer-requests?status=${encodeURIComponent(statusFilter)}${
           currentCursor ? `&cursor=${encodeURIComponent(currentCursor)}` : ""
         }`
       );
     }
     prevUpdateState.current = updateFetcher.state;
-  }, [updateFetcher.state, updateFetcher.data, statusFilter, currentCursor, fetcher]);
+  }, [updateFetcher.state, updateFetcher.data, statusFilter, currentCursor, loadRequests]);
 
   const rawRequests = useMemo(
     () => fetcher.data?.requests || [],
@@ -122,6 +124,15 @@ export default function CustomerRequestsManager() {
   const handleUpdateStatus = (id, nextStatus) => {
     updateFetcher.submit(
       { id, status: nextStatus },
+      { method: "post", action: "/app/customer-requests" }
+    );
+  };
+
+  const handleSaveReply = (record, nextStatus) => {
+    const existingReply = record.payload?.reply || record.payload?.adminReply || "";
+    const replyText = (replyDrafts[record.id] ?? existingReply).trim();
+    updateFetcher.submit(
+      { id: record.id, status: nextStatus, reply: replyText },
       { method: "post", action: "/app/customer-requests" }
     );
   };
@@ -298,7 +309,16 @@ export default function CustomerRequestsManager() {
                     ["주문번호", detail.orderId || record.orderId],
                     ["고객 ID", record.customerId],
                     ["이메일", detail.email],
-                    ["문의유형", detail.claimType || "일반 문의"],
+                    [
+                      "문의유형",
+                      detail.claimType === "damage"
+                        ? "상품 파손 / 훼손 (damage)"
+                        : detail.claimType === "missing"
+                        ? "상품 누락 / 오배송 (missing)"
+                        : detail.claimType === "delay"
+                        ? "배송 심각 지연 / 냉동 해동 (delay)"
+                        : detail.claimType || "1:1 일반 문의",
+                    ],
                     ["문의내용", detail.message],
                   ]
                 : record.type === "RETURN"
@@ -429,6 +449,70 @@ export default function CustomerRequestsManager() {
                         ))}
                       </InlineStack>
                     </BlockStack>
+                  )}
+
+                  {/* Admin Reply Box for SUPPORT / CLAIM / RETURN */}
+                  {["SUPPORT", "CLAIM", "RETURN"].includes(record.type) && (
+                    <div
+                      style={{
+                        background: "#F8FAFC",
+                        border: "1px solid #E2E8F0",
+                        borderRadius: "8px",
+                        padding: "12px",
+                      }}
+                    >
+                      <BlockStack gap="200">
+                        <InlineStack align="space-between" blockAlign="center">
+                          <Text variant="bodySm" fontWeight="semibold">
+                            고객센터 답변 관리 (앱 &apos;내 문의 내역&apos;에 실시간 연동)
+                          </Text>
+                          {(detail.reply || detail.adminReply) && (
+                            <Badge tone="success">
+                              답변 등록됨
+                              {detail.repliedAt
+                                ? ` · ${new Date(detail.repliedAt).toLocaleString("ko-KR")}`
+                                : ""}
+                            </Badge>
+                          )}
+                        </InlineStack>
+                        <TextField
+                          label="고객 답변 내용"
+                          labelHidden
+                          multiline={3}
+                          value={
+                            replyDrafts[record.id] ??
+                            (detail.reply || detail.adminReply || "")
+                          }
+                          onChange={(val) =>
+                            setReplyDrafts((prev) => ({
+                              ...prev,
+                              [record.id]: val,
+                            }))
+                          }
+                          placeholder="고객의 모바일 앱(내 문의 내역 / 반품 내역)에 표시될 답변을 작성하세요 (예: 확인 결과 재배송/환불 처리가 완료되었습니다.)"
+                          autoComplete="off"
+                        />
+                        <InlineStack align="end" gap="200">
+                          <Button
+                            size="slim"
+                            variant="secondary"
+                            loading={updateFetcher.state !== "idle"}
+                            onClick={() => handleSaveReply(record, "REVIEWING")}
+                          >
+                            답변 저장 (확인 중 유지)
+                          </Button>
+                          <Button
+                            size="slim"
+                            variant="primary"
+                            tone="success"
+                            loading={updateFetcher.state !== "idle"}
+                            onClick={() => handleSaveReply(record, "CLOSED")}
+                          >
+                            답변 등록 및 처리 완료
+                          </Button>
+                        </InlineStack>
+                      </BlockStack>
+                    </div>
                   )}
 
                   {/* Status Action Buttons */}

@@ -1,3 +1,5 @@
+import db from "../db.server.js";
+import { queueOrderPush } from "../services/mobileNotificationEvents.server.js";
 import { authenticate } from "../shopify.server";
 import { sendCancellationAlertOnce } from "../services/cancellationAlertService.server.js";
 
@@ -8,6 +10,8 @@ export const action = async ({ request }) => {
     return new Response(null, { status: 200 });
   }
 
+  let pushFailed = false;
+  try { await queueOrderPush({ db, shop, topic, payload }); } catch { pushFailed = true; }
   const orderGid = `gid://shopify/Order/${payload.id}`;
   const orderName = payload.name || `Order ${payload.id}`;
   const cancelledAt = payload.cancelled_at ? new Date(payload.cancelled_at) : new Date();
@@ -43,5 +47,5 @@ export const action = async ({ request }) => {
     return new Response(null, { status: 503 });
   }
 
-  return new Response(null, { status: 200 });
+  return new Response(null, { status: pushFailed ? 503 : 200 });
 };

@@ -80,9 +80,11 @@ export async function customerReaction({db,shop,request,verify,input}){
 }
 export async function customerRequestHistory({db,shop,request,verify}){
  const customerId=await requireCustomer(verify,request,shop),cursor=cursorFrom(request);
+ const requestedId=new URL(request.url).searchParams.get("id");
+ if(requestedId && !/^[a-zA-Z0-9_-]{1,100}$/.test(requestedId))fail(400,"Invalid request ID.");
  const type=new URL(request.url).searchParams.get("type"),types=["RETURN","SUPPORT","CLAIM","SUBSCRIPTION","ACCOUNT_DELETE"];
  if(type && !types.includes(type))fail(400,"Invalid request type.");
- const [records,returnCount]=await Promise.all([db.customerRequest.findMany({where:{shop,customerId,type:type||{in:types},...(cursor?{id:{lt:cursor}}:{})},orderBy:{id:"desc"},take:26,select:{id:true,type:true,orderId:true,payload:true,status:true,createdAt:true,updatedAt:true}}),db.customerRequest.count({where:{shop,customerId,type:"RETURN"}})]);
+ const [records,returnCount]=await Promise.all([db.customerRequest.findMany({where:{shop,customerId,type:type||{in:types},...(requestedId?{id:requestedId}:cursor?{id:{lt:cursor}}:{})},orderBy:{id:"desc"},take:26,select:{id:true,type:true,orderId:true,payload:true,status:true,createdAt:true,updatedAt:true}}),db.customerRequest.count({where:{shop,customerId,type:"RETURN"}})]);
  return {returnCount,requests:records.slice(0,25),nextCursor:records.length>25?records[24].id:null};
 }
 export async function customerAttendance({db,shop,request,verify,input,loyalty}){
