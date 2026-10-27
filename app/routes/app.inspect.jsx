@@ -92,8 +92,8 @@ export const action = async ({ request }) => {
         variantId: variantId || "N/A",
         title: edge.node.title,
         variantTitle: edge.node.variantTitle || "",
-        sku: edge.node.sku || "",
-        barcode: edge.node.variant?.barcode || "",
+        sku: edge.node.sku || edge.node.variant?.sku || "",
+        barcode: edge.node.variant?.barcode || edge.node.sku || edge.node.variant?.sku || "",
         imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
         orderedQuantity: edge.node.quantity,
         inspectedQuantity: existingItem ? existingItem.inspectedQuantity : 0,
@@ -278,6 +278,7 @@ export default function Inspect() {
   const lastOrderKeyTimeRef = useRef(0);
   const barcodeScanBufferRef = useRef("");
   const lastBarcodeKeyTimeRef = useRef(0);
+  const lastScannedRef = useRef({ code: "", time: 0 });
 
   // Barcode manual edit states
   const [editingBarcodeId, setEditingBarcodeId] = useState(null);
@@ -359,8 +360,18 @@ export default function Inspect() {
 
   const processBarcode = useCallback(
     (scannedBarcode) => {
-      if (!currentOrder || !scannedBarcode.trim()) return;
-      const rawCode = scannedBarcode.trim();
+      if (!currentOrder || !scannedBarcode || !String(scannedBarcode).trim()) return;
+      const rawCode = String(scannedBarcode).trim();
+
+      const now = Date.now();
+      // Debounce duplicate scans within 250ms (prevents scanner hardware \r\n double fire or form submit + keydown racing)
+      if (
+        lastScannedRef.current.code === rawCode &&
+        now - lastScannedRef.current.time < 250
+      ) {
+        return;
+      }
+      lastScannedRef.current = { code: rawCode, time: now };
 
       const itemIndex = currentOrder.items.findIndex((i) =>
         isBarcodeOrSkuMatch(i, rawCode)
@@ -369,8 +380,7 @@ export default function Inspect() {
       const timestamp = new Date().toLocaleTimeString();
 
       if (itemIndex > -1) {
-        const updatedItems = [...currentOrder.items];
-        const item = updatedItems[itemIndex];
+        const item = currentOrder.items[itemIndex];
 
         if (item.issueType) {
           const newLog = {
@@ -382,11 +392,13 @@ export default function Inspect() {
           setMessage({ type: "warning", text: newLog.text });
           playWarningBeep();
         } else if (item.inspectedQuantity < item.orderedQuantity) {
-          item.inspectedQuantity += 1;
+          const updatedItems = currentOrder.items.map((it, idx) =>
+            idx === itemIndex ? { ...it, inspectedQuantity: it.inspectedQuantity + 1 } : it
+          );
           const newLog = {
             time: timestamp,
             type: "success",
-            text: `[${item.title}] 검수 완료 (${item.inspectedQuantity}/${item.orderedQuantity})`,
+            text: `[${item.title}] 검수 완료 (${item.inspectedQuantity + 1}/${item.orderedQuantity})`,
           };
           setLogs((prev) => [newLog, ...prev]);
           setCurrentOrder({ ...currentOrder, items: updatedItems });
@@ -415,6 +427,9 @@ export default function Inspect() {
       }
 
       setBarcode("");
+      if (barcodeRef.current) {
+        barcodeRef.current.value = "";
+      }
       setTimeout(() => barcodeRef.current?.focus(), 80);
     },
     [currentOrder]
@@ -443,16 +458,22 @@ export default function Inspect() {
       const timeDelta = currentTime - lastOrderKeyTimeRef.current;
       lastOrderKeyTimeRef.current = currentTime;
 
-      // Handle Enter (Scanner commit when focus was outside input)
-      if (e.key === "Enter") {
-        const orderToSearch = orderScanBufferRef.current.trim() || orderName.trim();
+      // Handle Enter or Tab (Scanner commit when focus was outside input)
+      if (e.key === "Enter" || e.key === "Tab") {
+        const orderToSearch =
+          orderScanBufferRef.current.trim() ||
+          orderSearchRef.current?.value?.trim() ||
+          "";
+
+        orderScanBufferRef.current = "";
+        if (orderSearchRef.current) orderSearchRef.current.value = "";
+        setOrderName("");
 
         if (orderToSearch) {
           e.preventDefault();
           e.stopPropagation();
-          fetcher.submit({ intent: "fetch_order", orderName: orderToSearch }, { method: "POST" });
-          orderScanBufferRef.current = "";
           setOrderName(orderToSearch);
+          fetcher.submit({ intent: "fetch_order", orderName: orderToSearch }, { method: "POST" });
         } else if (orderSearchRef.current) {
           orderSearchRef.current.focus();
         }
@@ -466,7 +487,9 @@ export default function Inspect() {
         } else {
           orderScanBufferRef.current += e.key;
         }
-        setOrderName(orderScanBufferRef.current);
+        if (orderSearchRef.current) {
+          orderSearchRef.current.value = orderScanBufferRef.current;
+        }
       }
     };
 
@@ -474,7 +497,7 @@ export default function Inspect() {
     return () => {
       window.removeEventListener("keydown", handleSearchKeyDown, true);
     };
-  }, [currentOrder, orderName, fetcher]);
+  }, [currentOrder, fetcher]);
 
   // Hands-Free Global Barcode Scanner Engine for loaded order
   useEffect(() => {
@@ -497,14 +520,18 @@ export default function Inspect() {
 
       // If user is focused on the barcode input:
       if (activeEl === barcodeRef.current) {
-        if (e.key === "Enter") {
-          const scannedCode = barcode.trim() || barcodeRef.current?.value?.trim() || "";
+        if (e.key === "Enter" || e.key === "Tab") {
+          const scannedCode =
+            barcodeRef.current?.value?.trim() ||
+            barcode.trim() ||
+            barcodeScanBufferRef.current.trim();
           if (scannedCode) {
             e.preventDefault();
             e.stopPropagation();
-            processBarcode(scannedCode);
+            if (barcodeRef.current) barcodeRef.current.value = "";
             barcodeScanBufferRef.current = "";
             setBarcode("");
+            processBarcode(scannedCode);
           }
         }
         return;
@@ -515,18 +542,21 @@ export default function Inspect() {
       const timeDelta = currentTime - lastBarcodeKeyTimeRef.current;
       lastBarcodeKeyTimeRef.current = currentTime;
 
-      // Handle Enter (Scanner commit)
-      if (e.key === "Enter") {
+      // Handle Enter or Tab (Scanner commit)
+      if (e.key === "Enter" || e.key === "Tab") {
         const scannedCode =
           barcodeScanBufferRef.current.trim() ||
+          barcodeRef.current?.value?.trim() ||
           barcode.trim();
+
+        barcodeScanBufferRef.current = "";
+        if (barcodeRef.current) barcodeRef.current.value = "";
+        setBarcode("");
 
         if (scannedCode) {
           e.preventDefault();
           e.stopPropagation();
           processBarcode(scannedCode);
-          barcodeScanBufferRef.current = "";
-          setBarcode("");
         } else if (barcodeRef.current) {
           barcodeRef.current.focus();
         }
@@ -540,7 +570,10 @@ export default function Inspect() {
         } else {
           barcodeScanBufferRef.current += e.key;
         }
-        setBarcode(barcodeScanBufferRef.current);
+        // Update input visually without triggering React component re-mount/listener re-bind
+        if (barcodeRef.current) {
+          barcodeRef.current.value = barcodeScanBufferRef.current;
+        }
       }
     };
 
@@ -549,7 +582,7 @@ export default function Inspect() {
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode, barcode]);
+  }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode]);
 
   // Camera scanner lifecycle
   useEffect(() => {
@@ -1098,7 +1131,13 @@ export default function Inspect() {
                 <form className="ops-scan-zone"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    processBarcode(barcode);
+                    const code = barcodeRef.current?.value?.trim() || barcode.trim() || barcodeScanBufferRef.current.trim();
+                    if (barcodeRef.current) barcodeRef.current.value = "";
+                    barcodeScanBufferRef.current = "";
+                    setBarcode("");
+                    if (code) {
+                      processBarcode(code);
+                    }
                   }}
                 >
                   <InlineStack gap="200" align="start" blockAlign="end" wrap>
@@ -1114,7 +1153,13 @@ export default function Inspect() {
                         placeholder="바코드 스캐너를 찍거나 SKU를 입력하세요"
                       />
                     </div>
-                    <Button variant="primary" onClick={() => processBarcode(barcode)} disabled={!barcode.trim()}>
+                    <Button variant="primary" onClick={() => {
+                      const code = barcodeRef.current?.value?.trim() || barcode.trim();
+                      if (barcodeRef.current) barcodeRef.current.value = "";
+                      barcodeScanBufferRef.current = "";
+                      setBarcode("");
+                      if (code) processBarcode(code);
+                    }} disabled={!barcode.trim()}>
                       스캔 확인
                     </Button>
                     <Button onClick={() => setCameraModalOpen(true)}>
