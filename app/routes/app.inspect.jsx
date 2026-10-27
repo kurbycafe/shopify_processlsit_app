@@ -499,9 +499,33 @@ export default function Inspect() {
       }
     };
 
+    const handleSearchPaste = (e) => {
+      const activeEl = document.activeElement;
+      const isOtherInputFocused =
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable) &&
+        activeEl !== orderSearchRef.current;
+
+      if (isOtherInputFocused) return;
+
+      const clipboardData = e.clipboardData || window.clipboardData;
+      const pastedText = clipboardData?.getData("text")?.trim();
+      if (pastedText) {
+        e.preventDefault();
+        e.stopPropagation();
+        setOrderName(pastedText);
+        if (orderSearchRef.current) orderSearchRef.current.value = pastedText;
+        fetcher.submit({ intent: "fetch_order", orderName: pastedText }, { method: "POST" });
+      }
+    };
+
     window.addEventListener("keydown", handleSearchKeyDown, true);
+    window.addEventListener("paste", handleSearchPaste, true);
     return () => {
       window.removeEventListener("keydown", handleSearchKeyDown, true);
+      window.removeEventListener("paste", handleSearchPaste, true);
     };
   }, [currentOrder, fetcher]);
 
@@ -583,10 +607,37 @@ export default function Inspect() {
       }
     };
 
+    const handleGlobalPaste = (e) => {
+      const activeEl = document.activeElement;
+      const isOtherInputFocused =
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable) &&
+        activeEl !== barcodeRef.current;
+
+      // Do not intercept if user is typing in a modal or editing a barcode manually
+      if (isOtherInputFocused) return;
+
+      const clipboardData = e.clipboardData || window.clipboardData;
+      const pastedText = clipboardData?.getData("text")?.trim();
+
+      if (pastedText) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (barcodeRef.current) barcodeRef.current.value = "";
+        barcodeScanBufferRef.current = "";
+        setBarcode("");
+        processBarcode(pastedText);
+      }
+    };
+
     // Attach in capture phase so barcode scan Enter never triggers background buttons
     window.addEventListener("keydown", handleGlobalKeyDown, true);
+    window.addEventListener("paste", handleGlobalPaste, true);
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
+      window.removeEventListener("paste", handleGlobalPaste, true);
     };
   }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode]);
 
