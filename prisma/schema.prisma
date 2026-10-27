@@ -333,3 +333,15 @@ model CustomerReaction {
   @@unique([shop, targetType, targetId, customerId])
   @@index([shop, targetType, targetId, active])
 }
+
+model AppUsageLog {
+  id        String   @id @default(cuid())
+  shop      String
+  path      String
+  tabName   String
+  user      String?
+  createdAt DateTime @default(now())
+
+  @@index([shop, path])
+  @@index([shop, createdAt])
+}

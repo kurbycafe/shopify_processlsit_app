@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Outlet, useLoaderData, useFetcher, useRouteError } from "react-router";
+import { Outlet, useLoaderData, useFetcher, useRouteError, useLocation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import shopify, { authenticate } from "../shopify.server";
@@ -26,6 +26,25 @@ export const loader = async ({ request }) => {
 export default function App() {
   const { apiKey } = useLoaderData();
   const checkFetcher = useFetcher();
+  const logFetcher = useFetcher();
+  const location = useLocation();
+  const lastLoggedPathRef = useRef("");
+
+  useEffect(() => {
+    const currentPath = location.pathname;
+    if (!currentPath || currentPath === lastLoggedPathRef.current) return;
+    lastLoggedPathRef.current = currentPath;
+
+    let savedInspector = "";
+    try {
+      savedInspector = localStorage.getItem("dawayo_inspector_name") || "";
+    } catch {}
+
+    logFetcher.submit(
+      { path: currentPath, ...(savedInspector ? { user: savedInspector } : {}) },
+      { method: "POST", action: "/api/log-tab" }
+    );
+  }, [location.pathname]);
 
   const checkRef = useRef(checkFetcher);
   checkRef.current = checkFetcher;
