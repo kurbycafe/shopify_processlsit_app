@@ -1,5 +1,6 @@
 import db from "../db.server.js";
 import { queueOrderPush } from "../services/mobileNotificationEvents.server.js";
+import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { authenticate } from "../shopify.server";
 import { sendCancellationAlertOnce } from "../services/cancellationAlertService.server.js";
 
@@ -11,7 +12,12 @@ export const action = async ({ request }) => {
   }
 
   let pushFailed = false;
-  try { await queueOrderPush({ db, shop, topic, payload }); } catch { pushFailed = true; }
+  try {
+    await queueOrderPush({ db, shop, topic, payload });
+    if (typeof dispatchMobileNotifications === "function") {
+      await dispatchMobileNotifications({ db, shop, limit: 20 }).catch(() => {});
+    }
+  } catch { pushFailed = true; }
   const orderGid = `gid://shopify/Order/${payload.id}`;
   const orderName = payload.name || `Order ${payload.id}`;
   const cancelledAt = payload.cancelled_at ? new Date(payload.cancelled_at) : new Date();

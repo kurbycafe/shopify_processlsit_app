@@ -26,14 +26,25 @@ export const action = async ({ request }) => {
     }
     if (form.get("intent") === "retry") {
       await retryPushDelivery({ db, shop: session.shop, id: String(form.get("id") || ""), acknowledgeUnknown: form.get("acknowledgeUnknown") === "true" });
-      return { message: "재시도 대기열에 등록했습니다." };
+      if (firebasePushConfigured()) {
+        await dispatchMobileNotifications({ db, shop: session.shop, limit: 20 }).catch(() => {});
+      }
+      return { message: "재시도 대기열에 등록하고 즉시 발송을 시도했습니다." };
     }
     if (form.get("intent") !== "campaign") throw Error();
     const customerIds = String(form.get("customerIds") || "").split(/[\s,]+/).filter(Boolean);
     if (form.get("test") === "true" && customerIds.length !== 1) return { error: "테스트 발송은 고객 ID 한 개를 지정해주세요." };
     const productId = String(form.get("productId") || "").trim();
+    const scheduledAt = form.get("scheduledAt") || null;
     await createPushCampaign({ db, shop: session.shop, input: { title: String(form.get("title") || ""), body: String(form.get("body") || ""), category: String(form.get("category") || ""),
-      customerIds, requestId: String(form.get("requestId") || ""), scheduledAt: form.get("scheduledAt") || null, target: productId ? { type: "product", id: productId } : { type: "home" } } });
+      customerIds, requestId: String(form.get("requestId") || ""), scheduledAt, target: productId ? { type: "product", id: productId } : { type: "home" } } });
+    if (!scheduledAt && firebasePushConfigured()) {
+      await expandPushCampaigns({ db, shop: session.shop }).catch(() => {});
+      const dispatched = await dispatchMobileNotifications({ db, shop: session.shop, limit: 50 }).catch(() => null);
+      if (dispatched?.processed > 0) {
+        return { message: `발송 요청 저장 및 즉시 발송 처리 완료 (${dispatched.processed}건).` };
+      }
+    }
     return { message: "발송 요청을 저장했습니다. 수신 동의·야간 시간 설정을 확인한 뒤 대기열에서 처리합니다." };
   } catch (error) { return { error: error.status ? error.message : "발송 요청을 처리하지 못했습니다. 기록을 확인해주세요." }; }
 };
@@ -57,8 +68,8 @@ export default function PushNotificationsPage() {
     <Card><BlockStack gap="300"><Text as="h2" variant="headingMd">새 알림</Text>
       <TextField label="제목" value={title} onChange={setTitle} maxLength={120} autoComplete="off" />
       <TextField label="내용" value={body} onChange={setBody} multiline={3} maxLength={1000} autoComplete="off" />
-      <Select label="수신 동의 유형" value={category} onChange={setCategory} options={[{ label: "행사·혜택", value: "EVENT" }, { label: "마케팅", value: "MARKETING" }]} />
-      <TextField label="대상 Shopify 고객 ID" helpText="쉼표 또는 줄바꿈으로 구분, 최대 100명. 비우면 해당 유형을 동의한 고객 전체." value={customerIds} onChange={setCustomerIds} multiline={2} autoComplete="off" />
+      <Select label="수신 동의 유형" value={category} onChange={setCategory} options={[{ label: "공개 공지 (비로그인 포함)", value: "NOTICE" }, { label: "행사·혜택", value: "EVENT" }, { label: "마케팅", value: "MARKETING" }]} />
+      <TextField label="대상 Shopify 고객 ID" helpText="쉼표 또는 줄바꿈으로 구분, 최대 100명. 비우면 해당 유형을 동의한 고객 전체. 공개 공지는 공지 수신을 켠 비로그인 기기도 포함합니다." value={customerIds} onChange={setCustomerIds} multiline={2} autoComplete="off" />
       <TextField label="연결 상품 ID (선택)" helpText="gid://shopify/Product/숫자. 비우면 홈으로 이동합니다." value={productId} onChange={setProductId} autoComplete="off" />
       <label>예약 시각 (관리자 PC 현지 시각)<input type="datetime-local" value={schedule} onChange={event => setSchedule(event.target.value)} /></label>
       <Checkbox label="테스트 발송 (대상 고객 한 명 지정)" checked={test} onChange={setTest} />

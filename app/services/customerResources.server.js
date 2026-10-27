@@ -1,4 +1,5 @@
 import { customerNotificationInbox } from "./mobileNotificationQueue.server.js";
+import { guestNoticeDevice } from "./mobileGuestPush.server.js";
 import { saveMobileRestockInterest } from "./mobileNotificationEvents.server.js";
 import { customerProductTemperatures } from "./customerProductTemperatures.server.js";
 import { customerLoyalty } from "./customerLoyalty.server.js";
@@ -46,6 +47,7 @@ async function readJsonPayload(request, maxBytes = 8192) {
 
 export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
+  if (resource === "guest-notice-device") return guestNoticeDevice({ db, shop, input: await readJsonPayload(request, 4096) });
   if (resource === "notifications") return customerNotificationInbox({ db, shop, customerId: await requireCustomer(verify, request, shop), request, input: request.method === "GET" ? undefined : await readJsonPayload(request, 2048) });
   if(resource==="product-temperatures")return customerProductTemperatures({request,shop,graphql});
   if(resource==="community-posts")return customerCommunity({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,250000)});

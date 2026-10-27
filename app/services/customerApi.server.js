@@ -6,6 +6,7 @@ const DEFAULT_CUSTOMER_ORIGINS =
 const DEFAULT_CUSTOMER_ACCOUNT_URL =
   "https://shopify.com/99898655049/account/customer/api/2026-01/graphql";
 const POST_RESOURCES = new Set([
+  "guest-notice-device",
   "community-reactions", "account-delete-request",
   "restock-subscription",
   "b2b-inquiry",
@@ -101,7 +102,27 @@ export async function queryCustomerAccount(request, shop, query, variables = {},
   return payload.data.customer;
 }
 
+const verifiedCustomerCache = new Map();
+const VERIFY_CACHE_TTL_MS = 30000;
+
 export async function verifyCustomer(request, shop, options) {
+  const authHeader = !options ? request?.headers?.get?.("authorization") || "" : "";
+  const cacheKey = authHeader && shop ? `${shop}:${authHeader}` : "";
+  if (cacheKey) {
+    const cached = verifiedCustomerCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.customerId;
+    }
+  }
   const customer = await queryCustomerAccount(request, shop, "query ProcesslistCustomerIdentity { customer { id } }", {}, options);
+  if (cacheKey) {
+    if (verifiedCustomerCache.size > 500) {
+      const now = Date.now();
+      for (const [k, v] of verifiedCustomerCache) {
+        if (v.expiresAt <= now) verifiedCustomerCache.delete(k);
+      }
+    }
+    verifiedCustomerCache.set(cacheKey, { customerId: customer.id, expiresAt: Date.now() + VERIFY_CACHE_TTL_MS });
+  }
   return customer.id;
 }

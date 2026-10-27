@@ -4,7 +4,7 @@ import { MobileApiError } from "./mobileApi.server.js";
 export const pushKey = (...parts) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 export const CORE_PREFERENCES = { pushEnabled: false, orderUpdates: false, events: false, marketing: false };
 export const EXTRA_PREFERENCES = { supportReplies: false, restockUpdates: false, quietEnabled: true, quietStart: 22, quietEnd: 8, timeZone: "Europe/Berlin" };
-export const CATEGORY_PREFERENCE = { ORDER: "orderUpdates", SUPPORT: "supportReplies", RESTOCK: "restockUpdates", EVENT: "events", MARKETING: "marketing" };
+export const CATEGORY_PREFERENCE = { ORDER: "orderUpdates", SUPPORT: "supportReplies", RESTOCK: "restockUpdates", EVENT: "events", MARKETING: "marketing", NOTICE: "events" };
 export const validCustomerId = value => /^gid:\/\/shopify\/Customer\/\d+$/.test(value || "");
 
 export async function pushCustomer(verify, request, shop) {

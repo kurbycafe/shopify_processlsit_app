@@ -2,6 +2,7 @@ import { Page } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { listCustomerRequests, updateCustomerRequest } from "../services/customerRequests.server.js";
+import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { MobileApiError } from "../services/mobileApi.server.js";
 import CustomerRequestsManager from "../components/CustomerRequestsManager.jsx";
 
@@ -51,7 +52,7 @@ export const action = async ({ request }) => {
   const form = await request.formData();
   const replyValue = form.has("reply") ? String(form.get("reply") ?? "") : undefined;
   try {
-    return await updateCustomerRequest({
+    const result = await updateCustomerRequest({
       db: prisma,
       shop: session.shop,
       id: form.get("id"),
@@ -60,6 +61,10 @@ export const action = async ({ request }) => {
       admin,
       applyTags: form.get("applyTags") === "true",
     });
+    if (replyValue?.trim()) {
+      await dispatchMobileNotifications({ db: prisma, shop: session.shop, limit: 20 }).catch(() => {});
+    }
+    return result;
   } catch (error) {
     return Response.json(
       {

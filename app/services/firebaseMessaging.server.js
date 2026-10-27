@@ -8,7 +8,8 @@ export function firebasePushConfigured(env = process.env) {
   return Boolean(env.GOOGLE_APPLICATION_CREDENTIALS);
 }
 
-export async function sendFirebaseNotification({ token, notificationId, customerId, category }, env = process.env) {
+export async function sendFirebaseNotification({ token, notificationId, customerId, category, guest = false, title = '', body = '' }, env = process.env) {
+  if (guest && category !== "NOTICE") throw Object.assign(Error("Guest devices can receive public notices only."), { code: "NOT_CONFIGURED" });
   if (!firebasePushConfigured(env)) throw Object.assign(Error("Firebase sender is not configured."), { code: "NOT_CONFIGURED" });
   if (!messaging) {
     const [{ initializeApp, cert, applicationDefault, getApps }, { getMessaging }] = await Promise.all([import("firebase-admin/app"), import("firebase-admin/messaging")]);
@@ -20,12 +21,13 @@ export async function sendFirebaseNotification({ token, notificationId, customer
   }
   let timer;
   try {
-    // Private order/reply details are fetched from the authenticated inbox.
-    // A stale offline binding must never reveal them on a phone's lock screen.
+    const notificationPayload = guest
+      ? { title: title || "DAWAYO 공지", body: body || "" }
+      : { title: title || "DAWAYO", body: body || "새 알림이 도착했습니다. 앱에서 확인해주세요." };
     return await Promise.race([
-      messaging.send({ token, notification: { title: "DAWAYO", body: "새 알림이 도착했습니다. 앱에서 확인해주세요." },
-        data: { notificationId, customerId, category },
-        android: { priority: ["ORDER", "SUPPORT"].includes(category) ? "high" : "normal", ttl: 86400000, collapseKey: notificationId, notification: { tag: notificationId, channelId: ({ ORDER: "dawayo_orders", SUPPORT: "dawayo_support", RESTOCK: "dawayo_restock", EVENT: "dawayo_events", MARKETING: "dawayo_marketing" })[category] || "dawayo_events" } } }),
+      messaging.send({ token, notification: notificationPayload,
+        data: guest ? { notificationId, category: "NOTICE", audience: "guest" } : { notificationId, customerId, category },
+        android: { priority: "high", ttl: 86400000, collapseKey: notificationId, notification: { tag: notificationId, channelId: ({ ORDER: "dawayo_orders", SUPPORT: "dawayo_support", RESTOCK: "dawayo_restock", EVENT: "dawayo_events", MARKETING: "dawayo_marketing" })[category] || "dawayo_events" } } }),
       new Promise((resolve, reject) => { timer = setTimeout(() => reject(Object.assign(Error("Push result is unknown."), { code: "PUSH_TIMEOUT" })), 15000); }),
     ]);
   } finally { clearTimeout(timer); }

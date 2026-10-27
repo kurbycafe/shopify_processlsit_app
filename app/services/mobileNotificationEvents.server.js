@@ -47,8 +47,10 @@ export async function queueSupportReplyPush({ db, shop, id, reply }) {
   if (!reply?.trim()) return;
   const record = await db.customerRequest.findFirst({ where: { id, shop, type: { in: ["SUPPORT", "CLAIM"] } } });
   if (!validCustomerId(record?.customerId)) return;
+  const cleanReply = reply.trim();
+  const preview = cleanReply.length > 80 ? cleanReply.slice(0, 80) + "..." : cleanReply;
   await queueCustomerNotification({ db, shop, customerId: record.customerId, category: "SUPPORT", eventKey: `reply:${id}:${pushKey(reply)}`,
-    title: "고객센터 답변 도착", body: "문의하신 내용에 답변이 등록되었습니다.", target: { type: "support", id } });
+    title: "고객센터 답변", body: preview || "문의하신 내용에 답변이 등록되었습니다.", target: { type: "support", id } });
 }
 
 export async function saveMobileRestockInterest({ db, shop, customerId, variant }) {

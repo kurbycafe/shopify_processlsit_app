@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dispatchGuestNotices } from "./mobileGuestPush.server.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { CATEGORY_PREFERENCE, pushKey, validCustomerId, readPushPreferences, permitsPush, inQuietHours } from "./mobilePushPolicy.server.js";
 import { firebasePushConfigured, sendFirebaseNotification } from "./firebaseMessaging.server.js";
@@ -99,7 +100,7 @@ export async function dispatchMobileNotifications({ db, shop, limit = 20, now = 
       // Re-check revocation immediately before provider handoff.
       const live = await db.customerRequest.findFirst({ where: { id: device.id, shop, customerId: job.customerId, status: "ACTIVE", payload: { path: ["bindingId"], equals: job.payload.binding } } });
       if (!live || !permitsPush(await readPushPreferences(db, shop, job.customerId), message.payload.category)) { await finish("SKIPPED", { attempts }); return; }
-      const providerId = await send({ token: live.payload.token, notificationId: message.id, customerId: job.customerId, category: message.payload.category });
+      const providerId = await send({ token: live.payload.token, notificationId: message.id, customerId: job.customerId, category: message.payload.category, title: message.payload.title, body: message.payload.body });
       await finish("SENT", { attempts, providerId, sentAt: now.toISOString() });
     } catch (error) {
       const code = String(error?.code || "UNKNOWN").replace(/^messaging\//, "");
@@ -121,5 +122,6 @@ export async function dispatchMobileNotifications({ db, shop, limit = 20, now = 
     while (cursor < jobs.length && Date.now() < deadline) await processJob(jobs[cursor++]);
   }));
 
-  return { configured: true, processed };
+  const guestProcessed = await dispatchGuestNotices({ db, shop, send, limit, now });
+  return { configured: true, processed: processed + guestProcessed };
 }

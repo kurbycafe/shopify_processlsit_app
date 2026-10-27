@@ -1,4 +1,5 @@
 import { createCustomerResolver } from "../app/services/customerResources.server.js";
+import { guestNoticeDevice, queueGuestNotices, dispatchGuestNotices } from "../app/services/mobileGuestPush.server.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { registerMobileDevice } from "../app/services/mobilePushDevices.server.js";
@@ -210,4 +211,73 @@ test("three compressed claim photos pass the actual API body limit and keep an e
   assert.equal((await resolve({ request, resource: "support-request", shop })).accepted, true);
   const record = rows.find(row => row.type === "CLAIM");
   assert.equal(record.payload.photos.length, 3); assert.equal(record.payload.photoCount, 3);
+});
+
+test('guest registration accepts explicit public-notice consent only', async () => {
+  for (const patch of [{noticeConsent:false},{category:'MARKETING'},{category:'ORDER'}]) {
+    const {db,rows}=memory();
+    await assert.rejects(guestNoticeDevice({db,shop,input:{...identity,action:'register',noticeConsent:true,category:'NOTICE',...patch}}));
+    assert.equal(rows.length,0);
+  }
+  const {db,rows}=memory();
+  const result=await guestNoticeDevice({db,shop,input:{...identity,action:'register',noticeConsent:true,category:'NOTICE'}});
+  assert.equal(result.registered,true);assert.equal(rows[0].customerId,null);assert.equal(rows[0].payload.guest,true);
+  assert.notEqual(rows[0].payload.secretHash,identity.deviceSecret);
+});
+test('guest requests cannot replace an account device and stale guest revocation cannot disable it', async () => {
+  const {db,rows}=memory();await consent(db);await register(db);
+  await assert.rejects(guestNoticeDevice({db,shop,input:{...identity,action:'register',noticeConsent:true,category:'NOTICE'}}),{code:'ACCOUNT_DEVICE'});
+  await guestNoticeDevice({db,shop,input:{...identity,bindingId:'old-guest-binding-123456789012',action:'unregister'}});
+  assert.equal(rows.find(row=>row.type==='PUSH_DEVICE').status,'ACTIVE');
+  assert.equal(rows.find(row=>row.type==='PUSH_DEVICE').customerId,owner);
+});
+test('guest device secret mismatch and revoked registration are rejected', async () => {
+  const {db}=memory();const input={...identity,action:'register',noticeConsent:true,category:'NOTICE'};
+  await guestNoticeDevice({db,shop,input});
+  await assert.rejects(guestNoticeDevice({db,shop,input:{...input,deviceSecret:'wrong-secret-123456789012345678'}}),{code:'DEVICE_MISMATCH'});
+  await guestNoticeDevice({db,shop,input:{...input,action:'unregister'}});
+  await assert.rejects(guestNoticeDevice({db,shop,input}),{code:'BINDING_REVOKED'});
+});
+async function guestQueue(category='NOTICE') {
+  const context=memory();const {db,rows}=context;
+  await guestNoticeDevice({db,shop,input:{...identity,action:'register',noticeConsent:true,category:'NOTICE'}});
+  const device=rows.find(row=>row.type==='PUSH_DEVICE');
+  const campaign={id:'notice-campaign',payload:{category,title:'Public notice',body:'Public content',recipients:[],target:{type:'home'},scheduledAt:now.toISOString()}};
+  rows.push({shop,type:'PUSH_CAMPAIGN',status:'EXPANDED',createdAt:now,updatedAt:now,...campaign});
+  await queueGuestNotices({db,shop,campaign,devices:[device]});
+  return {...context,device,campaign};
+}
+test('guest notices are idempotent and deliver public content without a customer identifier', async () => {
+  const {db,rows,device,campaign}=await guestQueue();const sends=[];
+  await queueGuestNotices({db,shop,campaign,devices:[device]});
+  assert.equal(rows.filter(row=>row.type==='PUSH_GUEST_DELIVERY').length,1);
+  await dispatchGuestNotices({db,shop,now,send:async payload=>{sends.push(payload);return 'provider-id';}});
+  assert.equal(sends.length,1);assert.equal(sends[0].guest,true);assert.equal(sends[0].category,'NOTICE');assert.equal(sends[0].customerId,undefined);
+  assert.equal(rows.find(row=>row.type==='PUSH_GUEST_DELIVERY').status,'SENT');
+});
+test('events and marketing never create guest deliveries', async () => {
+  for(const category of ['EVENT','MARKETING','ORDER']) {
+    const {rows}=await guestQueue(category);assert.equal(rows.filter(row=>row.type==='PUSH_GUEST_DELIVERY').length,0);
+  }
+});
+test('revoking consent or binding the device to an account skips a pending guest notice', async () => {
+  for(const account of [false,true]) {
+    const {db,rows,device}=await guestQueue();
+    if(account){device.customerId=owner;device.payload.guest=false;}else device.status='DISABLED';
+    let sent=0;await dispatchGuestNotices({db,shop,now,send:async()=>{sent++;}});
+    assert.equal(sent,0);assert.equal(rows.find(row=>row.type==='PUSH_GUEST_DELIVERY').status,'SKIPPED');
+  }
+});
+test('a guest send with an unknown result is not retried automatically', async () => {
+  const {db,rows}=await guestQueue();let sent=0;
+  const send=async()=>{sent++;throw Object.assign(Error('unknown'),{code:'PUSH_TIMEOUT'});};
+  await dispatchGuestNotices({db,shop,now,send});await dispatchGuestNotices({db,shop,now,send});
+  assert.equal(sent,1);assert.equal(rows.find(row=>row.type==='PUSH_GUEST_DELIVERY').status,'UNKNOWN');
+});
+test('public notices reject private targets and expand to guests only for a public audience', async () => {
+  const {db,rows}=await guestQueue();
+  await assert.rejects(createPushCampaign({db,shop,input:{category:'NOTICE',title:'Public',body:'Text',requestId:'notice-request-1234567890',target:{type:'product',id:'gid://shopify/Product/1'}}}),{code:'INVALID_TARGET'});
+  await createPushCampaign({db,shop,now,input:{category:'NOTICE',title:'Public',body:'Text',requestId:'notice-request-1234567891',target:{type:'home'}}});
+  await expandPushCampaigns({db,shop,now});
+  assert.equal(rows.filter(row=>row.type==='PUSH_GUEST_DELIVERY').length,2);
 });
