@@ -1,8 +1,8 @@
 import { completeOrderLineItems } from "./orderPagination.server.js";
 const FIELDS = `id name email cancelledAt lineItems(first:100) {
   pageInfo { hasNextPage endCursor }
-  edges { node { id title variantTitle sku quantity variant { id title sku barcode image { url }
-    product { featuredImage { url } expiryDate:metafield(namespace:"freshly",key:"expiry_date") { value } }
+  edges { node { id title variantTitle sku quantity image { url } variant { id title sku barcode image { url }
+    product { featuredImage { url } images(first:1) { nodes { url } } expiryDate:metafield(namespace:"freshly",key:"expiry_date") { value } }
   } } }
 }`;
 export const FIND_INSPECTION_ORDER_QUERY = `query FindInspectionOrder($query:String!) { orders(first:1,query:$query) { nodes { ${FIELDS} } } }`;

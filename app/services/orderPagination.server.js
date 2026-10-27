@@ -9,7 +9,7 @@ export const ORDER_LINE_ITEMS_QUERY = `#graphql
         pageInfo { hasNextPage endCursor }
         edges {
           node {
-            id title quantity taxable sku variantTitle
+            id title quantity taxable sku variantTitle image { url }
             originalUnitPriceSet { shopMoney { amount currencyCode } }
             discountedUnitPriceSet { shopMoney { amount currencyCode } }
             originalTotalSet { shopMoney { amount currencyCode } }
@@ -22,6 +22,7 @@ export const ORDER_LINE_ITEMS_QUERY = `#graphql
               image { url }
               product {
                 featuredImage { url }
+                images(first: 1) { nodes { url } }
                 germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
                 expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                 position: metafield(namespace: "custom", key: "position") { value }

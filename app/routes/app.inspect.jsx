@@ -24,6 +24,7 @@ import {
 import {
   SearchIcon,
   BarcodeIcon,
+  ImageIcon,
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
@@ -94,7 +95,12 @@ export const action = async ({ request }) => {
         variantTitle: edge.node.variantTitle || "",
         sku: edge.node.sku || edge.node.variant?.sku || "",
         barcode: edge.node.variant?.barcode || edge.node.sku || edge.node.variant?.sku || "",
-        imageUrl: edge.node.variant?.image?.url || edge.node.variant?.product?.featuredImage?.url || "",
+        imageUrl:
+          edge.node.image?.url ||
+          edge.node.variant?.image?.url ||
+          edge.node.variant?.product?.featuredImage?.url ||
+          edge.node.variant?.product?.images?.nodes?.[0]?.url ||
+          "",
         orderedQuantity: edge.node.quantity,
         inspectedQuantity: existingItem ? existingItem.inspectedQuantity : 0,
         expiryDate: edge.node.variant?.product?.expiryDate?.value || "",
@@ -852,7 +858,7 @@ export default function Inspect() {
 
     return [
       <div key={`thumb-${item.id}`} style={{ backgroundColor: isHighlighted ? "#fef08a" : "transparent" }}>
-        <Thumbnail source={item.imageUrl || ""} alt={item.title} size="small" />
+        <Thumbnail source={item.imageUrl || ImageIcon} alt={item.title} size="small" />
       </div>,
       <div key={`info-${item.id}`} style={{ backgroundColor: isHighlighted ? "#fef08a" : "transparent" }}>
         <BlockStack gap="100">
