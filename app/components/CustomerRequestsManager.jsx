@@ -52,7 +52,7 @@ const TYPE_TONES = {
   ACCOUNT_DELETE: "critical",
 };
 
-export default function CustomerRequestsManager() {
+export default function CustomerRequestsManager({ readOnlyReplies = false } = {}) {
   const fetcher = useFetcher();
   const updateFetcher = useFetcher();
   const loadRequests = fetcher.load;
@@ -233,6 +233,7 @@ export default function CustomerRequestsManager() {
 
             <TextField
               label="검색 (이메일, 주문번호, 고객ID, 내용)"
+              helpText="검색은 현재 불러온 페이지의 항목에 적용됩니다."
               value={searchQuery}
               onChange={setSearchQuery}
               placeholder="예: 주문번호, 이메일, 작성자명"
@@ -452,7 +453,7 @@ export default function CustomerRequestsManager() {
                   )}
 
                   {/* Admin Reply Box for SUPPORT / CLAIM / RETURN */}
-                  {["SUPPORT", "CLAIM", "RETURN"].includes(record.type) && (
+                  {!readOnlyReplies && ["SUPPORT", "CLAIM", "RETURN"].includes(record.type) && (
                     <div
                       style={{
                         background: "#F8FAFC",

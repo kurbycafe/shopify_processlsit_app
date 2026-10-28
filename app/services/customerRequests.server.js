@@ -80,12 +80,19 @@ export async function customerNotificationPreferences({ db, shop, request, verif
   return { ...(input === undefined ? {} : { accepted: true }), preferences: { ...preferences, protocolVersion: 2 } };
 }
 
-export async function listCustomerRequests({ db, shop, status = "REQUESTED", type = null, after = null }) {
+export async function listCustomerRequests({ db, shop, status = "REQUESTED", type = null, after = null, search = "", supportOnly = false }) {
   if (!STATUSES.has(status) && status !== "ALL") throw new MobileApiError(400, "INVALID_INPUT", "Invalid request status.");
   if (type && !REVIEW_TYPES.includes(type)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request type.");
   if (after && !/^[a-zA-Z0-9_-]{1,100}$/.test(after)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid page cursor.");
+  const query = text(search, 100);
+  const searchWhere = query ? { OR: [
+    { id: { contains: query, mode: "insensitive" } },
+    { customerId: { contains: query, mode: "insensitive" } },
+    { orderId: { contains: query, mode: "insensitive" } },
+    ...["email", "message", "reason", "orderName", "companyName", "contactName"].map(key => ({ payload: { path: [key], string_contains: query, mode: "insensitive" } })),
+  ] } : {};
   const records = await db.customerRequest.findMany({
-    where: { shop, type: type ? type : { in: REVIEW_TYPES }, ...(status === "ALL" ? {} : { status }), ...(after ? { id: { lt: after } } : {}) },
+    where: { shop, type: type ? type : { in: supportOnly ? ["SUPPORT", "CLAIM", "RETURN"] : REVIEW_TYPES }, ...(status === "ALL" ? {} : { status }), ...searchWhere, ...(after ? { id: { lt: after } } : {}) },
     orderBy: { id: "desc" }, take: 26,
     select: { id: true, type: true, customerId: true, orderId: true, payload: true, status: true, createdAt: true, updatedAt: true },
   });

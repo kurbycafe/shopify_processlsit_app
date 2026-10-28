@@ -58,7 +58,9 @@ test("getStorefrontConfig returns an empty unconfigured store without seeding sa
   const categories = [];
   let storeConfig = null;
 
+  let recipeReads = 0;
   const mockDb = {
+    recipe: { findMany: async () => { recipeReads++; return []; } },
     mobileStorefrontConfig: {
       findFirst: async () => storeConfig,
       upsert: async ({ create, update }) => {
@@ -97,6 +99,10 @@ test("getStorefrontConfig returns an empty unconfigured store without seeding sa
     includeInactive: false,
   });
 
+  assert.equal(recipeReads, 1);
+  const adminConfig = await getStorefrontConfig("dawayo.myshopify.com", { db: mockDb, includeInactive: true, includeRecipes: false });
+  assert.equal(recipeReads, 1, "admin config must not read recipes");
+  assert.deepEqual(adminConfig.recipes, []);
   assert.equal(config.shop, "dawayo.de");
   assert.equal(config.banners.length, 0);
   assert.equal(config.hotDeals.length, 0);

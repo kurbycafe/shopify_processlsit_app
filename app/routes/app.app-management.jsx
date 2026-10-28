@@ -1,11 +1,11 @@
 import ProductExpiryManager from "../components/ProductExpiryManager.jsx";
 import ProductAttributesManager from "../components/ProductAttributesManager.jsx";
 import BannerImageUploader from "../components/BannerImageUploader.jsx";
-import CustomerRequestsManager from "../components/CustomerRequestsManager.jsx";
+import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
 import B2bRequestsManager from "../components/B2bRequestsManager.jsx";
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLoaderData, useFetcher, useRevalidator, useSearchParams } from "react-router";
 import {
   Page,
@@ -320,7 +320,7 @@ function CategoryVectorIcon({ name, size = 18 }) {
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
-  const config = await getStorefrontConfig(shop, { includeInactive: true });
+  const config = await getStorefrontConfig(shop, { includeInactive: true, includeRecipes: false });
   return { shop, config };
 };
 
@@ -335,7 +335,7 @@ export const action = async ({ request }) => {
       const version = await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: `모바일 앱 설정이 즉시 배포되었습니다. (버전: ${version})`,
+        message: `저장된 앱 설정의 반영을 요청했습니다. 앱에서 확인하는 시점에 따라 적용이 지연될 수 있습니다. (버전: ${version})`,
       };
     }
 
@@ -344,6 +344,7 @@ export const action = async ({ request }) => {
       return {
         success: true,
         message: `모든 설정이 기본 초기 상태로 복원 및 배포되었습니다. (버전: ${version})`,
+        intent: "reset_defaults",
       };
     }
 
@@ -1015,15 +1016,15 @@ export const action = async ({ request }) => {
           60.0
       );
       const shippingNoticeKo = String(
-        formData.get("shippingNoticeKo") ||
-          existing?.shippingNoticeKo ||
+        formData.get("shippingNoticeKo") ??
+          existing?.shippingNoticeKo ??
           "독일 전역 60€ 이상 무료배송 · 신선 안심 출고"
       ).trim();
       const shippingNoticeDe = String(
-        formData.get("shippingNoticeDe") || existing?.shippingNoticeDe || ""
+        formData.get("shippingNoticeDe") ?? existing?.shippingNoticeDe ?? ""
       ).trim();
       const shippingNoticeEn = String(
-        formData.get("shippingNoticeEn") || existing?.shippingNoticeEn || ""
+        formData.get("shippingNoticeEn") ?? existing?.shippingNoticeEn ?? ""
       ).trim();
 
       const tickersRaw = formData.get("tickersJson");
@@ -1067,7 +1068,7 @@ export const action = async ({ request }) => {
       if (searchKeywordsRaw) {
         try {
           const parsedKw = JSON.parse(String(searchKeywordsRaw));
-          if (Array.isArray(parsedKw) && parsedKw.length > 0) {
+          if (Array.isArray(parsedKw)) {
             nextSearchKeywords = parsedKw;
           }
         } catch {
@@ -1156,8 +1157,8 @@ export const action = async ({ request }) => {
         update: {
           freeShippingThreshold,
           shippingNoticeKo,
-          shippingNoticeDe: shippingNoticeDe || shippingNoticeKo,
-          shippingNoticeEn: shippingNoticeEn || shippingNoticeKo,
+          shippingNoticeDe,
+          shippingNoticeEn,
           tickersJson: nextExtended,
           configVersion: newVersion,
         },
@@ -1165,8 +1166,8 @@ export const action = async ({ request }) => {
           shop,
           freeShippingThreshold,
           shippingNoticeKo,
-          shippingNoticeDe: shippingNoticeDe || shippingNoticeKo,
-          shippingNoticeEn: shippingNoticeEn || shippingNoticeKo,
+          shippingNoticeDe,
+          shippingNoticeEn,
           tickersJson: nextExtended,
           configVersion: newVersion,
         },
@@ -1348,6 +1349,18 @@ const TOP_MENU_TABS = [
   { id: "preview", label: "라이브 미리보기" },
 ];
 
+const MENU_GROUPS = [
+  { label: "홈과 상품", ids: ["overview", "banners", "hotdeals", "temperatures", "product-rules", "product-attributes", "categories"] },
+  { label: "운영 설정", ids: ["shipping", "campaigns", "pages"] },
+  { label: "고객과 확인", ids: ["customer-requests", "b2b-requests", "preview"] },
+];
+
+function reconcileDraft(current, previous, next, force = false) {
+  if (force) return next;
+  if (previous === undefined) return current;
+  return JSON.stringify(current) === JSON.stringify(previous) ? next : current;
+}
+
 /* ============================================================================
  * MAIN COMPONENT
  * ============================================================================ */
@@ -1365,6 +1378,8 @@ export default function AppManagementPage() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [visitedTabs, setVisitedTabs] = useState(() => new Set(["overview", initialTab]));
   const [showLegacyRules, setShowLegacyRules] = useState(false);
+  const previousConfig = useRef(config);
+  const resetRequested = useRef(false);
 
   useEffect(() => {
     setVisitedTabs((prev) => {
@@ -1587,29 +1602,33 @@ export default function AppManagementPage() {
   const [myPage, setMyPage] = useState(config.store?.myPage || {});
 
   useEffect(() => {
-    setFreeShippingThreshold(String(config.store?.freeShippingThreshold ?? 60));
-    setShippingNoticeKo(config.store?.shippingNotice?.ko || "");
-    setShippingNoticeDe(config.store?.shippingNotice?.de || "");
-    setShippingNoticeEn(config.store?.shippingNotice?.en || "");
-    setTickers(config.store?.tickers || []);
-    if (config.store?.hotDealSettings) {
-      setHotDealSettings(config.store.hotDealSettings);
-    }
-    if (config.store?.coldChain) {
-      setColdChain(config.store.coldChain);
-    }
-    if (config.searchKeywords) {
-      setSearchKeywordsText(config.searchKeywords.join(", "));
-    }
-    if (config.groupBuying) setGroupBuying(config.groupBuying);
-    if (config.prospekt) setProspekt(config.prospekt);
-    if (config.subscriptionPlans) setSubscriptionPlans(config.subscriptionPlans);
-    if (config.store?.productPage) setProductPage(config.store.productPage);
-    if (config.store?.cartPage) setCartPage(config.store.cartPage);
-    if (config.store?.myPage) setMyPage(config.store.myPage);
-  }, [config]);
+    const previous = previousConfig.current;
+    const force = resetRequested.current && fetcher.state === "idle" && fetcher.data?.success && fetcher.data?.intent === "reset_defaults";
+    const sync = (setter, oldValue, newValue) => setter(current => reconcileDraft(current, oldValue, newValue, force));
+    sync(setFreeShippingThreshold, String(previous.store?.freeShippingThreshold ?? 60), String(config.store?.freeShippingThreshold ?? 60));
+    sync(setShippingNoticeKo, previous.store?.shippingNotice?.ko || "", config.store?.shippingNotice?.ko || "");
+    sync(setShippingNoticeDe, previous.store?.shippingNotice?.de || "", config.store?.shippingNotice?.de || "");
+    sync(setShippingNoticeEn, previous.store?.shippingNotice?.en || "", config.store?.shippingNotice?.en || "");
+    sync(setTickers, previous.store?.tickers || [], config.store?.tickers || []);
+    if (config.store?.hotDealSettings) sync(setHotDealSettings, previous.store?.hotDealSettings, config.store.hotDealSettings);
+    if (config.store?.coldChain) sync(setColdChain, previous.store?.coldChain, config.store.coldChain);
+    if (config.searchKeywords) sync(setSearchKeywordsText, (previous.searchKeywords || []).join(", "), config.searchKeywords.join(", "));
+    if (config.groupBuying) sync(setGroupBuying, previous.groupBuying || [], config.groupBuying);
+    if (config.prospekt) sync(setProspekt, previous.prospekt, config.prospekt);
+    if (config.subscriptionPlans) sync(setSubscriptionPlans, previous.subscriptionPlans || [], config.subscriptionPlans);
+    if (config.store?.productPage) sync(setProductPage, previous.store?.productPage || {}, config.store.productPage);
+    if (config.store?.cartPage) sync(setCartPage, previous.store?.cartPage || {}, config.store.cartPage);
+    if (config.store?.myPage) sync(setMyPage, previous.store?.myPage || {}, config.store.myPage);
+    previousConfig.current = config;
+    if (force) resetRequested.current = false;
+  }, [config, fetcher.state, fetcher.data]);
 
   const isSubmitting = fetcher.state !== "idle";
+  const previewBanner = (config.banners || []).find((b) => {
+    const now = new Date();
+    return b.isActive && (!b.startsAt || new Date(b.startsAt) <= now) &&
+      (!b.endsAt || new Date(b.endsAt) >= now);
+  });
   const activeBannerCount = (config.banners || []).filter((b) => b.isActive).length;
   const activeDealCount = (config.hotDeals || []).filter((d) => d.isActive).length;
   const activeCategoryCount = (config.categories || []).filter((c) => c.isActive).length;
@@ -1727,6 +1746,7 @@ export default function AppManagementPage() {
       return;
     }
     const fd = new FormData();
+    resetRequested.current = true;
     fd.append("intent", "reset_defaults");
     fetcher.submit(fd, { method: "post" });
   };
@@ -1734,9 +1754,9 @@ export default function AppManagementPage() {
   return (
     <Page
       title="모바일 앱 관리 (Storefront CMS)"
-      subtitle="이곳에서 변경한 모든 배너, 특가, 카테고리 및 배송 안내 사항은 다와요 모바일 앱에 실시간으로 즉시 적용됩니다."
+      subtitle="각 항목을 저장하면 앱 설정에 반영됩니다. 앱에서 확인하는 시점에 따라 적용이 지연될 수 있습니다."
       primaryAction={{
-        content: isSubmitting ? "동기화 중..." : "앱 즉시 배포 (Publish)",
+        content: isSubmitting ? "동기화 중..." : "저장된 설정 반영 요청",
         onAction: handlePublishNow,
         loading: isSubmitting,
       }}
@@ -1762,38 +1782,24 @@ export default function AppManagementPage() {
             border: "1px solid #E5E7EB",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              flexWrap: "wrap",
-            }}
-          >
-            {TOP_MENU_TABS.map((tab) => {
-              const isSelected = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  style={{
-                    padding: "7px 15px",
-                    borderRadius: "20px",
-                    border: "none",
-                    fontSize: "13px",
-                    fontWeight: isSelected ? 600 : 500,
-                    backgroundColor: isSelected ? "#1A1A1A" : "#F1F2F4",
-                    color: isSelected ? "#FFFFFF" : "#4B5563",
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+          <nav aria-label="앱 관리 메뉴" style={{ display: "grid", gap: "12px", flex: "1 1 100%" }}>
+            {MENU_GROUPS.map((group) => (
+              <div key={group.label} style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+                <span style={{ color: "#6B7280", fontSize: "12px", fontWeight: 600, minWidth: "78px" }}>{group.label}</span>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {TOP_MENU_TABS.filter((tab) => group.ids.includes(tab.id)).map((tab) => {
+                    const isSelected = activeTab === tab.id;
+                    return (
+                      <button key={tab.id} type="button" aria-pressed={isSelected} onClick={() => setActiveTab(tab.id)}
+                        style={{ padding: "8px 14px", borderRadius: "20px", border: "1px solid", borderColor: isSelected ? "#1A1A1A" : "#E5E7EB", fontSize: "13px", fontWeight: isSelected ? 600 : 500, backgroundColor: isSelected ? "#1A1A1A" : "#F9FAFB", color: isSelected ? "#FFFFFF" : "#374151", cursor: "pointer" }}>
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </nav>
 
           <div
             style={{
@@ -1809,8 +1815,8 @@ export default function AppManagementPage() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
-                background: "#ECFDF5",
-                color: "#065F46",
+                background: "#F3F4F6",
+                color: "#4B5563",
                 padding: "4px 10px",
                 borderRadius: "12px",
                 fontWeight: 600,
@@ -1821,13 +1827,15 @@ export default function AppManagementPage() {
                   width: "6px",
                   height: "6px",
                   borderRadius: "50%",
-                  backgroundColor: "#10B981",
+                  backgroundColor: "#9CA3AF",
                 }}
               />
-              실시간 연동 활성 (v.{String(config.configVersion).slice(-6)})
+              저장된 설정 버전: {String(config.configVersion).slice(-6)}
             </span>
           </div>
         </div>
+
+        <Text as="p" tone="subdued">각 항목의 저장 버튼을 먼저 눌러 주세요. 상단의 반영 요청은 저장하지 않은 입력 내용을 저장하지 않습니다.</Text>
 
         {/* ACTION FEEDBACK BANNER */}
         {fetcher.data?.message && (
@@ -1863,7 +1871,7 @@ export default function AppManagementPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
                 gap: "20px",
               }}
             >
@@ -2026,7 +2034,7 @@ export default function AppManagementPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
                 gap: "20px",
               }}
             >
@@ -2238,7 +2246,7 @@ export default function AppManagementPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.1fr 0.9fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
               gap: "20px",
               alignItems: "start",
             }}
@@ -2634,7 +2642,7 @@ export default function AppManagementPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.1fr 0.9fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
               gap: "20px",
               alignItems: "start",
             }}
@@ -3279,7 +3287,7 @@ export default function AppManagementPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.1fr 0.9fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
               gap: "20px",
               alignItems: "start",
             }}
@@ -3719,7 +3727,7 @@ export default function AppManagementPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.1fr 0.9fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
               gap: "20px",
               alignItems: "start",
             }}
@@ -5102,7 +5110,7 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {visitedTabs.has("customer-requests") && (
           <div style={{ display: activeTab === "customer-requests" ? "block" : "none" }}>
-            <CustomerRequestsManager />
+            <CustomerRequestsHub active={activeTab === "customer-requests"} />
           </div>
         )}
 
@@ -5133,6 +5141,7 @@ export default function AppManagementPage() {
             <div
               style={{
                 width: "375px",
+                maxWidth: "100%",
                 background: "#FFFFFF",
                 borderRadius: "32px",
                 border: "8px solid #1E293B",
@@ -5184,11 +5193,11 @@ export default function AppManagementPage() {
               </div>
 
               {/* Hero Banner Preview */}
-              {config.banners?.[0] && (
+              {previewBanner && (
                 <div style={{ padding: "12px" }}>
                   <div
                     style={{
-                      background: config.banners[0].bgGradient,
+                      background: previewBanner.bgGradient,
                       borderRadius: "16px",
                       padding: "16px",
                       color: "#FFFFFF",
@@ -5208,7 +5217,7 @@ export default function AppManagementPage() {
                           fontWeight: 700,
                         }}
                       >
-                        {config.banners[0].tag?.ko}
+                        {previewBanner.tag?.ko}
                       </span>
                       <div
                         style={{
@@ -5218,7 +5227,7 @@ export default function AppManagementPage() {
                           lineHeight: 1.3,
                         }}
                       >
-                        {config.banners[0].title?.ko}
+                        {previewBanner.title?.ko}
                       </div>
                       <div
                         style={{
@@ -5227,12 +5236,12 @@ export default function AppManagementPage() {
                           marginTop: "4px",
                         }}
                       >
-                        {config.banners[0].sub?.ko}
+                        {previewBanner.sub?.ko}
                       </div>
                     </div>
-                    {config.banners[0].image && (
+                    {previewBanner.image && (
                       <img
-                        src={config.banners[0].image}
+                        src={previewBanner.image}
                         alt=""
                         style={{
                           width: "72px",

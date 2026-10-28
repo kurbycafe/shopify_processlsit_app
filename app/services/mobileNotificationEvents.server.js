@@ -43,13 +43,13 @@ export async function queueFulfillmentPush({ db, shop, payload, admin, isEvent =
     title: delivered ? "배송 완료 안내" : "상품 출고 안내", body: `${String(order.name || "주문").slice(0, 60)} 주문의 ${delivered ? "배송이 완료되었습니다." : "상품이 출고되었습니다."}`, target: { type: "order", id: order.id } });
 }
 
-export async function queueSupportReplyPush({ db, shop, id, reply }) {
+export async function queueSupportReplyPush({ db, shop, id, reply, messageId }) {
   if (!reply?.trim()) return;
-  const record = await db.customerRequest.findFirst({ where: { id, shop, type: { in: ["SUPPORT", "CLAIM"] } } });
+  const record = await db.customerRequest.findFirst({ where: { id, shop, type: { in: ["SUPPORT", "CLAIM", "RETURN"] } } });
   if (!validCustomerId(record?.customerId)) return;
   const cleanReply = reply.trim();
   const preview = cleanReply.length > 80 ? cleanReply.slice(0, 80) + "..." : cleanReply;
-  await queueCustomerNotification({ db, shop, customerId: record.customerId, category: "SUPPORT", eventKey: `reply:${id}:${pushKey(reply)}`,
+  await queueCustomerNotification({ db, shop, customerId: record.customerId, category: "SUPPORT", eventKey: `reply:${id}:${messageId || pushKey(reply)}`,
     title: "고객센터 답변", body: preview || "문의하신 내용에 답변이 등록되었습니다.", target: { type: "support", id } });
 }
 

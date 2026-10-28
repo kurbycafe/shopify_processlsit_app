@@ -394,12 +394,12 @@ export function invalidateStorefrontCache(rawShop = null) {
  */
 export async function getStorefrontConfig(
   rawShop,
-  { db = prisma, includeInactive = false, bypassCache = false } = {}
+  { db = prisma, includeInactive = false, bypassCache = false, includeRecipes = true } = {}
 ) {
   const shop = await ensureStorefrontSeeded(rawShop, db);
   const shopAliases = getShopAliases(shop);
 
-  if (!includeInactive && !bypassCache && db === prisma) {
+  if (!includeInactive && !bypassCache && includeRecipes && db === prisma) {
     const cached = storefrontConfigCache.get(shop);
     if (cached && Date.now() - cached.timestamp < STOREFRONT_CACHE_TTL_MS) {
       return structuredClone(cached.data);
@@ -432,7 +432,7 @@ export async function getStorefrontConfig(
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     }),
-    db.recipe?.findMany
+    includeRecipes && db.recipe?.findMany
       ? db.recipe.findMany({
           where: {
             shop: { in: shopAliases },
@@ -602,7 +602,7 @@ export async function getStorefrontConfig(
     giftCardVariants: extended.giftCardVariants || {},
   };
 
-  if (!includeInactive && db === prisma) {
+  if (!includeInactive && includeRecipes && db === prisma) {
     storefrontConfigCache.set(shop, {
       data: structuredClone(result),
       timestamp: Date.now(),

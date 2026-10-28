@@ -31,6 +31,7 @@ const STATUS_TONES = {
 export default function B2bRequestsManager() {
   const fetcher = useFetcher();
   const updateFetcher = useFetcher();
+  const loadRequests = fetcher.load;
 
   const [statusFilter, setStatusFilter] = useState("REQUESTED");
   const [searchQuery, setSearchQuery] = useState("");
@@ -40,11 +41,11 @@ export default function B2bRequestsManager() {
 
   // Load B2B requests on mount and when statusFilter changes
   useEffect(() => {
-    fetcher.load(
+    loadRequests(
       `/app/customer-requests?type=B2B&status=${encodeURIComponent(statusFilter)}`
     );
     setCurrentCursor(null);
-  }, [statusFilter, fetcher]);
+  }, [statusFilter, loadRequests]);
 
   // Re-fetch when status update completes
   useEffect(() => {
@@ -53,14 +54,14 @@ export default function B2bRequestsManager() {
       updateFetcher.state === "idle" &&
       updateFetcher.data?.success
     ) {
-      fetcher.load(
+      loadRequests(
         `/app/customer-requests?type=B2B&status=${encodeURIComponent(statusFilter)}${
           currentCursor ? `&cursor=${encodeURIComponent(currentCursor)}` : ""
         }`
       );
     }
     prevUpdateState.current = updateFetcher.state;
-  }, [updateFetcher.state, updateFetcher.data, statusFilter, currentCursor, fetcher]);
+  }, [updateFetcher.state, updateFetcher.data, statusFilter, currentCursor, loadRequests]);
 
   const rawRequests = useMemo(
     () => fetcher.data?.requests || [],
@@ -170,6 +171,7 @@ export default function B2bRequestsManager() {
 
             <TextField
               label="상호명, 담당자, 이메일, 전화번호, VAT ID 검색"
+              helpText="검색은 현재 불러온 페이지의 항목에 적용됩니다."
               value={searchQuery}
               onChange={setSearchQuery}
               placeholder="예: 다와요 레스토랑, DE123456789, b2b@company.com"

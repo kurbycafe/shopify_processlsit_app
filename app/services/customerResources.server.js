@@ -1,3 +1,4 @@
+import { customerSupportMessage } from "./customerConversation.server.js";
 import { customerNotificationInbox } from "./mobileNotificationQueue.server.js";
 import { guestNoticeDevice } from "./mobileGuestPush.server.js";
 import { saveMobileRestockInterest } from "./mobileNotificationEvents.server.js";
@@ -54,6 +55,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
   if(resource==="community-comments")return customerComments({db,shop,request,verify,input:request.method==="GET"?undefined:await readJsonPayload(request,4096)});
   if(resource==="community-reactions")return customerReaction({db,shop,request,verify,input:await readJsonPayload(request,2048)});
   if(resource==="customer-requests")return customerRequestHistory({db,shop,request,verify});
+  if(resource==="support-conversation")return customerSupportMessage({db,shop,request,verify,input:await readJsonPayload(request,20000)});
   if(resource==="loyalty")return customerLoyalty({db,loyalty,shop,request,customerQuery,customerId:await requireCustomer(verify,request,shop),input:request.method==="GET"?undefined:await readJsonPayload(request,2048)});
   if(resource==="attendance")return customerAttendance({db,shop,request,verify,loyalty,input:request.method==="GET"?undefined:await readJsonPayload(request,1024)});
   if(resource==="account-delete-request")return customerDeleteRequest({db,shop,request,verify,input:await readJsonPayload(request,2048)});

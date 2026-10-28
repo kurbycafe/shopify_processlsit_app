@@ -1,10 +1,11 @@
+import { appendSupportMessage, updateSupportInternal } from "../services/customerConversation.server.js";
 import { Page } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { listCustomerRequests, updateCustomerRequest } from "../services/customerRequests.server.js";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { MobileApiError } from "../services/mobileApi.server.js";
-import CustomerRequestsManager from "../components/CustomerRequestsManager.jsx";
+import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -19,6 +20,8 @@ export const loader = async ({ request }) => {
         status,
         type,
         after: search.get("cursor"),
+        search: search.get("q") || "",
+        supportOnly: search.get("group") === "support",
       })),
       status,
       type,
@@ -52,6 +55,14 @@ export const action = async ({ request }) => {
   const form = await request.formData();
   const replyValue = form.has("reply") ? String(form.get("reply") ?? "") : undefined;
   try {
+    if (form.get("intent") === "conversation_message") {
+      const result = await appendSupportMessage({ db: prisma, shop: session.shop, requestId: form.get("id"), sender: "admin", text: form.get("text"), messageId: form.get("messageId") });
+      if (!result.duplicate) await dispatchMobileNotifications({ db: prisma, shop: session.shop, limit: 20 }).catch(() => {});
+      return result;
+    }
+    if (form.get("intent") === "conversation_internal") {
+      return await updateSupportInternal({ db: prisma, shop: session.shop, requestId: form.get("id"), note: form.get("note"), assignee: form.get("assignee") });
+    }
     const result = await updateCustomerRequest({
       db: prisma,
       shop: session.shop,
@@ -81,7 +92,7 @@ export const action = async ({ request }) => {
 export default function CustomerRequestsPage() {
   return (
     <Page fullWidth>
-      <CustomerRequestsManager />
+      <CustomerRequestsHub />
     </Page>
   );
 }

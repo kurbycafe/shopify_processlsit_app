@@ -13,6 +13,7 @@ const POST_RESOURCES = new Set([
   "return-request",
   "notification-preferences",
   "support-request",
+  "support-conversation",
   "subscription-request",
   "push-token",
 ]);
