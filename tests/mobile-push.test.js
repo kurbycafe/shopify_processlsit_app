@@ -8,6 +8,7 @@ import { queueCustomerNotification, customerNotificationInbox, dispatchMobileNot
 import { queueOrderPush, queueSupportReplyPush, saveMobileRestockInterest, queueRestockPush } from "../app/services/mobileNotificationEvents.server.js";
 import { createPushCampaign, expandPushCampaigns, retryPushDelivery } from "../app/services/mobilePushAdmin.server.js";
 import { authorizePushWorker } from "../app/services/mobilePushWorkerAuth.server.js";
+import { customerCartReminder, checkCartReminders } from '../app/services/cartReminders.server.js';
 
 const shop = "dawayo.myshopify.com", owner = "gid://shopify/Customer/1", other = "gid://shopify/Customer/2";
 const now = new Date("2026-10-26T12:00:00Z");
@@ -62,6 +63,42 @@ async function consent(db, customerId = owner, patch = {}) {
 const register = (db, input = identity, customerId = owner) => registerMobileDevice({ db, shop, request, verify: async () => customerId, input });
 const queue = (db, extra = {}) => queueCustomerNotification({ db, shop, customerId: owner, eventKey: "event-1", category: "ORDER", title: "Order update", body: "Private order detail", target: { type: "order", id: "gid://shopify/Order/1" }, now, ...extra });
 const dispatch = (db, send, extra = {}) => dispatchMobileNotifications({ db, shop, now: new Date(+now + 1000), configured: true, send, ...extra });
+
+test('cart reminder needs consent, waits 24 hours, and checkout suspension cancels queued delivery',async()=>{
+  const {db,rows}=memory(); const args={db,shop,request,verify:async()=>owner,now};
+  await assert.rejects(customerCartReminder({...args,input:{action:'enable'}}),{status:409});
+  await consent(db); await register(db); await customerCartReminder({...args,input:{action:'enable'}});
+  const items=[{variantId:'gid://shopify/ProductVariant/11',quantity:1}];
+  await customerCartReminder({...args,input:{action:'sync',items,suspended:false}});
+  await checkCartReminders({db,shop,now:new Date(+now+23*3600000)});
+  assert.equal(rows.filter(row=>row.type==='MOBILE_NOTIFICATION').length,0);
+  await checkCartReminders({db,shop,now:new Date(+now+25*3600000)});
+  assert.equal(rows.filter(row=>row.type==='MOBILE_NOTIFICATION').length,1);
+  await customerCartReminder({...args,input:{action:'sync',items:[],suspended:true}});
+  let sent=0;await dispatch(db,async()=>{sent++;return 'provider';},{now:new Date(+now+25*3600000)});
+  assert.equal(sent,0);assert.equal(rows.find(row=>row.type==='PUSH_DELIVERY').status,'SKIPPED');
+});
+test('an order only suppresses a reminder for an older cart snapshot',async()=>{
+  const {db,rows}=memory();await consent(db);
+  const args={db,shop,request,verify:async()=>owner,now};
+  await customerCartReminder({...args,input:{action:'enable'}});
+  await customerCartReminder({...args,input:{action:'sync',items:[{variantId:'gid://shopify/ProductVariant/11',quantity:1}],suspended:false}});
+  const payload={id:5,customer:{id:1},name:'#5',created_at:new Date(+now-3600000).toISOString()};
+  await queueOrderPush({db,shop,payload,topic:'orders/updated',now});
+  assert.equal(rows.find(r=>r.type==='CART_REMINDER').status,'ACTIVE');
+  payload.created_at=new Date(+now+3600000).toISOString();
+  await queueOrderPush({db,shop,payload,topic:'orders/updated',now});
+  assert.equal(rows.find(r=>r.type==='CART_REMINDER').status,'SUSPENDED');
+});
+
+test('price alert cancelled after enqueue never reaches the push provider', async () => {
+  const {db,rows}=memory();await consent(db);await register(db);
+  const alert=await db.customerRequest.upsert({where:{requestKey:'price-test'},create:{shop,customerId:owner,type:'PRICE_ALERT',requestKey:'price-test',status:'NOTIFIED',payload:{cycle:'cycle-one'}},update:{}});
+  await queue(db,{category:'MARKETING',eventKey:`price:${alert.id}:cycle-one`,target:{type:'product',id:'gid://shopify/Product/9'}});
+  await db.customerRequest.updateMany({where:{id:alert.id,shop,status:'NOTIFIED'},data:{status:'DISABLED'}});
+  let count=0;await dispatch(db,async()=>{count++;return 'provider-id';});
+  assert.equal(count,0);assert.equal(rows.find(row=>row.type==='PUSH_DELIVERY').status,'SKIPPED');
+});
 
 test("device registration requires an authenticated customer and saved consent", async () => {
   const { db, rows } = memory();

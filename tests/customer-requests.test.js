@@ -22,7 +22,7 @@ function storage() {
 }
 test("business inquiry receipts refer to persisted, deduplicated, shop-scoped records", async () => {
   const db = storage();
-  const resolve = createCustomerResolver({ db });
+  const resolve = createCustomerResolver({ db, verify: async () => customerId });
   const input = { companyName: "Company", email: " SALES@example.com ", message: "Details", secret: "DO_NOT_SAVE" };
   const first = await resolve({ request: req(input), resource: "b2b-inquiry", shop });
   const second = await resolve({ request: req(input), resource: "b2b-inquiry", shop });
@@ -31,13 +31,41 @@ test("business inquiry receipts refer to persisted, deduplicated, shop-scoped re
   assert.equal(db.saved.size, 1);
   const record = [...db.saved.values()][0];
   assert.equal(record.shop, shop);
+  assert.equal(record.customerId, customerId);
   assert.equal(record.payload.email, "sales@example.com");
   assert.equal(JSON.stringify(record).includes("DO_NOT_SAVE"), false);
   await resolve({ request: req(input), resource: "b2b-inquiry", shop: "other.myshopify.com" });
   assert.equal(db.saved.size, 2);
 });
+test("order change requests require the authenticated customer's exact order and only create a support request", async () => {
+  const db = storage();
+  let belongs = false;
+  const resolve = createCustomerResolver({db, customerQuery: async () => ({id:customerId,orders:{nodes:belongs ? [{id:orderId,name:'#123'}] : []}})});
+  const input={orderId,kind:'address',details:'New delivery address'};
+  await assert.rejects(resolve({request:req(input),resource:'order-change-request',shop}),{status:404});
+  assert.equal(db.saved.size,0);
+  belongs=true;
+  const first=await resolve({request:req(input),resource:'order-change-request',shop});
+  const retry=await resolve({request:req(input),resource:'order-change-request',shop});
+  assert.equal(first.accepted,true);
+  assert.equal(first.requestId,retry.requestId);
+  assert.equal(db.saved.size,1);
+  const record=[...db.saved.values()][0];
+  assert.equal(record.customerId,customerId);
+  assert.equal(record.orderId,orderId);
+  assert.equal(record.type,'SUPPORT');
+  assert.equal(record.payload.kind,'address');
+});
+test("product inquiry keeps the selected product identity and rejects invalid identifiers", async () => {
+  const db=storage(); const resolve=createCustomerResolver({db,verify:async()=>customerId});
+  const input={category:'inquiry',message:'How should it be stored?',productId:'gid://shopify/Product/123',productTitle:'Product'};
+  const result=await resolve({request:req(input),resource:'support-request',shop});
+  assert.equal(result.accepted,true);
+  const record=[...db.saved.values()][0];assert.equal(record.customerId,customerId);assert.equal(record.payload.productId,input.productId);
+  await assert.rejects(resolve({request:req({...input,productId:'invalid'}),resource:'support-request',shop}),{status:400});
+});
 test("failed persistence, malformed object, oversized UTF-8 payload and unsupported content never report success", async () => {
-  const resolve = createCustomerResolver({ db: { customerRequest: { upsert: async () => { throw Error("DB offline"); } } } });
+  const resolve = createCustomerResolver({ db: { customerRequest: { upsert: async () => { throw Error("DB offline"); } } }, verify: async () => customerId });
   const handler = createCustomerHandler(resolve, { CUSTOMER_API_SHOP: shop });
   const result = await handler({ request: req({ companyName: "Company", email: "ok@example.com" }), params: { resource: "b2b-inquiry" } });
   assert.equal(result.status, 502);

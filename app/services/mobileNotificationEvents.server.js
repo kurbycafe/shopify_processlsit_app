@@ -9,6 +9,9 @@ export async function queueOrderPush({ db, shop, payload, topic, now = new Date(
   const customerId = gid("Customer", payload?.customer?.id);
   const orderId = gid("Order", payload?.id);
   if (!validCustomerId(customerId) || !orderId) return;
+  // Only an order placed after the cart snapshot makes its reminder obsolete.
+  const orderTime=Date.parse(payload?.created_at || payload?.processed_at || '');
+  if(Number.isFinite(orderTime))await db.customerRequest.updateMany({where:{shop,customerId,type:'CART_REMINDER',status:{in:['ACTIVE','NOTIFIED']},updatedAt:{lte:new Date(orderTime+60000)}},data:{status:'SUSPENDED'}});
   const orderName = String(payload.name || "주문").slice(0, 60);
   const queue = (event, title, body) => queueCustomerNotification({ db, shop, customerId, category: "ORDER", eventKey: `${orderId}:${event}`, title, body, target: { type: "order", id: orderId }, now });
   if (payload.cancelled_at || payload.financial_status === "voided") {

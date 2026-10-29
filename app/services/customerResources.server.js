@@ -1,4 +1,7 @@
 import { customerSupportMessage } from "./customerConversation.server.js";
+import { customerCartReminder } from './cartReminders.server.js';
+import { customerPriceAlerts } from './priceAlerts.server.js';
+import { customerReferral } from './customerReferral.server.js';
 import { customerNotificationInbox } from "./mobileNotificationQueue.server.js";
 import { guestNoticeDevice } from "./mobileGuestPush.server.js";
 import { saveMobileRestockInterest } from "./mobileNotificationEvents.server.js";
@@ -11,7 +14,7 @@ import { MobileApiError, readId, readPage } from "./mobileApi.server.js";
 import { getCustomerOrders, getCustomerOrderItems } from "./customerOrders.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
 import { generateCustomerInvoiceToken } from "../utils/customerInvoiceTokens.js";
-import { saveBusinessInquiry, saveReturnRequest, customerNotificationPreferences, saveSupportRequest, saveSubscriptionRequest, registerPushToken, customerPhotoReviews } from "./customerRequests.server.js";
+import { saveBusinessInquiry, saveReturnRequest, saveOrderChangeRequest, customerNotificationPreferences, saveSupportRequest, saveSubscriptionRequest, registerPushToken, customerPhotoReviews } from "./customerRequests.server.js";
 
 async function readJsonPayload(request, maxBytes = 8192) {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -48,6 +51,9 @@ async function readJsonPayload(request, maxBytes = 8192) {
 
 export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
+  if (resource === 'cart-reminder') return customerCartReminder({db,shop,request,verify,input:request.method==='GET'?undefined:await readJsonPayload(request,12000)});
+  if (resource === 'price-alerts') return customerPriceAlerts({db,shop,request,verify,graphql,input:request.method === 'GET' ? undefined : await readJsonPayload(request,2048)});
+  if (resource === 'referral') return customerReferral({db,shop,request,verify,input:request.method === 'GET' ? undefined : await readJsonPayload(request,2048)});
   if (resource === "guest-notice-device") return guestNoticeDevice({ db, shop, input: await readJsonPayload(request, 4096) });
   if (resource === "notifications") return customerNotificationInbox({ db, shop, customerId: await requireCustomer(verify, request, shop), request, input: request.method === "GET" ? undefined : await readJsonPayload(request, 2048) });
   if(resource==="product-temperatures")return customerProductTemperatures({request,shop,graphql});
@@ -152,11 +158,13 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     };
   }
   if (resource === "b2b-inquiry") {
-    return saveBusinessInquiry({ db, shop, input: await readJsonPayload(request, 8192) });
+    const customerId = request.headers.get("authorization") ? await requireCustomer(verify, request, shop) : null;
+    return saveBusinessInquiry({ db, shop, customerId, input: await readJsonPayload(request, 8192) });
   }
   if (resource === "return-request") {
     return saveReturnRequest({ db, shop, request, customerQuery, input: await readJsonPayload(request, 8192) });
   }
+  if (resource === "order-change-request") return saveOrderChangeRequest({db, shop, request, customerQuery, input:await readJsonPayload(request,8192)});
   if (resource === "support-request") {
     return saveSupportRequest({ db, shop, request, verify, input: await readJsonPayload(request, 620000) });
   }

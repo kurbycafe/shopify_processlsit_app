@@ -29,7 +29,7 @@ function identity(id) {
   if (!/^gid:\/\/shopify\/Customer\/\d+$/.test(id || "")) throw new MobileApiError(401, "LOGIN_REQUIRED", "Please sign in again.");
   return id;
 }
-export async function saveBusinessInquiry({ db, shop, input }) {
+export async function saveBusinessInquiry({ db, shop, input, customerId = null }) {
   const companyName = text(input.companyName, 200, true);
   const email = text(input.email, 254, true).toLowerCase();
   if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) throw new MobileApiError(400, "INVALID_EMAIL", "Enter a valid business email address.");
@@ -37,8 +37,8 @@ export async function saveBusinessInquiry({ db, shop, input }) {
     vatId: text(input.vatId, 80), message: text(input.message, 4000) };
   // A retried submission returns its persisted receipt rather than creating duplicates.
   const record = await requestModel(db).upsert({
-    where: { requestKey: requestKey([shop, "B2B", payload]) },
-    create: { shop, type: "B2B", requestKey: requestKey([shop, "B2B", payload]), payload },
+    where: { requestKey: requestKey([shop, "B2B", customerId, payload]) },
+    create: { shop, customerId, type: "B2B", requestKey: requestKey([shop, "B2B", customerId, payload]), payload },
     update: {},
     select: { id: true, createdAt: true, status: true },
   });
@@ -72,6 +72,25 @@ export async function saveReturnRequest({ db, shop, request, customerQuery, inpu
     select: { id: true, createdAt: true, status: true },
   });
   return { accepted: true, returnId: record.id, orderId: order.id, status: record.status, submittedAt: record.createdAt };
+}
+
+export async function saveOrderChangeRequest({ db, shop, request, customerQuery, input }) {
+  if (!customerQuery) throw new MobileApiError(503, "NOT_CONFIGURED", "Customer authentication is unavailable.");
+  const rawId = text(input.orderId, 100, true);
+  if (!/^gid:\/\/shopify\/Order\/\d+$/.test(rawId)) throw new MobileApiError(400, "INVALID_ORDER_ID", "Invalid order ID.");
+  const kind = input.kind;
+  if (!["cancel", "address"].includes(kind)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request type.");
+  const details = text(input.details, 2000, kind === "address");
+  const customer = await customerQuery(request, shop, CUSTOMER_RETURN_ORDER_QUERY, {search:`id:${rawId.split('/').pop()}`});
+  const customerId = identity(customer.id);
+  if (!Array.isArray(customer.orders?.nodes)) throw new MobileApiError(502, "SHOPIFY_UNAVAILABLE", "Unable to verify order ownership.");
+  const order = customer.orders.nodes.find(item => item.id === rawId);
+  if (!order) throw new MobileApiError(404, "ORDER_NOT_FOUND", "Order not found.");
+  const message = `${kind === 'cancel' ? '주문 취소 요청' : '배송 주소 변경 요청'}${details ? `: ${details}` : ''}`;
+  const payload = {category:'order_change', kind, orderId:rawId, orderName:order.name || null, message};
+  const key = requestKey([shop, 'ORDER_CHANGE', customerId, rawId, kind, details]);
+  const record = await requestModel(db).upsert({where:{requestKey:key},create:{shop,customerId,orderId:rawId,type:'SUPPORT',requestKey:key,payload},update:{},select:{id:true,status:true,createdAt:true}});
+  return {accepted:true, requestId:record.id, status:record.status, submittedAt:record.createdAt};
 }
 
 export async function customerNotificationPreferences({ db, shop, request, verify, input }) {
@@ -227,6 +246,9 @@ export async function saveSupportRequest({ db, shop, request, verify, input }) {
     throw new MobileApiError(400, "INVALID_EMAIL", "Enter a valid email address.");
   }
   const orderId = text(input.orderId, 100, category === "claim");
+  const productId = text(input.productId, 100);
+  if (productId && !/^gid:\/\/shopify\/Product\/\d+$/.test(productId)) throw new MobileApiError(400, "INVALID_PRODUCT_ID", "Invalid product ID.");
+  const productTitle = text(input.productTitle, 300);
   const claimType = category === "claim" ? text(input.claimType || "damage", 50) : null;
   if (input.photos !== undefined && (!Array.isArray(input.photos) || input.photos.length > 3)) throw new MobileApiError(400, "INVALID_INPUT", "Attach up to three supported photos.");
   const photos = (input.photos || []).map(photo => reviewImage(photo));
@@ -234,7 +256,7 @@ export async function saveSupportRequest({ db, shop, request, verify, input }) {
   const photoCount = photos.length;
   const customerId = await optionalCustomerId(request, shop, verify);
   const type = category === "claim" ? "CLAIM" : "SUPPORT";
-  const payload = { category, claimType, orderId: orderId || null, email: email || null, message, photoCount, photos };
+  const payload = { category, claimType, orderId: orderId || null, ...(productId ? {productId,productTitle} : {}), email: email || null, message, photoCount, photos };
   const key = requestKey([shop, type, customerId, orderId || null, payload]);
   const record = await requestModel(db).upsert({
     where: { requestKey: key },

@@ -1151,6 +1151,21 @@ export const action = async ({ request }) => {
         myPage: nextMyPage,
       };
 
+      const appUpdateCode = formData.get("androidVersionCode");
+      if (appUpdateCode !== null) {
+        const value = String(appUpdateCode).trim();
+        if (value && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1)) {
+          return { success: false, error: "Android 버전 코드는 양의 정수로 입력해 주세요." };
+        }
+        nextExtended.appUpdate = value ? {androidVersionCode: Number(value)} : null;
+      }
+      const storeAddress = formData.get("storeAddress"), storeHours = formData.get("storeHours");
+      if (storeAddress !== null && storeHours !== null) {
+        const address=String(storeAddress).trim(), hours=String(storeHours).trim();
+        if (address.length > 300 || hours.length > 500) return {success:false,message:"매장 정보가 너무 깁니다."};
+        nextExtended.storeInfo={address,hours};
+      }
+
       const newVersion = String(Date.now());
       await saveStorefrontConfig(prisma, {
         where: { shop },
@@ -1577,6 +1592,9 @@ export default function AppManagementPage() {
   const [searchKeywordsText, setSearchKeywordsText] = useState(
     (config.searchKeywords || []).join(", ")
   );
+  const [androidVersionCode, setAndroidVersionCode] = useState(String(config.appUpdate?.androidVersionCode || ""));
+  const [storeAddress, setStoreAddress] = useState(config.storeInfo?.address || "");
+  const [storeHours, setStoreHours] = useState(config.storeInfo?.hours || "");
   const [groupBuying, setGroupBuying] = useState(config.groupBuying || []);
   const [prospekt, setProspekt] = useState(
     config.prospekt || {
@@ -1613,6 +1631,9 @@ export default function AppManagementPage() {
     if (config.store?.hotDealSettings) sync(setHotDealSettings, previous.store?.hotDealSettings, config.store.hotDealSettings);
     if (config.store?.coldChain) sync(setColdChain, previous.store?.coldChain, config.store.coldChain);
     if (config.searchKeywords) sync(setSearchKeywordsText, (previous.searchKeywords || []).join(", "), config.searchKeywords.join(", "));
+    sync(setAndroidVersionCode, String(previous.appUpdate?.androidVersionCode || ""), String(config.appUpdate?.androidVersionCode || ""));
+    sync(setStoreAddress, previous.storeInfo?.address || "", config.storeInfo?.address || "");
+    sync(setStoreHours, previous.storeInfo?.hours || "", config.storeInfo?.hours || "");
     if (config.groupBuying) sync(setGroupBuying, previous.groupBuying || [], config.groupBuying);
     if (config.prospekt) sync(setProspekt, previous.prospekt, config.prospekt);
     if (config.subscriptionPlans) sync(setSubscriptionPlans, previous.subscriptionPlans || [], config.subscriptionPlans);
@@ -4138,6 +4159,11 @@ export default function AppManagementPage() {
                 </InlineStack>
 
                 <Divider />
+                <TextField label="Google Play 최신 Android 버전 코드" value={androidVersionCode} onChange={setAndroidVersionCode} type="number" min="1" helpText="Play에 실제 배포한 버전 코드만 입력하세요. 비워두면 업데이트 안내를 표시하지 않습니다." autoComplete="off" />
+                <Divider />
+                <TextField label="매장 주소" value={storeAddress} onChange={setStoreAddress} maxLength={300} helpText="주소를 입력하면 앱의 길찾기에 사용됩니다." autoComplete="off" />
+                <TextField label="매장 영업시간" value={storeHours} onChange={setStoreHours} multiline={3} maxLength={500} helpText="실제 영업시간을 입력하세요. 비우면 미설정으로 표시됩니다." autoComplete="off" />
+                <Divider />
                 <TextField
                   label="모바일 검색창 추천 인기 검색어 (쉼표로 구분)"
                   value={searchKeywordsText}
@@ -4197,6 +4223,9 @@ export default function AppManagementPage() {
                   onClick={() => {
                     const fd = new FormData();
                     fd.append("intent", "save_store_config");
+                    fd.append("androidVersionCode", androidVersionCode);
+                    fd.append("storeAddress",storeAddress);
+                    fd.append("storeHours",storeHours);
                     fd.append("freeShippingThreshold", freeShippingThreshold);
                     fd.append("shippingNoticeKo", shippingNoticeKo);
                     fd.append("shippingNoticeDe", shippingNoticeDe);

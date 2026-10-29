@@ -7,7 +7,16 @@ import {
   parseExtendedSettings,
   getStorefrontConfig,
   recordSearchKeyword,
+  buildSearchRankings,
 } from "../app/services/mobileStorefront.server.js";
+
+test('store settings preserve configured update version and real location without inventing hours', () => {
+  const parsed=parseExtendedSettings({appUpdate:{androidVersionCode:30},storeInfo:{address:'Actual address',hours:'Mon 09:00–18:00'}});
+  assert.equal(parsed.appUpdate.androidVersionCode,30);
+  assert.equal(parsed.storeInfo.hours,'Mon 09:00–18:00');
+  assert.equal(parseExtendedSettings({storeInfo:{address:'Here'}}).storeInfo.hours,'');
+  assert.equal(parseExtendedSettings({appUpdate:{androidVersionCode:'30'}}).appUpdate,null);
+});
 
 test("resolveCanonicalShop maps dawayo aliases to canonical shop while isolating other tenants", () => {
   assert.equal(resolveCanonicalShop("dawayo.myshopify.com"), "dawayo.de");
@@ -157,33 +166,19 @@ test("parseExtendedSettings preserves custom per-product storageTemp and MHD Dea
   assert.equal(parsed.productOverrides[0].pfand, 0.25);
 });
 
-test("recordSearchKeyword accumulates customer search counts and ranks by highest frequency", async () => {
-  let storeConfig = { id: "cfg-1", shop: "dawayo.de", tickersJson: {} };
-  const mockDb = {
-    mobileStorefrontConfig: {
-      findFirst: async () => storeConfig,
-      update: async ({ data }) => {
-        storeConfig = { ...storeConfig, ...data };
-        return storeConfig;
-      },
-      create: async ({ data }) => {
-        storeConfig = { id: "cfg-1", ...data };
-        return storeConfig;
-      },
-    },
-  };
-
-  await recordSearchKeyword("dawayo.de", "김치찌개", { db: mockDb });
-  await recordSearchKeyword("dawayo.de", "삼겹살", { db: mockDb });
-  const r3 = await recordSearchKeyword("dawayo.de", "삼겹살", { db: mockDb });
-
-  assert.equal(r3.recorded, true);
-  assert.equal(r3.searchRankings.length, 2);
-  assert.equal(r3.searchRankings[0].keyword, "삼겹살");
-  assert.equal(r3.searchRankings[0].count, 2);
-  assert.equal(r3.searchRankings[0].rank, 1);
-  assert.equal(r3.searchRankings[1].keyword, "김치찌개");
-  assert.equal(r3.searchRankings[1].count, 1);
-  assert.equal(r3.searchRankings[1].rank, 2);
+test("search rankings require ten events in the last hour and expire without a new write", async () => {
+  let config = {id:"cfg-1", shop:"dawayo.de", configVersion:"1", tickersJson:{searchKeywordStats:{old:{keyword:"old",count:100,updatedAt:new Date().toISOString()}}}};
+  const db = {mobileStorefrontConfig:{findFirst:async()=>config, updateMany:async({where,data})=>{
+    if (where.configVersion !== config.configVersion) return {count:0};
+    config = {...config,...data}; return {count:1};
+  }}};
+  let now = Date.parse("2026-10-29T12:00:00Z");
+  for (let i=0;i<9;i++) assert.deepEqual((await recordSearchKeyword("dawayo.de","김치",{db,now:()=>now})).searchRankings,[]);
+  const result=await recordSearchKeyword("dawayo.de","김치",{db,now:()=>now});
+  assert.equal(result.searchRankings[0].count,10);
+  assert.deepEqual(buildSearchRankings(config.tickersJson.searchKeywordStats, now + 3600000), []);
+  now += 3600000;
+  const expired = await recordSearchKeyword("dawayo.de","김치",{db,now:()=>now});
+  assert.equal(expired.count,1);
+  assert.deepEqual(expired.searchRankings,[]);
 });
-

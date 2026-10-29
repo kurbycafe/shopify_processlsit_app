@@ -165,22 +165,18 @@ export async function ensureStorefrontSeeded(rawShop, _db = prisma) {
 /**
  * Builds sorted search keyword rankings from aggregated customer search counts
  */
-export function buildSearchRankings(statsObj) {
+const SEARCH_WINDOW_MS = 60 * 60 * 1000;
+const SEARCH_MIN_COUNT = 10;
+function recentSearchEvents(entry, now = Date.now()) {
+  return Array.isArray(entry?.events) ? entry.events.filter(t => Number.isFinite(t) && t > now - SEARCH_WINDOW_MS && t <= now) : [];
+}
+export function buildSearchRankings(statsObj, now = Date.now()) {
   if (!statsObj || typeof statsObj !== "object" || Array.isArray(statsObj)) return [];
-  return Object.values(statsObj)
-    .filter((entry) => entry && typeof entry.keyword === "string" && entry.keyword.trim().length >= 2 && Number(entry.count) > 0)
-    .sort((a, b) => {
-      const countDiff = (Number(b.count) || 0) - (Number(a.count) || 0);
-      if (countDiff !== 0) return countDiff;
-      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
-    })
-    .slice(0, 10)
-    .map((entry, idx) => ({
-      rank: idx + 1,
-      keyword: entry.keyword.trim(),
-      count: Number(entry.count) || 1,
-      updatedAt: entry.updatedAt || null,
-    }));
+  return Object.values(statsObj).filter(entry => typeof entry?.keyword === "string" && entry.keyword.trim().length >= 2)
+    .map(entry => ({ keyword: entry.keyword.trim(), events: recentSearchEvents(entry, now) }))
+    .filter(entry => entry.events.length >= SEARCH_MIN_COUNT)
+    .sort((a, b) => b.events.length - a.events.length || Math.max(...b.events) - Math.max(...a.events))
+    .slice(0, 10).map((entry, idx) => ({rank: idx + 1, keyword: entry.keyword, count: entry.events.length, updatedAt: new Date(Math.max(...entry.events)).toISOString()}));
 }
 
 export function isLegacySeedSearchKeywords(arr) {
@@ -216,10 +212,6 @@ export function parseExtendedSettings(rawJson) {
       ? parsed.searchKeywordStats
       : {};
   const searchRankings = buildSearchRankings(rawStats);
-  const rawKeywords =
-    Array.isArray(parsed.searchKeywords) && !isLegacySeedSearchKeywords(parsed.searchKeywords)
-      ? parsed.searchKeywords.filter((k) => typeof k === "string" && k.trim())
-      : [];
 
   return {
     tickers:
@@ -252,12 +244,11 @@ export function parseExtendedSettings(rawJson) {
     subscriptionPlans: Array.isArray(parsed.subscriptionPlans)
       ? parsed.subscriptionPlans
       : structuredClone(DEFAULT_EXTENDED_SETTINGS.subscriptionPlans),
-    searchKeywords:
-      searchRankings.length > 0
-        ? searchRankings.map((r) => r.keyword)
-        : rawKeywords,
+    searchKeywords: searchRankings.map((r) => r.keyword),
     searchKeywordStats: rawStats,
     searchRankings,
+    appUpdate: parsed.appUpdate && Number.isSafeInteger(parsed.appUpdate.androidVersionCode) && parsed.appUpdate.androidVersionCode > 0 ? {androidVersionCode: parsed.appUpdate.androidVersionCode} : null,
+    storeInfo: { address: typeof parsed.storeInfo?.address === 'string' ? parsed.storeInfo.address.slice(0,300) : '', hours: typeof parsed.storeInfo?.hours === 'string' ? parsed.storeInfo.hours.slice(0,500) : '' },
     productPage: {
       ...DEFAULT_EXTENDED_SETTINGS.productPage,
       ...(parsed.productPage || {}),
@@ -279,85 +270,36 @@ export function parseExtendedSettings(rawJson) {
 /**
  * Records a customer search keyword and increments its cumulative search count
  */
-export async function recordSearchKeyword(rawShop, rawKeyword, { db = prisma } = {}) {
+export async function recordSearchKeyword(rawShop, rawKeyword, { db = prisma, now = () => Date.now() } = {}) {
   const clean = String(rawKeyword || "").replace(/\s+/g, " ").trim();
-  if (clean.length < 2 || clean.length > 40 || /^[ㄱ-ㅎㅏ-ㅣ]+$/.test(clean)) {
-    return { recorded: false, searchRankings: [], searchKeywords: [] };
-  }
-
+  if (clean.length < 2 || clean.length > 40 || /^[ㄱ-ㅎㅏ-ㅣ]+$/.test(clean)) return { recorded: false, searchRankings: [], searchKeywords: [] };
   const shop = resolveCanonicalShop(rawShop);
   const shopAliases = getShopAliases(shop);
-  const normKey = clean.toLowerCase();
-  const nowIso = new Date().toISOString();
-
-  const existing = await db.mobileStorefrontConfig.findFirst({
-    where: { shop: { in: shopAliases } },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  const currentExtended = parseExtendedSettings(existing?.tickersJson);
-  const currentStats = { ...(currentExtended.searchKeywordStats || {}) };
-  const prevEntry = currentStats[normKey];
-  currentStats[normKey] = {
-    keyword: clean,
-    count: (Number(prevEntry?.count) || 0) + 1,
-    updatedAt: nowIso,
-  };
-
-  // Prune to top 100 entries by count so JSON remains compact
-  const prunedStats = Object.fromEntries(
-    Object.entries(currentStats)
-      .sort(([, a], [, b]) => {
-        const diff = (Number(b?.count) || 0) - (Number(a?.count) || 0);
-        if (diff !== 0) return diff;
-        return String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""));
-      })
-      .slice(0, 100)
-  );
-
-  const searchRankings = buildSearchRankings(prunedStats);
-  const searchKeywords = searchRankings.map((r) => r.keyword);
-  const nextTickersJson = {
-    ...(existing?.tickersJson && typeof existing.tickersJson === "object" && !Array.isArray(existing.tickersJson)
-      ? existing.tickersJson
-      : DEFAULT_EXTENDED_SETTINGS),
-    searchKeywordStats: prunedStats,
-    searchKeywords,
-  };
-
-  const newVersion = String(Date.now());
-  if (existing?.id) {
-    await db.mobileStorefrontConfig.update({
-      where: { id: existing.id },
-      data: {
-        tickersJson: nextTickersJson,
-        configVersion: newVersion,
-      },
-    });
-  } else {
-    await db.mobileStorefrontConfig.create({
-      data: {
-        shop,
-        freeShippingThreshold: 60.0,
-        shippingNoticeKo: "독일 전역 60€ 이상 무료배송",
-        shippingNoticeDe: "Kostenloser Versand ab 60€ in ganz Deutschland",
-        shippingNoticeEn: "Free shipping over 60€ across Germany",
-        tickersJson: nextTickersJson,
-        configVersion: newVersion,
-      },
-    });
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const existing = await db.mobileStorefrontConfig.findFirst({ where: { shop: { in: shopAliases } }, orderBy: { updatedAt: "desc" } });
+    // A storefront configuration must already exist: never create or overwrite one as a side effect of search.
+    if (!existing) throw new Error("Storefront configuration unavailable");
+    const timestamp = now();
+    const settings = parseExtendedSettings(existing.tickersJson);
+    const stats = Object.create(null);
+    for (const [key, entry] of Object.entries(settings.searchKeywordStats || {})) {
+      const events = recentSearchEvents(entry, timestamp);
+      if (events.length && typeof entry.keyword === "string") stats[key] = {keyword: entry.keyword, events};
+    }
+    const key = clean.toLowerCase();
+    const events = [...(stats[key]?.events || []), timestamp];
+    stats[key] = {keyword: clean, events};
+    const searchRankings = buildSearchRankings(stats, timestamp);
+    const searchKeywords = searchRankings.map(r => r.keyword);
+    const next = {...(existing.tickersJson && typeof existing.tickersJson === "object" && !Array.isArray(existing.tickersJson) ? existing.tickersJson : {}), searchKeywordStats: stats, searchKeywords};
+    const newVersion = `${timestamp}-${crypto.randomUUID()}`;
+    const updated = await db.mobileStorefrontConfig.updateMany({where: {id: existing.id, configVersion: existing.configVersion}, data: {tickersJson: next, configVersion: newVersion}});
+    if (updated.count === 1) {
+      invalidateStorefrontCache(shop);
+      return {recorded: true, keyword: clean, count: events.length, searchRankings, searchKeywords, configVersion: newVersion};
+    }
   }
-
-  invalidateStorefrontCache(shop);
-
-  return {
-    recorded: true,
-    keyword: clean,
-    count: currentStats[normKey].count,
-    searchRankings,
-    searchKeywords,
-    configVersion: newVersion,
-  };
+  throw new Error("Search count update conflicted");
 }
 
 /**
@@ -487,6 +429,8 @@ export async function getStorefrontConfig(
       : extended.subscriptionPlans.filter((s) => s.isActive !== false),
     searchKeywords: extended.searchKeywords,
     searchRankings: extended.searchRankings || [],
+    appUpdate: extended.appUpdate,
+    storeInfo: extended.storeInfo || {address:'',hours:''},
     banners: visibleBanners.map((b) => ({
       id: b.id,
       sortOrder: b.sortOrder,

@@ -11,6 +11,7 @@ const POST_RESOURCES = new Set([
   "restock-subscription",
   "b2b-inquiry",
   "return-request",
+  "order-change-request",
   "notification-preferences",
   "support-request",
   "support-conversation",
@@ -18,6 +19,9 @@ const POST_RESOURCES = new Set([
   "push-token",
 ]);
 const GET_POST_RESOURCES = new Set([
+  "cart-reminder",
+  "price-alerts",
+  "referral",
   "community-posts", "community-comments", "attendance", "loyalty",
   "notification-preferences",
   "photo-reviews", "notifications",

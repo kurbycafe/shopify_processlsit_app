@@ -11,6 +11,7 @@ export function notificationTarget(target = {}) {
   if (target.type === "order" && /^gid:\/\/shopify\/Order\/\d+$/.test(target.id || "")) return { type: "order", id: target.id };
   if (target.type === "product" && /^gid:\/\/shopify\/Product\/\d+$/.test(target.id || "")) return { type: "product", id: target.id };
   if (target.type === "support" && /^[a-zA-Z0-9_-]{1,100}$/.test(target.id || "")) return { type: "support", id: target.id };
+  if (target.type === "cart") return {type:"cart"};
   if (target.type === "home" || !target.type) return { type: "home" };
   throw new MobileApiError(400, "INVALID_TARGET", "Invalid notification destination.");
 }
@@ -100,6 +101,16 @@ export async function dispatchMobileNotifications({ db, shop, limit = 20, now = 
       // Re-check revocation immediately before provider handoff.
       const live = await db.customerRequest.findFirst({ where: { id: device.id, shop, customerId: job.customerId, status: "ACTIVE", payload: { path: ["bindingId"], equals: job.payload.binding } } });
       if (!live || !permitsPush(await readPushPreferences(db, shop, job.customerId), message.payload.category)) { await finish("SKIPPED", { attempts }); return; }
+      if (message.payload.eventKey?.startsWith('price:')) {
+        const parts=message.payload.eventKey.split(':');
+        const active=parts.length===3 && await db.customerRequest.findFirst({where:{id:parts[1],shop,customerId:job.customerId,type:'PRICE_ALERT',status:'NOTIFIED',payload:{path:['cycle'],equals:parts[2]}}});
+        if (!active) { await finish('SKIPPED',{attempts}); return; }
+      }
+      if (message.payload.eventKey?.startsWith('cart:')) {
+        const parts=message.payload.eventKey.split(':');
+        const active=parts.length===3 && await db.customerRequest.findFirst({where:{id:parts[1],shop,customerId:job.customerId,type:'CART_REMINDER',status:'NOTIFIED',payload:{path:['cycle'],equals:parts[2]}}});
+        if (!active) { await finish('SKIPPED',{attempts}); return; }
+      }
       const providerId = await send({ token: live.payload.token, notificationId: message.id, customerId: job.customerId, category: message.payload.category, title: message.payload.title, body: message.payload.body });
       await finish("SENT", { attempts, providerId, sentAt: now.toISOString() });
     } catch (error) {

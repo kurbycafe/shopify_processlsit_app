@@ -71,6 +71,13 @@ test('request history is scoped to verified customer and shop and excludes devic
  const {db,rows}=memory();for(const [id,customerId,tenant,type] of [['own',customer,shop,'RETURN'],['other',other,shop,'RETURN'],['foreign',customer,'foreign.myshopify.com','RETURN'],['device',customer,shop,'PUSH_TOKEN']])rows.push({id,customerId,shop:tenant,type,status:'REQUESTED',payload:{}});
  const result=await customerRequestHistory(args(db));assert.deepEqual(result.requests.map(row=>row.id),['own']);
 });
+test('B2B inquiry status is visible only to its authenticated owner in the same shop',async()=>{
+ const {db,rows}=memory();
+ for(const [id,customerId,tenant] of [['own-b2b',customer,shop],['other-b2b',other,shop],['foreign-b2b',customer,'foreign.myshopify.com'],['anonymous-b2b',null,shop]]) rows.push({id,customerId,shop:tenant,type:'B2B',status:'REQUESTED',payload:{companyName:'Business'}});
+ const result=await customerRequestHistory({...args(db),request:req(undefined,'?type=B2B')});
+ assert.deepEqual(result.requests.map(row=>row.id),['own-b2b']);
+ assert.deepEqual((await customerRequestHistory(args(db))).requests,[]);
+});
 test('attendance uses server date, persists one record and never claims coupon or points issuance',async()=>{
  const {db,rows}=memory();const a=await customerAttendance({...args(db),input:{date:'1900-01-01',points:500}}),again=await customerAttendance({...args(db),input:{}});
  assert.notEqual(a.date,'1900-01-01');assert.equal(a.id,again.id);assert.equal(rows.length,1);assert.equal(a.rewardsAvailable,false);assert.equal(a.points,undefined);assert.deepEqual((await customerAttendance(args(db))).dates,[a.date]);

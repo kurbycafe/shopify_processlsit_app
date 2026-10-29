@@ -53,6 +53,8 @@ export const loader = async ({ request }) => {
       {
         success: true,
         data: {
+          searchWindowMinutes: 60,
+          minimumSearchCount: 10,
           searchRankings: config.searchRankings || [],
           searchKeywords: config.searchKeywords || [],
         },
@@ -87,7 +89,7 @@ export const action = async ({ request }) => {
     return Response.json(
       {
         success: true,
-        data: result,
+        data: { ...result, searchWindowMinutes: 60, minimumSearchCount: 10 },
       },
       { headers: corsHeaders }
     );
