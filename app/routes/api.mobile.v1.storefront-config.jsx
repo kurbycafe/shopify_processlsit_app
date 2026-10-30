@@ -49,7 +49,16 @@ export const loader = async ({ request }) => {
 
   try {
     const shop = customerShop();
-    const config = await getStorefrontConfig(shop, { includeInactive: false });
+    let config;
+    try {
+      config = await getStorefrontConfig(shop, { includeInactive: false });
+    } catch (firstError) {
+      // Serverless database connections occasionally fail on the first query; one retry
+      // avoids sending the app a 503 that would drop its banners and categories.
+      console.warn("[Storefront config] First read failed, retrying", firstError?.name);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      config = await getStorefrontConfig(shop, { includeInactive: false });
+    }
     const etag = `W/"${config.configVersion || '1.0.0'}"`;
 
     const clientEtag = request.headers.get("if-none-match");
