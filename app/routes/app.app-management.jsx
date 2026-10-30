@@ -31,8 +31,10 @@ import {
   resolveCanonicalShop,
   parseExtendedSettings,
   normalizeGroupBuyingInput,
+  normalizeCategoryRules,
   DEFAULT_BRANDS,
 } from "../services/mobileStorefront.server.js";
+import { loadOnlineProductIds } from "../services/onlineCatalog.server.js";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 function isoToLocalInput(iso) {
@@ -396,7 +398,9 @@ export const loader = async ({ request }) => {
   const shop = resolveCanonicalShop(session.shop);
   const config = await getStorefrontConfig(shop, { includeInactive: true, includeRecipes: false });
   const liveVariantPrices = await loadLiveVariantPrices(admin, config.groupBuying);
-  return { shop, config, liveVariantPrices };
+  // Product types of products sold on dawayo.de, for the category product-type picker.
+  const onlineProductTypes = await loadOnlineProductIds().then((d) => d.productTypes || {}).catch(() => ({}));
+  return { shop, config, liveVariantPrices, onlineProductTypes };
 };
 
 export const action = async ({ request }) => {
@@ -1156,7 +1160,27 @@ export const action = async ({ request }) => {
         });
       }
 
-            const categoryProductsJson = formData.get("categoryProductsJson");
+      const productTypesJson = formData.get("productTypesJson");
+      if (productTypesJson !== null) {
+        let types = [];
+        try {
+          const parsedTypes = JSON.parse(String(productTypesJson));
+          if (Array.isArray(parsedTypes)) types = parsedTypes;
+        } catch {
+          return { success: false, message: "상품 유형 값이 올바르지 않습니다." };
+        }
+        const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({ where: { shop } });
+        const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
+        const rules = normalizeCategoryRules({ ...extended.categoryRules, [categoryKey]: { productTypes: types } });
+        if (!rules[categoryKey]) delete rules[categoryKey];
+        await saveStorefrontConfig(prisma, {
+          where: { shop },
+          update: { tickersJson: { ...extended, categoryRules: rules } },
+          create: { shop, freeShippingThreshold: 60.0, shippingNoticeKo: "독일 전역 60€ 이상 무료배송 · 신선 안심 출고", tickersJson: { ...extended, categoryRules: rules } },
+        });
+      }
+
+      const categoryProductsJson = formData.get("categoryProductsJson");
       if (categoryProductsJson !== null) {
         try {
           const parsedCatProducts = JSON.parse(String(categoryProductsJson));
@@ -1208,12 +1232,14 @@ export const action = async ({ request }) => {
           where: { shop },
         });
         const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
-        if (extended.categoryProducts && extended.categoryProducts[categoryKey]) {
+        if (extended.categoryProducts?.[categoryKey] || extended.categoryRules?.[categoryKey]) {
           const currentCatProducts = { ...extended.categoryProducts };
           delete currentCatProducts[categoryKey];
+          const currentRules = { ...extended.categoryRules };
+          delete currentRules[categoryKey];
           await saveStorefrontConfig(prisma, {
             where: { shop },
-            update: { tickersJson: { ...extended, categoryProducts: currentCatProducts } },
+            update: { tickersJson: { ...extended, categoryProducts: currentCatProducts, categoryRules: currentRules } },
           });
         }
       }
@@ -1740,7 +1766,7 @@ function reconcileDraft(current, previous, next, force = false) {
  * ============================================================================ */
 
 export default function AppManagementPage() {
-  const { config, liveVariantPrices = {} } = useLoaderData();
+  const { config, liveVariantPrices = {}, onlineProductTypes = {} } = useLoaderData();
   const livePriceLabel = (gb) => {
     const live = liveVariantPrices[gb.variantId];
     if (!live || !Number.isFinite(live.price)) return "Shopify 판매가 확인 불가";
@@ -1908,6 +1934,7 @@ export default function AppManagementPage() {
     isActive: true,
     badgeTag: "",
     assignedProducts: [],
+    productTypes: [],
   });
   const [catProductSearchQuery, setCatProductSearchQuery] = useState("");
   const catSearchFetcher = useFetcher();
@@ -2159,6 +2186,7 @@ export default function AppManagementPage() {
       isActive: c.isActive !== false,
       badgeTag: c.badgeTag || "",
       assignedProducts: Array.isArray(c.assignedProducts) ? [...c.assignedProducts] : [],
+      productTypes: Array.isArray(c.productTypes) ? [...c.productTypes] : [],
     });
     setCatProductSearchQuery("");
     setCategorySubTab("categories");
@@ -2180,6 +2208,7 @@ export default function AppManagementPage() {
       isActive: true,
       badgeTag: "",
       assignedProducts: [],
+      productTypes: [],
     });
     setCatProductSearchQuery("");
   };
@@ -4138,6 +4167,27 @@ export default function AppManagementPage() {
                       />
                     </BlockStack>
 
+                    <BlockStack gap="200">
+                      <Text variant="headingSm" as="h3">Shopify 상품 유형으로 자동 구성</Text>
+                      <Text variant="bodySm" tone="subdued" as="p">
+                        선택한 유형의 dawayo.de 판매 상품이 모두 이 카테고리에 들어갑니다. 새 상품도 유형만 맞으면 자동으로 들어갑니다. 아래에서 상품을 직접 지정하면 그 상품들만 표시됩니다.
+                      </Text>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "4px 12px", maxHeight: "260px", overflowY: "auto", padding: "8px", border: "1px solid #E3E3E3", borderRadius: "8px" }}>
+                        {Object.entries(onlineProductTypes).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+                          <Checkbox
+                            key={type}
+                            label={`${type} (${count})`}
+                            checked={(catForm.productTypes || []).includes(type)}
+                            onChange={(checked) => setCatForm({ ...catForm, productTypes: checked ? [...new Set([...(catForm.productTypes || []), type])] : (catForm.productTypes || []).filter((t) => t !== type) })}
+                          />
+                        ))}
+                        {Object.keys(onlineProductTypes).length === 0 && <Text tone="subdued" as="p">상품 유형 목록을 불러오지 못했습니다.</Text>}
+                      </div>
+                      {(catForm.productTypes || []).length > 0 && (
+                        <Text variant="bodySm" as="p">선택: {catForm.productTypes.join(", ")} · 약 {catForm.productTypes.reduce((n, t) => n + (onlineProductTypes[t] || 0), 0)}개 상품</Text>
+                      )}
+                    </BlockStack>
+
                     <Divider />
 
                     {/* Category Products Assignment Section */}
@@ -4511,6 +4561,8 @@ export default function AppManagementPage() {
                         Object.entries(catForm).forEach(([k, val]) => {
                           if (k === "assignedProducts") {
                             fd.append("categoryProductsJson", JSON.stringify(val));
+                          } else if (k === "productTypes") {
+                            fd.append("productTypesJson", JSON.stringify(val));
                           } else {
                             fd.append(k, String(val));
                           }

@@ -181,6 +181,7 @@ export const DEFAULT_EXTENDED_SETTINGS = {
   "giftCardVariants": {},
   "publishLogs": [],
   "categoryProducts": {},
+  "categoryRules": {},
   "brands": DEFAULT_BRANDS
 };
 
@@ -293,6 +294,22 @@ export function isLegacySeedSearchKeywords(arr) {
 /**
  * Parses extended settings JSON safely with defaults
  */
+/**
+ * Per-category rules kept in the extended settings: { [categoryKey]: { productTypes: string[] } }.
+ * Product types are Shopify productType values; the app lists every product of those types.
+ */
+export function normalizeCategoryRules(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, rule] of Object.entries(raw)) {
+    const types = Array.isArray(rule?.productTypes)
+      ? [...new Set(rule.productTypes.map((t) => String(t || "").trim()).filter(Boolean))].slice(0, 30)
+      : [];
+    if (key && types.length) out[String(key).toLowerCase()] = { productTypes: types };
+  }
+  return out;
+}
+
 export function parseExtendedSettings(rawJson) {
   let parsed = rawJson;
   if (typeof rawJson === "string") {
@@ -367,6 +384,7 @@ export function parseExtendedSettings(rawJson) {
     giftCardVariants: parsed.giftCardVariants && typeof parsed.giftCardVariants === "object" ? parsed.giftCardVariants : {},
     publishLogs: Array.isArray(parsed.publishLogs) ? parsed.publishLogs : [],
     categoryProducts: (parsed.categoryProducts && typeof parsed.categoryProducts === "object" && !Array.isArray(parsed.categoryProducts)) ? parsed.categoryProducts : {},
+    categoryRules: normalizeCategoryRules(parsed.categoryRules),
     brands: Array.isArray(parsed.brands) ? parsed.brands : structuredClone(DEFAULT_BRANDS),
   };
 }
@@ -706,6 +724,7 @@ export async function getStorefrontConfig(
         isActive: c.isActive,
         badgeTag: c.badgeTag || null,
         productIds,
+        productTypes: extended.categoryRules?.[String(c.categoryKey || "").toLowerCase()]?.productTypes || [],
         assignedProducts: Array.isArray(assigned) ? assigned : [],
       };
     }),
