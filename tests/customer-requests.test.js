@@ -148,7 +148,7 @@ test("arrival queries use real fields, page bounds and public response allowlist
     assert.equal(args.take, 2);
     assert.equal(args.select.name, undefined);
     assert.equal(args.select.items.select.shopifyName, undefined);
-    assert.equal(args.select.items.select.barcode, undefined);
+    assert.equal(args.select.items.select.barcode, true, "barcodes are read only to link products");
     assert.equal(args.select.items.select.expectedQty, undefined);
     assert.equal(args.select.items.take, 101);
     assert.deepEqual(args.where.status, { in: ["SCHEDULED", "IN_TRANSIT"] });
@@ -170,17 +170,19 @@ test("arrival items link only to active products published online", async () => 
   let queries = 0;
   const graphql = async (_shop, _query, variables) => {
     queries++;
-    assert.match(variables.query, /sku:"A-1" OR sku:"B-2" OR sku:"C-3"/);
+    assert.match(variables.query, /sku:"A-1" OR sku:"B-2" OR sku:"C-3" OR barcode:"8801"/);
     return { data: { productVariants: { nodes: [
       { id: "gid://shopify/ProductVariant/1", sku: "A-1", product: { id: "gid://shopify/Product/1", status: "ACTIVE", onlineStoreUrl: "https://dawayo.de/a" } },
       { id: "gid://shopify/ProductVariant/2", sku: "B-2", product: { id: "gid://shopify/Product/2", status: "DRAFT", onlineStoreUrl: null } },
+      { id: "gid://shopify/ProductVariant/4", sku: "", barcode: "8801", product: { id: "gid://shopify/Product/4", status: "ACTIVE", onlineStoreUrl: "https://dawayo.de/d" } },
     ] } } };
   };
   const db = { container: { findMany: async () => [{ id: "c", status: "SCHEDULED", arrivalKind: "DOMESTIC", scheduledDate: "2026-11-20",
-    items: [{ sku: "A-1", productName: "Kimchi" }, { sku: "B-2", productName: "Draft" }, { sku: "C-3", productName: "Unknown" }] }] } };
+    items: [{ sku: "A-1", productName: "Kimchi" }, { sku: "B-2", productName: "Draft" }, { sku: "C-3", productName: "Unknown" }, { sku: null, barcode: "8801", productName: "No SKU in Odoo" }] }] } };
   const resolve = createCustomerResolver({ db, graphql });
   const [first] = (await resolve({ request: req(null, "GET", "arrivals"), resource: "arrivals", shop: "arrivals-test.myshopify.com" })).containers;
-  assert.deepEqual(first.items.map(item => item.productId), ["gid://shopify/Product/1", null, null]);
+  assert.deepEqual(first.items.map(item => item.productId), ["gid://shopify/Product/1", null, null, "gid://shopify/Product/4"]);
+  assert.equal(JSON.stringify(first).includes("8801"), false, "barcodes are not published");
   assert.equal(first.items[0].variantId, "gid://shopify/ProductVariant/1");
   assert.equal(first.kind, "domestic");
   await resolve({ request: req(null, "GET", "arrivals"), resource: "arrivals", shop: "arrivals-test.myshopify.com" });
