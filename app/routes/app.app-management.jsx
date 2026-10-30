@@ -332,11 +332,33 @@ function CategoryVectorIcon({ name, size = 18 }) {
  * SERVER LOADER & ACTION
  * ============================================================================ */
 
+// Current Shopify prices of linked group-buy variants. The stored regularPrice
+// is only a snapshot from when the product was linked and can be stale.
+async function loadLiveVariantPrices(admin, campaigns) {
+  const ids = [...new Set((campaigns || []).map((g) => g?.variantId).filter((id) => String(id || "").startsWith("gid://shopify/ProductVariant/")))];
+  if (!ids.length) return {};
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query GroupBuyVariantPrices($ids: [ID!]!) {
+        nodes(ids: $ids) { ... on ProductVariant { id price compareAtPrice } }
+      }`,
+      { variables: { ids } }
+    );
+    const json = await response.json();
+    return Object.fromEntries((json?.data?.nodes || []).filter((n) => n?.id).map((n) => [n.id, { price: Number(n.price), compareAtPrice: n.compareAtPrice == null ? null : Number(n.compareAtPrice) }]));
+  } catch (error) {
+    console.error("[app.app-management] Live variant price lookup failed", error?.message);
+    return {};
+  }
+}
+
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
   const config = await getStorefrontConfig(shop, { includeInactive: true, includeRecipes: false });
-  return { shop, config };
+  const liveVariantPrices = await loadLiveVariantPrices(admin, config.groupBuying);
+  return { shop, config, liveVariantPrices };
 };
 
 export const action = async ({ request }) => {
@@ -1680,7 +1702,12 @@ function reconcileDraft(current, previous, next, force = false) {
  * ============================================================================ */
 
 export default function AppManagementPage() {
-  const { config } = useLoaderData();
+  const { config, liveVariantPrices = {} } = useLoaderData();
+  const livePriceLabel = (gb) => {
+    const live = liveVariantPrices[gb.variantId];
+    if (!live || !Number.isFinite(live.price)) return "Shopify 판매가 확인 불가";
+    return `Shopify 판매가 €${live.price.toFixed(2)}${live.compareAtPrice ? ` (비교가 €${live.compareAtPrice.toFixed(2)})` : ""}`;
+  };
   const revalidator = useRevalidator();
   const productRules = config.productRules || config.productOverrides || [];
   const fetcher = useFetcher();
@@ -5874,7 +5901,7 @@ export default function AppManagementPage() {
                                   </Text>
                                   <Text variant="bodySm" tone="subdued" as="p">
                                     {isProductConnected
-                                      ? `Shopify ID: ${gb.productId.split("/").pop()} · 정가: €${Number(gb.regularPrice || 0).toFixed(2)}`
+                                      ? `Shopify ID: ${gb.productId.split("/").pop()} · ${livePriceLabel(gb)}`
                                       : "우측 '쇼피파이 상품 선택' 버튼을 눌러 실제 판매 상품을 연결해주세요."}
                                   </Text>
                                 </div>
@@ -6033,7 +6060,7 @@ export default function AppManagementPage() {
 
                           <Banner tone="info">
                             앱에는 Shopify 판매가
-                            {Number(gb.regularPrice) > 0 ? ` (연결 시점 €${Number(gb.regularPrice).toFixed(2)})` : ""}
+                            {gb.variantId && liveVariantPrices[gb.variantId] ? ` (현재 €${liveVariantPrices[gb.variantId].price.toFixed(2)})` : ""}
                             가 그대로 표시되고 결제됩니다. 공동구매 할인은 Shopify에서 상품 가격·비교 가격을 바꿔야 적용됩니다.
                           </Banner>
 
