@@ -2222,11 +2222,12 @@ export default function AppManagementPage() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
-                background: "#F3F4F6",
-                color: "#4B5563",
+                background: "#ECFDF5",
+                color: "#065F46",
                 padding: "4px 10px",
                 borderRadius: "12px",
                 fontWeight: 600,
+                border: "1px solid #A7F3D0",
               }}
             >
               <span
@@ -2234,11 +2235,31 @@ export default function AppManagementPage() {
                   width: "6px",
                   height: "6px",
                   borderRadius: "50%",
-                  backgroundColor: "#9CA3AF",
+                  backgroundColor: "#10B981",
                 }}
               />
-              저장된 설정 버전: {String(config.configVersion).slice(-6)}
+              실시간 앱 반영 완료 ({(() => {
+                const ts = Number(config.configVersion);
+                if (!Number.isNaN(ts) && ts > 1000000000000) {
+                  const d = new Date(ts);
+                  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+                }
+                return `버전: ${String(config.configVersion).slice(-6)}`;
+              })()})
             </span>
+            <a
+              href="/api/mobile/v1/storefront-config"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                fontSize: "11px",
+                color: "#2563EB",
+                textDecoration: "underline",
+                cursor: "pointer",
+              }}
+            >
+              API 실시간 로그 확인
+            </a>
           </div>
         </div>
 
@@ -2249,7 +2270,13 @@ export default function AppManagementPage() {
           <Banner
             title={fetcher.data.message}
             tone={fetcher.data.success ? "success" : "critical"}
-          />
+          >
+            {fetcher.data.success && (
+              <p style={{ marginTop: "4px", fontSize: "13px" }}>
+                💡 <strong>확인 팁:</strong> 스마트폰에서 다와요 앱을 종료 후 재실행하거나, 홈 화면 맨 위에서 화면을 아래로 당겨 새로고침(Pull-to-Refresh)하시면 방금 저장된 변경 사항이 즉시 화면에 나타납니다. 상단 메뉴의 <strong>[라이브 미리보기]</strong> 탭에서도 즉시 확인하실 수 있습니다.
+              </p>
+            )}
+          </Banner>
         )}
 
         {/* =================================================================
