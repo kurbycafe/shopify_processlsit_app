@@ -1673,6 +1673,7 @@ export default function AppManagementPage() {
   const initialTab = searchParams.get("tab") || "overview";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isLogModalOpen, setLogModalOpen] = useState(false);
+  const [logModalTab, setLogModalTab] = useState("logs");
   const [visitedTabs, setVisitedTabs] = useState(() => new Set(["overview", initialTab]));
   const [showLegacyRules, setShowLegacyRules] = useState(false);
   const previousConfig = useRef(config);
@@ -6887,18 +6888,19 @@ export default function AppManagementPage() {
         )}
       </BlockStack>
 
-      {/* LOG & DEPLOYMENT STATUS MODAL */}
+      {/* LOG & DEPLOYMENT STATUS MODAL (Clean Simple Table) */}
       <Modal
+        size="large"
         open={isLogModalOpen}
         onClose={() => setLogModalOpen(false)}
-        title="앱 설정 반영 요청 및 배포 현황 로그"
+        title="앱 설정 반영 및 배포 현황 로그"
         primaryAction={{
           content: "닫기",
           onAction: () => setLogModalOpen(false),
         }}
         secondaryActions={[
           {
-            content: "실시간 API 원본 JSON 보기",
+            content: "실시간 API JSON 확인",
             onAction: () => window.open("/api/mobile/v1/storefront-config", "_blank"),
           },
           {
@@ -6910,187 +6912,160 @@ export default function AppManagementPage() {
       >
         <Modal.Section>
           <BlockStack gap="400">
-            {/* Summary Cards */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: "12px",
-                background: "#F8FAFC",
-                padding: "16px",
-                borderRadius: "10px",
-                border: "1px solid #E2E8F0",
-              }}
-            >
-              <div>
-                <Text variant="bodyXs" tone="subdued" as="p">
-                  최신 반영 요청 일시
-                </Text>
-                <Text variant="bodyMd" fontWeight="bold" as="p">
-                  {(() => {
-                    const ts = Number(config.configVersion);
-                    if (!Number.isNaN(ts) && ts > 1000000000000) {
-                      const d = new Date(ts);
-                      return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-                    }
-                    return "최근 반영 완료";
-                  })()}
-                </Text>
-              </div>
-              <div>
-                <Text variant="bodyXs" tone="subdued" as="p">
-                  배포 버전 (Version)
-                </Text>
-                <Text variant="bodyMd" fontWeight="bold" as="p">
-                  v{String(config.configVersion || "").slice(-8)}
-                </Text>
-              </div>
-              <div>
-                <Text variant="bodyXs" tone="subdued" as="p">
-                  스토어프론트 활성화 (Active)
-                </Text>
-                <div style={{ marginTop: "2px" }}>
-                  <Badge tone="success">Y (정상 활성 배포)</Badge>
-                </div>
-              </div>
+            {/* Simple Segmented Controls */}
+            <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid #E2E8F0", paddingBottom: "12px" }}>
+              <Button
+                size="slim"
+                variant={logModalTab === "logs" ? "primary" : "secondary"}
+                onClick={() => setLogModalTab("logs")}
+              >
+                최근 반영 요청 로그 ({((config.publishLogs && config.publishLogs.length) ? config.publishLogs.length : 1)})
+              </Button>
+              <Button
+                size="slim"
+                variant={logModalTab === "categories" ? "primary" : "secondary"}
+                onClick={() => setLogModalTab("categories")}
+              >
+                카테고리 Y/N ({config.categories?.length || 0})
+              </Button>
+              <Button
+                size="slim"
+                variant={logModalTab === "brands" ? "primary" : "secondary"}
+                onClick={() => setLogModalTab("brands")}
+              >
+                인기 브랜드 Y/N ({config.brands?.length || 0})
+              </Button>
             </div>
 
-            {/* Deployment Request History Table */}
-            <Card>
-              <BlockStack gap="300">
-                <Text variant="headingSm" as="h3">
-                  📋 최근 반영 요청 로그 ({((config.publishLogs && config.publishLogs.length) ? config.publishLogs.length : 1)}건)
-                </Text>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-                    <thead>
-                      <tr style={{ background: "#F1F5F9", textAlign: "left", borderBottom: "1px solid #E2E8F0" }}>
-                        <th style={{ padding: "8px 10px" }}>요청 일시</th>
-                        <th style={{ padding: "8px 10px" }}>배포 버전</th>
-                        <th style={{ padding: "8px 10px" }}>작업 내용</th>
-                        <th style={{ padding: "8px 10px", textAlign: "center" }}>활성화</th>
-                        <th style={{ padding: "8px 10px", textAlign: "center" }}>상태</th>
+            {/* Table View 1: Deployment Request Logs */}
+            {logModalTab === "logs" && (
+              <div style={{ border: "1px solid #E2E8F0", borderRadius: "8px", overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", textAlign: "left" }}>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>요청 일시</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>배포 버전</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569", textAlign: "center" }}>활성화</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569", textAlign: "center" }}>상태</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>작업 내용</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {((Array.isArray(config.publishLogs) && config.publishLogs.length > 0)
+                      ? config.publishLogs
+                      : [
+                          {
+                            timestamp: Number(config.configVersion) || Date.now(),
+                            requestDate: (() => {
+                              const ts = Number(config.configVersion);
+                              if (!Number.isNaN(ts) && ts > 1000000000000) {
+                                const d = new Date(ts);
+                                return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+                              }
+                              return "최근 반영 완료";
+                            })(),
+                            version: String(config.configVersion || Date.now()),
+                            action: "저장된 설정 반영 요청 (최신)",
+                            isActive: "Y",
+                          },
+                        ]
+                    ).map((log, lIdx) => (
+                      <tr key={log.version || lIdx} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                        <td style={{ padding: "12px 14px", fontWeight: 600, color: "#0F172A" }}>{log.requestDate}</td>
+                        <td style={{ padding: "12px 14px", fontFamily: "monospace", color: "#64748B" }}>
+                          v{String(log.version).slice(-8)}
+                        </td>
+                        <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                          <Badge tone="success">Y</Badge>
+                        </td>
+                        <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                          <Badge tone="info">반영 완료</Badge>
+                        </td>
+                        <td style={{ padding: "12px 14px", color: "#334155" }}>{log.action}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {((Array.isArray(config.publishLogs) && config.publishLogs.length > 0)
-                        ? config.publishLogs
-                        : [
-                            {
-                              timestamp: Number(config.configVersion) || Date.now(),
-                              requestDate: (() => {
-                                const ts = Number(config.configVersion);
-                                if (!Number.isNaN(ts) && ts > 1000000000000) {
-                                  const d = new Date(ts);
-                                  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-                                }
-                                return "최근 반영 완료";
-                              })(),
-                              version: String(config.configVersion || Date.now()),
-                              action: "저장된 설정 반영 요청 (최신)",
-                              isActive: "Y",
-                            },
-                          ]
-                      ).map((log, lIdx) => (
-                        <tr key={log.version || lIdx} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                          <td style={{ padding: "8px 10px", fontWeight: 600 }}>{log.requestDate}</td>
-                          <td style={{ padding: "8px 10px", fontFamily: "monospace", color: "#475569" }}>
-                            {String(log.version).slice(-8)}
-                          </td>
-                          <td style={{ padding: "8px 10px" }}>{log.action}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                            <Badge tone="success">Y</Badge>
-                          </td>
-                          <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                            <Badge tone="info">반영 완료</Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </BlockStack>
-            </Card>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-            {/* Categories Activation Status Table */}
-            <Card>
-              <BlockStack gap="300">
-                <Text variant="headingSm" as="h3">
-                  🏷️ 카테고리 활성화 현황 (Y / N)
-                </Text>
-                <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                    <thead>
-                      <tr style={{ background: "#F1F5F9", textAlign: "left", borderBottom: "1px solid #E2E8F0" }}>
-                        <th style={{ padding: "6px 8px" }}>카테고리명</th>
-                        <th style={{ padding: "6px 8px" }}>키 (Key)</th>
-                        <th style={{ padding: "6px 8px", textAlign: "center" }}>상단 GNB</th>
-                        <th style={{ padding: "6px 8px", textAlign: "center" }}>원형 카테고리</th>
-                        <th style={{ padding: "6px 8px" }}>지정 상품</th>
-                        <th style={{ padding: "6px 8px", textAlign: "center" }}>활성화</th>
+            {/* Table View 2: Categories Y/N */}
+            {logModalTab === "categories" && (
+              <div style={{ border: "1px solid #E2E8F0", borderRadius: "8px", overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", textAlign: "left" }}>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>카테고리명</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>키 (Key)</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569", textAlign: "center" }}>상단 GNB</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569", textAlign: "center" }}>원형 탭</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>지정 상품</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569", textAlign: "center" }}>활성화</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(config.categories || []).map((cat) => (
+                      <tr key={cat.id || cat.categoryKey} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                        <td style={{ padding: "12px 14px", fontWeight: 600, color: "#0F172A" }}>{cat.name?.ko}</td>
+                        <td style={{ padding: "12px 14px", color: "#64748B", fontFamily: "monospace" }}>{cat.categoryKey}</td>
+                        <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                          {cat.isGnbTab ? <Badge tone="info">Y</Badge> : <span style={{ color: "#94A3B8" }}>N</span>}
+                        </td>
+                        <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                          {cat.isCarousel ? <Badge tone="success">Y</Badge> : <span style={{ color: "#94A3B8" }}>N</span>}
+                        </td>
+                        <td style={{ padding: "12px 14px", color: "#334155" }}>
+                          {cat.assignedProducts?.length > 0 ? (
+                            <Badge tone="attention">{cat.assignedProducts.length}개 지정</Badge>
+                          ) : (
+                            <span style={{ color: "#94A3B8" }}>자동 매칭</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                          {cat.isActive !== false ? <Badge tone="success">Y</Badge> : <Badge tone="critical">N</Badge>}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {(config.categories || []).map((cat) => (
-                        <tr key={cat.id || cat.categoryKey} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                          <td style={{ padding: "6px 8px", fontWeight: 600 }}>{cat.name?.ko}</td>
-                          <td style={{ padding: "6px 8px", color: "#64748B" }}>{cat.categoryKey}</td>
-                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                            {cat.isGnbTab ? <Badge tone="info">Y</Badge> : <span style={{ color: "#94A3B8" }}>N</span>}
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                            {cat.isCarousel ? <Badge tone="success">Y</Badge> : <span style={{ color: "#94A3B8" }}>N</span>}
-                          </td>
-                          <td style={{ padding: "6px 8px" }}>
-                            {cat.assignedProducts?.length > 0 ? `${cat.assignedProducts.length}개` : "자동 매칭"}
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                            {cat.isActive !== false ? <Badge tone="success">Y</Badge> : <Badge tone="critical">N</Badge>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </BlockStack>
-            </Card>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-            {/* Brands Activation Status Table */}
-            <Card>
-              <BlockStack gap="300">
-                <Text variant="headingSm" as="h3">
-                  ⭐ 인기 브랜드 활성화 현황 (Y / N)
-                </Text>
-                <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                    <thead>
-                      <tr style={{ background: "#F1F5F9", textAlign: "left", borderBottom: "1px solid #E2E8F0" }}>
-                        <th style={{ padding: "6px 8px" }}>브랜드명</th>
-                        <th style={{ padding: "6px 8px" }}>태그</th>
-                        <th style={{ padding: "6px 8px" }}>Shopify 벤더</th>
-                        <th style={{ padding: "6px 8px" }}>전용 상품</th>
-                        <th style={{ padding: "6px 8px", textAlign: "center" }}>활성화</th>
+            {/* Table View 3: Brands Y/N */}
+            {logModalTab === "brands" && (
+              <div style={{ border: "1px solid #E2E8F0", borderRadius: "8px", overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", textAlign: "left" }}>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>브랜드명</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>배지 태그</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>Shopify 벤더</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569" }}>전용 상품</th>
+                      <th style={{ padding: "12px 14px", fontWeight: 600, color: "#475569", textAlign: "center" }}>활성화</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(config.brands || []).map((brand) => (
+                      <tr key={brand.id || brand.brandKey} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                        <td style={{ padding: "12px 14px", fontWeight: 600, color: "#0F172A" }}>{brand.nameKo}</td>
+                        <td style={{ padding: "12px 14px", color: "#64748B" }}>{brand.tag || "-"}</td>
+                        <td style={{ padding: "12px 14px", color: "#334155" }}>{brand.filter || brand.nameKo}</td>
+                        <td style={{ padding: "12px 14px", color: "#334155" }}>
+                          {brand.assignedProducts?.length > 0 ? (
+                            <Badge tone="attention">{brand.assignedProducts.length}개 전용</Badge>
+                          ) : (
+                            <span style={{ color: "#94A3B8" }}>벤더 자동 필터</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                          {brand.isActive !== false ? <Badge tone="success">Y</Badge> : <Badge tone="critical">N</Badge>}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {(config.brands || []).map((brand) => (
-                        <tr key={brand.id || brand.brandKey} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                          <td style={{ padding: "6px 8px", fontWeight: 600 }}>{brand.nameKo}</td>
-                          <td style={{ padding: "6px 8px", color: "#64748B" }}>{brand.tag || "-"}</td>
-                          <td style={{ padding: "6px 8px" }}>{brand.filter || brand.nameKo}</td>
-                          <td style={{ padding: "6px 8px" }}>
-                            {brand.assignedProducts?.length > 0 ? `${brand.assignedProducts.length}개` : "벤더 자동 필터"}
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                            {brand.isActive !== false ? <Badge tone="success">Y</Badge> : <Badge tone="critical">N</Badge>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </BlockStack>
-            </Card>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </BlockStack>
         </Modal.Section>
       </Modal>
