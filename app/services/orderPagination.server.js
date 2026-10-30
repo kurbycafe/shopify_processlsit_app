@@ -9,7 +9,7 @@ export const ORDER_LINE_ITEMS_QUERY = `#graphql
         pageInfo { hasNextPage endCursor }
         edges {
           node {
-            id title quantity taxable sku variantTitle image { url }
+            id title quantity currentQuantity unfulfilledQuantity taxable sku variantTitle image { url }
             originalUnitPriceSet { shopMoney { amount currencyCode } }
             discountedUnitPriceSet { shopMoney { amount currencyCode } }
             originalTotalSet { shopMoney { amount currencyCode } }
@@ -23,6 +23,42 @@ export const ORDER_LINE_ITEMS_QUERY = `#graphql
               product {
                 featuredImage { url }
                 images(first: 1) { nodes { url } }
+                germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
+                expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
+                position: metafield(namespace: "custom", key: "position") { value }
+                producttype: metafield(namespace: "custom", key: "producttype") { value }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Draft orders expose draft line items; the fields match the draftLineItems fragment of the print routes.
+export const DRAFT_ORDER_LINE_ITEMS_QUERY = `#graphql
+  query completeDraftOrderLineItems($id: ID!, $after: String!) {
+    draftOrder(id: $id) {
+      id
+      lineItems(first: 25, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id title name sku quantity
+            originalUnitPriceSet { shopMoney { amount currencyCode } }
+            discountedUnitPriceSet { shopMoney { amount currencyCode } }
+            originalTotalSet { shopMoney { amount currencyCode } }
+            discountedTotalSet { shopMoney { amount currencyCode } }
+            appliedDiscount { amount title value valueType }
+            taxable
+            taxLines { title rate priceSet { shopMoney { amount currencyCode } } }
+            variant {
+              id title sku barcode price compareAtPrice
+              inventoryItem { measurement { weight { value unit } } }
+              image { url src }
+              product {
+                featuredImage { url src }
                 germanTranslation: metafield(namespace: "global", key: "german_translation") { value }
                 expiryDate: metafield(namespace: "freshly", key: "expiry_date") { value }
                 position: metafield(namespace: "custom", key: "position") { value }
@@ -78,9 +114,37 @@ async function completeShippingLines(admin, node) {
   node.shippingLines = { ...connection, edges };
 }
 
+// Draft line items arrive aliased as draftLineItems in the print routes; a draft printed with only its
+// first page would silently drop products, so later pages are fetched the same way as for orders.
+async function completeDraftLineItems(admin, node) {
+  const key = node.draftLineItems ? "draftLineItems" : "lineItems";
+  let connection = node[key];
+  if (!connection?.pageInfo?.hasNextPage) return node;
+  if (!Array.isArray(connection.edges)) throw new Error("Draft order line-item edges are missing");
+  const edges = [...connection.edges];
+  const seen = new Set(edges.map(edge => edge?.node?.id));
+  const cursors = new Set();
+  while (connection.pageInfo.hasNextPage) {
+    const after = connection.pageInfo.endCursor;
+    if (!after || cursors.has(after)) throw new Error("Draft order line-item pagination did not advance");
+    cursors.add(after);
+    const json = await readGraphQL(admin, DRAFT_ORDER_LINE_ITEMS_QUERY, { id: node.id, after });
+    connection = json.data?.draftOrder?.lineItems;
+    if (!connection?.pageInfo || typeof connection.pageInfo.hasNextPage !== "boolean") throw new Error("Incomplete draft order line-item response");
+    if (!Array.isArray(connection.edges) || connection.edges.length === 0) throw new Error("Draft order line-item pagination returned no items");
+    for (const edge of connection.edges) {
+      if (!edge?.node?.id || seen.has(edge.node.id)) throw new Error("Duplicate or missing draft order line-item ID");
+      edges.push(edge);
+      seen.add(edge.node.id);
+    }
+  }
+  node[key] = { ...connection, edges };
+  return node;
+}
+
 export async function completeOrderLineItems(admin, node) {
   if (!node) return node;
-  if (node.id && node.id.includes("DraftOrder")) return node;
+  if (node.id && node.id.includes("DraftOrder")) return completeDraftLineItems(admin, node);
   let connection = node.lineItems;
   if (!connection?.pageInfo || typeof connection.pageInfo.hasNextPage !== "boolean") throw new Error("Order line-item pagination metadata is missing");
   if (!Array.isArray(connection.edges)) throw new Error("Order line-item edges are missing");
