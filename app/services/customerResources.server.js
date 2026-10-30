@@ -53,34 +53,37 @@ const ARRIVAL_ITEM_LIMIT = 100;
 const arrivalSkuCache = new Map();
 const ARRIVAL_SKU_TTL_MS = 10 * 60 * 1000;
 
-// Maps Odoo SKUs to products sold in the online store. Unknown, draft or
+// Maps Odoo SKUs (or, when Odoo has no SKU, barcodes) to products sold in the
+// online store. Codes are keyed "sku:X" / "barcode:Y". Unknown, draft or
 // unpublished products stay unmatched; a Shopify outage only drops the links.
-async function resolveArrivalSkus({ graphql, shop, skus }) {
+async function resolveArrivalSkus({ graphql, shop, codes }) {
   const result = new Map();
-  const wanted = [...new Set(skus.filter((sku) => typeof sku === "string" && /^[\w.\-/]{1,64}$/.test(sku)))];
+  const wanted = [...new Set(codes.filter((code) => /^(sku|barcode):[\w.\-/]{1,64}$/.test(code || "")))];
   const missing = [];
-  for (const sku of wanted) {
-    const cached = arrivalSkuCache.get(`${shop}:${sku}`);
-    if (cached && Date.now() - cached.at < ARRIVAL_SKU_TTL_MS) { if (cached.value) result.set(sku, cached.value); }
-    else missing.push(sku);
+  for (const code of wanted) {
+    const cached = arrivalSkuCache.get(`${shop}:${code}`);
+    if (cached && Date.now() - cached.at < ARRIVAL_SKU_TTL_MS) { if (cached.value) result.set(code, cached.value); }
+    else missing.push(code);
   }
   if (!graphql || !missing.length) return result;
   for (let offset = 0; offset < missing.length; offset += 50) {
     const batch = missing.slice(offset, offset + 50);
     try {
       const payload = await graphql(shop, `query ArrivalVariants($query: String!) {
-        productVariants(first: 250, query: $query) { nodes { id sku product { id status onlineStoreUrl } } }
-      }`, { query: batch.map((sku) => `sku:"${sku}"`).join(" OR ") });
+        productVariants(first: 250, query: $query) { nodes { id sku barcode product { id status onlineStoreUrl } } }
+      }`, { query: batch.map((code) => { const [field, value] = code.split(/:(.*)/); return `${field}:"${value}"`; }).join(" OR ") });
       const found = new Map();
       for (const variant of payload?.data?.productVariants?.nodes || []) {
-        if (!batch.includes(variant.sku) || variant.product?.status !== "ACTIVE" || !variant.product?.onlineStoreUrl) continue;
-        found.set(variant.sku, found.has(variant.sku) ? null : { productId: variant.product.id, variantId: variant.id });
+        if (variant.product?.status !== "ACTIVE" || !variant.product?.onlineStoreUrl) continue;
+        for (const code of [`sku:${variant.sku}`, `barcode:${variant.barcode}`]) {
+          if (batch.includes(code)) found.set(code, found.has(code) ? null : { productId: variant.product.id, variantId: variant.id });
+        }
       }
-      for (const sku of batch) {
-        const value = found.get(sku) || null;
+      for (const code of batch) {
+        const value = found.get(code) || null;
         if (arrivalSkuCache.size > 5000) arrivalSkuCache.clear();
-        arrivalSkuCache.set(`${shop}:${sku}`, { value, at: Date.now() });
-        if (value) result.set(sku, value);
+        arrivalSkuCache.set(`${shop}:${code}`, { value, at: Date.now() });
+        if (value) result.set(code, value);
       }
     } catch {
       // Without Shopify the board still lists names; the app cannot link them.
@@ -181,17 +184,18 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
       orderBy: [{ scheduledDate: "asc" }, { id: "asc" }], take: page.first + 1,
       select: {
         id: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
-        items: { orderBy: { id: "asc" }, take: ARRIVAL_ITEM_LIMIT + 1, select: { sku: true, productName: true } },
+        items: { orderBy: { id: "asc" }, take: ARRIVAL_ITEM_LIMIT + 1, select: { sku: true, barcode: true, productName: true } },
       },
     });
     const visible = containers.slice(0, page.first);
-    const products = await resolveArrivalSkus({ graphql, shop, skus: visible.flatMap((c) => (c.items || []).map((item) => item.sku)) });
+    const codeOf = (item) => item.sku ? `sku:${item.sku}` : item.barcode ? `barcode:${item.barcode}` : null;
+    const products = await resolveArrivalSkus({ graphql, shop, codes: visible.flatMap((c) => (c.items || []).map(codeOf)) });
     return {
       containers: visible.map((c) => ({
         status: c.status, kind: c.arrivalKind === "DOMESTIC" ? "domestic" : "container", scheduledDate: c.scheduledDate, updatedAt: c.syncedAt,
         items: (c.items || []).slice(0, ARRIVAL_ITEM_LIMIT).map((item) => ({
           sku: item.sku || null, title: item.productName || "Incoming Item",
-          productId: products.get(item.sku)?.productId || null, variantId: products.get(item.sku)?.variantId || null,
+          productId: products.get(codeOf(item))?.productId || null, variantId: products.get(codeOf(item))?.variantId || null,
         })),
         itemsTruncated: (c.items || []).length > ARRIVAL_ITEM_LIMIT,
       })),
