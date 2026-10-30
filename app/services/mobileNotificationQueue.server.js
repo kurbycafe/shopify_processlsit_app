@@ -34,8 +34,15 @@ function publicNotification(row) {
 
 export async function customerNotificationInbox({ db, shop, customerId, request, input }) {
   if (input) {
-    if (input.action !== "read" || typeof input.id !== "string" || input.id.length > 100) throw new MobileApiError(400, "INVALID_INPUT", "Invalid inbox action.");
-    const result = await db.customerRequest.updateMany({ where: { id: input.id, shop, customerId, type: MESSAGE_TYPE, status: { in: ["READ", "UNREAD"] } }, data: { status: "READ" } });
+    const owned = { shop, customerId, type: MESSAGE_TYPE };
+    // Deleted notifications are kept as DELETED so a re-queued event (same
+    // requestKey) cannot bring them back and pending pushes are skipped.
+    if (input.action === "read_all" || input.action === "delete_all") {
+      const result = await db.customerRequest.updateMany({ where: { ...owned, status: input.action === "read_all" ? "UNREAD" : { in: ["READ", "UNREAD"] } }, data: { status: input.action === "read_all" ? "READ" : "DELETED" } });
+      return { accepted: true, count: result.count };
+    }
+    if (!["read", "delete"].includes(input.action) || typeof input.id !== "string" || input.id.length > 100) throw new MobileApiError(400, "INVALID_INPUT", "Invalid inbox action.");
+    const result = await db.customerRequest.updateMany({ where: { ...owned, id: input.id, status: { in: ["READ", "UNREAD"] } }, data: { status: input.action === "read" ? "READ" : "DELETED" } });
     if (result.count !== 1) throw new MobileApiError(404, "NOT_FOUND", "Notification not found.");
     return { accepted: true };
   }
@@ -86,7 +93,7 @@ export async function dispatchMobileNotifications({ db, shop, limit = 20, now = 
       readPushPreferences(db, shop, job.customerId),
     ]);
     const defer = (status, extra = {}) => db.customerRequest.updateMany({ where: { id: job.id, shop, status: job.status, updatedAt: job.updatedAt }, data: { status, payload: { ...job.payload, ...extra } } });
-    if (!message || !device || device.payload.bindingId !== job.payload.binding || !permitsPush(preferences, message.payload.category) || Date.parse(message.payload.expiresAt) <= now.getTime()) { await defer("SKIPPED"); return; }
+    if (!message || message.status === "DELETED" || !device || device.payload.bindingId !== job.payload.binding || !permitsPush(preferences, message.payload.category) || Date.parse(message.payload.expiresAt) <= now.getTime()) { await defer("SKIPPED"); return; }
     if (inQuietHours(preferences, message.payload.category, now)) {
       let next = new Date(now.getTime() + 15 * 60000);
       for (let i = 0; i < 100 && inQuietHours(preferences, message.payload.category, next); i++) next = new Date(next.getTime() + 15 * 60000);
