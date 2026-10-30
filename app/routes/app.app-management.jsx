@@ -30,8 +30,21 @@ import {
   resetStorefrontToDefaults,
   resolveCanonicalShop,
   parseExtendedSettings,
+  normalizeGroupBuyingInput,
   DEFAULT_BRANDS,
 } from "../services/mobileStorefront.server.js";
+
+const pad2 = (n) => String(n).padStart(2, "0");
+function isoToLocalInput(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function localInputToIso(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
 
 const ALLOWED_CATEGORY_ICONS = [
   "Sparkles",
@@ -342,10 +355,10 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "reset_defaults") {
-      const version = await resetStorefrontToDefaults(shop);
+      await resetStorefrontToDefaults(shop);
       return {
         success: true,
-        message: "기본값으로 복원했습니다.",
+        message: "배송 안내와 표시 옵션을 기본값으로 되돌렸습니다. 운영 데이터는 유지됩니다.",
         intent: "reset_defaults",
       };
     }
@@ -1368,6 +1381,11 @@ export const action = async ({ request }) => {
         } catch {
           // keep current
         }
+        const checkedGb = normalizeGroupBuyingInput(nextGroupBuying);
+        if (checkedGb.error) {
+          return { success: false, error: checkedGb.error, message: checkedGb.error };
+        }
+        nextGroupBuying = checkedGb.campaigns;
       }
 
       const prospektRaw = formData.get("prospektJson");
@@ -2150,7 +2168,7 @@ export default function AppManagementPage() {
   const handleResetDefaults = () => {
     if (
       !window.confirm(
-        "모든 배너, 특가 상품, 카테고리 설정을 기본 초기값으로 복원하시겠습니까?"
+        "배송 안내 문구, 상단 띠 공지, 특가 타이머·콜드체인·상품/장바구니/마이페이지 표시 옵션을 기본값으로 되돌립니다.\n배너, 특가 상품, 카테고리, 브랜드, 공동구매, 유통기한 규칙 등 운영 데이터는 그대로 유지됩니다.\n계속하시겠습니까?"
       )
     ) {
       return;
@@ -2176,7 +2194,7 @@ export default function AppManagementPage() {
           onAction: () => setLogModalOpen(true),
         },
         {
-          content: "기본값으로 복원",
+          content: "표시 옵션 기본값 복원",
           onAction: handleResetDefaults,
         },
       ]}
@@ -4375,6 +4393,7 @@ export default function AppManagementPage() {
                             setCatForm({ ...catForm, categoryKey: v })
                           }
                           placeholder="예: ramyun, kimchi, frozen"
+                          helpText="새 키는 아래에서 상품을 지정하거나 같은 핸들의 Shopify 컬렉션이 있어야 정확히 표시됩니다. 둘 다 없으면 앱이 카테고리 이름으로 상품을 검색합니다."
                           autoComplete="off"
                         />
                       </div>
@@ -4717,7 +4736,7 @@ export default function AppManagementPage() {
                             catAutoFilterFetcher.data.autoFilteredProducts.length === 0 ? (
                               <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
                                 <Text variant="bodySm" tone="subdued" as="p">
-                                  '{catForm.nameKo || catForm.categoryKey}' 조건과 일치하는 쇼피파이 활성 상품이 없습니다.
+                                  &lsquo;{catForm.nameKo || catForm.categoryKey}&rsquo; 조건과 일치하는 쇼피파이 활성 상품이 없습니다.
                                 </Text>
                               </div>
                             ) : (
@@ -5310,7 +5329,7 @@ export default function AppManagementPage() {
                             brandAutoFilterFetcher.data.autoFilteredProducts.length === 0 ? (
                               <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
                                 <Text variant="bodySm" tone="subdued" as="p">
-                                  '{brandForm.filter || brandForm.nameKo}' 조건과 일치하는 쇼피파이 활성 상품을 찾지 못했습니다. 벤더명을 확인해주세요.
+                                  &lsquo;{brandForm.filter || brandForm.nameKo}&rsquo; 조건과 일치하는 쇼피파이 활성 상품을 찾지 못했습니다. 벤더명을 확인해주세요.
                                 </Text>
                               </div>
                             ) : (
@@ -5744,14 +5763,13 @@ export default function AppManagementPage() {
                           titleKo: "신규 공동구매 기획전",
                           titleDe: "Neuer Gruppenkauf Deal",
                           titleEn: "New Group Buy Campaign",
-                          descKo: "목표 인원 달성 시 특가 일괄 출고",
-                          descDe: "Sofortiger Versand ab Zielerreichung",
+                          descKo: "목표 인원 달성 시 일괄 출고",
+                          descDe: "Versand ab Zielerreichung",
                           descEn: "Dispatches upon reaching target participants",
                           regularPrice: 0,
-                          groupPrice: 0,
                           targetCount: 20,
-                          currentCount: 15,
-                          endsInHours: 24,
+                          currentCount: 0,
+                          endsAt: "",
                           imageUrl: "",
                           isActive: true,
                         },
@@ -5957,16 +5975,13 @@ export default function AppManagementPage() {
                                                 variant="primary"
                                                 onClick={() => {
                                                   const next = [...groupBuying];
-                                                  const regular = sp.price;
-                                                  const groupDiscounted = Number((regular * 0.85).toFixed(2));
                                                   next[idx] = {
                                                     ...next[idx],
                                                     productId: sp.productId,
                                                     variantId: sp.variantId,
                                                     productTitle: sp.title,
                                                     imageUrl: sp.imageUrl,
-                                                    regularPrice: regular,
-                                                    groupPrice: next[idx].groupPrice && next[idx].groupPrice < regular && next[idx].groupPrice > 0 ? next[idx].groupPrice : groupDiscounted,
+                                                    regularPrice: sp.price,
                                                     keyword: sp.title,
                                                     titleKo: next[idx].titleKo && !next[idx].titleKo.includes("신규 공동구매") ? next[idx].titleKo : `${sp.title} 기획 공동구매`,
                                                   };
@@ -6016,54 +6031,56 @@ export default function AppManagementPage() {
 
                           </InlineStack>
 
+                          <Banner tone="info">
+                            앱에는 Shopify 판매가
+                            {Number(gb.regularPrice) > 0 ? ` (연결 시점 €${Number(gb.regularPrice).toFixed(2)})` : ""}
+                            가 그대로 표시되고 결제됩니다. 공동구매 할인은 Shopify에서 상품 가격·비교 가격을 바꿔야 적용됩니다.
+                          </Banner>
+
+                          <InlineStack gap="300" blockAlign="end">
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                label="종료 일시 (비우면 종료 없음)"
+                                type="datetime-local"
+                                value={isoToLocalInput(gb.endsAt)}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = { ...next[idx], endsAt: localInputToIso(v) };
+                                  delete next[idx].endsInHours;
+                                  setGroupBuying(next);
+                                }}
+                                helpText={!gb.endsAt && gb.endsInHours ? "이전 '남은 시간' 값은 앱에 반영되지 않았습니다. 종료 일시를 지정해 주세요." : undefined}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div style={{ flex: 1, paddingBottom: "6px" }}>
+                              <Checkbox
+                                label="앱에 노출"
+                                checked={gb.isActive !== false}
+                                onChange={(v) => {
+                                  const next = [...groupBuying];
+                                  next[idx] = { ...next[idx], isActive: v };
+                                  setGroupBuying(next);
+                                }}
+                              />
+                            </div>
+                          </InlineStack>
+
                           <InlineStack gap="300">
-                            <div style={{ flex: 1 }}>
-                              <TextField
-                                label="정상가 (€)"
-                                type="number"
-                                step="0.01"
-                                value={String(gb.regularPrice ?? 0)}
-                                onChange={(v) => {
-                                  const next = [...groupBuying];
-                                  next[idx] = {
-                                    ...next[idx],
-                                    regularPrice: Number(v || 0),
-                                  };
-                                  setGroupBuying(next);
-                                }}
-                                autoComplete="off"
-                              />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <TextField
-                                label="공동구매 특가가 (€)"
-                                type="number"
-                                step="0.01"
-                                value={String(gb.groupPrice ?? 0)}
-                                onChange={(v) => {
-                                  const next = [...groupBuying];
-                                  next[idx] = {
-                                    ...next[idx],
-                                    groupPrice: Number(v || 0),
-                                  };
-                                  setGroupBuying(next);
-                                }}
-                                autoComplete="off"
-                              />
-                            </div>
                             <div style={{ flex: 1 }}>
                               <TextField
                                 label="목표 인원(명)"
                                 type="number"
-                                value={String(gb.targetCount ?? 20)}
+                                value={String(gb.targetCount ?? "")}
                                 onChange={(v) => {
                                   const next = [...groupBuying];
                                   next[idx] = {
                                     ...next[idx],
-                                    targetCount: Number(v || 20),
+                                    targetCount: v === "" ? null : Number(v),
                                   };
                                   setGroupBuying(next);
                                 }}
+                                helpText="비우면 앱에 참여 현황을 표시하지 않습니다."
                                 autoComplete="off"
                               />
                             </div>
@@ -6071,7 +6088,8 @@ export default function AppManagementPage() {
                               <TextField
                                 label="현재 참여 인원(명)"
                                 type="number"
-                                value={String(gb.currentCount ?? 15)}
+                                helpText="앱에 그대로 표시됩니다. 실제 주문 수로 입력해 주세요."
+                                value={String(gb.currentCount ?? 0)}
                                 onChange={(v) => {
                                   const next = [...groupBuying];
                                   next[idx] = {
