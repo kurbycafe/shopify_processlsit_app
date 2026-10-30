@@ -179,6 +179,7 @@ export const DEFAULT_EXTENDED_SETTINGS = {
   "faqs": [],
   "loyaltyPolicy": null,
   "giftCardVariants": {},
+  "publishLogs": [],
   "categoryProducts": {},
   "brands": DEFAULT_BRANDS
 };
@@ -364,6 +365,7 @@ export function parseExtendedSettings(rawJson) {
     faqs: Array.isArray(parsed.faqs) && parsed.faqs.length > 0 ? parsed.faqs : [],
     loyaltyPolicy: parsed.loyaltyPolicy || null,
     giftCardVariants: parsed.giftCardVariants && typeof parsed.giftCardVariants === "object" ? parsed.giftCardVariants : {},
+    publishLogs: Array.isArray(parsed.publishLogs) ? parsed.publishLogs : [],
     categoryProducts: (parsed.categoryProducts && typeof parsed.categoryProducts === "object" && !Array.isArray(parsed.categoryProducts)) ? parsed.categoryProducts : {},
     brands: Array.isArray(parsed.brands) ? parsed.brands : structuredClone(DEFAULT_BRANDS),
   };
@@ -676,6 +678,7 @@ export async function getStorefrontConfig(
     faqs: extended.faqs && extended.faqs.length > 0 ? extended.faqs : DEFAULT_FAQS,
     loyaltyPolicy: extended.loyaltyPolicy || LOYALTY_POLICY,
     giftCardVariants: extended.giftCardVariants || {},
+    publishLogs: Array.isArray(extended.publishLogs) ? extended.publishLogs : [],
   };
 
   if (!includeInactive && includeRecipes && db === prisma) {
@@ -691,10 +694,37 @@ export async function getStorefrontConfig(
 /**
  * Updates global configVersion timestamp to guarantee immediate mobile app cache invalidation
  */
-export async function bumpStorefrontVersion(rawShop, db = prisma) {
+export async function bumpStorefrontVersion(rawShop, db = prisma, logDetails = null) {
   const shop = resolveCanonicalShop(rawShop);
   const newVersion = String(Date.now());
-  await db.mobileStorefrontConfig.updateMany({where:{shop},data:{configVersion:newVersion}});
+  try {
+    const existing = await db.mobileStorefrontConfig.findUnique({ where: { shop } });
+    if (existing) {
+      const extended = parseExtendedSettings(existing.tickersJson);
+      const logs = Array.isArray(extended.publishLogs) ? [...extended.publishLogs] : [];
+      const now = new Date();
+      const formatted = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      logs.unshift({
+        timestamp: Date.now(),
+        requestDate: formatted,
+        version: newVersion,
+        action: logDetails?.action || "저장된 설정 반영 요청",
+        isActive: "Y",
+      });
+      const updatedExtended = {
+        ...extended,
+        publishLogs: logs.slice(0, 20),
+      };
+      await db.mobileStorefrontConfig.updateMany({
+        where: { shop },
+        data: { configVersion: newVersion, tickersJson: updatedExtended },
+      });
+    } else {
+      await db.mobileStorefrontConfig.updateMany({ where: { shop }, data: { configVersion: newVersion } });
+    }
+  } catch {
+    await db.mobileStorefrontConfig.updateMany({ where: { shop }, data: { configVersion: newVersion } });
+  }
   invalidateStorefrontCache(shop);
   return newVersion;
 }
