@@ -147,6 +147,24 @@ test("duplicate events preserve read state and concurrent workers send only one 
   assert.equal(rows.find(row => row.type === "MOBILE_NOTIFICATION").status, "READ");
 });
 
+test("customers can mark all read and delete notifications without them coming back or being pushed", async () => {
+  const { db, rows } = memory(); await consent(db); await register(db);
+  const inbox = () => customerNotificationInbox({ db, shop, customerId: owner, request });
+  const act = input => customerNotificationInbox({ db, shop, customerId: owner, request, input });
+  const first = await queue(db); await queue(db, { eventKey: "event-2" });
+  assert.equal((await inbox()).unreadCount, 2);
+  assert.equal((await act({ action: "read_all" })).count, 2);
+  assert.equal((await inbox()).unreadCount, 0); assert.ok((await inbox()).notifications.every(row => row.read));
+  await act({ action: "delete", id: first.notificationId });
+  await queue(db); assert.deepEqual((await inbox()).notifications.map(row => row.id).includes(first.notificationId), false);
+  await assert.rejects(act({ action: "delete", id: first.notificationId }), { status: 404 });
+  await assert.rejects(act({ action: "remove", id: first.notificationId }), { status: 400 });
+  assert.equal((await act({ action: "delete_all" })).count, 1);
+  assert.equal((await inbox()).notifications.length, 0);
+  let sent = 0; await dispatch(db, async () => { sent++; return "id"; }); assert.equal(sent, 0);
+  assert.ok(rows.filter(row => row.type === "PUSH_DELIVERY").every(row => row.status === "SKIPPED"));
+});
+
 test("quiet marketing jobs are deferred without starving order notifications", async () => {
   const { db, rows } = memory(); await consent(db, owner, { quietEnabled: true }); await register(db);
   await queue(db, { category: "MARKETING", eventKey: "offer" }); await queue(db, { eventKey: "order" });
