@@ -1161,17 +1161,21 @@ export const action = async ({ request }) => {
       }
 
       const productTypesJson = formData.get("productTypesJson");
-      if (productTypesJson !== null) {
+      const subcategoriesJson = formData.get("subcategoriesJson");
+      if (productTypesJson !== null || subcategoriesJson !== null) {
         let types = [];
+        let subcategories = [];
         try {
-          const parsedTypes = JSON.parse(String(productTypesJson));
+          const parsedTypes = JSON.parse(String(productTypesJson ?? "[]"));
+          const parsedSubs = JSON.parse(String(subcategoriesJson ?? "[]"));
           if (Array.isArray(parsedTypes)) types = parsedTypes;
+          if (Array.isArray(parsedSubs)) subcategories = parsedSubs;
         } catch {
-          return { success: false, message: "상품 유형 값이 올바르지 않습니다." };
+          return { success: false, message: "상품 유형 또는 2차 분류 값이 올바르지 않습니다." };
         }
         const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({ where: { shop } });
         const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
-        const rules = normalizeCategoryRules({ ...extended.categoryRules, [categoryKey]: { productTypes: types } });
+        const rules = normalizeCategoryRules({ ...extended.categoryRules, [categoryKey]: { productTypes: types, subcategories } });
         if (!rules[categoryKey]) delete rules[categoryKey];
         await saveStorefrontConfig(prisma, {
           where: { shop },
@@ -1935,6 +1939,7 @@ export default function AppManagementPage() {
     badgeTag: "",
     assignedProducts: [],
     productTypes: [],
+    subcategories: [],
   });
   const [catProductSearchQuery, setCatProductSearchQuery] = useState("");
   const catSearchFetcher = useFetcher();
@@ -2187,6 +2192,7 @@ export default function AppManagementPage() {
       badgeTag: c.badgeTag || "",
       assignedProducts: Array.isArray(c.assignedProducts) ? [...c.assignedProducts] : [],
       productTypes: Array.isArray(c.productTypes) ? [...c.productTypes] : [],
+      subcategories: (Array.isArray(c.subcategories) ? c.subcategories : []).map((sub) => ({ handle: sub.handle, nameKo: sub.name?.ko || "", nameDe: sub.name?.de || "", nameEn: sub.name?.en || "" })),
     });
     setCatProductSearchQuery("");
     setCategorySubTab("categories");
@@ -2209,6 +2215,7 @@ export default function AppManagementPage() {
       badgeTag: "",
       assignedProducts: [],
       productTypes: [],
+      subcategories: [],
     });
     setCatProductSearchQuery("");
   };
@@ -4168,6 +4175,33 @@ export default function AppManagementPage() {
                     </BlockStack>
 
                     <BlockStack gap="200">
+                      <Text variant="headingSm" as="h3">2차 분류 (앱 상단 칩)</Text>
+                      <Text variant="bodySm" tone="subdued" as="p">
+                        Shopify 컬렉션 핸들과 이름을 넣으면 이 카테고리 안에 하위 분류로 나옵니다. 2개 이상일 때만 칩이 보입니다.
+                      </Text>
+                      {(catForm.subcategories || []).map((sub, i) => {
+                        const update = (patch) => setCatForm({ ...catForm, subcategories: catForm.subcategories.map((row, j) => (j === i ? { ...row, ...patch } : row)) });
+                        const move = (dir) => { const next = [...catForm.subcategories]; const k = i + dir; if (k < 0 || k >= next.length) return; [next[i], next[k]] = [next[k], next[i]]; setCatForm({ ...catForm, subcategories: next }); };
+                        return (
+                          <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto", gap: "6px", alignItems: "end" }}>
+                            <TextField label="컬렉션 핸들" labelHidden={i > 0} value={sub.handle} onChange={(v) => update({ handle: v.trim() })} placeholder="냉동-식품" autoComplete="off" />
+                            <TextField label="이름 (한국어)" labelHidden={i > 0} value={sub.nameKo} onChange={(v) => update({ nameKo: v })} autoComplete="off" />
+                            <TextField label="독일어" labelHidden={i > 0} value={sub.nameDe} onChange={(v) => update({ nameDe: v })} autoComplete="off" />
+                            <TextField label="영어" labelHidden={i > 0} value={sub.nameEn} onChange={(v) => update({ nameEn: v })} autoComplete="off" />
+                            <InlineStack gap="100" wrap={false}>
+                              <Button size="slim" onClick={() => move(-1)} disabled={i === 0} accessibilityLabel="위로">↑</Button>
+                              <Button size="slim" onClick={() => move(1)} disabled={i === catForm.subcategories.length - 1} accessibilityLabel="아래로">↓</Button>
+                              <Button size="slim" tone="critical" onClick={() => setCatForm({ ...catForm, subcategories: catForm.subcategories.filter((_, j) => j !== i) })}>삭제</Button>
+                            </InlineStack>
+                          </div>
+                        );
+                      })}
+                      <div>
+                        <Button size="slim" onClick={() => setCatForm({ ...catForm, subcategories: [...(catForm.subcategories || []), { handle: "", nameKo: "", nameDe: "", nameEn: "" }] })}>2차 분류 추가</Button>
+                      </div>
+                    </BlockStack>
+
+                    <BlockStack gap="200">
                       <Text variant="headingSm" as="h3">Shopify 상품 유형으로 자동 구성</Text>
                       <Text variant="bodySm" tone="subdued" as="p">
                         선택한 유형의 dawayo.de 판매 상품이 모두 이 카테고리에 들어갑니다. 새 상품도 유형만 맞으면 자동으로 들어갑니다. 아래에서 상품을 직접 지정하면 그 상품들만 표시됩니다.
@@ -4563,6 +4597,8 @@ export default function AppManagementPage() {
                             fd.append("categoryProductsJson", JSON.stringify(val));
                           } else if (k === "productTypes") {
                             fd.append("productTypesJson", JSON.stringify(val));
+                          } else if (k === "subcategories") {
+                            fd.append("subcategoriesJson", JSON.stringify(val));
                           } else {
                             fd.append(k, String(val));
                           }
