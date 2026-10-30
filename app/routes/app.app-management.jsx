@@ -4648,10 +4648,10 @@ export default function AppManagementPage() {
                       </div>
                       <div style={{ flex: 1 }}>
                         <TextField
-                          label="Shopify 벤더명 (Vendor 필터)"
+                          label="상품 검색어 (상품명에 들어간 단어)"
                           value={brandForm.filter}
                           onChange={(v) => setBrandForm({ ...brandForm, filter: v })}
-                          placeholder="예: Nongshim, CJ, Samyang"
+                          placeholder="예: 농심, CJ, 삼양"
                           autoComplete="off"
                         />
                       </div>
