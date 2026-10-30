@@ -48,13 +48,15 @@ function localInputToIso(value) {
 
 // One row of an admin list: details on top, actions on their own line so the
 // title never gets squeezed in a narrow column.
-function AdminListRow({ thumb, thumbBackground = "#F4F5F7", badges = [], title, subtitle, active = true, selected = false, isFirst, isLast, onMove, actions = [] }) {
+function AdminListRow({ thumb, thumbNode, noThumb = false, thumbBackground = "#F4F5F7", badges = [], title, subtitle, active = true, selected = false, isFirst, isLast, onMove, actions = [] }) {
   return (
     <div style={{ border: selected ? "2px solid #303030" : "1px solid #E3E3E3", borderRadius: "10px", padding: "12px", background: active ? "#FFFFFF" : "#F7F7F7" }}>
       <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-        <div style={{ width: "56px", height: "56px", borderRadius: "8px", background: thumbBackground, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {thumb && <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
-        </div>
+        {!noThumb && (
+          <div style={{ width: "56px", height: "56px", borderRadius: "8px", background: thumbBackground, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {thumbNode || (thumb && <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />)}
+          </div>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           {badges.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "4px" }}>
@@ -4008,139 +4010,32 @@ export default function AppManagementPage() {
                     </InlineStack>
                     <Divider />
                     <BlockStack gap="200">
-                      {(config.categories || []).map((cat, idx) => (
-                        <div
-                          key={cat.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            padding: "12px 14px",
-                            border: catForm.categoryId === cat.id ? "2px solid #E30613" : "1px solid #E5E7EB",
-                            borderRadius: "10px",
-                            background: "#FFFFFF",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "12px",
-                              flex: 1,
-                              minWidth: 0,
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: "40px",
-                                height: "40px",
-                                borderRadius: "12px",
-                                background: "#F5F5F7",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                flexShrink: 0,
-                              }}
-                            >
-                              <CategoryVectorIcon name={cat.iconName} size={20} />
-                            </div>
-                            <div style={{ minWidth: 0 }}>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "6px",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                <Text variant="bodyMd" fontWeight="bold" as="span">
-                                  {cat.name?.ko}
-                                </Text>
-                                <Text variant="bodySm" tone="subdued" as="span">
-                                  ({cat.categoryKey})
-                                </Text>
-                                {cat.badgeTag && (
-                                  <Badge tone="critical">{cat.badgeTag}</Badge>
-                                )}
-                              </div>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: "6px",
-                                  marginTop: "4px",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                {cat.isGnbTab && <Badge tone="info">상단 GNB 탭</Badge>}
-                                {cat.isCarousel && (
-                                  <Badge tone="success">원형 카테고리</Badge>
-                                )}
-                                {cat.assignedProducts && cat.assignedProducts.length > 0 ? (
-                                  <Badge tone="attention">지정 상품 {cat.assignedProducts.length}개</Badge>
-                                ) : (
-                                  <Badge tone="subdued">자동 키워드 매칭</Badge>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <InlineStack gap="100">
-                            <Button
-                              size="slim"
-                              variant="tertiary"
-                              disabled={idx === 0}
-                              onClick={() => {
-                                const fd = new FormData();
-                                fd.append("intent", "reorder_category");
-                                fd.append("categoryId", cat.id);
-                                fd.append("direction", "up");
-                                fetcher.submit(fd, { method: "post" });
-                              }}
-                              accessibilityLabel="위로 이동"
-                            >
-                              ▲
-                            </Button>
-                            <Button
-                              size="slim"
-                              variant="tertiary"
-                              disabled={idx === (config.categories || []).length - 1}
-                              onClick={() => {
-                                const fd = new FormData();
-                                fd.append("intent", "reorder_category");
-                                fd.append("categoryId", cat.id);
-                                fd.append("direction", "down");
-                                fetcher.submit(fd, { method: "post" });
-                              }}
-                              accessibilityLabel="아래로 이동"
-                            >
-                              ▼
-                            </Button>
-                            <Button
-                              size="slim"
-                              onClick={() => handleEditCategory(cat)}
-                            >
-                              수정
-                            </Button>
-                            {cat.categoryKey !== "all" && (
-                              <Button
-                                size="slim"
-                                tone="critical"
-                                variant="plain"
-                                onClick={() => {
-                                  if (window.confirm(`'${cat.name?.ko || cat.categoryKey}' 카테고리를 삭제하시겠습니까?`)) {
-                                    const fd = new FormData();
-                                    fd.append("intent", "delete_category");
-                                    fd.append("categoryId", cat.id);
-                                    fd.append("categoryKey", cat.categoryKey);
-                                    fetcher.submit(fd, { method: "post" });
-                                  }
-                                }}
-                              >
-                                삭제
-                              </Button>
-                            )}
-                          </InlineStack>
-                        </div>
-                      ))}
+                      {(config.categories || []).map((cat, idx) => {
+                        const submit = (fields) => { const fd = new FormData(); for (const [k, v] of Object.entries(fields)) fd.append(k, v); fetcher.submit(fd, { method: "post" }); };
+                        const assigned = cat.assignedProducts?.length || 0;
+                        return (
+                          <AdminListRow
+                            key={cat.id}
+                            thumbNode={<CategoryVectorIcon name={cat.iconName} size={22} />}
+                            active={cat.isActive !== false}
+                            selected={catForm.categoryId === cat.id}
+                            badges={[
+                              ...(cat.isGnbTab ? [{ label: "상단 탭", tone: "info" }] : []),
+                              ...(cat.isCarousel ? [{ label: "홈 아이콘" }] : []),
+                              ...(cat.badgeTag ? [{ label: cat.badgeTag, tone: "critical" }] : []),
+                            ]}
+                            title={`${cat.name?.ko || cat.categoryKey}`}
+                            subtitle={`${cat.categoryKey} · ${assigned > 0 ? `지정 상품 ${assigned}개` : "키워드 자동 매칭"}`}
+                            isFirst={idx === 0}
+                            isLast={idx === (config.categories || []).length - 1}
+                            onMove={(direction) => submit({ intent: "reorder_category", categoryId: cat.id, direction })}
+                            actions={[
+                              { label: "수정", onClick: () => handleEditCategory(cat) },
+                              ...(cat.categoryKey !== "all" ? [{ label: "삭제", tone: "critical", confirm: `'${cat.name?.ko || cat.categoryKey}' 카테고리를 삭제할까요?`, onClick: () => submit({ intent: "delete_category", categoryId: cat.id, categoryKey: cat.categoryKey }) }] : []),
+                            ]}
+                          />
+                        );
+                      })}
                     </BlockStack>
                   </BlockStack>
                 </Card>
@@ -4385,7 +4280,7 @@ export default function AppManagementPage() {
                               textAlign: "center",
                               background: "#F9FAFB",
                               borderRadius: "8px",
-                              border: "1px dashed #D1D5DB",
+                              border: "1px solid #E3E3E3",
                               marginTop: "6px",
                             }}
                           >
@@ -4509,7 +4404,7 @@ export default function AppManagementPage() {
 
                           {catAutoFilterFetcher.data?.autoFilteredProducts ? (
                             catAutoFilterFetcher.data.autoFilteredProducts.length === 0 ? (
-                              <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                              <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px solid #E3E3E3", textAlign: "center" }}>
                                 <Text variant="bodySm" tone="subdued" as="p">
                                   &lsquo;{catForm.nameKo || catForm.categoryKey}&rsquo; 조건과 일치하는 쇼피파이 활성 상품이 없습니다.
                                 </Text>
@@ -4593,7 +4488,7 @@ export default function AppManagementPage() {
                               </div>
                             )
                           ) : (
-                            <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                            <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px solid #E3E3E3", textAlign: "center" }}>
                               <Button
                                 size="slim"
                                 loading={catAutoFilterFetcher.state !== "idle"}
@@ -4653,91 +4548,31 @@ export default function AppManagementPage() {
                     </InlineStack>
                     <Divider />
                     <BlockStack gap="200">
-                      {(config.brands || []).map((brand, idx) => (
-                        <div
-                          key={brand.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            padding: "12px 14px",
-                            border: brandForm.brandId === brand.id ? "2px solid #E30613" : "1px solid #E5E7EB",
-                            borderRadius: "10px",
-                            background: "#FFFFFF",
-                          }}
-                        >
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                              <Text variant="bodyMd" fontWeight="bold" as="span">
-                                {brand.nameKo}
-                              </Text>
-                              <Text variant="bodySm" tone="subdued" as="span">
-                                ({brand.nameEn || brand.nameDe || brand.filter})
-                              </Text>
-                              {brand.tag && <Badge tone="critical">{brand.tag}</Badge>}
-                            </div>
-                            <div style={{ display: "flex", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
-                              <Badge tone="info">벤더: {brand.filter || brand.nameKo}</Badge>
-                              {brand.assignedProducts && brand.assignedProducts.length > 0 ? (
-                                <Badge tone="attention">전용 상품 {brand.assignedProducts.length}개</Badge>
-                              ) : (
-                                <Badge tone="subdued">벤더 자동 필터</Badge>
-                              )}
-                              {!brand.isActive && <Badge tone="critical">비활성</Badge>}
-                            </div>
-                          </div>
-                          <InlineStack gap="100">
-                            <Button
-                              size="slim"
-                              variant="tertiary"
-                              disabled={idx === 0}
-                              onClick={() => {
-                                const fd = new FormData();
-                                fd.append("intent", "reorder_brand");
-                                fd.append("brandId", brand.id);
-                                fd.append("direction", "up");
-                                fetcher.submit(fd, { method: "post" });
-                              }}
-                              accessibilityLabel="위로 이동"
-                            >
-                              ▲
-                            </Button>
-                            <Button
-                              size="slim"
-                              variant="tertiary"
-                              disabled={idx === (config.brands || []).length - 1}
-                              onClick={() => {
-                                const fd = new FormData();
-                                fd.append("intent", "reorder_brand");
-                                fd.append("brandId", brand.id);
-                                fd.append("direction", "down");
-                                fetcher.submit(fd, { method: "post" });
-                              }}
-                              accessibilityLabel="아래로 이동"
-                            >
-                              ▼
-                            </Button>
-                            <Button size="slim" onClick={() => handleEditBrand(brand)}>
-                              수정
-                            </Button>
-                            <Button
-                              size="slim"
-                              tone="critical"
-                              variant="plain"
-                              onClick={() => {
-                                if (window.confirm(`'${brand.nameKo}' 브랜드를 삭제하시겠습니까?`)) {
-                                  const fd = new FormData();
-                                  fd.append("intent", "delete_brand");
-                                  fd.append("brandId", brand.id);
-                                  fetcher.submit(fd, { method: "post" });
-                                }
-                              }}
-                            >
-                              삭제
-                            </Button>
-                          </InlineStack>
-                        </div>
-                      ))}
+                      {(config.brands || []).map((brand, idx) => {
+                        const submit = (fields) => { const fd = new FormData(); for (const [k, v] of Object.entries(fields)) fd.append(k, v); fetcher.submit(fd, { method: "post" }); };
+                        const assigned = brand.assignedProducts?.length || 0;
+                        return (
+                          <AdminListRow
+                            key={brand.id}
+                            noThumb
+                            active={brand.isActive !== false}
+                            selected={brandForm.brandId === brand.id}
+                            badges={[
+                              ...(brand.isActive === false ? [{ label: "숨김" }] : []),
+                              ...(brand.tag && brand.tag !== brand.nameKo ? [{ label: brand.tag, tone: "critical" }] : []),
+                            ]}
+                            title={brand.nameKo}
+                            subtitle={`검색어 "${brand.filter || brand.nameKo}" · ${assigned > 0 ? `지정 상품 ${assigned}개` : "상품명으로 자동 매칭"}`}
+                            isFirst={idx === 0}
+                            isLast={idx === (config.brands || []).length - 1}
+                            onMove={(direction) => submit({ intent: "reorder_brand", brandId: brand.id, direction })}
+                            actions={[
+                              { label: "수정", onClick: () => handleEditBrand(brand) },
+                              { label: "삭제", tone: "critical", confirm: `'${brand.nameKo}' 브랜드를 삭제할까요?`, onClick: () => submit({ intent: "delete_brand", brandId: brand.id }) },
+                            ]}
+                          />
+                        );
+                      })}
                     </BlockStack>
                   </BlockStack>
                 </Card>
@@ -4978,7 +4813,7 @@ export default function AppManagementPage() {
                               textAlign: "center",
                               background: "#F9FAFB",
                               borderRadius: "8px",
-                              border: "1px dashed #D1D5DB",
+                              border: "1px solid #E3E3E3",
                               marginTop: "6px",
                             }}
                           >
@@ -5102,7 +4937,7 @@ export default function AppManagementPage() {
 
                           {brandAutoFilterFetcher.data?.autoFilteredProducts ? (
                             brandAutoFilterFetcher.data.autoFilteredProducts.length === 0 ? (
-                              <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                              <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px solid #E3E3E3", textAlign: "center" }}>
                                 <Text variant="bodySm" tone="subdued" as="p">
                                   &lsquo;{brandForm.filter || brandForm.nameKo}&rsquo; 조건과 일치하는 쇼피파이 활성 상품을 찾지 못했습니다. 벤더명을 확인해주세요.
                                 </Text>
@@ -5193,7 +5028,7 @@ export default function AppManagementPage() {
                               </div>
                             )
                           ) : (
-                            <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                            <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px solid #E3E3E3", textAlign: "center" }}>
                               <Button
                                 size="slim"
                                 loading={brandAutoFilterFetcher.state !== "idle"}
