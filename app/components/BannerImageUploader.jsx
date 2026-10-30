@@ -149,17 +149,16 @@ export default function BannerImageUploader({
           <BlockStack gap="200" inlineAlign="center">
             <Spinner size="small" />
             <Text variant="bodyMd" tone="subdued">
-              이미지 최적화 및 WebP 자동 압축 중...
+              이미지 변환 중…
             </Text>
           </BlockStack>
         ) : (
           <BlockStack gap="100" inlineAlign="center">
-            <div style={{ fontSize: "28px", lineHeight: "1" }}>📁</div>
             <Text variant="bodyMd" fontWeight="semibold">
-              내 컴퓨터에서 배너 이미지 선택 (또는 여기로 드래그)
+              이미지 선택 또는 끌어다 놓기
             </Text>
             <Text variant="bodySm" tone="subdued">
-              PNG, JPG, WebP 자동 지원 · 모바일 전용 초경량 WebP로 무손실 압축
+              PNG, JPG, WebP · 업로드 시 WebP로 변환
             </Text>
           </BlockStack>
         )}

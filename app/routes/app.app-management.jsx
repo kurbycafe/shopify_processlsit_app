@@ -46,6 +46,42 @@ function localInputToIso(value) {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+// One row of an admin list: details on top, actions on their own line so the
+// title never gets squeezed in a narrow column.
+function AdminListRow({ thumb, thumbBackground = "#F4F5F7", badges = [], title, subtitle, active = true, selected = false, isFirst, isLast, onMove, actions = [] }) {
+  return (
+    <div style={{ border: selected ? "2px solid #303030" : "1px solid #E3E3E3", borderRadius: "10px", padding: "12px", background: active ? "#FFFFFF" : "#F7F7F7" }}>
+      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+        <div style={{ width: "56px", height: "56px", borderRadius: "8px", background: thumbBackground, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {thumb && <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {badges.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "4px" }}>
+              {badges.map((b) => <Badge key={b.label} tone={b.tone}>{b.label}</Badge>)}
+            </div>
+          )}
+          <Text variant="bodyMd" fontWeight="semibold" as="p" breakWord>{title}</Text>
+          {subtitle && <Text variant="bodySm" tone="subdued" as="p" breakWord>{subtitle}</Text>}
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "10px", paddingTop: "10px", borderTop: "1px solid #EBEBEB" }}>
+        <InlineStack gap="100">
+          <Button size="slim" disabled={isFirst} onClick={() => onMove("up")} accessibilityLabel="위로 이동">↑</Button>
+          <Button size="slim" disabled={isLast} onClick={() => onMove("down")} accessibilityLabel="아래로 이동">↓</Button>
+        </InlineStack>
+        <InlineStack gap="200">
+          {actions.map((a) => (
+            <Button key={a.label} size="slim" tone={a.tone} variant={a.variant} onClick={() => { if (a.confirm && !window.confirm(a.confirm)) return; a.onClick(); }}>
+              {a.label}
+            </Button>
+          ))}
+        </InlineStack>
+      </div>
+    </div>
+  );
+}
+
 const ALLOWED_CATEGORY_ICONS = [
   "Sparkles",
   "Soup",
@@ -2779,170 +2815,32 @@ export default function AppManagementPage() {
                 <Divider />
 
                 <BlockStack gap="300">
-                  {(config.banners || []).map((b, idx) => (
-                    <div
-                      key={b.id}
-                      style={{
-                        border:
-                          editingBanner === b.id
-                            ? "2px solid #1A1A1A"
-                            : "1px solid #E5E7EB",
-                        borderRadius: "10px",
-                        padding: "14px",
-                        background: b.isActive ? "#FFFFFF" : "#F9FAFB",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "14px",
-                          alignItems: "center",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: "76px",
-                            height: "76px",
-                            borderRadius: "8px",
-                            background: b.bgGradient,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            overflow: "hidden",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {b.image && (
-                            <img
-                              src={b.image}
-                              alt={b.title?.ko}
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "cover",
-                              }}
-                            />
-                          )}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              marginBottom: "4px",
-                            }}
-                          >
-                            <Badge tone={b.isActive ? "success" : "enabled"}>
-                              {b.isActive ? `순서 ${b.sortOrder} · 노출중` : "숨김"}
-                            </Badge>
-                            <Badge>{b.tag?.ko}</Badge>
-                          </div>
-                          <Text variant="bodyMd" fontWeight="bold" as="p">
-                            {b.title?.ko}
-                          </Text>
-                          <Text variant="bodySm" tone="subdued" as="p">
-                            {b.sub?.ko}
-                          </Text>
-                        </div>
-                        <InlineStack gap="100">
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === 0}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_banner");
-                              fd.append("bannerId", b.id);
-                              fd.append("direction", "up");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="위로 이동"
-                          >
-                            ▲
-                          </Button>
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === (config.banners || []).length - 1}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_banner");
-                              fd.append("bannerId", b.id);
-                              fd.append("direction", "down");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="아래로 이동"
-                          >
-                            ▼
-                          </Button>
-                        </InlineStack>
-                        <InlineStack gap="100">
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === 0}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_banner");
-                              fd.append("bannerId", b.id);
-                              fd.append("direction", "up");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="위로 이동"
-                          >
-                            ▲
-                          </Button>
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === (config.banners || []).length - 1}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_banner");
-                              fd.append("bannerId", b.id);
-                              fd.append("direction", "down");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="아래로 이동"
-                          >
-                            ▼
-                          </Button>
-                        </InlineStack>
-                        <InlineStack gap="200">
-                          <Button size="slim" onClick={() => handleEditBanner(b)}>
-                            수정
-                          </Button>
-                          <Button
-                            size="slim"
-                            tone={b.isActive ? "critical" : "success"}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "toggle_banner");
-                              fd.append("bannerId", b.id);
-                              fd.append("isActive", String(!b.isActive));
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                          >
-                            {b.isActive ? "끄기" : "켜기"}
-                          </Button>
-                          <Button
-                            size="slim"
-                            tone="critical"
-                            variant="plain"
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "delete_banner");
-                              fd.append("bannerId", b.id);
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                          >
-                            삭제
-                          </Button>
-                        </InlineStack>
-                      </div>
-                    </div>
-                  ))}
+                  {(config.banners || []).map((b, idx) => {
+                    const submit = (fields) => { const fd = new FormData(); for (const [k, v] of Object.entries(fields)) fd.append(k, v); fetcher.submit(fd, { method: "post" }); };
+                    return (
+                      <AdminListRow
+                        key={b.id}
+                        thumb={b.image}
+                        thumbBackground={b.bgGradient}
+                        active={b.isActive}
+                        selected={editingBanner === b.id}
+                        badges={[
+                          { label: b.isActive ? `${b.sortOrder}번 · 노출 중` : "숨김", tone: b.isActive ? "success" : undefined },
+                          ...(b.tag?.ko ? [{ label: b.tag.ko }] : []),
+                        ]}
+                        title={b.title?.ko || "제목 없음"}
+                        subtitle={b.sub?.ko}
+                        isFirst={idx === 0}
+                        isLast={idx === (config.banners || []).length - 1}
+                        onMove={(direction) => submit({ intent: "reorder_banner", bannerId: b.id, direction })}
+                        actions={[
+                          { label: "수정", onClick: () => handleEditBanner(b) },
+                          { label: b.isActive ? "숨기기" : "노출", onClick: () => submit({ intent: "toggle_banner", bannerId: b.id, isActive: String(!b.isActive) }) },
+                          { label: "삭제", tone: "critical", confirm: `'${b.title?.ko || "이 배너"}' 배너를 삭제할까요?`, onClick: () => submit({ intent: "delete_banner", bannerId: b.id }) },
+                        ]}
+                      />
+                    );
+                  })}
                 </BlockStack>
               </BlockStack>
             </Card>
@@ -3140,177 +3038,37 @@ export default function AppManagementPage() {
                     오늘의 특가 상품 목록 ({config.hotDeals?.length || 0}건)
                   </Text>
                   <Text variant="bodySm" tone="subdued" as="p">
-                    독일 전자상거래법(PAngV)에 의거하여 모바일 앱에서는 각 특가 상품의 중량 대비 단위가격(Grundpreis) 및 부가세(inkl. MwSt.)가 자동으로 함께 계산되어 표시됩니다.
+                    앱에는 단위가격(Grundpreis)과 부가세 포함 표기가 자동으로 붙습니다.
                   </Text>
                   <Divider />
 
                   <BlockStack gap="300">
-                    {(config.hotDeals || []).map((deal, idx) => (
-                      <div
-                        key={deal.id}
-                        style={{
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "10px",
-                          padding: "14px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "14px",
-                          background: "#FFFFFF",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: "64px",
-                            height: "64px",
-                            borderRadius: "8px",
-                            background: "#F4F5F7",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            overflow: "hidden",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {deal.image && (
-                            <img
-                              src={deal.image}
-                              alt={deal.name?.ko}
-                              style={{
-                                width: "86%",
-                                height: "86%",
-                                objectFit: "contain",
-                                mixBlendMode: "multiply",
-                              }}
-                            />
-                          )}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              flexWrap: "wrap",
-                              gap: "6px",
-                              marginBottom: "4px",
-                            }}
-                          >
-                            <Badge tone="critical">{`-${deal.discountRate}%`}</Badge>
-                            <Badge tone={deal.isActive ? "success" : "enabled"}>
-                              {deal.badge?.ko || "특가"}
-                            </Badge>
-
-                            {deal.mhdDate && (
-                              <Badge tone="warning">{`MHD ${deal.mhdDate}`}</Badge>
-                            )}
-                          </div>
-                          <Text variant="bodyMd" fontWeight="bold" as="p">
-                            {deal.name?.ko}
-                          </Text>
-                          <Text variant="bodySm" tone="subdued" as="p">
-                            정상가 €{Number(deal.basePrice).toFixed(2)} → 특가가 €
-                            {Number(deal.salePrice).toFixed(2)}
-                          </Text>
-                        </div>
-                        <InlineStack gap="100">
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === 0}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_deal");
-                              fd.append("dealId", deal.id);
-                              fd.append("direction", "up");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="위로 이동"
-                          >
-                            ▲
-                          </Button>
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === (config.hotDeals || []).length - 1}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_deal");
-                              fd.append("dealId", deal.id);
-                              fd.append("direction", "down");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="아래로 이동"
-                          >
-                            ▼
-                          </Button>
-                        </InlineStack>
-                        <InlineStack gap="100">
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === 0}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_deal");
-                              fd.append("dealId", deal.id);
-                              fd.append("direction", "up");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="위로 이동"
-                          >
-                            ▲
-                          </Button>
-                          <Button
-                            size="slim"
-                            variant="tertiary"
-                            disabled={idx === (config.hotDeals || []).length - 1}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "reorder_deal");
-                              fd.append("dealId", deal.id);
-                              fd.append("direction", "down");
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                            accessibilityLabel="아래로 이동"
-                          >
-                            ▼
-                          </Button>
-                        </InlineStack>
-                        <InlineStack gap="200">
-                          <Button
-                            size="slim"
-                            variant={deal.isActive ? "secondary" : "primary"}
-                            tone={deal.isActive ? undefined : "success"}
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "toggle_hot_deal");
-                              fd.append("dealId", deal.id);
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                          >
-                            {deal.isActive ? "비활성화" : "특가 활성화"}
-                          </Button>
-                          <Button
-                            size="slim"
-                            onClick={() => handleEditDeal(deal)}
-                          >
-                            수정
-                          </Button>
-                          <Button
-                            size="slim"
-                            tone="critical"
-                            variant="plain"
-                            onClick={() => {
-                              const fd = new FormData();
-                              fd.append("intent", "delete_hot_deal");
-                              fd.append("dealId", deal.id);
-                              fetcher.submit(fd, { method: "post" });
-                            }}
-                          >
-                            삭제
-                          </Button>
-                        </InlineStack>
-                      </div>
-                    ))}
+                    {(config.hotDeals || []).map((deal, idx) => {
+                      const submit = (fields) => { const fd = new FormData(); for (const [k, v] of Object.entries(fields)) fd.append(k, v); fetcher.submit(fd, { method: "post" }); };
+                      return (
+                        <AdminListRow
+                          key={deal.id}
+                          thumb={deal.image}
+                          active={deal.isActive}
+                          badges={[
+                            { label: deal.isActive ? "진행 중" : "중지", tone: deal.isActive ? "success" : undefined },
+                            { label: `-${deal.discountRate}%`, tone: "critical" },
+                            ...(deal.badge?.ko ? [{ label: deal.badge.ko }] : []),
+                            ...(deal.mhdDate ? [{ label: `MHD ${deal.mhdDate}`, tone: "warning" }] : []),
+                          ]}
+                          title={deal.name?.ko || "상품명 없음"}
+                          subtitle={`€${Number(deal.basePrice).toFixed(2)} → €${Number(deal.salePrice).toFixed(2)}`}
+                          isFirst={idx === 0}
+                          isLast={idx === (config.hotDeals || []).length - 1}
+                          onMove={(direction) => submit({ intent: "reorder_deal", dealId: deal.id, direction })}
+                          actions={[
+                            { label: "수정", onClick: () => handleEditDeal(deal) },
+                            { label: deal.isActive ? "중지" : "시작", confirm: deal.isActive ? `특가를 중지하면 Shopify 판매가가 €${Number(deal.basePrice).toFixed(2)}로 돌아갑니다.` : `Shopify 판매가가 €${Number(deal.salePrice).toFixed(2)}로 바뀝니다.`, onClick: () => submit({ intent: "toggle_hot_deal", dealId: deal.id }) },
+                            { label: "삭제", tone: "critical", confirm: `'${deal.name?.ko || "이 특가"}' 특가를 삭제할까요?`, onClick: () => submit({ intent: "delete_hot_deal", dealId: deal.id }) },
+                          ]}
+                        />
+                      );
+                    })}
                   </BlockStack>
                 </BlockStack>
               </Card>
@@ -3489,8 +3247,8 @@ export default function AppManagementPage() {
                 ) : (
                   <div
                     style={{
-                      border: "1px dashed #3B82F6",
-                      background: "#EFF6FF",
+                      border: "1px solid #E3E3E3",
+                      background: "#FAFAFA",
                       borderRadius: "10px",
                       padding: "14px",
                     }}
@@ -3498,7 +3256,7 @@ export default function AppManagementPage() {
                     <BlockStack gap="200">
                       <InlineStack align="space-between">
                         <Text variant="bodyMd" fontWeight="semibold">
-                          🔍 쇼피파이 상품 검색으로 특가 대상 선택 (필수)
+                          Shopify 상품 선택 (필수)
                         </Text>
                         {dealForm.productId && (
                           <Button size="slim" variant="plain" onClick={() => setShowDealProductSearch(false)}>
@@ -3507,7 +3265,7 @@ export default function AppManagementPage() {
                         )}
                       </InlineStack>
                       <Text variant="bodySm" tone="subdued">
-                        특가를 적용할 Shopify 상품을 검색하여 선택하면 상품명(다국어 포함), 이미지, 정상가가 자동으로 입력됩니다.
+                        상품을 선택하면 상품명, 이미지, 정상가가 채워집니다.
                       </Text>
 
                       <InlineStack gap="200">
@@ -3666,19 +3424,9 @@ export default function AppManagementPage() {
                   </div>
                 </InlineStack>
 
-                {/* Real Checkout Guarantee Banner */}
-                <div
-                  style={{
-                    background: "#F0FDF4",
-                    border: "1px solid #BBF7D0",
-                    borderRadius: "8px",
-                    padding: "10px 14px",
-                  }}
-                >
-                  <Text variant="bodySm" tone="success">
-                    특가 저장 시 쇼피파이 판매가로 변경되어 결제할 때 할인가가 적용됩니다.
-                  </Text>
-                </div>
+                <Text variant="bodySm" tone="subdued" as="p">
+                  저장하면 Shopify 판매가가 특가가로 바뀝니다. 웹 스토어 가격도 같이 바뀝니다.
+                </Text>
 
                 <InlineStack gap="300">
                   <div style={{ flex: 1 }}>
@@ -4722,7 +4470,7 @@ export default function AppManagementPage() {
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                 <Text variant="bodySm" fontWeight="bold" as="span">
-                                  🔍 자동 필터(키워드 규칙) 적용 상품 미리보기
+                                  키워드 규칙으로 찾은 상품
                                 </Text>
                                 <Badge tone="info">키: {catForm.categoryKey || "전체"}</Badge>
                               </div>
@@ -5315,7 +5063,7 @@ export default function AppManagementPage() {
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                 <Text variant="bodySm" fontWeight="bold" as="span">
-                                  🔍 자동 필터(Shopify 벤더명) 적용 상품 미리보기
+                                  브랜드명으로 찾은 상품
                                 </Text>
                                 <Badge tone="info">벤더: {brandForm.filter || brandForm.nameKo || "미지정"}</Badge>
                               </div>
