@@ -147,7 +147,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
         customVat: true,
       },
     });
-    let downloadUrl = null;
+    let downloadUrl = null, pdfUrl = null;
     if (record?.invoiceNumber) {
       try {
         const customerId = await verify(request, shop, { customerQuery });
@@ -156,6 +156,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
         const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "process-list-beryl.vercel.app";
         const proto = request.headers.get("x-forwarded-proto") || "https";
         downloadUrl = `${proto}://${host}/customer-invoice/${numericOrderId}?shop=${shop}&t=${token}`;
+        pdfUrl = `${proto}://${host}/customer-invoice-pdf/${numericOrderId}?shop=${shop}&t=${token}`;
       } catch {}
     }
     return {
@@ -166,6 +167,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
       invoiceSnapshot: record?.invoiceSnapshot || null,
       customVat: record?.customVat ?? null,
       downloadUrl,
+      pdfUrl,
     };
   }
   if (resource === "arrivals") {
