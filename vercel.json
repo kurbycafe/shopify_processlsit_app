@@ -18,5 +18,10 @@
       "schedule": "7 * * * *",
       "path": "/api/arrivals-sync"
     }
-  ]
+  ],
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "{app/assets/fonts/**,node_modules/harfbuzzjs/dist/harfbuzz-subset.wasm,node_modules/@sparticuz/chromium/bin/**}"
+    }
+  }
 }
