@@ -4,6 +4,7 @@ export function normalizeBarcode(raw) {
   // Strip AIM Symbology Identifier (e.g. ]E0, ]E1, ]E2, ]E3, ]E4, ]C1, ]e0, etc.)
   s = s.replace(/^\][A-Za-z0-9]{2}/, "");
   // Strip ASCII control characters (0x00 - 0x1F and 0x7F)
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
   s = s.replace(/[\x00-\x1F\x7F]/g, "");
   return s.trim();
 }

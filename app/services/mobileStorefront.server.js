@@ -371,6 +371,79 @@ export function parseExtendedSettings(rawJson) {
   };
 }
 
+const toCount = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+};
+
+/**
+ * Validates admin group-buy input before it is saved. Admin-entered prices are
+ * dropped because the app can only sell at the live Shopify price.
+ */
+export function normalizeGroupBuyingInput(campaigns) {
+  if (!Array.isArray(campaigns)) return { campaigns: [], error: null };
+  const out = [];
+  for (const [idx, raw] of campaigns.entries()) {
+    if (!raw || typeof raw !== "object") continue;
+    const label = `공동구매 캠페인 #${idx + 1}`;
+    const isActive = raw.isActive !== false;
+    const hasProduct = Boolean(raw.productId) && !String(raw.productId).endsWith("/p1");
+    if (isActive && !hasProduct) {
+      return { campaigns: [], error: `${label}: Shopify 상품을 연결하거나 캠페인을 비활성화해 주세요.` };
+    }
+    let endsAt = null;
+    if (raw.endsAt) {
+      const end = Date.parse(raw.endsAt);
+      if (!Number.isFinite(end)) return { campaigns: [], error: `${label}: 종료 일시 형식이 올바르지 않습니다.` };
+      endsAt = new Date(end).toISOString();
+    }
+    const targetCount = toCount(raw.targetCount);
+    const currentCount = toCount(raw.currentCount);
+    if (raw.targetCount != null && raw.targetCount !== "" && targetCount == null) {
+      return { campaigns: [], error: `${label}: 목표 인원은 0 이상의 숫자로 입력해 주세요.` };
+    }
+    if (raw.currentCount != null && raw.currentCount !== "" && currentCount == null) {
+      return { campaigns: [], error: `${label}: 현재 참여 인원은 0 이상의 숫자로 입력해 주세요.` };
+    }
+    const rest = { ...raw };
+    delete rest.groupPrice;
+    delete rest.endsInHours;
+    out.push({ ...rest, isActive, endsAt, targetCount, currentCount });
+  }
+  return { campaigns: out, error: null };
+}
+
+/**
+ * Public group-buy campaign shape for the mobile app. Prices are deliberately
+ * omitted: checkout always charges the live Shopify price, so the app must
+ * never show an admin-entered price.
+ */
+export function toPublicGroupBuying(campaigns, now = new Date()) {
+  return (Array.isArray(campaigns) ? campaigns : [])
+    .filter((g) => g && typeof g === "object" && g.isActive !== false)
+    .filter((g) => g.productId || g.variantId)
+    .filter((g) => {
+      if (!g.endsAt) return true;
+      const end = Date.parse(g.endsAt);
+      return Number.isFinite(end) && end > now.getTime();
+    })
+    .map((g) => {
+      const targetCount = toCount(g.targetCount);
+      const currentCount = toCount(g.currentCount);
+      return {
+        id: String(g.id || g.variantId || g.productId),
+        productId: g.productId || "",
+        variantId: g.variantId || "",
+        title: withLangFallback(g.titleKo || "", g.titleDe, g.titleEn),
+        desc: withLangFallback(g.descKo || "", g.descDe, g.descEn),
+        targetCount: targetCount && targetCount > 0 ? targetCount : null,
+        currentCount: targetCount && targetCount > 0 ? currentCount : null,
+        endsAt: g.endsAt && Number.isFinite(Date.parse(g.endsAt)) ? new Date(g.endsAt).toISOString() : null,
+        isActive: true,
+      };
+    });
+}
+
 /**
  * Records a customer search keyword and increments its cumulative search count
  */
@@ -526,7 +599,7 @@ export async function getStorefrontConfig(
     ...(includeInactive ? { productRules: extended.productOverrides } : {}),
     groupBuying: includeInactive
       ? extended.groupBuying
-      : extended.groupBuying.filter((g) => g.isActive !== false),
+      : toPublicGroupBuying(extended.groupBuying, now),
     prospekt: extended.prospekt,
     subscriptionPlans: includeInactive
       ? extended.subscriptionPlans
@@ -678,7 +751,8 @@ export async function getStorefrontConfig(
     faqs: extended.faqs && extended.faqs.length > 0 ? extended.faqs : DEFAULT_FAQS,
     loyaltyPolicy: extended.loyaltyPolicy || LOYALTY_POLICY,
     giftCardVariants: extended.giftCardVariants || {},
-    publishLogs: Array.isArray(extended.publishLogs) ? extended.publishLogs : [],
+    // Admin activity log: admin screen only, never in the public app API.
+    ...(includeInactive ? { publishLogs: Array.isArray(extended.publishLogs) ? extended.publishLogs : [] } : {}),
   };
 
   if (!includeInactive && includeRecipes && db === prisma) {
@@ -729,13 +803,36 @@ export async function bumpStorefrontVersion(rawShop, db = prisma, logDetails = n
   return newVersion;
 }
 
+// Display options the reset button restores. Everything else in the extended
+// settings is operating content (campaigns, brands, product mappings, expiry
+// rules, FAQs, app update, store info...) and survives a reset.
+const RESETTABLE_DISPLAY_KEYS = ["tickers", "hotDealSettings", "coldChain", "productPage", "cartPage", "myPage"];
+
+export function resetDisplaySettings(rawJson) {
+  let current = rawJson;
+  if (typeof current === "string") {
+    try {
+      current = JSON.parse(current);
+    } catch {
+      current = null;
+    }
+  }
+  if (!current || typeof current !== "object" || Array.isArray(current)) current = {};
+  const next = { ...current };
+  for (const key of RESETTABLE_DISPLAY_KEYS) next[key] = structuredClone(DEFAULT_EXTENDED_SETTINGS[key]);
+  return next;
+}
+
 /**
- * Resets all storefront settings back to factory defaults (Safety Rollback)
+ * Resets shipping notice and display options to defaults. Banners, hot deals,
+ * categories and operating content are kept.
  */
 export async function resetStorefrontToDefaults(rawShop, db = prisma) {
   const shop = resolveCanonicalShop(rawShop);
   invalidateStorefrontCache(shop);
   const newVersion = String(Date.now());
+  const existing = await db.mobileStorefrontConfig.findUnique({ where: { shop } });
+  const tickersJson = resetDisplaySettings(existing?.tickersJson);
 
   await db.mobileStorefrontConfig.upsert({
     where: { shop },
@@ -745,7 +842,7 @@ export async function resetStorefrontToDefaults(rawShop, db = prisma) {
       shippingNoticeKo: "독일 전역 60€ 이상 주문 시 무료 신선 배송",
       shippingNoticeDe: "Kostenloser Versand ab 60€ in ganz Deutschland",
       shippingNoticeEn: "Free shipping over 60€ across Germany",
-      tickersJson: DEFAULT_EXTENDED_SETTINGS,
+      tickersJson,
       configVersion: newVersion,
     },
     update: {
@@ -753,10 +850,11 @@ export async function resetStorefrontToDefaults(rawShop, db = prisma) {
       shippingNoticeKo: "독일 전역 60€ 이상 주문 시 무료 신선 배송",
       shippingNoticeDe: "Kostenloser Versand ab 60€ in ganz Deutschland",
       shippingNoticeEn: "Free shipping over 60€ across Germany",
-      tickersJson: DEFAULT_EXTENDED_SETTINGS,
+      tickersJson,
       configVersion: newVersion,
     },
   });
+  invalidateStorefrontCache(shop);
 
   return newVersion;
 }
