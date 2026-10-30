@@ -53,12 +53,13 @@ const ARRIVAL_ITEM_LIMIT = 100;
 const arrivalSkuCache = new Map();
 const ARRIVAL_SKU_TTL_MS = 10 * 60 * 1000;
 
-// Maps Odoo SKUs (or, when Odoo has no SKU, barcodes) to products sold in the
-// online store. Codes are keyed "sku:X" / "barcode:Y". Unknown, draft or
-// unpublished products stay unmatched; a Shopify outage only drops the links.
+// Maps Odoo SKUs (or, when Odoo has no SKU, barcodes, then the exact product
+// name) to products sold in the online store. Codes are keyed "sku:X",
+// "barcode:Y" or "title:Z". Unknown, draft or unpublished products stay
+// unmatched; a Shopify outage only drops the links.
 async function resolveArrivalSkus({ graphql, shop, codes }) {
   const result = new Map();
-  const wanted = [...new Set(codes.filter((code) => /^(sku|barcode):[\w.\-/]{1,64}$/.test(code || "")))];
+  const wanted = [...new Set(codes.filter((code) => /^(sku|barcode):[\w.\-/]{1,64}$/.test(code || "") || /^title:[^"\\]{2,200}$/.test(code || "")))];
   const missing = [];
   for (const code of wanted) {
     const cached = arrivalSkuCache.get(`${shop}:${code}`);
@@ -66,8 +67,34 @@ async function resolveArrivalSkus({ graphql, shop, codes }) {
     else missing.push(code);
   }
   if (!graphql || !missing.length) return result;
-  for (let offset = 0; offset < missing.length; offset += 50) {
-    const batch = missing.slice(offset, offset + 50);
+  const remember = (code, value) => {
+    if (arrivalSkuCache.size > 5000) arrivalSkuCache.clear();
+    arrivalSkuCache.set(`${shop}:${code}`, { value, at: Date.now() });
+    if (value) result.set(code, value);
+  };
+  const titles = missing.filter((code) => code.startsWith("title:"));
+  for (let offset = 0; offset < titles.length; offset += 25) {
+    const batch = titles.slice(offset, offset + 25);
+    try {
+      const payload = await graphql(shop, `query ArrivalProducts($query: String!) {
+        products(first: 100, query: $query) { nodes { id title status onlineStoreUrl variants(first: 2) { nodes { id } } } }
+      }`, { query: batch.map((code) => `title:"${code.slice(6)}"`).join(" OR ") });
+      const found = new Map();
+      for (const product of payload?.data?.products?.nodes || []) {
+        const code = `title:${product.title}`;
+        if (!batch.includes(code) || product.status !== "ACTIVE" || !product.onlineStoreUrl) continue;
+        // Only an unambiguous single-variant product is linked by name.
+        const variants = product.variants?.nodes || [];
+        found.set(code, found.has(code) || variants.length !== 1 ? null : { productId: product.id, variantId: variants[0].id });
+      }
+      for (const code of batch) remember(code, found.get(code) || null);
+    } catch {
+      // Names stay unlinked.
+    }
+  }
+  const codesById = missing.filter((code) => !code.startsWith("title:"));
+  for (let offset = 0; offset < codesById.length; offset += 50) {
+    const batch = codesById.slice(offset, offset + 50);
     try {
       const payload = await graphql(shop, `query ArrivalVariants($query: String!) {
         productVariants(first: 250, query: $query) { nodes { id sku barcode product { id status onlineStoreUrl } } }
@@ -79,12 +106,7 @@ async function resolveArrivalSkus({ graphql, shop, codes }) {
           if (batch.includes(code)) found.set(code, found.has(code) ? null : { productId: variant.product.id, variantId: variant.id });
         }
       }
-      for (const code of batch) {
-        const value = found.get(code) || null;
-        if (arrivalSkuCache.size > 5000) arrivalSkuCache.clear();
-        arrivalSkuCache.set(`${shop}:${code}`, { value, at: Date.now() });
-        if (value) result.set(code, value);
-      }
+      for (const code of batch) remember(code, found.get(code) || null);
     } catch {
       // Without Shopify the board still lists names; the app cannot link them.
     }
@@ -188,7 +210,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
       },
     });
     const visible = containers.slice(0, page.first);
-    const codeOf = (item) => item.sku ? `sku:${item.sku}` : item.barcode ? `barcode:${item.barcode}` : null;
+    const codeOf = (item) => item.sku ? `sku:${item.sku}` : item.barcode ? `barcode:${item.barcode}` : item.productName ? `title:${item.productName.trim()}` : null;
     const products = await resolveArrivalSkus({ graphql, shop, codes: visible.flatMap((c) => (c.items || []).map(codeOf)) });
     return {
       containers: visible.map((c) => ({
