@@ -103,6 +103,7 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "cancelAlertSentAt" TIMESTAMP(3);`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customShippingAddress" JSONB;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customBillingAddress" JSONB;`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Container" ADD COLUMN IF NOT EXISTS "arrivalKind" TEXT;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "customVat" TEXT;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceNumber" TEXT;`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "InspectionRecord" ADD COLUMN IF NOT EXISTS "invoiceYear" INTEGER;`);

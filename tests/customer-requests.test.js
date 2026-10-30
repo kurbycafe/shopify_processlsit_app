@@ -150,19 +150,41 @@ test("arrival queries use real fields, page bounds and public response allowlist
     assert.equal(args.select.items.select.shopifyName, undefined);
     assert.equal(args.select.items.select.barcode, undefined);
     assert.equal(args.select.items.select.expectedQty, undefined);
-    assert.equal(args.select.items.take, 51);
-    assert.deepEqual(args.where.id, { gt: "before" });
+    assert.equal(args.select.items.take, 101);
+    assert.deepEqual(args.where.status, { in: ["SCHEDULED", "IN_TRANSIT"] });
+    assert.match(args.where.scheduledDate.gte, /^\d{4}-\d{2}-\d{2}$/);
+    assert.deepEqual(args.orderBy, [{ scheduledDate: "asc" }, { id: "asc" }]);
     return ["c1", "c2"].map(id => ({ id, status: "IN_TRANSIT", containerRef: "PRIVATE", scheduledDate: "2026-11-01", supplier: "PRIVATE",
-      items: Array.from({ length: 51 }, (_, index) => ({ sku: String(index), productName: "Rice", barcode: "PRIVATE", expectedQty: 999 })) }));
+      items: Array.from({ length: 101 }, (_, index) => ({ sku: String(index), productName: "Rice", barcode: "PRIVATE", expectedQty: 999 })) }));
   } } } });
-  const result = await resolve({ request: req(null, "GET", "arrivals?limit=1&cursor=before"), resource: "arrivals", shop });
+  const result = await resolve({ request: req(null, "GET", "arrivals?limit=1"), resource: "arrivals", shop });
   assert.equal(result.containers.length, 1);
-  assert.equal(result.containers[0].items.length, 50);
+  assert.equal(result.containers[0].items.length, 100);
   assert.equal(result.containers[0].itemsTruncated, true);
-  assert.deepEqual(result.pagination, { hasNextPage: true, nextCursor: "c1" });
+  assert.deepEqual(result.pagination, { hasNextPage: true, nextCursor: null });
   assert.equal(JSON.stringify(result).includes("PRIVATE"), false);
   assert.equal(result.containers[0].containerCode, undefined);
   await assert.rejects(resolve({ request: req(null, "GET", "arrivals?limit=26"), resource: "arrivals", shop }), { status: 400 });
+});
+test("arrival items link only to active products published online", async () => {
+  let queries = 0;
+  const graphql = async (_shop, _query, variables) => {
+    queries++;
+    assert.match(variables.query, /sku:"A-1" OR sku:"B-2" OR sku:"C-3"/);
+    return { data: { productVariants: { nodes: [
+      { id: "gid://shopify/ProductVariant/1", sku: "A-1", product: { id: "gid://shopify/Product/1", status: "ACTIVE", onlineStoreUrl: "https://dawayo.de/a" } },
+      { id: "gid://shopify/ProductVariant/2", sku: "B-2", product: { id: "gid://shopify/Product/2", status: "DRAFT", onlineStoreUrl: null } },
+    ] } } };
+  };
+  const db = { container: { findMany: async () => [{ id: "c", status: "SCHEDULED", arrivalKind: "DOMESTIC", scheduledDate: "2026-11-20",
+    items: [{ sku: "A-1", productName: "Kimchi" }, { sku: "B-2", productName: "Draft" }, { sku: "C-3", productName: "Unknown" }] }] } };
+  const resolve = createCustomerResolver({ db, graphql });
+  const [first] = (await resolve({ request: req(null, "GET", "arrivals"), resource: "arrivals", shop: "arrivals-test.myshopify.com" })).containers;
+  assert.deepEqual(first.items.map(item => item.productId), ["gid://shopify/Product/1", null, null]);
+  assert.equal(first.items[0].variantId, "gid://shopify/ProductVariant/1");
+  assert.equal(first.kind, "domestic");
+  await resolve({ request: req(null, "GET", "arrivals"), resource: "arrivals", shop: "arrivals-test.myshopify.com" });
+  assert.equal(queries, 1, "SKU links are cached between app launches");
 });
 test("admin request lists and updates always constrain the authenticated shop", async () => {
   let listed = false, changed = false;

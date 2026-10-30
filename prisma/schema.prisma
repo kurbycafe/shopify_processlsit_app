@@ -91,6 +91,7 @@ model Container {
   containerRef  String          // PO 번호 또는 컨테이너 참조번호 (예: PO00412, CONT-2026-001)
   status        String          @default("SCHEDULED") // SCHEDULED, IN_TRANSIT, ARRIVED, RECEIVED, CANCELLED
   supplier      String?
+  arrivalKind   String?         // CONTAINER (from Korea) or DOMESTIC (within Germany), from the Odoo supplier country
   scheduledDate String?         // YYYY-MM-DD
   receivedAt    DateTime?
   notes         String?         @db.Text

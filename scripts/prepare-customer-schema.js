@@ -37,6 +37,7 @@ try {
       "updatedAt" TIMESTAMP(3) NOT NULL
     )`;
     await tx.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "Container_shop_containerRef_key" ON "Container"("shop", "containerRef")`;
+    await tx.$executeRaw`ALTER TABLE "Container" ADD COLUMN IF NOT EXISTS "arrivalKind" TEXT`;
     await tx.$executeRaw`CREATE INDEX IF NOT EXISTS "Container_shop_status_idx" ON "Container"("shop", "status")`;
     await tx.$executeRaw`CREATE INDEX IF NOT EXISTS "Container_scheduledDate_idx" ON "Container"("scheduledDate")`;
     await tx.$executeRaw`CREATE INDEX IF NOT EXISTS "ContainerItem_containerId_idx" ON "ContainerItem"("containerId")`;

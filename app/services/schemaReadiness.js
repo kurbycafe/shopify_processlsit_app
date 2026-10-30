@@ -73,6 +73,7 @@ const required = [
   "column:InspectionRecord:completedAt",
   "column:InspectionRecord:createdAt",
   "column:InspectionRecord:customBillingAddress",
+  "column:Container:arrivalKind",
   "column:InspectionRecord:customShippingAddress",
   "column:InspectionRecord:customVat",
   "column:InspectionRecord:id",
