@@ -295,9 +295,12 @@ export function isLegacySeedSearchKeywords(arr) {
  * Parses extended settings JSON safely with defaults
  */
 /**
- * Per-category rules kept in the extended settings: { [categoryKey]: { productTypes: string[] } }.
- * Product types are Shopify productType values; the app lists every product of those types.
+ * Per-category rules kept in the extended settings:
+ *   { [categoryKey]: { productTypes: string[], subcategories: [{ handle, nameKo, nameDe, nameEn }] } }
+ * productTypes are Shopify productType values; subcategories are Shopify
+ * collections shown as the category's second level (mirrors the dawayo.de menu).
  */
+const COLLECTION_HANDLE = /^[\p{L}\p{N}][\p{L}\p{N}-]{0,199}$/u;
 export function normalizeCategoryRules(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out = {};
@@ -305,7 +308,21 @@ export function normalizeCategoryRules(raw) {
     const types = Array.isArray(rule?.productTypes)
       ? [...new Set(rule.productTypes.map((t) => String(t || "").trim()).filter(Boolean))].slice(0, 30)
       : [];
-    if (key && types.length) out[String(key).toLowerCase()] = { productTypes: types };
+    const seen = new Set();
+    const subcategories = (Array.isArray(rule?.subcategories) ? rule.subcategories : [])
+      .map((sub) => ({
+        handle: String(sub?.handle || "").trim(),
+        nameKo: String(sub?.nameKo || "").trim().slice(0, 60),
+        nameDe: String(sub?.nameDe || "").trim().slice(0, 60),
+        nameEn: String(sub?.nameEn || "").trim().slice(0, 60),
+      }))
+      .filter((sub) => COLLECTION_HANDLE.test(sub.handle) && sub.nameKo && !seen.has(sub.handle) && seen.add(sub.handle))
+      .slice(0, 30);
+    if (!key || (!types.length && !subcategories.length)) continue;
+    out[String(key).toLowerCase()] = {
+      ...(types.length ? { productTypes: types } : {}),
+      ...(subcategories.length ? { subcategories } : {}),
+    };
   }
   return out;
 }
@@ -725,6 +742,10 @@ export async function getStorefrontConfig(
         badgeTag: c.badgeTag || null,
         productIds,
         productTypes: extended.categoryRules?.[String(c.categoryKey || "").toLowerCase()]?.productTypes || [],
+        subcategories: (extended.categoryRules?.[String(c.categoryKey || "").toLowerCase()]?.subcategories || []).map((sub) => ({
+          handle: sub.handle,
+          name: withLangFallback(sub.nameKo, sub.nameDe, sub.nameEn),
+        })),
         assignedProducts: Array.isArray(assigned) ? assigned : [],
       };
     }),

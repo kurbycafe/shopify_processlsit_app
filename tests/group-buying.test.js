@@ -71,3 +71,18 @@ test("public storefront config hides the admin publish log", async () => {
   const admin = await getStorefrontConfig("dawayo.de", { db, includeInactive: true, includeRecipes: false });
   assert.equal(admin.publishLogs.length, 1);
 });
+
+test("category rules keep valid 2nd-level collections and drop bad handles", async () => {
+  const { normalizeCategoryRules } = await import("../app/services/mobileStorefront.server.js");
+  const rules = normalizeCategoryRules({
+    Frozen: { subcategories: [
+      { handle: "냉동-식품", nameKo: "냉동 식품", nameDe: "Tiefkühlkost" },
+      { handle: "냉동-식품", nameKo: "중복" },
+      { handle: "../x", nameKo: "잘못된 핸들" },
+      { handle: "해산물-정육", nameKo: "" },
+    ] },
+    empty: { productTypes: [], subcategories: [] },
+  });
+  assert.deepEqual(Object.keys(rules), ["frozen"]);
+  assert.deepEqual(rules.frozen.subcategories, [{ handle: "냉동-식품", nameKo: "냉동 식품", nameDe: "Tiefkühlkost", nameEn: "" }]);
+});
