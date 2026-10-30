@@ -359,6 +359,7 @@ export const action = async ({ request }) => {
               node {
                 id
                 title
+                vendor
                 featuredImage {
                   url
                 }
@@ -398,6 +399,7 @@ export const action = async ({ request }) => {
           title: node.title,
           titleDe: deTitle || node.title,
           titleEn: enTitle || node.title,
+          vendor: node.vendor || "",
           imageUrl: node.featuredImage?.url || "",
           price: Number(firstVariant?.price || 0),
           compareAtPrice: Number(firstVariant?.compareAtPrice || firstVariant?.price || 0),
@@ -405,6 +407,88 @@ export const action = async ({ request }) => {
         };
       });
       return { success: true, searchedProducts: products };
+    }
+
+    if (intent === "preview_auto_filter") {
+      const targetType = String(formData.get("targetType") || "").trim();
+      let query = "status:active";
+
+      if (targetType === "brand") {
+        const filter = String(formData.get("filter") || "").trim();
+        const nameKo = String(formData.get("nameKo") || "").trim();
+        const nameEn = String(formData.get("nameEn") || "").trim();
+        const terms = [...new Set([filter, nameKo, nameEn].filter(Boolean).map((s) => s.replace(/['"*]/g, "")))];
+        if (terms.length > 0) {
+          const clauses = terms.map((t) => `(vendor:*${t}* OR title:*${t}*)`).join(" OR ");
+          query = `status:active AND (${clauses})`;
+        }
+      } else if (targetType === "category") {
+        const categoryKey = String(formData.get("categoryKey") || "").toLowerCase().trim();
+        const nameKo = String(formData.get("nameKo") || "").trim();
+        const categoryTermsMap = {
+          ramyun: ["라면", "ramyun", "ramen"],
+          ramen: ["라면", "ramyun", "ramen"],
+          kimchi: ["김치", "kimchi", "반찬"],
+          frozen: ["냉동", "만두", "frozen"],
+          snack: ["과자", "스낵", "snack"],
+          snacks: ["과자", "스낵", "snack"],
+          sauce: ["장류", "소스", "양념", "간장", "고추장", "된장", "쌈장"],
+          mealkit: ["밀키트", "mealkit"],
+          drink: ["음료", "주류", "drink"],
+          drinks: ["음료", "주류", "drink"],
+          coffee: ["커피", "차", "coffee", "tea"],
+        };
+        const terms = categoryTermsMap[categoryKey] || (nameKo ? [nameKo.replace(/['"*]/g, "")] : []);
+        if (terms.length > 0) {
+          const clauses = terms.map((t) => `title:*${t}*`).join(" OR ");
+          query = `status:active AND (${clauses})`;
+        }
+      }
+
+      const response = await admin.graphql(
+        `#graphql
+        query PreviewAutoFilterProducts($query: String!) {
+          products(first: 50, query: $query) {
+            edges {
+              node {
+                id
+                title
+                vendor
+                featuredImage {
+                  url
+                }
+                variants(first: 1) {
+                  edges {
+                    node {
+                      id
+                      title
+                      price
+                      compareAtPrice
+                      sku
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { variables: { query } }
+      );
+      const result = await response.json();
+      const products = (result?.data?.products?.edges || []).map(({ node }) => {
+        const firstVariant = node.variants?.edges?.[0]?.node;
+        return {
+          productId: node.id,
+          variantId: firstVariant?.id || node.id,
+          title: node.title,
+          vendor: node.vendor || "",
+          imageUrl: node.featuredImage?.url || "",
+          price: Number(firstVariant?.price || 0),
+          compareAtPrice: Number(firstVariant?.compareAtPrice || firstVariant?.price || 0),
+          sku: firstVariant?.sku || "",
+        };
+      });
+      return { success: true, autoFilteredProducts: products, queryUsed: query };
     }
 
     if (intent === "save_banner") {
@@ -1741,6 +1825,7 @@ export default function AppManagementPage() {
   });
   const [catProductSearchQuery, setCatProductSearchQuery] = useState("");
   const catSearchFetcher = useFetcher();
+  const catAutoFilterFetcher = useFetcher();
 
   const [brandForm, setBrandForm] = useState({
     brandId: "",
@@ -1759,6 +1844,26 @@ export default function AppManagementPage() {
   });
   const [brandProductSearchQuery, setBrandProductSearchQuery] = useState("");
   const brandSearchFetcher = useFetcher();
+  const brandAutoFilterFetcher = useFetcher();
+
+  const triggerBrandAutoFilter = (b) => {
+    const fd = new FormData();
+    fd.append("intent", "preview_auto_filter");
+    fd.append("targetType", "brand");
+    fd.append("filter", b.filter || b.nameKo || "");
+    fd.append("nameKo", b.nameKo || "");
+    fd.append("nameEn", b.nameEn || "");
+    brandAutoFilterFetcher.submit(fd, { method: "post" });
+  };
+
+  const triggerCatAutoFilter = (c) => {
+    const fd = new FormData();
+    fd.append("intent", "preview_auto_filter");
+    fd.append("targetType", "category");
+    fd.append("categoryKey", c.categoryKey || "");
+    fd.append("nameKo", c.nameKo || "");
+    catAutoFilterFetcher.submit(fd, { method: "post" });
+  };
 
   // Shipping, Cold-Chain & Ticker state
   const [freeShippingThreshold, setFreeShippingThreshold] = useState(
@@ -1972,6 +2077,7 @@ export default function AppManagementPage() {
     setCatProductSearchQuery("");
     setCategorySubTab("categories");
     setActiveTab("categories");
+    triggerCatAutoFilter(c);
   };
 
   const handleNewCategory = () => {
@@ -2010,6 +2116,7 @@ export default function AppManagementPage() {
     });
     setBrandProductSearchQuery("");
     setCategorySubTab("brands");
+    triggerBrandAutoFilter(b);
   };
 
   const handleNewBrand = () => {
@@ -4519,6 +4626,157 @@ export default function AppManagementPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Auto Filter Preview Section for Categories */}
+                      <div
+                        style={{
+                          marginTop: "12px",
+                          padding: "14px",
+                          background: "#F8FAFC",
+                          borderRadius: "10px",
+                          border: "1px solid #E2E8F0",
+                        }}
+                      >
+                        <BlockStack gap="200">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <Text variant="bodySm" fontWeight="bold" as="span">
+                                  🔍 자동 필터(키워드 규칙) 적용 상품 미리보기
+                                </Text>
+                                <Badge tone="info">키: {catForm.categoryKey || "전체"}</Badge>
+                              </div>
+                              <Text variant="bodyXs" tone="subdued" as="p">
+                                지정 상품이 없을 때 앱에서 카테고리 키워드/이름 규칙으로 자동 매칭되어 노출되는 활성 상품 목록입니다.
+                              </Text>
+                            </div>
+                            <InlineStack gap="200">
+                              <Button
+                                size="slim"
+                                loading={catAutoFilterFetcher.state !== "idle"}
+                                onClick={() => triggerCatAutoFilter(catForm)}
+                              >
+                                자동 매칭 상품 조회
+                              </Button>
+                              {catAutoFilterFetcher.data?.autoFilteredProducts?.length > 0 && (
+                                <Button
+                                  size="slim"
+                                  variant="primary"
+                                  onClick={() => {
+                                    const currentIds = new Set((catForm.assignedProducts || []).map((p) => String(p.productId || p.id)));
+                                    const newOnes = catAutoFilterFetcher.data.autoFilteredProducts.filter((p) => !currentIds.has(String(p.productId || p.id)));
+                                    if (newOnes.length > 0) {
+                                      setCatForm({
+                                        ...catForm,
+                                        assignedProducts: [...(catForm.assignedProducts || []), ...newOnes],
+                                      });
+                                    }
+                                  }}
+                                >
+                                  + 자동 매칭 상품 전체 추가 ({catAutoFilterFetcher.data.autoFilteredProducts.length}개)
+                                </Button>
+                              )}
+                            </InlineStack>
+                          </div>
+
+                          {catAutoFilterFetcher.data?.autoFilteredProducts ? (
+                            catAutoFilterFetcher.data.autoFilteredProducts.length === 0 ? (
+                              <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                                <Text variant="bodySm" tone="subdued" as="p">
+                                  '{catForm.nameKo || catForm.categoryKey}' 조건과 일치하는 쇼피파이 활성 상품이 없습니다.
+                                </Text>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  maxHeight: "260px",
+                                  overflowY: "auto",
+                                  border: "1px solid #E2E8F0",
+                                  borderRadius: "8px",
+                                  background: "#FFFFFF",
+                                  padding: "6px",
+                                }}
+                              >
+                                <BlockStack gap="150">
+                                  {catAutoFilterFetcher.data.autoFilteredProducts.map((sp) => {
+                                    const isAdded = (catForm.assignedProducts || []).some(
+                                      (p) => String(p.productId || p.id) === String(sp.productId)
+                                    );
+                                    return (
+                                      <div
+                                        key={sp.productId}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "6px 10px",
+                                          background: isAdded ? "#F0FDF4" : "#FFFFFF",
+                                          border: isAdded ? "1px solid #BBF7D0" : "1px solid #F1F5F9",
+                                          borderRadius: "6px",
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                          {sp.imageUrl && (
+                                            <img
+                                              src={sp.imageUrl}
+                                              alt={sp.title}
+                                              style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "4px" }}
+                                            />
+                                          )}
+                                          <div style={{ minWidth: 0 }}>
+                                            <Text variant="bodySm" fontWeight={isAdded ? "bold" : "regular"} as="p" truncate>
+                                              {sp.title}
+                                            </Text>
+                                            <Text variant="bodyXs" tone="subdued" as="p">
+                                              €{Number(sp.price || 0).toFixed(2)}
+                                            </Text>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          {isAdded ? (
+                                            <Badge tone="success">지정됨</Badge>
+                                          ) : (
+                                            <Button
+                                              size="slim"
+                                              onClick={() => {
+                                                setCatForm({
+                                                  ...catForm,
+                                                  assignedProducts: [
+                                                    ...(catForm.assignedProducts || []),
+                                                    {
+                                                      productId: sp.productId,
+                                                      variantId: sp.variantId,
+                                                      title: sp.title,
+                                                      imageUrl: sp.imageUrl,
+                                                      price: sp.price,
+                                                    },
+                                                  ],
+                                                });
+                                              }}
+                                            >
+                                              + 전용 추가
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </BlockStack>
+                              </div>
+                            )
+                          ) : (
+                            <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                              <Button
+                                size="slim"
+                                loading={catAutoFilterFetcher.state !== "idle"}
+                                onClick={() => triggerCatAutoFilter(catForm)}
+                              >
+                                클릭하여 자동 필터(키워드) 매칭 상품 불러오기
+                              </Button>
+                            </div>
+                          )}
+                        </BlockStack>
+                      </div>
                     </BlockStack>
 
                     <Button
@@ -4960,6 +5218,164 @@ export default function AppManagementPage() {
                             </BlockStack>
                           </div>
                         )}
+                      </div>
+
+                      {/* Auto Filter Preview Section for Brands */}
+                      <div
+                        style={{
+                          marginTop: "12px",
+                          padding: "14px",
+                          background: "#F8FAFC",
+                          borderRadius: "10px",
+                          border: "1px solid #E2E8F0",
+                        }}
+                      >
+                        <BlockStack gap="200">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <Text variant="bodySm" fontWeight="bold" as="span">
+                                  🔍 자동 필터(Shopify 벤더명) 적용 상품 미리보기
+                                </Text>
+                                <Badge tone="info">벤더: {brandForm.filter || brandForm.nameKo || "미지정"}</Badge>
+                              </div>
+                              <Text variant="bodyXs" tone="subdued" as="p">
+                                지정 전용 상품이 없을 때 앱에서 자동 조회되는 현재 쇼피파이 활성 상품 목록입니다.
+                              </Text>
+                            </div>
+                            <InlineStack gap="200">
+                              <Button
+                                size="slim"
+                                loading={brandAutoFilterFetcher.state !== "idle"}
+                                onClick={() => triggerBrandAutoFilter(brandForm)}
+                              >
+                                자동 필터 상품 조회
+                              </Button>
+                              {brandAutoFilterFetcher.data?.autoFilteredProducts?.length > 0 && (
+                                <Button
+                                  size="slim"
+                                  variant="primary"
+                                  onClick={() => {
+                                    const currentIds = new Set((brandForm.assignedProducts || []).map((p) => String(p.productId || p.id)));
+                                    const newOnes = brandAutoFilterFetcher.data.autoFilteredProducts.filter((p) => !currentIds.has(String(p.productId || p.id)));
+                                    if (newOnes.length > 0) {
+                                      setBrandForm({
+                                        ...brandForm,
+                                        assignedProducts: [...(brandForm.assignedProducts || []), ...newOnes],
+                                      });
+                                    }
+                                  }}
+                                >
+                                  + 자동 매칭 상품 전체 추가 ({brandAutoFilterFetcher.data.autoFilteredProducts.length}개)
+                                </Button>
+                              )}
+                            </InlineStack>
+                          </div>
+
+                          {brandAutoFilterFetcher.data?.autoFilteredProducts ? (
+                            brandAutoFilterFetcher.data.autoFilteredProducts.length === 0 ? (
+                              <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                                <Text variant="bodySm" tone="subdued" as="p">
+                                  '{brandForm.filter || brandForm.nameKo}' 조건과 일치하는 쇼피파이 활성 상품을 찾지 못했습니다. 벤더명을 확인해주세요.
+                                </Text>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  maxHeight: "260px",
+                                  overflowY: "auto",
+                                  border: "1px solid #E2E8F0",
+                                  borderRadius: "8px",
+                                  background: "#FFFFFF",
+                                  padding: "6px",
+                                }}
+                              >
+                                <BlockStack gap="150">
+                                  {brandAutoFilterFetcher.data.autoFilteredProducts.map((sp) => {
+                                    const isAdded = (brandForm.assignedProducts || []).some(
+                                      (p) => String(p.productId || p.id) === String(sp.productId)
+                                    );
+                                    return (
+                                      <div
+                                        key={sp.productId}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "6px 10px",
+                                          background: isAdded ? "#F0FDF4" : "#FFFFFF",
+                                          border: isAdded ? "1px solid #BBF7D0" : "1px solid #F1F5F9",
+                                          borderRadius: "6px",
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                          {sp.imageUrl && (
+                                            <img
+                                              src={sp.imageUrl}
+                                              alt={sp.title}
+                                              style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "4px" }}
+                                            />
+                                          )}
+                                          <div style={{ minWidth: 0 }}>
+                                            <Text variant="bodySm" fontWeight={isAdded ? "bold" : "regular"} as="p" truncate>
+                                              {sp.title}
+                                            </Text>
+                                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                              <Text variant="bodyXs" tone="subdued" as="span">
+                                                €{Number(sp.price || 0).toFixed(2)}
+                                              </Text>
+                                              {sp.vendor && (
+                                                <Text variant="bodyXs" tone="subdued" as="span">
+                                                  · 벤더: {sp.vendor}
+                                                </Text>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          {isAdded ? (
+                                            <Badge tone="success">전용 상품에 추가됨</Badge>
+                                          ) : (
+                                            <Button
+                                              size="slim"
+                                              onClick={() => {
+                                                setBrandForm({
+                                                  ...brandForm,
+                                                  assignedProducts: [
+                                                    ...(brandForm.assignedProducts || []),
+                                                    {
+                                                      productId: sp.productId,
+                                                      variantId: sp.variantId,
+                                                      title: sp.title,
+                                                      imageUrl: sp.imageUrl,
+                                                      price: sp.price,
+                                                    },
+                                                  ],
+                                                });
+                                              }}
+                                            >
+                                              + 전용 상품으로 추가
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </BlockStack>
+                              </div>
+                            )
+                          ) : (
+                            <div style={{ padding: "12px", background: "#FFFFFF", borderRadius: "8px", border: "1px dashed #CBD5E1", textAlign: "center" }}>
+                              <Button
+                                size="slim"
+                                loading={brandAutoFilterFetcher.state !== "idle"}
+                                onClick={() => triggerBrandAutoFilter(brandForm)}
+                              >
+                                클릭하여 자동 필터({brandForm.filter || brandForm.nameKo || "벤더"}) 적용 상품 불러오기
+                              </Button>
+                            </div>
+                          )}
+                        </BlockStack>
                       </div>
                     </BlockStack>
 
