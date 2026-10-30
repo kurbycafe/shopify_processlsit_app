@@ -1,0 +1,1 @@
+ALTER TABLE "Container" ADD COLUMN IF NOT EXISTS "arrivalKind" TEXT;

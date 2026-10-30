@@ -1,6 +1,8 @@
 import prisma from "../db.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
 import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
+import { normalizeArrivalCopy } from "../utils/arrivalCopy.js";
+export { normalizeArrivalCopy };
 
 export const ALLOWED_CATEGORY_ICONS = [
   "Sparkles",
@@ -403,6 +405,7 @@ export function parseExtendedSettings(rawJson) {
     categoryProducts: (parsed.categoryProducts && typeof parsed.categoryProducts === "object" && !Array.isArray(parsed.categoryProducts)) ? parsed.categoryProducts : {},
     categoryRules: normalizeCategoryRules(parsed.categoryRules),
     brands: Array.isArray(parsed.brands) ? parsed.brands : structuredClone(DEFAULT_BRANDS),
+    arrivalCopy: normalizeArrivalCopy(parsed.arrivalCopy),
   };
 }
 
@@ -643,6 +646,7 @@ export async function getStorefrontConfig(
     searchRankings: extended.searchRankings || [],
     appUpdate: extended.appUpdate,
     storeInfo: extended.storeInfo || {address:'',hours:''},
+    arrivalCopy: extended.arrivalCopy || normalizeArrivalCopy(null),
     banners: visibleBanners.map((b) => ({
       id: b.id,
       sortOrder: b.sortOrder,

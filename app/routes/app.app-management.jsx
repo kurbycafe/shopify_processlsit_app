@@ -34,6 +34,7 @@ import {
   normalizeCategoryRules,
   DEFAULT_BRANDS,
 } from "../services/mobileStorefront.server.js";
+import { normalizeArrivalCopy } from "../utils/arrivalCopy.js";
 import { loadOnlineProductIds } from "../services/onlineCatalog.server.js";
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -1554,6 +1555,11 @@ export const action = async ({ request }) => {
         if (address.length > 300 || hours.length > 500) return {success:false,message:"매장 정보가 너무 깁니다."};
         nextExtended.storeInfo={address,hours};
       }
+      const arrivalCopyJson = formData.get("arrivalCopyJson");
+      if (arrivalCopyJson !== null) {
+        try { nextExtended.arrivalCopy = normalizeArrivalCopy(JSON.parse(String(arrivalCopyJson))); }
+        catch { return { success: false, error: "입고 안내 문구 형식이 올바르지 않습니다." }; }
+      }
 
       const newVersion = String(Date.now());
       await saveStorefrontConfig(prisma, {
@@ -2037,6 +2043,7 @@ export default function AppManagementPage() {
   const [androidVersionCode, setAndroidVersionCode] = useState(String(config.appUpdate?.androidVersionCode || ""));
   const [storeAddress, setStoreAddress] = useState(config.storeInfo?.address || "");
   const [storeHours, setStoreHours] = useState(config.storeInfo?.hours || "");
+  const [arrivalCopy, setArrivalCopy] = useState(normalizeArrivalCopy(config.arrivalCopy));
   const [groupBuying, setGroupBuying] = useState(config.groupBuying || []);
   const [prospekt, setProspekt] = useState(
     config.prospekt || {
@@ -2076,6 +2083,7 @@ export default function AppManagementPage() {
     sync(setAndroidVersionCode, String(previous.appUpdate?.androidVersionCode || ""), String(config.appUpdate?.androidVersionCode || ""));
     sync(setStoreAddress, previous.storeInfo?.address || "", config.storeInfo?.address || "");
     sync(setStoreHours, previous.storeInfo?.hours || "", config.storeInfo?.hours || "");
+    sync(setArrivalCopy, normalizeArrivalCopy(previous.arrivalCopy), normalizeArrivalCopy(config.arrivalCopy));
     if (config.groupBuying) sync(setGroupBuying, previous.groupBuying || [], config.groupBuying);
     if (config.prospekt) sync(setProspekt, previous.prospekt, config.prospekt);
     if (config.subscriptionPlans) sync(setSubscriptionPlans, previous.subscriptionPlans || [], config.subscriptionPlans);
@@ -5342,6 +5350,30 @@ export default function AppManagementPage() {
                 <TextField label="매장 주소" value={storeAddress} onChange={setStoreAddress} maxLength={300} helpText="주소를 입력하면 앱의 길찾기에 사용됩니다." autoComplete="off" />
                 <TextField label="매장 영업시간" value={storeHours} onChange={setStoreHours} multiline={3} maxLength={500} helpText="실제 영업시간을 입력하세요. 비우면 미설정으로 표시됩니다." autoComplete="off" />
                 <Divider />
+                <Text variant="headingSm" as="h3">앱 홈 입고 안내 문구</Text>
+                <Text as="p" tone="subdued">Odoo 입고 목록에서 공급처 국가가 한국이면 컨테이너, 그 밖은 독일 내 입고로 나뉩니다. 제목의 {"{date}"} 자리에 입고 날짜가 들어갑니다. 비워두면 앱 기본 문구를 씁니다.</Text>
+                {[["container", "한국 컨테이너", "{date}에 한국에서 컨테이너가 들어와요!", "한국 컨테이너"], ["domestic", "독일 내 입고", "{date}에 새 상품들이 들어와요!", "독일 내 입고"]].map(([kind, name, titleHint, labelHint]) => (
+                  <BlockStack key={kind} gap="200">
+                    <Text variant="headingXs" as="h4">{name}</Text>
+                    {[["title", "제목", titleHint], ["label", "목록 표시 이름", labelHint]].map(([field, fieldName, hint]) => (
+                      <InlineStack key={field} gap="200" wrap={false}>
+                        {[["ko", "한국어"], ["de", "독일어"], ["en", "영어"]].map(([lang, langName]) => (
+                          <div key={lang} style={{ flex: 1 }}>
+                            <TextField
+                              label={`${fieldName} (${langName})`}
+                              value={arrivalCopy[kind][field][lang]}
+                              placeholder={lang === "ko" ? hint : ""}
+                              maxLength={120}
+                              onChange={(value) => setArrivalCopy((current) => ({ ...current, [kind]: { ...current[kind], [field]: { ...current[kind][field], [lang]: value } } }))}
+                              autoComplete="off"
+                            />
+                          </div>
+                        ))}
+                      </InlineStack>
+                    ))}
+                  </BlockStack>
+                ))}
+                <Divider />
                 <TextField
                   label="모바일 검색창 추천 인기 검색어 (쉼표로 구분)"
                   value={searchKeywordsText}
@@ -5404,6 +5436,7 @@ export default function AppManagementPage() {
                     fd.append("androidVersionCode", androidVersionCode);
                     fd.append("storeAddress",storeAddress);
                     fd.append("storeHours",storeHours);
+                    fd.append("arrivalCopyJson", JSON.stringify(arrivalCopy));
                     fd.append("freeShippingThreshold", freeShippingThreshold);
                     fd.append("shippingNoticeKo", shippingNoticeKo);
                     fd.append("shippingNoticeDe", shippingNoticeDe);

@@ -132,6 +132,27 @@ export async function getOdooUid() {
 }
 
 /**
+ * Authenticated execute_kw caller that throws on any Odoo failure, so callers
+ * never mistake an outage for an empty result.
+ */
+export async function getOdooRpc(timeoutMs = REQUEST_TIMEOUT_MS) {
+  const config = getOdooConfig();
+  if (!config.isConfigured) throw new Error("ODOO_NOT_CONFIGURED");
+  const uid = await getOdooUid();
+  if (!uid) throw new Error("ODOO_AUTH_UNAVAILABLE");
+  return async (model, method, args, kwargs = {}) => {
+    const response = await fetchWithTimeout(config.url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createJsonRpcPayload("object", "execute_kw", [config.db, uid, config.apiKey, model, method, args, kwargs])),
+    }, timeoutMs);
+    if (!response.ok) throw new Error("ODOO_UNAVAILABLE");
+    const payload = await response.json();
+    if (payload.error || payload.result === undefined) throw new Error("ODOO_QUERY_FAILED");
+    return payload.result;
+  };
+}
+
+/**
  * Queries incoming container moves for a specific SKU from Odoo ERP
  */
 const etaRequests = new Map();
@@ -142,20 +163,7 @@ export async function getRestockDetailsBySku(sku) {
   if (cached && Date.now() - cached.cachedAt < ETA_CACHE_TTL_MS) return cached.data;
   if (etaRequests.has(key)) return etaRequests.get(key);
   const pending = (async () => {
-    const config = getOdooConfig();
-    if (!config.isConfigured) throw new Error("ODOO_NOT_CONFIGURED");
-    const uid = await getOdooUid();
-    if (!uid) throw new Error("ODOO_AUTH_UNAVAILABLE");
-    const rpc = async (model, method, args, kwargs) => {
-      const response = await fetchWithTimeout(config.url, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createJsonRpcPayload("object", "execute_kw", [config.db, uid, config.apiKey, model, method, args, kwargs])),
-      }, 5000);
-      if (!response.ok) throw new Error("ODOO_UNAVAILABLE");
-      const payload = await response.json();
-      if (payload.error || payload.result === undefined) throw new Error("ODOO_QUERY_FAILED");
-      return payload.result;
-    };
+    const rpc = await getOdooRpc(5000);
     const data = await readOdooRestock({ rpc, sku: key, today: dayjs().format("YYYY-MM-DD") });
     safeSetCache(skuEtaCache, key, { data, cachedAt: Date.now() });
     return data;

@@ -13,6 +13,10 @@
     {
       "schedule": "*/5 * * * *",
       "path": "/api/mobile-push-dispatch"
+    },
+    {
+      "schedule": "7 * * * *",
+      "path": "/api/arrivals-sync"
     }
   ]
 }

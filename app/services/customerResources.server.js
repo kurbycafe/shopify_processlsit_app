@@ -49,6 +49,46 @@ async function readJsonPayload(request, maxBytes = 8192) {
   }
 }
 
+const ARRIVAL_ITEM_LIMIT = 100;
+const arrivalSkuCache = new Map();
+const ARRIVAL_SKU_TTL_MS = 10 * 60 * 1000;
+
+// Maps Odoo SKUs to products sold in the online store. Unknown, draft or
+// unpublished products stay unmatched; a Shopify outage only drops the links.
+async function resolveArrivalSkus({ graphql, shop, skus }) {
+  const result = new Map();
+  const wanted = [...new Set(skus.filter((sku) => typeof sku === "string" && /^[\w.\-/]{1,64}$/.test(sku)))];
+  const missing = [];
+  for (const sku of wanted) {
+    const cached = arrivalSkuCache.get(`${shop}:${sku}`);
+    if (cached && Date.now() - cached.at < ARRIVAL_SKU_TTL_MS) { if (cached.value) result.set(sku, cached.value); }
+    else missing.push(sku);
+  }
+  if (!graphql || !missing.length) return result;
+  for (let offset = 0; offset < missing.length; offset += 50) {
+    const batch = missing.slice(offset, offset + 50);
+    try {
+      const payload = await graphql(shop, `query ArrivalVariants($query: String!) {
+        productVariants(first: 250, query: $query) { nodes { id sku product { id status onlineStoreUrl } } }
+      }`, { query: batch.map((sku) => `sku:"${sku}"`).join(" OR ") });
+      const found = new Map();
+      for (const variant of payload?.data?.productVariants?.nodes || []) {
+        if (!batch.includes(variant.sku) || variant.product?.status !== "ACTIVE" || !variant.product?.onlineStoreUrl) continue;
+        found.set(variant.sku, found.has(variant.sku) ? null : { productId: variant.product.id, variantId: variant.id });
+      }
+      for (const sku of batch) {
+        const value = found.get(sku) || null;
+        if (arrivalSkuCache.size > 5000) arrivalSkuCache.clear();
+        arrivalSkuCache.set(`${shop}:${sku}`, { value, at: Date.now() });
+        if (value) result.set(sku, value);
+      }
+    } catch {
+      // Without Shopify the board still lists names; the app cannot link them.
+    }
+  }
+  return result;
+}
+
 export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
   if (resource === 'cart-reminder') return customerCartReminder({db,shop,request,verify,input:request.method==='GET'?undefined:await readJsonPayload(request,12000)});
@@ -131,30 +171,29 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
   if (resource === "arrivals") {
     const page = readPage(new URL(request.url).searchParams);
     if (page.first > 25) throw new MobileApiError(400, "INVALID_LIMIT", "Arrival pages are limited to 25 entries.");
-    if (page.after && !/^[a-zA-Z0-9_-]{1,100}$/.test(page.after)) throw new MobileApiError(400, "INVALID_CURSOR", "Invalid arrival cursor.");
+    // Upcoming first. Slightly overdue receipts stay visible as "arriving soon"
+    // until Odoo marks them done; long-forgotten manual entries do not.
+    const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
     const containers = await db.container.findMany({
-      where: {
-        shop: { in: getShopAliases(shop) },
-        status: { in: ["SCHEDULED", "IN_TRANSIT", "ARRIVED"] },
-        ...(page.after ? { id: { gt: page.after } } : {}),
-      },
-      orderBy: { id: "asc" }, take: page.first + 1,
+      where: { shop: { in: getShopAliases(shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] }, scheduledDate: { gte: since } },
+      orderBy: [{ scheduledDate: "asc" }, { id: "asc" }], take: page.first + 1,
       select: {
-        id: true, status: true, scheduledDate: true, syncedAt: true,
-        items: { orderBy: { id: "asc" }, take: 51, select: { sku: true, productName: true } },
+        id: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
+        items: { orderBy: { id: "asc" }, take: ARRIVAL_ITEM_LIMIT + 1, select: { sku: true, productName: true } },
       },
     });
     const visible = containers.slice(0, page.first);
+    const products = await resolveArrivalSkus({ graphql, shop, skus: visible.flatMap((c) => (c.items || []).map((item) => item.sku)) });
     return {
       containers: visible.map((c) => ({
-        status: c.status, scheduledDate: c.scheduledDate, updatedAt: c.syncedAt,
-        items: (c.items || []).slice(0, 50).map((item) => ({
+        status: c.status, kind: c.arrivalKind === "DOMESTIC" ? "domestic" : "container", scheduledDate: c.scheduledDate, updatedAt: c.syncedAt,
+        items: (c.items || []).slice(0, ARRIVAL_ITEM_LIMIT).map((item) => ({
           sku: item.sku || null, title: item.productName || "Incoming Item",
+          productId: products.get(item.sku)?.productId || null, variantId: products.get(item.sku)?.variantId || null,
         })),
-        itemsTruncated: (c.items || []).length > 50,
+        itemsTruncated: (c.items || []).length > ARRIVAL_ITEM_LIMIT,
       })),
-      pagination: { hasNextPage: containers.length > page.first,
-        nextCursor: containers.length > page.first ? visible.at(-1).id : null },
+      pagination: { hasNextPage: containers.length > page.first, nextCursor: null },
     };
   }
   if (resource === "b2b-inquiry") {
