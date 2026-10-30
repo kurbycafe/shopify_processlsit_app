@@ -50,6 +50,104 @@ export const DEFAULT_CATEGORIES = [];
 export const DEFAULT_PRODUCT_OVERRIDES = [];
 export const DEFAULT_GROUP_BUYING = [];
 export const DEFAULT_SUBSCRIPTION_PLANS = [];
+export const DEFAULT_BRANDS = [
+  {
+    id: "b_nongshim",
+    brandKey: "nongshim",
+    nameKo: "농심",
+    nameDe: "Nongshim",
+    nameEn: "Nongshim",
+    tag: "NONGSHIM",
+    filter: "농심",
+    descKo: "한국 대표 라면과 스낵",
+    descDe: "Ramyun & Koreanische Snacks",
+    descEn: "Authentic Korean Ramyun & Snacks",
+    sortOrder: 1,
+    isActive: true,
+    productIds: [],
+    assignedProducts: []
+  },
+  {
+    id: "b_cj",
+    brandKey: "cj",
+    nameKo: "CJ 비비고",
+    nameDe: "CJ Bibigo",
+    nameEn: "CJ Bibigo",
+    tag: "BIBIGO",
+    filter: "CJ",
+    descKo: "만두, 장류 및 한식 간편식",
+    descDe: "Koreanische Teigtaschen & Fertiggerichte",
+    descEn: "Korean Mandu & Traditional Cuisine",
+    sortOrder: 2,
+    isActive: true,
+    productIds: [],
+    assignedProducts: []
+  },
+  {
+    id: "b_samyang",
+    brandKey: "samyang",
+    nameKo: "삼양",
+    nameDe: "Samyang",
+    nameEn: "Samyang",
+    tag: "BULDARK",
+    filter: "삼양",
+    descKo: "전 세계를 사로잡은 불닭 시리즈",
+    descDe: "Feurige Buldak Ramyun & Nudeln",
+    descEn: "World Famous Buldak Spicy Noodles",
+    sortOrder: 3,
+    isActive: true,
+    productIds: [],
+    assignedProducts: []
+  },
+  {
+    id: "b_ottogi",
+    brandKey: "ottogi",
+    nameKo: "오뚜기",
+    nameDe: "Ottogi",
+    nameEn: "Ottogi",
+    tag: "OTTOGI",
+    filter: "오뚜기",
+    descKo: "진라면, 카레, 참기름 및 조미식품",
+    descDe: "Traditionelle Gewürze, Curry & Jin Ramyun",
+    descEn: "Curry, Sesame Oil & Jin Ramyun",
+    sortOrder: 4,
+    isActive: true,
+    productIds: [],
+    assignedProducts: []
+  },
+  {
+    id: "b_jongga",
+    brandKey: "jongga",
+    nameKo: "종가집",
+    nameDe: "Jongga",
+    nameEn: "Jongga",
+    tag: "KIMCHI",
+    filter: "종가집",
+    descKo: "대한민국 No.1 정통 발효 김치",
+    descDe: "Traditionell fermentiertes Kimchi",
+    descEn: "Authentic Fermented Korean Kimchi",
+    sortOrder: 5,
+    isActive: true,
+    productIds: [],
+    assignedProducts: []
+  },
+  {
+    id: "b_lotte",
+    brandKey: "lotte",
+    nameKo: "롯데",
+    nameDe: "Lotte",
+    nameEn: "Lotte",
+    tag: "SWEETS",
+    filter: "롯데",
+    descKo: "초코파이, 빼빼로 등 국민 과자",
+    descDe: "Koreanische Süßigkeiten & Choco Pie",
+    descEn: "Iconic Korean Snacks & Confectionery",
+    sortOrder: 6,
+    isActive: true,
+    productIds: [],
+    assignedProducts: []
+  }
+];
 export const DEFAULT_EXTENDED_SETTINGS = {
   "tickers": [],
   "hotDealSettings": {
@@ -80,7 +178,9 @@ export const DEFAULT_EXTENDED_SETTINGS = {
   "searchRankings": [],
   "faqs": [],
   "loyaltyPolicy": null,
-  "giftCardVariants": {}
+  "giftCardVariants": {},
+  "categoryProducts": {},
+  "brands": DEFAULT_BRANDS
 };
 
 /**
@@ -264,6 +364,8 @@ export function parseExtendedSettings(rawJson) {
     faqs: Array.isArray(parsed.faqs) && parsed.faqs.length > 0 ? parsed.faqs : [],
     loyaltyPolicy: parsed.loyaltyPolicy || null,
     giftCardVariants: parsed.giftCardVariants && typeof parsed.giftCardVariants === "object" ? parsed.giftCardVariants : {},
+    categoryProducts: (parsed.categoryProducts && typeof parsed.categoryProducts === "object" && !Array.isArray(parsed.categoryProducts)) ? parsed.categoryProducts : {},
+    brands: Array.isArray(parsed.brands) ? parsed.brands : structuredClone(DEFAULT_BRANDS),
   };
 }
 
@@ -508,22 +610,52 @@ export async function getStorefrontConfig(
         dealEndsAt: d.dealEndsAt,
       };
     }),
-    categories: categories.map((c) => ({
-      id: c.id,
-      categoryKey: c.categoryKey,
-      name: withLangFallback(c.nameKo, c.nameDe, c.nameEn),
-      nameKo: c.nameKo,
-      nameDe: c.nameDe || "",
-      nameEn: c.nameEn || "",
-      iconName: ALLOWED_CATEGORY_ICONS.includes(c.iconName)
-        ? c.iconName
-        : "Sparkles",
-      isGnbTab: c.isGnbTab,
-      isCarousel: c.isCarousel,
-      sortOrder: c.sortOrder,
-      isActive: c.isActive,
-      badgeTag: c.badgeTag || null,
-    })),
+    categories: categories.map((c) => {
+      const assigned = extended.categoryProducts?.[c.categoryKey] || extended.categoryProducts?.[c.id] || [];
+      const productIds = Array.isArray(assigned)
+        ? assigned.map((p) => (typeof p === "string" ? p : p.productId || p.id)).filter(Boolean)
+        : [];
+      return {
+        id: c.id,
+        categoryKey: c.categoryKey,
+        name: withLangFallback(c.nameKo, c.nameDe, c.nameEn),
+        nameKo: c.nameKo,
+        nameDe: c.nameDe || "",
+        nameEn: c.nameEn || "",
+        iconName: ALLOWED_CATEGORY_ICONS.includes(c.iconName)
+          ? c.iconName
+          : "Sparkles",
+        isGnbTab: c.isGnbTab,
+        isCarousel: c.isCarousel,
+        sortOrder: c.sortOrder,
+        isActive: c.isActive,
+        badgeTag: c.badgeTag || null,
+        productIds,
+        assignedProducts: Array.isArray(assigned) ? assigned : [],
+      };
+    }),
+    brands: (extended.brands || DEFAULT_BRANDS).map((b) => {
+      const assigned = Array.isArray(b.assignedProducts || b.products) ? (b.assignedProducts || b.products) : [];
+      const productIds = Array.isArray(b.productIds) && b.productIds.length > 0
+        ? b.productIds
+        : assigned.map((p) => (typeof p === "string" ? p : p.productId || p.id)).filter(Boolean);
+      return {
+        id: b.id || b.brandKey || String(Date.now()),
+        brandKey: b.brandKey || b.filter || "",
+        nameKo: b.nameKo || b.name || "",
+        nameDe: b.nameDe || b.nameKo || "",
+        nameEn: b.nameEn || b.nameKo || "",
+        tag: b.tag || b.nameKo || "",
+        filter: b.filter || b.nameKo || "",
+        descKo: b.descKo || "",
+        descDe: b.descDe || "",
+        descEn: b.descEn || "",
+        sortOrder: Number(b.sortOrder || 1),
+        isActive: b.isActive !== false,
+        productIds,
+        assignedProducts: assigned,
+      };
+    }),
     recipes: (Array.isArray(recipes) ? recipes : []).map((r) => ({
       id: r.id,
       title: r.title,

@@ -29,6 +29,7 @@ import {
   resetStorefrontToDefaults,
   resolveCanonicalShop,
   parseExtendedSettings,
+  DEFAULT_BRANDS,
 } from "../services/mobileStorefront.server.js";
 
 const ALLOWED_CATEGORY_ICONS = [
@@ -997,11 +998,206 @@ export const action = async ({ request }) => {
         });
       }
 
+            const categoryProductsJson = formData.get("categoryProductsJson");
+      if (categoryProductsJson !== null) {
+        try {
+          const parsedCatProducts = JSON.parse(String(categoryProductsJson));
+          if (Array.isArray(parsedCatProducts)) {
+            const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({
+              where: { shop },
+            });
+            const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
+            const currentCatProducts = { ...(extended.categoryProducts || {}) };
+            currentCatProducts[categoryKey] = parsedCatProducts;
+            const updatedExtended = {
+              ...extended,
+              categoryProducts: currentCatProducts,
+            };
+            await saveStorefrontConfig(prisma, {
+              where: { shop },
+              update: { tickersJson: updatedExtended },
+              create: {
+                shop,
+                freeShippingThreshold: 60.0,
+                shippingNoticeKo: "독일 전역 60€ 이상 무료배송 · 신선 안심 출고",
+                tickersJson: updatedExtended,
+              },
+            });
+          }
+        } catch (e) {
+          console.error("Failed to parse categoryProductsJson:", e);
+        }
+      }
+
       await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: "카테고리 및 상단 GNB 탭 설정이 모바일 앱에 반영되었습니다.",
+        message: "카테고리 및 상품 설정이 모바일 앱에 반영되었습니다.",
       };
+    }
+
+    if (intent === "delete_category") {
+      const categoryId = String(formData.get("categoryId") || "").trim();
+      const categoryKey = String(formData.get("categoryKey") || "").trim().toLowerCase();
+      if (!categoryId) {
+        return { success: false, message: "삭제할 카테고리 ID가 없습니다." };
+      }
+      await prisma.mobileCategoryConfig.deleteMany({
+        where: { id: categoryId, shop },
+      });
+      if (categoryKey) {
+        const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({
+          where: { shop },
+        });
+        const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
+        if (extended.categoryProducts && extended.categoryProducts[categoryKey]) {
+          const currentCatProducts = { ...extended.categoryProducts };
+          delete currentCatProducts[categoryKey];
+          await saveStorefrontConfig(prisma, {
+            where: { shop },
+            update: { tickersJson: { ...extended, categoryProducts: currentCatProducts } },
+          });
+        }
+      }
+      await bumpStorefrontVersion(shop);
+      return { success: true, message: "카테고리가 삭제되었습니다." };
+    }
+
+    if (intent === "save_brand") {
+      let brandId = String(formData.get("brandId") || "").trim();
+      const nameKo = String(formData.get("nameKo") || "").trim();
+      if (!nameKo) {
+        return { success: false, message: "브랜드 명칭(한국어)은 필수입니다." };
+      }
+      if (!brandId) {
+        brandId = "b_" + Date.now();
+      }
+
+      const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({
+        where: { shop },
+      });
+      const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
+      const currentBrands = Array.isArray(extended.brands) ? [...extended.brands] : [...DEFAULT_BRANDS];
+
+      let assignedProducts = [];
+      const brandProductsJson = formData.get("brandProductsJson");
+      if (brandProductsJson) {
+        try {
+          const parsed = JSON.parse(String(brandProductsJson));
+          if (Array.isArray(parsed)) assignedProducts = parsed;
+        } catch (e) {
+          console.error("Failed to parse brandProductsJson:", e);
+        }
+      }
+
+      const brandData = {
+        id: brandId,
+        brandKey: String(formData.get("brandKey") || "").trim() || brandId,
+        nameKo,
+        nameDe: String(formData.get("nameDe") || "").trim() || nameKo,
+        nameEn: String(formData.get("nameEn") || "").trim() || nameKo,
+        tag: String(formData.get("tag") || "").trim() || nameKo,
+        filter: String(formData.get("filter") || "").trim() || nameKo,
+        descKo: String(formData.get("descKo") || "").trim(),
+        descDe: String(formData.get("descDe") || "").trim(),
+        descEn: String(formData.get("descEn") || "").trim(),
+        sortOrder: Number(formData.get("sortOrder") || 1),
+        isActive: formData.get("isActive") === "true",
+        assignedProducts,
+        productIds: assignedProducts.map((p) => (typeof p === "string" ? p : p.productId || p.id)).filter(Boolean),
+      };
+
+      const existingIndex = currentBrands.findIndex((b) => b.id === brandId);
+      if (existingIndex >= 0) {
+        currentBrands[existingIndex] = brandData;
+      } else {
+        currentBrands.push(brandData);
+      }
+
+      currentBrands.sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
+
+      const updatedExtended = {
+        ...extended,
+        brands: currentBrands,
+      };
+
+      await saveStorefrontConfig(prisma, {
+        where: { shop },
+        update: { tickersJson: updatedExtended },
+        create: {
+          shop,
+          freeShippingThreshold: 60.0,
+          shippingNoticeKo: "독일 전역 60€ 이상 무료배송 · 신선 안심 출고",
+          tickersJson: updatedExtended,
+        },
+      });
+
+      await bumpStorefrontVersion(shop);
+      return { success: true, message: "인기 브랜드 및 전용 상품 설정이 저장되었습니다." };
+    }
+
+    if (intent === "delete_brand") {
+      const brandId = String(formData.get("brandId") || "").trim();
+      if (!brandId) return { success: false, message: "삭제할 브랜드 ID가 없습니다." };
+
+      const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({
+        where: { shop },
+      });
+      const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
+      const currentBrands = (Array.isArray(extended.brands) ? extended.brands : DEFAULT_BRANDS).filter(
+        (b) => b.id !== brandId
+      );
+
+      const updatedExtended = {
+        ...extended,
+        brands: currentBrands,
+      };
+
+      await saveStorefrontConfig(prisma, {
+        where: { shop },
+        update: { tickersJson: updatedExtended },
+      });
+
+      await bumpStorefrontVersion(shop);
+      return { success: true, message: "브랜드가 삭제되었습니다." };
+    }
+
+    if (intent === "reorder_brand") {
+      const brandId = String(formData.get("brandId") || "").trim();
+      const direction = String(formData.get("direction") || "").trim();
+
+      const existingStoreConfig = await prisma.mobileStorefrontConfig.findUnique({
+        where: { shop },
+      });
+      const extended = parseExtendedSettings(existingStoreConfig?.tickersJson);
+      const currentBrands = Array.isArray(extended.brands) ? [...extended.brands] : [...DEFAULT_BRANDS];
+
+      const idx = currentBrands.findIndex((b) => b.id === brandId);
+      if (idx !== -1) {
+        const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+        if (targetIdx >= 0 && targetIdx < currentBrands.length) {
+          const temp = currentBrands[idx];
+          currentBrands[idx] = currentBrands[targetIdx];
+          currentBrands[targetIdx] = temp;
+
+          currentBrands.forEach((b, i) => {
+            b.sortOrder = i + 1;
+          });
+
+          const updatedExtended = {
+            ...extended,
+            brands: currentBrands,
+          };
+
+          await saveStorefrontConfig(prisma, {
+            where: { shop },
+            update: { tickersJson: updatedExtended },
+          });
+
+          await bumpStorefrontVersion(shop);
+        }
+      }
+      return { success: true };
     }
 
     if (intent === "save_store_config") {
@@ -1355,7 +1551,7 @@ const TOP_MENU_TABS = [
   { id: "temperatures", label: "상품 온도 관리" },
   { id: "product-rules", label: "유통기한 관리" },
   { id: "product-attributes", label: "추천 · 상품 속성" },
-  { id: "categories", label: "카테고리 · GNB" },
+  { id: "categories", label: "카테고리 · 브랜드" },
   { id: "shipping", label: "콜드체인 · 배송바" },
   { id: "campaigns", label: "공동구매 · 정기구독" },
   { id: "pages", label: "상품 · 장바구니 · 마이페이지" },
@@ -1526,7 +1722,9 @@ export default function AppManagementPage() {
     upcomingDateEn: "",
   });
 
-  // Category form state
+  // Category & Brand form state
+  const [categorySubTab, setCategorySubTab] = useState("categories"); // "categories" | "brands"
+
   const [catForm, setCatForm] = useState({
     categoryId: "",
     categoryKey: "",
@@ -1539,7 +1737,28 @@ export default function AppManagementPage() {
     sortOrder: String((config.categories?.length || 0) + 1),
     isActive: true,
     badgeTag: "",
+    assignedProducts: [],
   });
+  const [catProductSearchQuery, setCatProductSearchQuery] = useState("");
+  const catSearchFetcher = useFetcher();
+
+  const [brandForm, setBrandForm] = useState({
+    brandId: "",
+    brandKey: "",
+    nameKo: "",
+    nameDe: "",
+    nameEn: "",
+    tag: "",
+    filter: "",
+    descKo: "",
+    descDe: "",
+    descEn: "",
+    sortOrder: String((config.brands?.length || 0) + 1),
+    isActive: true,
+    assignedProducts: [],
+  });
+  const [brandProductSearchQuery, setBrandProductSearchQuery] = useState("");
+  const brandSearchFetcher = useFetcher();
 
   // Shipping, Cold-Chain & Ticker state
   const [freeShippingThreshold, setFreeShippingThreshold] = useState(
@@ -1748,8 +1967,68 @@ export default function AppManagementPage() {
       sortOrder: String(c.sortOrder || 1),
       isActive: c.isActive !== false,
       badgeTag: c.badgeTag || "",
+      assignedProducts: Array.isArray(c.assignedProducts) ? [...c.assignedProducts] : [],
     });
+    setCatProductSearchQuery("");
+    setCategorySubTab("categories");
     setActiveTab("categories");
+  };
+
+  const handleNewCategory = () => {
+    setCatForm({
+      categoryId: "",
+      categoryKey: "",
+      nameKo: "",
+      nameDe: "",
+      nameEn: "",
+      iconName: "Soup",
+      isGnbTab: true,
+      isCarousel: true,
+      sortOrder: String((config.categories?.length || 0) + 1),
+      isActive: true,
+      badgeTag: "",
+      assignedProducts: [],
+    });
+    setCatProductSearchQuery("");
+  };
+
+  const handleEditBrand = (b) => {
+    setBrandForm({
+      brandId: b.id,
+      brandKey: b.brandKey || b.filter || "",
+      nameKo: b.nameKo || b.name || "",
+      nameDe: b.nameDe || "",
+      nameEn: b.nameEn || "",
+      tag: b.tag || "",
+      filter: b.filter || "",
+      descKo: b.descKo || "",
+      descDe: b.descDe || "",
+      descEn: b.descEn || "",
+      sortOrder: String(b.sortOrder || 1),
+      isActive: b.isActive !== false,
+      assignedProducts: Array.isArray(b.assignedProducts) ? [...b.assignedProducts] : [],
+    });
+    setBrandProductSearchQuery("");
+    setCategorySubTab("brands");
+  };
+
+  const handleNewBrand = () => {
+    setBrandForm({
+      brandId: "",
+      brandKey: "",
+      nameKo: "",
+      nameDe: "",
+      nameEn: "",
+      tag: "",
+      filter: "",
+      descKo: "",
+      descDe: "",
+      descEn: "",
+      sortOrder: String((config.brands?.length || 0) + 1),
+      isActive: true,
+      assignedProducts: [],
+    });
+    setBrandProductSearchQuery("");
   };
 
   const handlePublishNow = () => {
@@ -3742,239 +4021,971 @@ export default function AppManagementPage() {
         )}
 
         {/* =================================================================
-         * TAB 3: CATEGORIES & STICKY GNB MANAGEMENT
+         * TAB 3: CATEGORIES & BRANDS MANAGEMENT
          * ================================================================= */}
         {activeTab === "categories" && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
-              gap: "20px",
-              alignItems: "start",
-            }}
-          >
-            <Card>
-              <BlockStack gap="400">
-                <Text variant="headingMd" as="h2">
-                  카테고리 및 상단 GNB 탭 목록 ({config.categories?.length || 0}개)
-                </Text>
-                <Divider />
-                <BlockStack gap="200">
-                  {(config.categories || []).map((cat, idx) => (
-                    <div
-                      key={cat.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "12px 14px",
-                        border: "1px solid #E5E7EB",
-                        borderRadius: "10px",
-                        background: "#FFFFFF",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "12px",
-                        }}
-                      >
+          <BlockStack gap="400">
+            {/* Sub-tab Navigation: Categories vs Brands */}
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                alignItems: "center",
+                background: "#FFFFFF",
+                padding: "10px 16px",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+              }}
+            >
+              <Button
+                variant={categorySubTab === "categories" ? "primary" : "secondary"}
+                onClick={() => setCategorySubTab("categories")}
+              >
+                카테고리 및 상단 GNB ({config.categories?.length || 0})
+              </Button>
+              <Button
+                variant={categorySubTab === "brands" ? "primary" : "secondary"}
+                onClick={() => setCategorySubTab("brands")}
+              >
+                인기 브랜드 및 브랜드별 상품 ({config.brands?.length || 0})
+              </Button>
+            </div>
+
+            {/* Sub-tab 1: Categories */}
+            {categorySubTab === "categories" && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
+                  gap: "20px",
+                  alignItems: "start",
+                }}
+              >
+                {/* Left Card: Category List */}
+                <Card>
+                  <BlockStack gap="400">
+                    <InlineStack align="space-between">
+                      <Text variant="headingMd" as="h2">
+                        카테고리 및 상단 GNB 탭 목록 ({config.categories?.length || 0}개)
+                      </Text>
+                      <Button size="slim" onClick={handleNewCategory}>
+                        + 새 카테고리 추가
+                      </Button>
+                    </InlineStack>
+                    <Divider />
+                    <BlockStack gap="200">
+                      {(config.categories || []).map((cat, idx) => (
                         <div
+                          key={cat.id}
                           style={{
-                            width: "40px",
-                            height: "40px",
-                            borderRadius: "12px",
-                            background: "#F5F5F7",
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
+                            justifyContent: "space-between",
+                            padding: "12px 14px",
+                            border: catForm.categoryId === cat.id ? "2px solid #E30613" : "1px solid #E5E7EB",
+                            borderRadius: "10px",
+                            background: "#FFFFFF",
                           }}
                         >
-                          <CategoryVectorIcon name={cat.iconName} size={20} />
-                        </div>
-                        <div>
                           <div
                             style={{
                               display: "flex",
                               alignItems: "center",
-                              gap: "6px",
+                              gap: "12px",
+                              flex: 1,
+                              minWidth: 0,
                             }}
                           >
-                            <Text variant="bodyMd" fontWeight="bold" as="span">
-                              {cat.name?.ko}
-                            </Text>
-                            <Text variant="bodySm" tone="subdued" as="span">
-                              ({cat.categoryKey})
-                            </Text>
-                            {cat.badgeTag && (
-                              <Badge tone="critical">{cat.badgeTag}</Badge>
-                            )}
+                            <div
+                              style={{
+                                width: "40px",
+                                height: "40px",
+                                borderRadius: "12px",
+                                background: "#F5F5F7",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                              }}
+                            >
+                              <CategoryVectorIcon name={cat.iconName} size={20} />
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <Text variant="bodyMd" fontWeight="bold" as="span">
+                                  {cat.name?.ko}
+                                </Text>
+                                <Text variant="bodySm" tone="subdued" as="span">
+                                  ({cat.categoryKey})
+                                </Text>
+                                {cat.badgeTag && (
+                                  <Badge tone="critical">{cat.badgeTag}</Badge>
+                                )}
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "6px",
+                                  marginTop: "4px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {cat.isGnbTab && <Badge tone="info">상단 GNB 탭</Badge>}
+                                {cat.isCarousel && (
+                                  <Badge tone="success">원형 카테고리</Badge>
+                                )}
+                                {cat.assignedProducts && cat.assignedProducts.length > 0 ? (
+                                  <Badge tone="attention">지정 상품 {cat.assignedProducts.length}개</Badge>
+                                ) : (
+                                  <Badge tone="subdued">자동 키워드 매칭</Badge>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "6px",
-                              marginTop: "4px",
-                            }}
-                          >
-                            {cat.isGnbTab && <Badge tone="info">상단 GNB 탭</Badge>}
-                            {cat.isCarousel && (
-                              <Badge tone="success">원형 카테고리</Badge>
+                          <InlineStack gap="100">
+                            <Button
+                              size="slim"
+                              variant="tertiary"
+                              disabled={idx === 0}
+                              onClick={() => {
+                                const fd = new FormData();
+                                fd.append("intent", "reorder_category");
+                                fd.append("categoryId", cat.id);
+                                fd.append("direction", "up");
+                                fetcher.submit(fd, { method: "post" });
+                              }}
+                              accessibilityLabel="위로 이동"
+                            >
+                              ▲
+                            </Button>
+                            <Button
+                              size="slim"
+                              variant="tertiary"
+                              disabled={idx === (config.categories || []).length - 1}
+                              onClick={() => {
+                                const fd = new FormData();
+                                fd.append("intent", "reorder_category");
+                                fd.append("categoryId", cat.id);
+                                fd.append("direction", "down");
+                                fetcher.submit(fd, { method: "post" });
+                              }}
+                              accessibilityLabel="아래로 이동"
+                            >
+                              ▼
+                            </Button>
+                            <Button
+                              size="slim"
+                              onClick={() => handleEditCategory(cat)}
+                            >
+                              수정
+                            </Button>
+                            {cat.categoryKey !== "all" && (
+                              <Button
+                                size="slim"
+                                tone="critical"
+                                variant="plain"
+                                onClick={() => {
+                                  if (window.confirm(`'${cat.name?.ko || cat.categoryKey}' 카테고리를 삭제하시겠습니까?`)) {
+                                    const fd = new FormData();
+                                    fd.append("intent", "delete_category");
+                                    fd.append("categoryId", cat.id);
+                                    fd.append("categoryKey", cat.categoryKey);
+                                    fetcher.submit(fd, { method: "post" });
+                                  }
+                                }}
+                              >
+                                삭제
+                              </Button>
                             )}
-                          </div>
+                          </InlineStack>
                         </div>
+                      ))}
+                    </BlockStack>
+                  </BlockStack>
+                </Card>
+
+                {/* Right Card: Category Edit & Product Picker */}
+                <Card>
+                  <BlockStack gap="400">
+                    <InlineStack align="space-between">
+                      <Text variant="headingMd" as="h2">
+                        {catForm.categoryId ? "카테고리 상세 수정" : "새 카테고리 추가"}
+                      </Text>
+                      {catForm.categoryId && (
+                        <Button size="slim" onClick={handleNewCategory}>
+                          새 카테고리 등록으로 전환
+                        </Button>
+                      )}
+                    </InlineStack>
+                    <Divider />
+                    <InlineStack gap="300">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="카테고리 키 (영문 소문자)"
+                          value={catForm.categoryKey}
+                          onChange={(v) =>
+                            setCatForm({ ...catForm, categoryKey: v })
+                          }
+                          placeholder="예: ramyun, kimchi, frozen"
+                          autoComplete="off"
+                        />
                       </div>
-                      <InlineStack gap="100">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="정렬 순서"
+                          type="number"
+                          value={catForm.sortOrder}
+                          onChange={(v) => setCatForm({ ...catForm, sortOrder: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </InlineStack>
+
+                    <TextField
+                      label="표시 명칭 (한국어)"
+                      value={catForm.nameKo}
+                      onChange={(v) => setCatForm({ ...catForm, nameKo: v })}
+                      autoComplete="off"
+                    />
+                    <InlineStack gap="300">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="표시 명칭 (독일어)"
+                          value={catForm.nameDe}
+                          onChange={(v) => setCatForm({ ...catForm, nameDe: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="표시 명칭 (영어)"
+                          value={catForm.nameEn}
+                          onChange={(v) => setCatForm({ ...catForm, nameEn: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </InlineStack>
+
+                    <Select
+                      label="정규 벡터 아이콘 선택 (SVG)"
+                      options={ALLOWED_CATEGORY_ICONS.map((ic) => ({
+                        label: ic,
+                        value: ic,
+                      }))}
+                      value={catForm.iconName}
+                      onChange={(v) => setCatForm({ ...catForm, iconName: v })}
+                    />
+
+                    <TextField
+                      label="강조 뱃지 태그 (선택 - 예: HOT, NEW)"
+                      value={catForm.badgeTag}
+                      onChange={(v) => setCatForm({ ...catForm, badgeTag: v })}
+                      autoComplete="off"
+                    />
+
+                    <BlockStack gap="200">
+                      <Checkbox
+                        label="상단 고정 Sticky GNB 탭에 노출"
+                        checked={catForm.isGnbTab}
+                        onChange={(v) => setCatForm({ ...catForm, isGnbTab: v })}
+                      />
+                      <Checkbox
+                        label="메인 원형 카테고리 그리드에 노출"
+                        checked={catForm.isCarousel}
+                        onChange={(v) => setCatForm({ ...catForm, isCarousel: v })}
+                      />
+                      <Checkbox
+                        label="활성화 (Active)"
+                        checked={catForm.isActive}
+                        onChange={(v) => setCatForm({ ...catForm, isActive: v })}
+                      />
+                    </BlockStack>
+
+                    <Divider />
+
+                    {/* Category Products Assignment Section */}
+                    <BlockStack gap="300">
+                      <div>
+                        <Text variant="headingSm" as="h3">
+                          카테고리 지정 상품 검색 및 추가 ({catForm.assignedProducts?.length || 0}개)
+                        </Text>
+                        <Text variant="bodySm" tone="subdued" as="p">
+                          앱에서 이 카테고리를 눌렀을 때 특정 상품들만 노출시키려면 쇼피파이 상품을 검색하여 추가하세요. 지정된 상품이 없으면 기존 상품명/키워드 자동 매칭이 적용됩니다.
+                        </Text>
+                      </div>
+
+                      <InlineStack gap="200">
+                        <div style={{ flex: 1 }}>
+                          <TextField
+                            label="쇼피파이 상품 검색"
+                            labelHidden
+                            placeholder="상품명 또는 SKU 입력 후 검색"
+                            value={catProductSearchQuery}
+                            onChange={setCatProductSearchQuery}
+                            autoComplete="off"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && catProductSearchQuery.trim()) {
+                                e.preventDefault();
+                                const fd = new FormData();
+                                fd.append("intent", "search_shopify_products");
+                                fd.append("query", catProductSearchQuery);
+                                catSearchFetcher.submit(fd, { method: "post" });
+                              }
+                            }}
+                          />
+                        </div>
                         <Button
-                          size="slim"
-                          variant="tertiary"
-                          disabled={idx === 0}
+                          loading={catSearchFetcher.state !== "idle"}
                           onClick={() => {
                             const fd = new FormData();
-                            fd.append("intent", "reorder_category");
-                            fd.append("categoryId", cat.id);
-                            fd.append("direction", "up");
-                            fetcher.submit(fd, { method: "post" });
+                            fd.append("intent", "search_shopify_products");
+                            fd.append("query", catProductSearchQuery);
+                            catSearchFetcher.submit(fd, { method: "post" });
                           }}
-                          accessibilityLabel="위로 이동"
                         >
-                          ▲
-                        </Button>
-                        <Button
-                          size="slim"
-                          variant="tertiary"
-                          disabled={idx === (config.categories || []).length - 1}
-                          onClick={() => {
-                            const fd = new FormData();
-                            fd.append("intent", "reorder_category");
-                            fd.append("categoryId", cat.id);
-                            fd.append("direction", "down");
-                            fetcher.submit(fd, { method: "post" });
-                          }}
-                          accessibilityLabel="아래로 이동"
-                        >
-                          ▼
-                        </Button>
-                        <Button
-                          size="slim"
-                          onClick={() => handleEditCategory(cat)}
-                        >
-                          수정
+                          검색
                         </Button>
                       </InlineStack>
-                    </div>
-                  ))}
-                </BlockStack>
-              </BlockStack>
-            </Card>
 
-            <Card>
-              <BlockStack gap="400">
-                <Text variant="headingMd" as="h2">
-                  {catForm.categoryId ? "카테고리 상세 수정" : "카테고리 추가/수정"}
-                </Text>
-                <Divider />
-                <InlineStack gap="300">
-                  <div style={{ flex: 1 }}>
+                      {/* Search Results */}
+                      {catSearchFetcher.data?.searchedProducts && (
+                        <div
+                          style={{
+                            maxHeight: "220px",
+                            overflowY: "auto",
+                            border: "1px solid #E5E7EB",
+                            borderRadius: "8px",
+                            padding: "8px",
+                            background: "#FAFAFA",
+                          }}
+                        >
+                          {catSearchFetcher.data.searchedProducts.length === 0 ? (
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              검색 결과가 없습니다.
+                            </Text>
+                          ) : (
+                            <BlockStack gap="200">
+                              {catSearchFetcher.data.searchedProducts.map((sp) => {
+                                const isAdded = (catForm.assignedProducts || []).some(
+                                  (p) => String(p.productId || p.id) === String(sp.productId)
+                                );
+                                return (
+                                  <div
+                                    key={sp.productId}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      padding: "6px 10px",
+                                      background: "#FFFFFF",
+                                      border: "1px solid #E5E7EB",
+                                      borderRadius: "6px",
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                      {sp.imageUrl && (
+                                        <img
+                                          src={sp.imageUrl}
+                                          alt={sp.title}
+                                          style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "4px" }}
+                                        />
+                                      )}
+                                      <div style={{ minWidth: 0 }}>
+                                        <Text variant="bodySm" fontWeight="bold" as="p" truncate>
+                                          {sp.title}
+                                        </Text>
+                                        <Text variant="bodyXs" tone="subdued" as="p">
+                                          €{Number(sp.price || 0).toFixed(2)}
+                                        </Text>
+                                      </div>
+                                    </div>
+                                    <Button
+                                      size="slim"
+                                      variant={isAdded ? "secondary" : "primary"}
+                                      disabled={isAdded}
+                                      onClick={() => {
+                                        if (!isAdded) {
+                                          setCatForm({
+                                            ...catForm,
+                                            assignedProducts: [
+                                              ...(catForm.assignedProducts || []),
+                                              {
+                                                productId: sp.productId,
+                                                variantId: sp.variantId,
+                                                title: sp.title,
+                                                imageUrl: sp.imageUrl,
+                                                price: sp.price,
+                                              },
+                                            ],
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      {isAdded ? "추가됨" : "+ 추가"}
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                            </BlockStack>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Assigned Products in this Category */}
+                      <div>
+                        <Text variant="bodySm" fontWeight="bold" as="p">
+                          지정된 상품 ({catForm.assignedProducts?.length || 0}개)
+                        </Text>
+                        {(!catForm.assignedProducts || catForm.assignedProducts.length === 0) ? (
+                          <div
+                            style={{
+                              padding: "16px",
+                              textAlign: "center",
+                              background: "#F9FAFB",
+                              borderRadius: "8px",
+                              border: "1px dashed #D1D5DB",
+                              marginTop: "6px",
+                            }}
+                          >
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              현재 지정된 전용 상품이 없습니다. (카테고리명 기준 자동 매칭 적용 중)
+                            </Text>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              maxHeight: "240px",
+                              overflowY: "auto",
+                              border: "1px solid #E5E7EB",
+                              borderRadius: "8px",
+                              padding: "8px",
+                              background: "#FFFFFF",
+                              marginTop: "6px",
+                            }}
+                          >
+                            <BlockStack gap="150">
+                              {catForm.assignedProducts.map((p, pIdx) => (
+                                <div
+                                  key={p.productId || p.id || pIdx}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "6px 10px",
+                                    background: "#F9FAFB",
+                                    borderRadius: "6px",
+                                    border: "1px solid #F3F4F6",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                    {p.imageUrl && (
+                                      <img
+                                        src={p.imageUrl}
+                                        alt={p.title}
+                                        style={{ width: "30px", height: "30px", objectFit: "contain", borderRadius: "4px" }}
+                                      />
+                                    )}
+                                    <div style={{ minWidth: 0 }}>
+                                      <Text variant="bodySm" as="p" truncate>
+                                        {p.title}
+                                      </Text>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="slim"
+                                    tone="critical"
+                                    variant="plain"
+                                    onClick={() => {
+                                      setCatForm({
+                                        ...catForm,
+                                        assignedProducts: catForm.assignedProducts.filter(
+                                          (item) => (item.productId || item.id) !== (p.productId || p.id)
+                                        ),
+                                      });
+                                    }}
+                                  >
+                                    제거
+                                  </Button>
+                                </div>
+                              ))}
+                            </BlockStack>
+                          </div>
+                        )}
+                      </div>
+                    </BlockStack>
+
+                    <Button
+                      variant="primary"
+                      loading={isSubmitting}
+                      onClick={() => {
+                        const fd = new FormData();
+                        fd.append("intent", "save_category");
+                        Object.entries(catForm).forEach(([k, val]) => {
+                          if (k === "assignedProducts") {
+                            fd.append("categoryProductsJson", JSON.stringify(val));
+                          } else {
+                            fd.append(k, String(val));
+                          }
+                        });
+                        fetcher.submit(fd, { method: "post" });
+                      }}
+                    >
+                      카테고리 및 상품 설정 저장 및 앱 반영
+                    </Button>
+                  </BlockStack>
+                </Card>
+              </div>
+            )}
+
+            {/* Sub-tab 2: Brands */}
+            {categorySubTab === "brands" && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
+                  gap: "20px",
+                  alignItems: "start",
+                }}
+              >
+                {/* Left Card: Brand List */}
+                <Card>
+                  <BlockStack gap="400">
+                    <InlineStack align="space-between">
+                      <Text variant="headingMd" as="h2">
+                        인기 브랜드 목록 ({config.brands?.length || 0}개)
+                      </Text>
+                      <Button size="slim" onClick={handleNewBrand}>
+                        + 새 브랜드 추가
+                      </Button>
+                    </InlineStack>
+                    <Divider />
+                    <BlockStack gap="200">
+                      {(config.brands || []).map((brand, idx) => (
+                        <div
+                          key={brand.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "12px 14px",
+                            border: brandForm.brandId === brand.id ? "2px solid #E30613" : "1px solid #E5E7EB",
+                            borderRadius: "10px",
+                            background: "#FFFFFF",
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                              <Text variant="bodyMd" fontWeight="bold" as="span">
+                                {brand.nameKo}
+                              </Text>
+                              <Text variant="bodySm" tone="subdued" as="span">
+                                ({brand.nameEn || brand.nameDe || brand.filter})
+                              </Text>
+                              {brand.tag && <Badge tone="critical">{brand.tag}</Badge>}
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
+                              <Badge tone="info">벤더: {brand.filter || brand.nameKo}</Badge>
+                              {brand.assignedProducts && brand.assignedProducts.length > 0 ? (
+                                <Badge tone="attention">전용 상품 {brand.assignedProducts.length}개</Badge>
+                              ) : (
+                                <Badge tone="subdued">벤더 자동 필터</Badge>
+                              )}
+                              {!brand.isActive && <Badge tone="critical">비활성</Badge>}
+                            </div>
+                          </div>
+                          <InlineStack gap="100">
+                            <Button
+                              size="slim"
+                              variant="tertiary"
+                              disabled={idx === 0}
+                              onClick={() => {
+                                const fd = new FormData();
+                                fd.append("intent", "reorder_brand");
+                                fd.append("brandId", brand.id);
+                                fd.append("direction", "up");
+                                fetcher.submit(fd, { method: "post" });
+                              }}
+                              accessibilityLabel="위로 이동"
+                            >
+                              ▲
+                            </Button>
+                            <Button
+                              size="slim"
+                              variant="tertiary"
+                              disabled={idx === (config.brands || []).length - 1}
+                              onClick={() => {
+                                const fd = new FormData();
+                                fd.append("intent", "reorder_brand");
+                                fd.append("brandId", brand.id);
+                                fd.append("direction", "down");
+                                fetcher.submit(fd, { method: "post" });
+                              }}
+                              accessibilityLabel="아래로 이동"
+                            >
+                              ▼
+                            </Button>
+                            <Button size="slim" onClick={() => handleEditBrand(brand)}>
+                              수정
+                            </Button>
+                            <Button
+                              size="slim"
+                              tone="critical"
+                              variant="plain"
+                              onClick={() => {
+                                if (window.confirm(`'${brand.nameKo}' 브랜드를 삭제하시겠습니까?`)) {
+                                  const fd = new FormData();
+                                  fd.append("intent", "delete_brand");
+                                  fd.append("brandId", brand.id);
+                                  fetcher.submit(fd, { method: "post" });
+                                }
+                              }}
+                            >
+                              삭제
+                            </Button>
+                          </InlineStack>
+                        </div>
+                      ))}
+                    </BlockStack>
+                  </BlockStack>
+                </Card>
+
+                {/* Right Card: Brand Edit & Product Picker */}
+                <Card>
+                  <BlockStack gap="400">
+                    <InlineStack align="space-between">
+                      <Text variant="headingMd" as="h2">
+                        {brandForm.brandId ? "브랜드 상세 수정" : "새 브랜드 추가"}
+                      </Text>
+                      {brandForm.brandId && (
+                        <Button size="slim" onClick={handleNewBrand}>
+                          새 브랜드 등록으로 전환
+                        </Button>
+                      )}
+                    </InlineStack>
+                    <Divider />
+                    <InlineStack gap="300">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="브랜드 식별키 (영문)"
+                          value={brandForm.brandKey}
+                          onChange={(v) => setBrandForm({ ...brandForm, brandKey: v })}
+                          placeholder="예: nongshim, cj, samyang"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="정렬 순서"
+                          type="number"
+                          value={brandForm.sortOrder}
+                          onChange={(v) => setBrandForm({ ...brandForm, sortOrder: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </InlineStack>
+
                     <TextField
-                      label="카테고리 키 (영문 소문자)"
-                      value={catForm.categoryKey}
-                      onChange={(v) =>
-                        setCatForm({ ...catForm, categoryKey: v })
-                      }
-                      placeholder="예: ramyun, kimchi, frozen"
+                      label="브랜드 명칭 (한국어)"
+                      value={brandForm.nameKo}
+                      onChange={(v) => setBrandForm({ ...brandForm, nameKo: v })}
                       autoComplete="off"
                     />
-                  </div>
-                  <div style={{ flex: 1 }}>
+                    <InlineStack gap="300">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="브랜드 명칭 (독일어)"
+                          value={brandForm.nameDe}
+                          onChange={(v) => setBrandForm({ ...brandForm, nameDe: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="브랜드 명칭 (영어)"
+                          value={brandForm.nameEn}
+                          onChange={(v) => setBrandForm({ ...brandForm, nameEn: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </InlineStack>
+
+                    <InlineStack gap="300">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="배지 태그 (예: 신라면·짜파게티)"
+                          value={brandForm.tag}
+                          onChange={(v) => setBrandForm({ ...brandForm, tag: v })}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="Shopify 벤더명 (Vendor 필터)"
+                          value={brandForm.filter}
+                          onChange={(v) => setBrandForm({ ...brandForm, filter: v })}
+                          placeholder="예: Nongshim, CJ, Samyang"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </InlineStack>
+
                     <TextField
-                      label="정렬 순서"
-                      type="number"
-                      value={catForm.sortOrder}
-                      onChange={(v) => setCatForm({ ...catForm, sortOrder: v })}
+                      label="브랜드 소개 (한국어 한 줄)"
+                      value={brandForm.descKo}
+                      onChange={(v) => setBrandForm({ ...brandForm, descKo: v })}
+                      placeholder="예: 대한민국 대표 라면 & 스낵"
                       autoComplete="off"
                     />
-                  </div>
-                </InlineStack>
 
-                <TextField
-                  label="표시 명칭 (한국어)"
-                  value={catForm.nameKo}
-                  onChange={(v) => setCatForm({ ...catForm, nameKo: v })}
-                  autoComplete="off"
-                />
-                <InlineStack gap="300">
-                  <div style={{ flex: 1 }}>
-                    <TextField
-                      label="표시 명칭 (독일어)"
-                      value={catForm.nameDe}
-                      onChange={(v) => setCatForm({ ...catForm, nameDe: v })}
-                      autoComplete="off"
+                    <Checkbox
+                      label="활성화 (앱에 노출)"
+                      checked={brandForm.isActive}
+                      onChange={(v) => setBrandForm({ ...brandForm, isActive: v })}
                     />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <TextField
-                      label="표시 명칭 (영어)"
-                      value={catForm.nameEn}
-                      onChange={(v) => setCatForm({ ...catForm, nameEn: v })}
-                      autoComplete="off"
-                    />
-                  </div>
-                </InlineStack>
 
-                <Select
-                  label="정규 벡터 아이콘 선택 (SVG)"
-                  options={ALLOWED_CATEGORY_ICONS.map((ic) => ({
-                    label: ic,
-                    value: ic,
-                  }))}
-                  value={catForm.iconName}
-                  onChange={(v) => setCatForm({ ...catForm, iconName: v })}
-                />
+                    <Divider />
 
-                <TextField
-                  label="강조 뱃지 태그 (선택 - 예: HOT, NEW)"
-                  value={catForm.badgeTag}
-                  onChange={(v) => setCatForm({ ...catForm, badgeTag: v })}
-                  autoComplete="off"
-                />
+                    {/* Brand Products Assignment Section */}
+                    <BlockStack gap="300">
+                      <div>
+                        <Text variant="headingSm" as="h3">
+                          브랜드 전용 상품 검색 및 추가 ({brandForm.assignedProducts?.length || 0}개)
+                        </Text>
+                        <Text variant="bodySm" tone="subdued" as="p">
+                          이 브랜드 탭에 특정 상품들만 노출되도록 직접 선택할 수 있습니다. (지정 상품이 없으면 벤더명/상품명 자동 필터 적용)
+                        </Text>
+                      </div>
 
-                <BlockStack gap="200">
-                  <Checkbox
-                    label="상단 고정 Sticky GNB 탭에 노출"
-                    checked={catForm.isGnbTab}
-                    onChange={(v) => setCatForm({ ...catForm, isGnbTab: v })}
-                  />
-                  <Checkbox
-                    label="메인 원형 카테고리 그리드에 노출"
-                    checked={catForm.isCarousel}
-                    onChange={(v) => setCatForm({ ...catForm, isCarousel: v })}
-                  />
-                  <Checkbox
-                    label="활성화 (Active)"
-                    checked={catForm.isActive}
-                    onChange={(v) => setCatForm({ ...catForm, isActive: v })}
-                  />
-                </BlockStack>
+                      <InlineStack gap="200">
+                        <div style={{ flex: 1 }}>
+                          <TextField
+                            label="쇼피파이 상품 검색"
+                            labelHidden
+                            placeholder="상품명 또는 SKU 입력 후 검색"
+                            value={brandProductSearchQuery}
+                            onChange={setBrandProductSearchQuery}
+                            autoComplete="off"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && brandProductSearchQuery.trim()) {
+                                e.preventDefault();
+                                const fd = new FormData();
+                                fd.append("intent", "search_shopify_products");
+                                fd.append("query", brandProductSearchQuery);
+                                brandSearchFetcher.submit(fd, { method: "post" });
+                              }
+                            }}
+                          />
+                        </div>
+                        <Button
+                          loading={brandSearchFetcher.state !== "idle"}
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.append("intent", "search_shopify_products");
+                            fd.append("query", brandProductSearchQuery);
+                            brandSearchFetcher.submit(fd, { method: "post" });
+                          }}
+                        >
+                          검색
+                        </Button>
+                      </InlineStack>
 
-                <Button
-                  variant="primary"
-                  loading={isSubmitting}
-                  onClick={() => {
-                    const fd = new FormData();
-                    fd.append("intent", "save_category");
-                    Object.entries(catForm).forEach(([k, val]) => {
-                      fd.append(k, String(val));
-                    });
-                    fetcher.submit(fd, { method: "post" });
-                  }}
-                >
-                  카테고리 설정 저장 및 앱 반영
-                </Button>
-              </BlockStack>
-            </Card>
-          </div>
+                      {/* Brand Search Results */}
+                      {brandSearchFetcher.data?.searchedProducts && (
+                        <div
+                          style={{
+                            maxHeight: "220px",
+                            overflowY: "auto",
+                            border: "1px solid #E5E7EB",
+                            borderRadius: "8px",
+                            padding: "8px",
+                            background: "#FAFAFA",
+                          }}
+                        >
+                          {brandSearchFetcher.data.searchedProducts.length === 0 ? (
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              검색 결과가 없습니다.
+                            </Text>
+                          ) : (
+                            <BlockStack gap="200">
+                              {brandSearchFetcher.data.searchedProducts.map((sp) => {
+                                const isAdded = (brandForm.assignedProducts || []).some(
+                                  (p) => String(p.productId || p.id) === String(sp.productId)
+                                );
+                                return (
+                                  <div
+                                    key={sp.productId}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      padding: "6px 10px",
+                                      background: "#FFFFFF",
+                                      border: "1px solid #E5E7EB",
+                                      borderRadius: "6px",
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                      {sp.imageUrl && (
+                                        <img
+                                          src={sp.imageUrl}
+                                          alt={sp.title}
+                                          style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "4px" }}
+                                        />
+                                      )}
+                                      <div style={{ minWidth: 0 }}>
+                                        <Text variant="bodySm" fontWeight="bold" as="p" truncate>
+                                          {sp.title}
+                                        </Text>
+                                        <Text variant="bodyXs" tone="subdued" as="p">
+                                          €{Number(sp.price || 0).toFixed(2)}
+                                        </Text>
+                                      </div>
+                                    </div>
+                                    <Button
+                                      size="slim"
+                                      variant={isAdded ? "secondary" : "primary"}
+                                      disabled={isAdded}
+                                      onClick={() => {
+                                        if (!isAdded) {
+                                          setBrandForm({
+                                            ...brandForm,
+                                            assignedProducts: [
+                                              ...(brandForm.assignedProducts || []),
+                                              {
+                                                productId: sp.productId,
+                                                variantId: sp.variantId,
+                                                title: sp.title,
+                                                imageUrl: sp.imageUrl,
+                                                price: sp.price,
+                                              },
+                                            ],
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      {isAdded ? "추가됨" : "+ 추가"}
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                            </BlockStack>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Brand Assigned Products List */}
+                      <div>
+                        <Text variant="bodySm" fontWeight="bold" as="p">
+                          지정된 브랜드 상품 ({brandForm.assignedProducts?.length || 0}개)
+                        </Text>
+                        {(!brandForm.assignedProducts || brandForm.assignedProducts.length === 0) ? (
+                          <div
+                            style={{
+                              padding: "16px",
+                              textAlign: "center",
+                              background: "#F9FAFB",
+                              borderRadius: "8px",
+                              border: "1px dashed #D1D5DB",
+                              marginTop: "6px",
+                            }}
+                          >
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              지정된 전용 상품이 없습니다. (Shopify 벤더명 필터 자동 적용 중)
+                            </Text>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              maxHeight: "240px",
+                              overflowY: "auto",
+                              border: "1px solid #E5E7EB",
+                              borderRadius: "8px",
+                              padding: "8px",
+                              background: "#FFFFFF",
+                              marginTop: "6px",
+                            }}
+                          >
+                            <BlockStack gap="150">
+                              {brandForm.assignedProducts.map((p, pIdx) => (
+                                <div
+                                  key={p.productId || p.id || pIdx}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "6px 10px",
+                                    background: "#F9FAFB",
+                                    borderRadius: "6px",
+                                    border: "1px solid #F3F4F6",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                    {p.imageUrl && (
+                                      <img
+                                        src={p.imageUrl}
+                                        alt={p.title}
+                                        style={{ width: "30px", height: "30px", objectFit: "contain", borderRadius: "4px" }}
+                                      />
+                                    )}
+                                    <div style={{ minWidth: 0 }}>
+                                      <Text variant="bodySm" as="p" truncate>
+                                        {p.title}
+                                      </Text>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="slim"
+                                    tone="critical"
+                                    variant="plain"
+                                    onClick={() => {
+                                      setBrandForm({
+                                        ...brandForm,
+                                        assignedProducts: brandForm.assignedProducts.filter(
+                                          (item) => (item.productId || item.id) !== (p.productId || p.id)
+                                        ),
+                                      });
+                                    }}
+                                  >
+                                    제거
+                                  </Button>
+                                </div>
+                              ))}
+                            </BlockStack>
+                          </div>
+                        )}
+                      </div>
+                    </BlockStack>
+
+                    <Button
+                      variant="primary"
+                      loading={isSubmitting}
+                      onClick={() => {
+                        const fd = new FormData();
+                        fd.append("intent", "save_brand");
+                        Object.entries(brandForm).forEach(([k, val]) => {
+                          if (k === "assignedProducts") {
+                            fd.append("brandProductsJson", JSON.stringify(val));
+                          } else {
+                            fd.append(k, String(val));
+                          }
+                        });
+                        fetcher.submit(fd, { method: "post" });
+                      }}
+                    >
+                      브랜드 설정 저장 및 앱 반영
+                    </Button>
+                  </BlockStack>
+                </Card>
+              </div>
+            )}
+          </BlockStack>
         )}
 
         {/* =================================================================
