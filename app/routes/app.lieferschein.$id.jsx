@@ -1,11 +1,12 @@
 import { normalizeProductType } from "../utils/productTemperatures.js";
+import { shippableQuantity } from "../utils/shipQuantity.js";
 import { useLoaderData, useFetcher } from "react-router";
 import { useState, useEffect, useCallback } from "react";
 import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import { sendCancellationAlertOnce } from "../services/cancellationAlertService.server.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
-import { handleIssueInvoiceIntent, issueInvoiceForOrder } from "../services/invoiceService.server.js";
+import { handleIssueInvoiceIntent } from "../services/invoiceService.server.js";
 import { completeOrderLineItems, readOrderNodes } from "../services/orderPagination.server.js";
 import { resolveTaxRate, resolveShippingTaxDetails } from "../services/invoiceTax.js";
 import { taxRateOptions } from "../utils/taxDisplay.js";
@@ -233,6 +234,8 @@ export const loader = async ({ request, params }) => {
                   sku
                   variantTitle
                   quantity
+                  currentQuantity
+                  unfulfilledQuantity
                   originalUnitPriceSet { shopMoney { amount currencyCode } }
                   discountedUnitPriceSet { shopMoney { amount currencyCode } }
                   originalTotalSet { shopMoney { amount currencyCode } }
@@ -567,6 +570,8 @@ export const loader = async ({ request, params }) => {
           id: item.id,
           title: (item.title || item.name || "").replace(" - Default Title", ""),
           quantity: item.quantity || 0,
+          shipQuantity: shippableQuantity(item, isDraft),
+          unitGrams: grams,
           sku: item.sku || variant?.sku || "",
           weightKg: grams > 0 ? (grams / 1000).toFixed(3) : null,
           gramsTotal: grams * (item.quantity || 0),
@@ -594,6 +599,9 @@ export const loader = async ({ request, params }) => {
       const totalGrams = sortedItems.reduce((acc, curr) => acc + curr.gramsTotal, 0);
       const hasIcePackage = sortedItems.some((i) => i.isIcePackage);
       const totalOrderQty = sortedItems.reduce((acc, curr) => acc + curr.quantity, 0);
+      // The packing slip lists only what still has to leave the warehouse; the invoice keeps the full order.
+      const shipItems = sortedItems.filter((item) => item.shipQuantity > 0);
+      const shipWeightKg = (shipItems.reduce((acc, item) => acc + item.unitGrams * item.shipQuantity, 0) / 1000).toFixed(3);
 
       const isDryOnly = sortedItems.length > 0 && sortedItems.every(item => item.productType === "t");
       const hasChilled = sortedItems.some(item => item.productType === "k");
@@ -676,6 +684,9 @@ export const loader = async ({ request, params }) => {
         totalWeightKg: (totalGrams / 1000).toFixed(3),
         totalOrderQty,
         items: sortedItems,
+        shipItems,
+        shipWeightKg,
+        isPartiallyFulfilled: !isDraft && node.displayFulfillmentStatus === "PARTIALLY_FULFILLED",
         isFirstPurchase: (node.customer?.numberOfOrders ?? 0) === 1,
         isDryOnly,
         hasChilled,
@@ -704,29 +715,12 @@ export const loader = async ({ request, params }) => {
         customAttributes: node.customAttributes || [],
       };
 
-      let invoice = dbRecord?.invoiceNumber ? {
+      // Viewing must not consume a sequential invoice number; numbers are issued on Rechnung print or fulfillment.
+      const invoice = dbRecord?.invoiceNumber ? {
         invoiceNumber: dbRecord.invoiceNumber,
         issuedAt: dbRecord.invoiceIssuedAt,
         snapshot: dbRecord.invoiceSnapshot,
       } : null;
-
-      if (!invoice) {
-        try {
-          const snapshot = pickInvoiceSnapshot({
-            order: orderData,
-            taxDisplayMode: isB2B ? "NET" : "GROSS",
-            taxExemptionNote: "",
-          });
-          invoice = await issueInvoiceForOrder({
-            shop: session?.shop || "dawayo.myshopify.com",
-            orderId: node.id,
-            orderName: node.name,
-            snapshot,
-          });
-        } catch (invoiceErr) {
-          console.error("Auto invoice issuance in loader failed:", invoiceErr);
-        }
-      }
 
       orderData.invoice = invoice;
       ordersData.push(orderData);
@@ -1183,7 +1177,7 @@ export default function OrderPrintDetailPage() {
                   <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
                   <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                   <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.shipWeightKg ?? order.totalWeightKg} kg</td></tr>
                   <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
                   <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
                 </tbody>
@@ -1191,6 +1185,7 @@ export default function OrderPrintDetailPage() {
               <div className="badges-row" style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "8px" }}>
                 {order.isB2B && <div className="badge">B2B</div>}
                 {order.hasIcePackage && <div className="stamp-kuehl">KÜHLVERSAND</div>}
+                {order.isPartiallyFulfilled && <div className="stamp-kuehl">TEILLIEFERUNG</div>}
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
                 <div style={{
@@ -1278,8 +1273,12 @@ export default function OrderPrintDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {order.items.map((item) => {
-                const isOriginalMultiQty = item.quantity > 1;
+              {(order.shipItems || order.items).length === 0 && (
+                <tr><td colSpan={6} className="missing-value">출고할 품목이 없습니다 (전량 출고/삭제/환불됨)</td></tr>
+              )}
+              {(order.shipItems || order.items).map((item) => {
+                const shipQty = item.shipQuantity ?? item.quantity;
+                const isOriginalMultiQty = shipQty > 1;
                 return (
                   <tr key={item.id}>
                     {showImages && (
@@ -1304,8 +1303,9 @@ export default function OrderPrintDetailPage() {
                       {item.variantTitle && <div className="variant">{item.variantTitle}</div>}
                     </td>
                     <td className={`qty-cell ${isOriginalMultiQty ? "qty-cell-warning" : ""}`}>
-                      × {item.quantity}
+                      × {shipQty}
                       {isOriginalMultiQty && <span className="qty-warning-lbl">수량주의</span>}
+                      {shipQty !== item.quantity && <span className="qty-warning-lbl">주문 {item.quantity}개 중 남은 수량</span>}
                     </td>
                     {showSkus && (
                       <td>

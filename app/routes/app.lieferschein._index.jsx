@@ -1,6 +1,7 @@
 import { normalizeProductType } from "../utils/productTemperatures.js";
+import { shippableQuantity } from "../utils/shipQuantity.js";
 import { useLoaderData, useFetcher, Link, useSearchParams } from "react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { authenticate, generatePrintToken } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -12,9 +13,10 @@ export const links = () => [
   { rel: "stylesheet", href: styles },
 ];
 
-const jsonResponse = (data) =>
+const jsonResponse = (data, init = {}) =>
   new Response(JSON.stringify(data), {
-    headers: { "Content-Type": "application/json" },
+    ...init,
+    headers: { "Content-Type": "application/json", ...init.headers },
   });
 
 function checkIsB2B(shippingAddress) {
@@ -55,7 +57,7 @@ export const action = async ({ request }) => {
       try {
         payload = JSON.parse(formData.get("ordersPayload") || "[]");
       } catch {
-        payload = [];
+        return jsonResponse({ success: false, error: "출력 대상 주문 정보를 읽을 수 없습니다." }, { status: 400 });
       }
 
       if (Array.isArray(payload) && payload.length > 0) {
@@ -105,6 +107,7 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ success: true });
   } catch (err) {
+    if (err instanceof Response) throw err;
     console.error("Action error in lieferschein._index:", err);
     return jsonResponse({ success: false, error: err.message }, { status: 500 });
   }
@@ -118,7 +121,10 @@ export const loader = async ({ request }) => {
     const orderType = url.searchParams.get("orderType") || "ORDERS";
     const isDraftMode = orderType === "DRAFT_ORDERS";
 
-    let shopifyQuery = isDraftMode ? "status:open" : "fulfillment_status:unfulfilled status:open";
+    // 부분출고 주문과 인보이스 발송된 초안도 아직 출고할 품목이 남아 있으므로 포함
+    let shopifyQuery = isDraftMode
+      ? "(status:open OR status:invoice_sent)"
+      : "(fulfillment_status:unfulfilled OR fulfillment_status:partial) status:open";
     if (queryParam) {
       const cleanQ = queryParam.trim().replace(/^#/, "");
       const isDigitsOnly = /^\d+$/.test(cleanQ);
@@ -236,6 +242,7 @@ export const loader = async ({ request }) => {
                 email
                 note
                 displayFinancialStatus
+                displayFulfillmentStatus
                 cancelledAt
                 cancelReason
                 returnStatus
@@ -261,6 +268,8 @@ export const loader = async ({ request }) => {
                     node {
                       id
                       quantity
+                      currentQuantity
+                      unfulfilledQuantity
                       variant {
                         id
                         product {
@@ -324,7 +333,8 @@ export const loader = async ({ request }) => {
       let hasChilled = false;
       let hasFrozen = false;
 
-      const lineItemEdges = node.lineItems?.edges || [];
+      // 이미 출고/삭제/환불된 품목은 패킹 대상에서 제외
+      const lineItemEdges = (node.lineItems?.edges || []).filter((e) => shippableQuantity(e.node, isDraftMode) > 0);
       const lineItemCount = lineItemEdges.length;
 
       if (lineItemCount === 0) {
@@ -333,7 +343,7 @@ export const loader = async ({ request }) => {
 
       for (const itemEdge of lineItemEdges) {
         const item = itemEdge.node;
-        const qty = item.quantity || 0;
+        const qty = shippableQuantity(item, isDraftMode);
         totalOrderQty += qty;
 
         const variantGid = item.variant?.id || "";
@@ -392,6 +402,7 @@ export const loader = async ({ request }) => {
         hasIcePackage,
         totalOrderQty,
         items: new Array(lineItemCount).fill(null),
+        isPartiallyFulfilled: !isDraftMode && node.displayFulfillmentStatus === "PARTIALLY_FULFILLED",
         isDryOnly,
         hasChilled,
         hasFrozen,
@@ -534,6 +545,15 @@ export default function AdditionalPage() {
       setOrders(loaderData.orders); // DB의 isPrinted 상태 직접 활용
     }
   }, [loaderData]);
+
+  // 출력 완료/초기화 저장이 실패하면 낙관적 표시를 DB 상태로 되돌리고 알림
+  const handledFetcherData = useRef(null);
+  useEffect(() => {
+    if (fetcher.state !== "idle" || fetcher.data?.success !== false || handledFetcherData.current === fetcher.data) return;
+    handledFetcherData.current = fetcher.data;
+    if (loaderData?.orders) setOrders(loaderData.orders);
+    alert("출력 상태 저장에 실패했습니다: " + (fetcher.data.error || "알 수 없는 오류") + "\n\n목록을 새로고침한 뒤 다시 확인해주세요.");
+  }, [fetcher.state, fetcher.data, loaderData]);
 
   // 주문 필터링 로직
   const filteredOrders = useMemo(() => {
@@ -947,6 +967,9 @@ export default function AdditionalPage() {
                         )}
                         {order.isCustomerHold && (
                           <Badge tone="critical">{order.hasReturnRequest ? "반품 요청" : "취소 요청"}</Badge>
+                        )}
+                        {order.isPartiallyFulfilled && (
+                          <Badge tone="warning">부분출고 · 남은 품목만 출력</Badge>
                         )}
                       </div>
                     </td>
