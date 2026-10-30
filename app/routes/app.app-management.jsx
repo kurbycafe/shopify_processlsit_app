@@ -337,7 +337,7 @@ export const action = async ({ request }) => {
       const version = await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: `저장된 앱 설정의 반영을 요청했습니다. 앱에서 확인하는 시점에 따라 적용이 지연될 수 있습니다. (버전: ${version})`,
+        message: "저장된 설정을 앱에 반영했습니다.",
       };
     }
 
@@ -345,7 +345,7 @@ export const action = async ({ request }) => {
       const version = await resetStorefrontToDefaults(shop);
       return {
         success: true,
-        message: `모든 설정이 기본 초기 상태로 복원 및 배포되었습니다. (버전: ${version})`,
+        message: "기본값으로 복원했습니다.",
         intent: "reset_defaults",
       };
     }
@@ -547,7 +547,7 @@ export const action = async ({ request }) => {
       await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: "홈 배너가 저장되었으며 모바일 앱에 즉시 반영되었습니다.",
+        message: "홈 배너가 저장되었습니다.",
       };
     }
 
@@ -573,7 +573,7 @@ export const action = async ({ request }) => {
       await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: "배너가 삭제되었으며 모바일 앱에 반영되었습니다.",
+        message: "배너가 삭제되었습니다.",
       };
     }
 
@@ -1117,7 +1117,7 @@ export const action = async ({ request }) => {
       await bumpStorefrontVersion(shop);
       return {
         success: true,
-        message: "카테고리 및 상품 설정이 모바일 앱에 반영되었습니다.",
+        message: "카테고리 설정이 저장되었습니다.",
       };
     }
 
@@ -1218,7 +1218,7 @@ export const action = async ({ request }) => {
       });
 
       await bumpStorefrontVersion(shop);
-      return { success: true, message: "인기 브랜드 및 전용 상품 설정이 저장되었습니다." };
+      return { success: true, message: "브랜드 설정이 저장되었습니다." };
     }
 
     if (intent === "delete_brand") {
@@ -1471,7 +1471,7 @@ export const action = async ({ request }) => {
 
       return {
         success: true,
-        message: "스토어 설정 및 콜드체인·캠페인 구성이 모바일 앱에 즉시 적용되었습니다.",
+        message: "스토어 설정이 저장되었습니다.",
       };
     }
 
@@ -2270,7 +2270,7 @@ export default function AppManagementPage() {
           </div>
         </div>
 
-        <Text as="p" tone="subdued">각 항목의 저장 버튼을 먼저 눌러 주세요. 상단의 반영 요청은 저장하지 않은 입력 내용을 저장하지 않습니다.</Text>
+        <Text as="p" tone="subdued">수정 후 각 항목의 [저장]을 누르고, 상단 [저장된 설정 반영 요청]을 누르면 앱에 반영됩니다.</Text>
 
         {/* ACTION FEEDBACK BANNER */}
         {fetcher.data?.message && (
@@ -2280,7 +2280,7 @@ export default function AppManagementPage() {
           >
             {fetcher.data.success && (
               <p style={{ marginTop: "4px", fontSize: "13px" }}>
-                💡 <strong>확인 팁:</strong> 스마트폰에서 다와요 앱을 종료 후 재실행하거나, 홈 화면 맨 위에서 화면을 아래로 당겨 새로고침(Pull-to-Refresh)하시면 방금 저장된 변경 사항이 즉시 화면에 나타납니다. 상단 메뉴의 <strong>[라이브 미리보기]</strong> 탭에서도 즉시 확인하실 수 있습니다.
+                앱 새로고침 하면 변경점이 나타납니다.
               </p>
             )}
           </Banner>
@@ -3631,7 +3631,7 @@ export default function AppManagementPage() {
                   }}
                 >
                   <Text variant="bodySm" tone="success">
-                    💳 <strong>Shopify 실결제 연동</strong>: 특가 저장 시 Shopify 상점의 해당 상품 판매가가 즉시 <strong>€{Number(dealForm.salePrice || 0).toFixed(2)}</strong>(정상가 €{Number(dealForm.basePrice || 0).toFixed(2)})로 실시간 동기화되어, 모바일 앱 장바구니 및 체크아웃 결제 시 <strong>설정하신 특가 그대로 실결제</strong>됩니다.
+                    특가 저장 시 쇼피파이 판매가로 변경되어 결제할 때 할인가가 적용됩니다.
                   </Text>
                 </div>
 
@@ -4458,7 +4458,7 @@ export default function AppManagementPage() {
                           카테고리 지정 상품 검색 및 추가 ({catForm.assignedProducts?.length || 0}개)
                         </Text>
                         <Text variant="bodySm" tone="subdued" as="p">
-                          앱에서 이 카테고리를 눌렀을 때 특정 상품들만 노출시키려면 쇼피파이 상품을 검색하여 추가하세요. 지정된 상품이 없으면 기존 상품명/키워드 자동 매칭이 적용됩니다.
+                          이 카테고리에 노출할 상품을 직접 추가할 수 있습니다. (지정 상품이 없으면 자동 매칭)
                         </Text>
                       </div>
 
@@ -4596,7 +4596,7 @@ export default function AppManagementPage() {
                             }}
                           >
                             <Text variant="bodySm" tone="subdued" as="p">
-                              현재 지정된 전용 상품이 없습니다. (카테고리명 기준 자동 매칭 적용 중)
+                              지정된 상품이 없습니다. (카테고리 자동 매칭 적용 중)
                             </Text>
                           </div>
                         ) : (
@@ -4681,7 +4681,7 @@ export default function AppManagementPage() {
                                 <Badge tone="info">키: {catForm.categoryKey || "전체"}</Badge>
                               </div>
                               <Text variant="bodyXs" tone="subdued" as="p">
-                                지정 상품이 없을 때 앱에서 카테고리 키워드/이름 규칙으로 자동 매칭되어 노출되는 활성 상품 목록입니다.
+                                카테고리명으로 자동 매칭된 상품입니다.
                               </Text>
                             </div>
                             <InlineStack gap="200">
@@ -4707,7 +4707,7 @@ export default function AppManagementPage() {
                                     }
                                   }}
                                 >
-                                  + 자동 매칭 상품 전체 추가 ({catAutoFilterFetcher.data.autoFilteredProducts.length}개)
+                                  + 전체 추가 ({catAutoFilterFetcher.data.autoFilteredProducts.length}개)
                                 </Button>
                               )}
                             </InlineStack>
@@ -5051,7 +5051,7 @@ export default function AppManagementPage() {
                           브랜드 전용 상품 검색 및 추가 ({brandForm.assignedProducts?.length || 0}개)
                         </Text>
                         <Text variant="bodySm" tone="subdued" as="p">
-                          이 브랜드 탭에 특정 상품들만 노출되도록 직접 선택할 수 있습니다. (지정 상품이 없으면 벤더명/상품명 자동 필터 적용)
+                          이 브랜드에 노출할 상품을 직접 추가할 수 있습니다. (지정 상품이 없으면 벤더명 자동 필터)
                         </Text>
                       </div>
 
@@ -5189,7 +5189,7 @@ export default function AppManagementPage() {
                             }}
                           >
                             <Text variant="bodySm" tone="subdued" as="p">
-                              지정된 전용 상품이 없습니다. (Shopify 벤더명 필터 자동 적용 중)
+                              지정된 상품이 없습니다. (벤더명 자동 필터 적용 중)
                             </Text>
                           </div>
                         ) : (
@@ -5300,7 +5300,7 @@ export default function AppManagementPage() {
                                     }
                                   }}
                                 >
-                                  + 자동 매칭 상품 전체 추가 ({brandAutoFilterFetcher.data.autoFilteredProducts.length}개)
+                                  + 전체 추가 ({brandAutoFilterFetcher.data.autoFilteredProducts.length}개)
                                 </Button>
                               )}
                             </InlineStack>
