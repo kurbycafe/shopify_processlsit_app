@@ -12,12 +12,11 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
 
   if (session?.shop) {
-    try {
-      // Proactively ensure the offline session & token are fresh in DB for background webhooks
-      await shopify.unauthenticated.admin(session.shop);
-    } catch (offlineErr) {
+    // Keep the offline session fresh for background webhooks, without making
+    // every admin page wait for it.
+    shopify.unauthenticated.admin(session.shop).catch((offlineErr) => {
       console.warn("[App Root] Offline session health check blip:", offlineErr?.message);
-    }
+    });
   }
 
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };

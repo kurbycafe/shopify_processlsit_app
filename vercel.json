@@ -3,7 +3,14 @@
   "framework": null,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "build/client",
+  "regions": [
+    "fra1"
+  ],
   "rewrites": [
+    {
+      "source": "/customer-invoice-pdf/:orderId",
+      "destination": "/api/invoice-pdf?orderId=:orderId"
+    },
     {
       "source": "/(.*)",
       "destination": "/api/index"
@@ -20,7 +27,7 @@
     }
   ],
   "functions": {
-    "api/index.js": {
+    "api/invoice-pdf.js": {
       "includeFiles": "{app/assets/fonts/**,node_modules/harfbuzzjs/dist/harfbuzz-subset.wasm,node_modules/@sparticuz/chromium/bin/**}"
     }
   }

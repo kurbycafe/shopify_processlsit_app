@@ -184,7 +184,18 @@ export async function getEtaBySku(sku, { strict = false } = {}) {
 /**
  * Retrieves upcoming incoming container pickings for operations dashboard
  */
+// The dashboard calls this on every load; Odoo's receipt list changes slowly.
+const UPCOMING_TTL_MS = 5 * 60 * 1000;
+let upcomingCache = null;
 export async function getUpcomingContainers() {
+  if (upcomingCache && Date.now() - upcomingCache.at < UPCOMING_TTL_MS) return upcomingCache.value;
+  const value = await readUpcomingContainers();
+  // Failures come back as []; do not keep them.
+  if (value.length) upcomingCache = { at: Date.now(), value };
+  return value;
+}
+
+async function readUpcomingContainers() {
   const config = getOdooConfig();
   if (!config.isConfigured) return [];
 
