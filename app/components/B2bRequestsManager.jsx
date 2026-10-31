@@ -36,6 +36,7 @@ export default function B2bRequestsManager() {
   const [statusFilter, setStatusFilter] = useState("REQUESTED");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentCursor, setCurrentCursor] = useState(null);
+  const [showGuide, setShowGuide] = useState(true);
 
   const prevUpdateState = useRef(updateFetcher.state);
 
@@ -180,6 +181,162 @@ export default function B2bRequestsManager() {
               autoComplete="off"
             />
           </div>
+        </BlockStack>
+      </Card>
+
+      {/* B2B Operational Workflow & Discount Guide */}
+      <Card>
+        <BlockStack gap="300">
+          <InlineStack align="space-between" blockAlign="center">
+            <InlineStack gap="200" blockAlign="center">
+              <span style={{ fontSize: "18px" }}>💡</span>
+              <Text variant="headingSm" as="h3">
+                B2B 도매 회원 승인 및 할인 적용 안내
+              </Text>
+            </InlineStack>
+            <Button
+              variant="plain"
+              size="slim"
+              onClick={() => setShowGuide((prev) => !prev)}
+            >
+              {showGuide ? "가이드 접기 ▲" : "가이드 보기 ▼"}
+            </Button>
+          </InlineStack>
+
+          {showGuide && (
+            <BlockStack gap="300">
+              <Divider />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {/* Step 1 */}
+                <div
+                  style={{
+                    background: "#F8FAFC",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <InlineStack gap="150" blockAlign="center">
+                    <Badge tone="info">1단계</Badge>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      신청 접수 및 서류 확인
+                    </Text>
+                  </InlineStack>
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      fontSize: "13px",
+                      color: "#334155",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    앱에서 식당·마트 사업자가 사업자등록번호(VAT ID)와 함께 도매를 신청합니다. <b>[EU VIES 검증 ↗]</b> 링크로 사업자 번호를 조회하고, 이메일이나 전화로 발주 규모를 협의합니다.
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div
+                  style={{
+                    background: "#F8FAFC",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <InlineStack gap="150" blockAlign="center">
+                    <Badge tone="success">2단계</Badge>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      승인 &amp; 태그 자동 부여
+                    </Text>
+                  </InlineStack>
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      fontSize: "13px",
+                      color: "#334155",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    하단의 <b>[승인 &amp; Shopify B2B 태그 부여]</b> 버튼을 누르면 해당 회원 계정에 <code>b2b</code>, <code>wholesale</code>, <code>b2b-approved</code> 태그가 자동으로 등록됩니다.
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div
+                  style={{
+                    background: "#F8FAFC",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <InlineStack gap="150" blockAlign="center">
+                    <Badge tone="attention">3단계</Badge>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      도매 할인율(%) 설정
+                    </Text>
+                  </InlineStack>
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      fontSize: "13px",
+                      color: "#334155",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    <b>Shopify 어드민 &gt; 할인(Discounts)</b>에서 적용 대상을 <code>b2b</code> 고객 태그로 지정하고, 협의된 할인율(전 품목 % 또는 특정 상품/카테고리 할인)을 등록하면 회원이 로그인 시 자동 적용됩니다.
+                  </div>
+                </div>
+
+                {/* Step 4 */}
+                <div
+                  style={{
+                    background: "#F8FAFC",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <InlineStack gap="150" blockAlign="center">
+                    <Badge tone="subdued">4단계</Badge>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      주문 및 인보이스(Rechnung)
+                    </Text>
+                  </InlineStack>
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      fontSize: "13px",
+                      color: "#334155",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    승인된 회원이 주문하면 출고서(Lieferschein)와 인보이스에 <b>B2B 스탬프</b>가 찍히며, 부가세는 공급가(Netto) 기준으로 계산되고 B2B 도매 전용 법인 계좌가 인쇄됩니다.
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: "#EFF6FF",
+                  border: "1px solid #BFDBFE",
+                  borderRadius: "6px",
+                  padding: "10px 14px",
+                  fontSize: "12px",
+                  color: "#1E40AF",
+                  lineHeight: "1.4",
+                }}
+              >
+                💡 <b>운영 팁:</b> 서류 확인 전이나 조건 협의 중일 때는 <b>[검토 중으로 변경]</b> 상태로 두고, 협의가 완료되었을 때 승인 버튼을 누르시면 됩니다. (별도 혜택 없이 문의만 종결할 경우 [단순 완료 처리] 사용)
+              </div>
+            </BlockStack>
+          )}
         </BlockStack>
       </Card>
 

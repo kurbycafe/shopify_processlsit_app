@@ -10,8 +10,10 @@ const formatDate = value => value && !Number.isNaN(Date.parse(value)) ? new Date
 const messagesFor = record => {
   const p = record?.payload || {};
   const opening = p.message || p.reason || "";
+  // Photos are sent with the inquiry itself, so they belong to its first message.
+  const photos = Array.isArray(p.photos) ? p.photos.filter(src => typeof src === "string" && src) : [];
   const messages = Array.isArray(p.conversation) ? p.conversation : (p.reply || p.adminReply ? [{ id: "legacy", sender: "admin", text: p.reply || p.adminReply, createdAt: p.repliedAt }] : []);
-  return [...(opening ? [{ id: "opening", sender: "customer", text: opening, createdAt: record.createdAt }] : []), ...messages];
+  return [...(opening || photos.length ? [{ id: "opening", sender: "customer", text: opening, photos, createdAt: record.createdAt }] : []), ...messages];
 };
 
 function SupportInbox({ active = true }) {
@@ -96,9 +98,8 @@ function SupportInbox({ active = true }) {
         <InlineStack align="space-between" blockAlign="center"><Text as="h3" variant="headingMd">{labels[selected.type]} 대화</Text><Badge>{states[selected.status] || selected.status}</Badge></InlineStack>
         <Text as="p" variant="bodySm" tone="subdued">{selected.payload?.orderName || selected.payload?.orderId || selected.orderId || "주문 정보 없음"} · {selected.payload?.email || selected.customerId || "비로그인 접수"}</Text>
         <div style={{ background: "#f6f7f8", borderRadius: 12, padding: 14, display: "grid", gap: 10, maxHeight: 420, overflowY: "auto" }}>
-          {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#dcecff" : "#fff", padding: "10px 12px", borderRadius: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}</div></div>)}
+          {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#dcecff" : "#fff", padding: "10px 12px", borderRadius: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={src} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
         </div>
-        {Array.isArray(selected.payload?.photos) && selected.payload.photos.length > 0 && <details><summary>첨부 사진 {selected.payload.photos.length}장</summary><div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>{selected.payload.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{padding:0,border:0,background:"transparent",cursor:"pointer"}}><img src={src} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:8}} /></button>)}</div></details>}
         {!selected.customerId && <Banner tone="warning">로그인 계정이 연결되지 않은 문의입니다. 앱 대화와 푸시로 답변을 전달할 수 없으므로, 등록된 이메일 등으로 별도 안내해 주세요.</Banner>}
         <TextField label="고객에게 답변" value={reply} onChange={setReply} multiline={3} maxLength={4000} autoComplete="off" placeholder="고객에게 안내할 내용을 입력하세요" />
         <Select label="자주 쓰는 답변" value="" onChange={value => { if (value) setReply(value); }} options={[{ label: "답변 문구 선택", value: "" }, ...templates.map(value => ({ label: value, value }))]} />
