@@ -194,10 +194,10 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
         const customerId = await verify(request, shop, { customerQuery });
         const numericCustId = customerId.split("/").pop();
         const token = generateCustomerInvoiceToken({ orderId: numericOrderId, shop, customerId: numericCustId });
-        const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "process-list-beryl.vercel.app";
-        const proto = request.headers.get("x-forwarded-proto") || "https";
-        downloadUrl = `${proto}://${host}/customer-invoice/${numericOrderId}?shop=${shop}&t=${token}`;
-        pdfUrl = `${proto}://${host}/customer-invoice-pdf/${numericOrderId}?shop=${shop}&t=${token}`;
+        // The app's own address, never one taken from request headers.
+        const origin = new URL(process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app").origin;
+        downloadUrl = `${origin}/customer-invoice/${numericOrderId}?shop=${shop}&t=${token}`;
+        pdfUrl = `${origin}/customer-invoice-pdf/${numericOrderId}?shop=${shop}&t=${token}`;
       } catch {}
     }
     return {

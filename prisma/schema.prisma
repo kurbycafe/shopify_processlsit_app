@@ -346,3 +346,10 @@ model AppUsageLog {
   @@index([shop, path])
   @@index([shop, createdAt])
 }
+
+// Write counters for the customer API rate limit (app/services/rateLimit.server.js).
+model ApiRateLimit {
+  key         String   @id
+  windowStart DateTime
+  count       Int
+}

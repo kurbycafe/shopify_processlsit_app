@@ -18,7 +18,7 @@ function getCorsHeaders(request) {
           host.endsWith(".myshopify.com") ||
           host === "localhost" ||
           host === "127.0.0.1" ||
-          host.endsWith(".vercel.app")
+          host === "process-list-beryl.vercel.app" || host === "dawayo-mobile-app.vercel.app"
         ) {
           allowed = true;
         }

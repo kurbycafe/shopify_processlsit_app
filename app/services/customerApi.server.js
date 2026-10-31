@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
+import { limitCustomerWrite } from "./rateLimit.server.js";
 
 const DEFAULT_CUSTOMER_ORIGINS =
   "capacitor://localhost,http://localhost,https://localhost,http://localhost:5173,http://127.0.0.1:5173,https://dawayo.de,https://www.dawayo.de,https://dawayo-mobile-app.vercel.app";
@@ -35,7 +36,8 @@ export function customerShop(env = process.env) {
   return shop;
 }
 
-export function createCustomerHandler(resolve, env = process.env) {
+// `limit` caps writes per client; tests pass their own env and get none.
+export function createCustomerHandler(resolve, env = process.env, { limit = env === process.env ? limitCustomerWrite : null } = {}) {
   return async ({ request, params }) => {
     const requestId = randomUUID();
     const headers = { "Cache-Control": "private, no-store", Vary: "Origin", "X-Request-Id": requestId };
@@ -54,12 +56,14 @@ export function createCustomerHandler(resolve, env = process.env) {
         throw new MobileApiError(405, "METHOD_NOT_ALLOWED", "Unsupported request method.");
       }
       const shop = customerShop(env);
+      if (request.method !== "GET" && limit) await limit(request, params.resource);
       const data = await resolve({ request, resource: params.resource, shop });
       return Response.json({ success: true, data, meta: { requestId, version: "v1" } }, { headers });
     } catch (error) {
       const known = error instanceof MobileApiError;
       const status = known ? error.status : 502;
       if (status === 401) headers["WWW-Authenticate"] = "Bearer";
+      if (status === 429 && error.retryAfter) headers["Retry-After"] = String(error.retryAfter);
       // Never log tokens, customer IDs, order IDs, upstream bodies or internal notes.
       if (!known) console.error("[Customer API] Request failed", { requestId,
         type: ["PrismaClientKnownRequestError", "PrismaClientValidationError", "PrismaClientInitializationError"].includes(error?.constructor?.name) ? error.constructor.name : "UpstreamError",
