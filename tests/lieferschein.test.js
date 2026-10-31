@@ -108,3 +108,44 @@ test("both delivery note views print the remaining quantity while invoices keep 
     assert.match(source, /quantity: item\.quantity \|\| 0/);
   }
 });
+
+test("bulk print reads several orders at once when the query budget allows, keeping the requested order", async () => {
+  const { readOrderNodes } = await import("../app/services/orderPagination.server.js");
+  const ids = Array.from({ length: 9 }, (_, i) => `gid://shopify/Order/${i + 1}`);
+  let active = 0;
+  let peak = 0;
+  const admin = { graphql: async (_, { variables }) => {
+    active++; peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active--;
+    return { json: async () => ({ data: { nodes: [{ id: variables.ids[0] }] }, extensions: { cost: { requestedQueryCost: 100, throttleStatus: { currentlyAvailable: 1000, restoreRate: 100 } } } }) };
+  } };
+  const nodes = await readOrderNodes(admin, "query", [...ids].reverse());
+  assert.deepEqual(nodes.map((n) => n.id), [...ids].reverse());
+  assert.ok(peak > 1 && peak <= 4, `parallel reads stay bounded (peak ${peak})`);
+});
+
+test("a low query budget keeps bulk print reads one at a time", async () => {
+  const { readOrderNodes } = await import("../app/services/orderPagination.server.js");
+  let active = 0;
+  let peak = 0;
+  const admin = { graphql: async (_, { variables }) => {
+    active++; peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    active--;
+    return { json: async () => ({ data: { nodes: [{ id: variables.ids[0] }] }, extensions: { cost: { requestedQueryCost: 300, throttleStatus: { currentlyAvailable: 500, restoreRate: 10000 } } } }) };
+  } };
+  await readOrderNodes(admin, "query", [1, 2, 3, 4].map((i) => `gid://shopify/Order/${i}`));
+  assert.equal(peak, 1);
+});
+
+test("saving an address or issuing invoices on the print pages does not reload every order", () => {
+  for (const file of ["print.lieferschein.$id.jsx", "app.lieferschein.$id.jsx"]) {
+    const shouldRevalidate = new Function(`return (${routeExport(file, "shouldRevalidate")});`)();
+    const form = (intent) => { const f = new FormData(); f.set("intent", intent); return f; };
+    assert.equal(shouldRevalidate({ formData: form("save_address"), actionResult: { success: true }, defaultShouldRevalidate: true }), false);
+    assert.equal(shouldRevalidate({ formData: form("issue_invoice"), actionResult: { success: true }, defaultShouldRevalidate: true }), false);
+    assert.equal(shouldRevalidate({ formData: form("save_address"), actionResult: { success: false }, defaultShouldRevalidate: true }), true);
+    assert.equal(shouldRevalidate({ formData: form("send_cancellation_email"), actionResult: { success: true }, defaultShouldRevalidate: true }), true);
+  }
+});

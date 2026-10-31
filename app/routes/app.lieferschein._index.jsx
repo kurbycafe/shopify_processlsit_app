@@ -438,8 +438,9 @@ export const loader = async ({ request }) => {
       select: { orderId: true, isLieferscheinPrinted: true, lieferscheinPrintedAt: true, isPickListPrinted: true, isCancelAlertSent: true }
     });
 
+    const printedByOrderId = new Map(printedRecords.map((r) => [r.orderId, r]));
     const ordersWithPrintStatus = ordersWithCombinedInfo.map((order) => {
-      const dbRecord = printedRecords.find((r) => r.orderId === order.id);
+      const dbRecord = printedByOrderId.get(order.id);
 
       let printedAtStr = null;
       if (dbRecord && dbRecord.lieferscheinPrintedAt) {

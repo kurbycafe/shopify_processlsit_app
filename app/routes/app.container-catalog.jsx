@@ -21,27 +21,25 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  let dbContainers = [];
-  try {
-    dbContainers = await prisma.container.findMany({
+  const odooAvailable = isOdooConfigured();
+  // DB and Odoo are independent, so both are read at the same time.
+  const [dbContainers, upcomingOdoo] = await Promise.all([
+    prisma.container.findMany({
       where: { shop },
       orderBy: { createdAt: "desc" },
       take: 20,
       include: {
         items: true,
       },
-    });
-  } catch (dbErr) {
-    console.warn("DB Container query warning:", dbErr.message);
-  }
-
-  const odooAvailable = isOdooConfigured();
-  let upcomingOdoo = [];
-  try {
-    upcomingOdoo = odooAvailable ? await getUpcomingContainers() : [];
-  } catch (odooErr) {
-    console.warn("Upcoming containers query warning:", odooErr.message);
-  }
+    }).catch((dbErr) => {
+      console.warn("DB Container query warning:", dbErr.message);
+      return [];
+    }),
+    (odooAvailable ? getUpcomingContainers() : Promise.resolve([])).catch((odooErr) => {
+      console.warn("Upcoming containers query warning:", odooErr.message);
+      return [];
+    }),
+  ]);
 
   return {
     shop,

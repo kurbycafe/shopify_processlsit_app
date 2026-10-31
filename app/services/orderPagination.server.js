@@ -172,7 +172,15 @@ export async function completeOrderLineItems(admin, node) {
   return node;
 }
 const queryCooldowns = new WeakMap();
+const queryBudgets = new WeakMap();
 const MAX_BUDGET_WAIT_MS = 30000;
+const MAX_PARALLEL_READS = 4;
+
+function parallelReadsFor(admin) {
+  const budget = queryBudgets.get(admin);
+  if (!budget) return 2;
+  return Math.max(1, Math.min(MAX_PARALLEL_READS, Math.floor(budget.available / Math.max(1, budget.cost))));
+}
 
 async function readGraphQL(admin, query, variables) {
   const wait = (queryCooldowns.get(admin) || 0) - Date.now();
@@ -185,6 +193,7 @@ async function readGraphQL(admin, query, variables) {
   const nextCost = cost?.requestedQueryCost;
   if (Number.isFinite(available) && Number.isFinite(restoreRate) && restoreRate > 0 && Number.isFinite(nextCost)) {
     queryCooldowns.set(admin, Date.now() + Math.max(0, (nextCost - available) / restoreRate * 1000));
+    queryBudgets.set(admin, { available, cost: nextCost });
   }
   if (payload?.errors?.length) throw new Error(payload.errors.map(error => error.message).join(", "));
   if (!payload?.data) throw new Error("Incomplete Shopify order response");
@@ -197,15 +206,27 @@ export async function readOrderNodes(admin, query, ids) {
   if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^gid:\/\/shopify\/(Order|DraftOrder)\/[1-9]\d*$/.test(id))) {
     throw new Error("Valid Shopify order IDs are required");
   }
+  const unique = [...new Set(ids)];
   const results = new Map();
-  for (const id of new Set(ids)) {
+  const readOne = async (id) => {
     const payload = await readGraphQL(admin, query, { ids: [id] });
     const nodes = payload.data.nodes;
     if (!Array.isArray(nodes) || nodes.length !== 1 || (nodes[0] !== null && nodes[0]?.id !== id)) {
       throw new Error("Shopify returned an incomplete or mismatched order batch");
     }
     results.set(id, nodes[0]);
-  }
+  };
+  // The first read runs alone; its reported cost decides how many of the rest the budget carries at once.
+  if (unique.length > 0) await readOne(unique[0]);
+  let next = 1;
+  let failed = false;
+  const worker = async () => {
+    while (!failed && next < unique.length) {
+      try { await readOne(unique[next++]); } catch (error) { failed = true; throw error; }
+    }
+  };
+  const workers = Math.min(parallelReadsFor(admin), unique.length - 1);
+  await Promise.all(Array.from({ length: Math.max(0, workers) }, worker));
   return ids.map(id => results.get(id));
 }
 

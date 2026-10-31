@@ -8,13 +8,27 @@ import { MobileApiError } from "./mobileApi.server.js";
 import { createCustomerResolver } from "./customerResources.server.js";
 import { createSubscription } from "./subscriptionService.server.js";
 
+// The offline session is read from the database on every unauthenticated.admin call; mobile requests
+// reuse it briefly so each Shopify query does not pay an extra database round trip.
+const offlineAdminCache = new Map();
+const OFFLINE_ADMIN_TTL_MS = 60000;
+
+async function offlineAdmin(shop) {
+  const cached = offlineAdminCache.get(shop);
+  if (cached && cached.expiresAt > Date.now()) return cached.admin;
+  const { admin } = await unauthenticated.admin(shop);
+  offlineAdminCache.set(shop, { admin, expiresAt: Date.now() + OFFLINE_ADMIN_TTL_MS });
+  return admin;
+}
+
 async function graphql(shop, query, variables) {
   let phase = "offline-session";
   try {
-    const { admin } = await unauthenticated.admin(shop);
+    const admin = await offlineAdmin(shop);
     phase = "admin-query";
     return await executeGraphQLWithRetry(admin, query, variables);
   } catch (error) {
+    offlineAdminCache.delete(shop);
     // Log only a bounded classification; upstream messages can contain secrets.
     const detail = String(error?.message || "");
     console.error("[Customer API] Shopify failure", {
