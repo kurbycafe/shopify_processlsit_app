@@ -397,10 +397,13 @@ async function loadLiveVariantPrices(admin, campaigns) {
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
+  // Product types of products sold on dawayo.de, for the category product-type picker; independent of the config.
+  const onlineProductTypesTask = loadOnlineProductIds().then((d) => d.productTypes || {}).catch(() => ({}));
   const config = await getStorefrontConfig(shop, { includeInactive: true, includeRecipes: false });
-  const liveVariantPrices = await loadLiveVariantPrices(admin, config.groupBuying);
-  // Product types of products sold on dawayo.de, for the category product-type picker.
-  const onlineProductTypes = await loadOnlineProductIds().then((d) => d.productTypes || {}).catch(() => ({}));
+  const [liveVariantPrices, onlineProductTypes] = await Promise.all([
+    loadLiveVariantPrices(admin, config.groupBuying),
+    onlineProductTypesTask,
+  ]);
   return { shop, config, liveVariantPrices, onlineProductTypes };
 };
 

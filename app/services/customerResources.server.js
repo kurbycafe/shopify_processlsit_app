@@ -72,10 +72,12 @@ async function resolveArrivalSkus({ graphql, shop, codes }) {
     arrivalSkuCache.set(`${shop}:${code}`, { value, at: Date.now() });
     if (value) result.set(code, value);
   };
+  // Batches are independent lookups, so they run at the same time.
+  const lookups = [];
   const titles = missing.filter((code) => code.startsWith("title:"));
   for (let offset = 0; offset < titles.length; offset += 25) {
     const batch = titles.slice(offset, offset + 25);
-    try {
+    lookups.push((async () => { try {
       const payload = await graphql(shop, `query ArrivalProducts($query: String!) {
         products(first: 100, query: $query) { nodes { id title status onlineStoreUrl variants(first: 2) { nodes { id } } } }
       }`, { query: batch.map((code) => `title:"${code.slice(6)}"`).join(" OR ") });
@@ -90,12 +92,12 @@ async function resolveArrivalSkus({ graphql, shop, codes }) {
       for (const code of batch) remember(code, found.get(code) || null);
     } catch {
       // Names stay unlinked.
-    }
+    } })());
   }
   const codesById = missing.filter((code) => !code.startsWith("title:"));
   for (let offset = 0; offset < codesById.length; offset += 50) {
     const batch = codesById.slice(offset, offset + 50);
-    try {
+    lookups.push((async () => { try {
       const payload = await graphql(shop, `query ArrivalVariants($query: String!) {
         productVariants(first: 250, query: $query) { nodes { id sku barcode product { id status onlineStoreUrl } } }
       }`, { query: batch.map((code) => { const [field, value] = code.split(/:(.*)/); return `${field}:"${value}"`; }).join(" OR ") });
@@ -109,8 +111,9 @@ async function resolveArrivalSkus({ graphql, shop, codes }) {
       for (const code of batch) remember(code, found.get(code) || null);
     } catch {
       // Without Shopify the board still lists names; the app cannot link them.
-    }
+    } })());
   }
+  await Promise.all(lookups);
   return result;
 }
 

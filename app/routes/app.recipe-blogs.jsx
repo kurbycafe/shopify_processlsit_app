@@ -77,25 +77,23 @@ export async function loader({ request }) {
   }
 
   // Fetch local recipes with products
-  const rawRecipes = await prisma.recipe.findMany({
+  const rawRecipesTask = prisma.recipe.findMany({
     where: { shop },
     include: { products: true },
     orderBy: { createdAt: "desc" },
   });
 
-  const recipes = rawRecipes.map(unpackRecipe);
-
-  // Fetch store blogs and shop URL with in-memory caching
+  // Fetch store blogs and shop URL with in-memory caching; one Shopify request covers both, alongside the DB read.
   const now = Date.now();
   const cached = blogCache.get(shop);
   let blogs = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.blogs : null;
   let shopUrl = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.shopUrl : null;
 
-  if (!blogs) {
+  const storeInfoTask = (blogs && shopUrl) ? Promise.resolve(null) : (async () => {
     try {
-      const blogRes = await admin.graphql(
+      const res = await admin.graphql(
         `#graphql
-        query getBlogs {
+        query getBlogsAndShop {
           blogs(first: 30) {
             nodes {
               id
@@ -103,22 +101,6 @@ export async function loader({ request }) {
               handle
             }
           }
-        }`
-      );
-      const blogJson = await blogRes.json();
-      blogs = blogJson.data?.blogs?.nodes || [];
-    } catch (err) {
-      console.error("Error loading Shopify blogs:", err);
-      blogs = [];
-    }
-  }
-
-  if (!shopUrl) {
-    shopUrl = `https://${shop}`;
-    try {
-      const shopRes = await admin.graphql(
-        `#graphql
-        query getShop {
           shop {
             primaryDomain {
               url
@@ -126,14 +108,18 @@ export async function loader({ request }) {
           }
         }`
       );
-      const shopJson = await shopRes.json();
-      if (shopJson.data?.shop?.primaryDomain?.url) {
-        shopUrl = shopJson.data.shop.primaryDomain.url;
-      }
+      return (await res.json()).data || null;
     } catch (err) {
-      console.error("Error loading shop url:", err);
+      console.error("Error loading Shopify blogs and shop url:", err);
+      return null;
     }
-  }
+  })();
+
+  const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
+  const recipes = rawRecipes.map(unpackRecipe);
+
+  if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
+  if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
 
   blogCache.set(shop, { blogs, shopUrl, timestamp: now });
 

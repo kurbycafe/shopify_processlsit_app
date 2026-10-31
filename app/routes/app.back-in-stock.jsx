@@ -324,13 +324,15 @@ export const loader = async ({ request }) => {
       whereClause.createdAt = { gte: dayjs().subtract(30, "day").toDate() };
     }
 
-    totalCount = await prisma.backInStockSubscription.count({ where: whereClause });
-    paginatedSubscribers = await safeFindSubscribers(
-      whereClause,
-      { createdAt: "desc" },
-      limit,
-      (page - 1) * limit
-    );
+    [totalCount, paginatedSubscribers] = await Promise.all([
+      prisma.backInStockSubscription.count({ where: whereClause }),
+      safeFindSubscribers(
+        whereClause,
+        { createdAt: "desc" },
+        limit,
+        (page - 1) * limit
+      ),
+    ]);
   }
 
   // --- 4. Fetch Real SKUs and Product Details from Shopify ---

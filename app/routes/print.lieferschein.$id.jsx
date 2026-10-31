@@ -35,6 +35,14 @@ export const links = () => [
   { rel: "stylesheet", href: styles },
 ];
 
+// Saved addresses and issued invoices are merged into page state from the action result;
+// reloading every order from Shopify after each save only slows large print batches down.
+export const shouldRevalidate = ({ formData, actionResult, defaultShouldRevalidate }) => {
+  const intent = formData?.get("intent");
+  if ((intent === "save_address" || intent === "issue_invoice") && actionResult?.success === true) return false;
+  return defaultShouldRevalidate;
+};
+
 const jsonResponse = (data, init = {}) =>
   new Response(JSON.stringify(data), { ...init, headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", ...init.headers } });
 
@@ -484,6 +492,22 @@ export const loader = async ({ request, params }) => {
 
     const ordersData = [];
 
+    // One query for every order's stored record instead of one per order.
+    const recordIds = nodes.filter(Boolean).map((n) => n.id);
+    const readRecords = () => prisma.inspectionRecord.findMany({ where: { orderId: { in: recordIds } } });
+    let storedRecords;
+    try {
+      storedRecords = await readRecords();
+    } catch (err) {
+      if (err?.code === "P2022" || err?.message?.includes("does not exist")) {
+        await ensureDatabaseSchema();
+        storedRecords = await readRecords();
+      } else {
+        throw err;
+      }
+    }
+    const recordsByOrderId = new Map(storedRecords.map((r) => [r.orderId, r]));
+
     for (const node of nodes) {
       if (!node) continue;
       const isDraft = node.id && node.id.includes("DraftOrder");
@@ -625,21 +649,7 @@ export const loader = async ({ request, params }) => {
       const currentBillingAddress = isDraft ? (node.draftBillingAddress || node.billingAddress) : node.billingAddress;
       const isB2B = checkIsB2B(currentShippingAddress);
 
-      let dbRecord = null;
-      try {
-        dbRecord = await prisma.inspectionRecord.findUnique({
-          where: { orderId: node.id }
-        });
-      } catch (err) {
-        if (err?.code === "P2022" || err?.message?.includes("does not exist")) {
-          await ensureDatabaseSchema();
-          dbRecord = await prisma.inspectionRecord.findUnique({
-            where: { orderId: node.id }
-          });
-        } else {
-          throw err;
-        }
-      }
+      const dbRecord = recordsByOrderId.get(node.id) || null;
 
       const rawTaxLines = isDraft ? (node.draftTaxLines || node.taxLines || []) : (node.taxLines || []);
       const taxLines = rawTaxLines.map((tl) => ({
