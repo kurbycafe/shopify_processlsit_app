@@ -36,7 +36,7 @@ export default function B2bRequestsManager() {
   const [statusFilter, setStatusFilter] = useState("REQUESTED");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentCursor, setCurrentCursor] = useState(null);
-  const [showGuide, setShowGuide] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
 
   const prevUpdateState = useRef(updateFetcher.state);
 
@@ -132,7 +132,7 @@ export default function B2bRequestsManager() {
                 B2B 도매 회원 신청
               </Text>
               <Text variant="bodySm" tone="subdued" as="p">
-                접수된 B2B 도매 회원 신청 및 사업자 등록 정보를 관리합니다.
+                접수된 B2B 도매 회원 신청 및 사업자 등록 정보를 관리합니다. 승인 시 회원 계정에 b2b 태그가 부여되어 설정된 도매 할인율이 자동 적용됩니다.
               </Text>
             </div>
             <InlineStack gap="200" blockAlign="center">
@@ -191,24 +191,27 @@ export default function B2bRequestsManager() {
       {/* B2B Operational Workflow & Discount Guide */}
       {showGuide && (
         <Banner
-          title="B2B 도매 회원 승인 및 할인 적용 안내"
+          title="B2B 도매 회원 승인 및 할인 적용 운영 가이드"
           onDismiss={() => setShowGuide(false)}
         >
           <BlockStack gap="200">
             <Text variant="bodySm" as="p">
-              1. <strong>서류 확인:</strong> 사업자등록번호(VAT ID)를 확인하고 필요 시 VIES 조회를 통해 유효성을 검증합니다.
+              1. <strong>서류 및 사업자 확인:</strong> 사업자등록번호(VAT ID / USt-IdNr) 및 상호명을 확인하고 필요 시 VIES 유효성 조회를 진행합니다.
             </Text>
             <Text variant="bodySm" as="p">
-              2. <strong>승인 및 태그:</strong> 승인 시 회원 계정에 <code>b2b</code>, <code>wholesale</code>, <code>b2b-approved</code> 고객 태그가 자동 등록됩니다.
+              2. <strong>공급 품목 및 단가 협의:</strong> 대량 주문 품목, 팔레트 공급 및 희망 할인율에 대해 신청자와 유선 또는 이메일(info@dawayo.de)로 사전 협의합니다.
             </Text>
             <Text variant="bodySm" as="p">
-              3. <strong>도매 할인:</strong> Shopify 어드민 &gt; 할인(Discounts)에서 <code>b2b</code> 태그 대상 할인 규칙을 등록하면 로그인 시 자동 적용됩니다.
+              3. <strong>승인 및 태그 자동 생성:</strong> <code>[승인 (B2B 태그 부여)]</code> 버튼 클릭 시 Shopify 회원 계정에 <code>b2b</code>, <code>wholesale</code>, <code>b2b-approved</code> 고객 태그가 자동 등록됩니다.
             </Text>
             <Text variant="bodySm" as="p">
-              4. <strong>출고서 및 인보이스:</strong> 승인 회원의 주문은 출고서(Lieferschein)와 인보이스에 도매 단가(Netto) 및 B2B 정보가 표기됩니다.
+              4. <strong>Shopify 할인율 연동 로직:</strong> Shopify 어드민 &gt; <strong>할인(Discounts)</strong> 메뉴에서 [고객 태그: <code>b2b</code>] 대상 할인 규칙(예: 전 품목 10% 또는 도매 컬렉션 15% 할인 등)을 등록해 두면, 승인된 회원이 앱/웹 로그인 시 장바구니 및 결제창에서 자동으로 도매 할인가가 적용됩니다.
+            </Text>
+            <Text variant="bodySm" as="p">
+              5. <strong>세무 인보이스 및 출고서:</strong> 승인된 B2B 회원의 주문은 출고서(Lieferschein)와 공식 인보이스에 사업자 정보 및 순 단가(Netto)가 기재되어 독일 및 EU 세무 처리가 가능합니다.
             </Text>
             <Text variant="bodySm" tone="subdued" as="p">
-              서류 확인 전이거나 협의 중일 때는 [검토 중] 상태로 전환하고, 별도 태그 부여 없이 문의만 종결할 경우 [완료 처리]를 진행합니다.
+              * 서류 보완이 필요하거나 협의 중일 때는 <code>[검토 중]</code> 상태로 전환하고, 별도 할인 태그 없이 단순 문의로만 종결할 경우 <code>[완료 처리]</code>를 선택하세요.
             </Text>
           </BlockStack>
         </Banner>

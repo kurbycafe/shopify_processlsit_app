@@ -2806,7 +2806,7 @@ export default function AppManagementPage() {
                     </Text>
                   </div>
                   <Text variant="bodyMd" tone="subdued" as="p">
-                    모바일 앱에서 접수된 B2B 도매 회원 신청 및 사업자 등록 정보를 확인하고 승인합니다.
+                    모바일 앱에서 접수된 B2B 도매 회원 신청 및 사업자 등록 정보를 확인하고 승인합니다. 승인 시 계정에 b2b 태그가 부여되어 도매 할인율이 자동 적용됩니다.
                   </Text>
                 </div>
                 <div>
