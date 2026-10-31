@@ -8,6 +8,7 @@
 const STORE_URL = process.env.ONLINE_STORE_URL || "https://dawayo.de";
 const CACHE_MS = 10 * 60 * 1000;
 const MAX_PAGES = 80;
+const PAGES_PER_WAVE = 4;
 let cache = null;
 let pending = null;
 
@@ -17,20 +18,30 @@ export async function loadOnlineProductIds({ fetchImpl = fetch, now = () => Date
   pending = (async () => {
     const ids = [];
     const typeCounts = {};
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    const readPage = async (page) => {
       const res = await fetchImpl(`${STORE_URL}/products.json?limit=250&page=${page}`, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`Online store product list failed (HTTP ${res.status})`);
       const body = await res.json();
       const products = Array.isArray(body?.products) ? body.products : null;
       if (!products) throw new Error("Online store product list has an unexpected shape");
-      if (!products.length) break;
-      for (const p of products) {
-        if (!p?.id) continue;
-        ids.push(String(p.id));
-        const type = String(p.product_type || "").trim();
-        if (type) typeCounts[type] = (typeCounts[type] || 0) + 1;
+      return products;
+    };
+    // Pages are fetched a few at a time; a full sequential walk took several seconds on a cold cache.
+    let done = false;
+    for (let start = 1; start <= MAX_PAGES && !done; start += PAGES_PER_WAVE) {
+      const wave = Array.from({ length: Math.min(PAGES_PER_WAVE, MAX_PAGES - start + 1) }, (_, i) => start + i);
+      const results = await Promise.all(wave.map(readPage));
+      for (let i = 0; i < wave.length; i++) {
+        const products = results[i];
+        if (!products.length) { done = true; break; }
+        for (const p of products) {
+          if (!p?.id) continue;
+          ids.push(String(p.id));
+          const type = String(p.product_type || "").trim();
+          if (type) typeCounts[type] = (typeCounts[type] || 0) + 1;
+        }
+        if (wave[i] === MAX_PAGES) throw new Error("Online store product list exceeded the page limit");
       }
-      if (page === MAX_PAGES) throw new Error("Online store product list exceeded the page limit");
     }
     if (!ids.length) throw new Error("Online store product list is empty");
     const data = { ids: [...new Set(ids)], count: new Set(ids).size, productTypes: typeCounts, fetchedAt: new Date(now()).toISOString() };

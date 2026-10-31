@@ -1,8 +1,9 @@
 import { normalizeProductType } from "../utils/productTemperatures.js";
 import { executeGraphQLWithRetry } from '../utils/shopifyApi.js';
 import { parseWarehouseInfo, compareRegalAscending } from '../utils/warehouseHelpers.js';
-const LINE_FIELDS = `id quantity name variant { id sku barcode inventoryQuantity product { title producttype: metafield(namespace: "custom", key: "producttype") { value } } }`;
-const ORDERS = `query ProcessingOrders($after: String) { orders(first: 50, after: $after, query: "status:open fulfillment_status:unfulfilled") {
+import { shippableQuantity } from '../utils/shipQuantity.js';
+const LINE_FIELDS = `id quantity currentQuantity unfulfilledQuantity name variant { id sku barcode inventoryQuantity product { title producttype: metafield(namespace: "custom", key: "producttype") { value } } }`;
+const ORDERS = `query ProcessingOrders($after: String) { orders(first: 50, after: $after, query: "status:open (fulfillment_status:unfulfilled OR fulfillment_status:partial)") {
  pageInfo { hasNextPage endCursor } nodes { id name cancelledAt lineItems(first: 20) { pageInfo { hasNextPage endCursor } nodes { ${LINE_FIELDS} } } }
 } }`;
 const ITEMS = `query ProcessingOrderItems($id: ID!, $after: String) { order(id: $id) { id lineItems(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${LINE_FIELDS} } } } }`;
@@ -77,6 +78,7 @@ export function aggregateProcessingOrders(orders, bins) {
  for (const order of orders) {
   const orderName = order.name;
   for (const line of order.lineItems.nodes) {
+   if (shippableQuantity(line) <= 0) continue; // removed, refunded or already shipped
    const variant = line.variant; const sku = variant?.sku || '-'; const productName = variant?.product?.title || line.name || '알 수 없는 상품';
    const key = variant?.id || `${productName}__${sku}`;
    let item = map.get(key);
@@ -95,7 +97,7 @@ export function aggregateProcessingOrders(orders, bins) {
     };
     map.set(key, item);
    }
-   item.orderedQty += line.quantity || 0;
+   item.orderedQty += shippableQuantity(line);
    item.orderNumbers.add(orderName);
   }
  }

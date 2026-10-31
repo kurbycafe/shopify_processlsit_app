@@ -149,3 +149,31 @@ test("saving an address or issuing invoices on the print pages does not reload e
     assert.equal(shouldRevalidate({ formData: form("send_cancellation_email"), actionResult: { success: true }, defaultShouldRevalidate: true }), true);
   }
 });
+
+test("the pick list counts only units still to ship", async () => {
+  const { aggregateProcessingOrders } = await import("../app/services/pickListData.server.js");
+  const line = (id, sku, quantity, currentQuantity, unfulfilledQuantity) => ({ id, quantity, currentQuantity, unfulfilledQuantity, name: sku, variant: { id: `v-${sku}`, sku, product: { title: sku } } });
+  const orders = [{ name: "#1", lineItems: { nodes: [line("a", "A", 3, 2, 2), line("b", "B", 2, 0, 0), line("c", "C", 4, 4, 1)] } }];
+  const json = JSON.stringify(aggregateProcessingOrders(orders, {}));
+  const counts = Object.fromEntries([...json.matchAll(/"sku":"([ABC])"[^}]*?"orderedQty":(\d+)/g)].map((m) => [m[1], Number(m[2])]));
+  assert.deepEqual(counts, { A: 2, C: 1 });
+});
+
+test("the online catalog loads pages in parallel waves and stops at the first empty page", async () => {
+  const { loadOnlineProductIds, resetOnlineCatalogCache } = await import("../app/services/onlineCatalog.server.js");
+  resetOnlineCatalogCache();
+  let active = 0; let peak = 0;
+  const fetchImpl = async (url) => {
+    const page = Number(new URL(url).searchParams.get("page"));
+    active++; peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 3));
+    active--;
+    const products = page <= 6 ? [{ id: page, product_type: "Tofu" }] : [];
+    return { ok: true, json: async () => ({ products }) };
+  };
+  const data = await loadOnlineProductIds({ fetchImpl, force: true });
+  assert.deepEqual(data.ids, ["1", "2", "3", "4", "5", "6"]);
+  assert.equal(data.productTypes.Tofu, 6);
+  assert.ok(peak > 1 && peak <= 4);
+  resetOnlineCatalogCache();
+});
