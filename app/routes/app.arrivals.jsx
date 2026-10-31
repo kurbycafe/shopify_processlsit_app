@@ -19,12 +19,12 @@ const MAX_PICKS = 5;
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
-  const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
   const [config, containers] = await Promise.all([
     prisma.mobileStorefrontConfig.findUnique({ where: { shop } }),
     prisma.container.findMany({
-      where: { shop: { in: getShopAliases(session.shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] }, scheduledDate: { gte: since } },
-      orderBy: [{ scheduledDate: "asc" }, { id: "asc" }], take: 25,
+      // Every open Odoo receipt, also overdue or undated ones, so any can be chosen.
+      where: { shop: { in: getShopAliases(session.shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] } },
+      orderBy: [{ scheduledDate: { sort: "desc", nulls: "last" } }, { id: "desc" }], take: 50,
       select: { id: true, containerRef: true, supplier: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
         items: { orderBy: { id: "asc" }, take: 100, select: { sku: true, barcode: true, productName: true, expectedQty: true } } },
     }),
@@ -103,7 +103,8 @@ const KIND_LABEL = { container: "한국 컨테이너", domestic: "독일 내 입
 const LANGS = [["ko", "한국어"], ["de", "독일어"], ["en", "영어"]];
 const formatDate = (value) => (value ? new Date(`${value}T00:00:00`).toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" }) : "날짜 미정");
 const emptyLangs = { ko: "", de: "", en: "" };
-const PREVIEW_COUNT = 6;
+const PREVIEW_COUNT = 12;
+const BLANK = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
 
 function LangFields({ label, value, onChange, placeholder, multiline, maxLength }) {
   return (
@@ -120,45 +121,49 @@ function ItemLine({ item, prefix }) {
   return (
     <InlineStack gap="200" blockAlign="center" wrap={false}>
       {prefix}
-      <Thumbnail size="extraSmall" source={item.image || "data:image/gif;base64,R0lGODlhAQABAAAAACw="} alt="" />
+      <Thumbnail size="extraSmall" source={item.image || BLANK} alt="" />
       <Text as="span" tone={item.linked ? undefined : "subdued"}>{item.name}</Text>
       <Text as="span" tone="subdued" variant="bodySm">{item.qty}개{item.linked ? "" : " · 쇼핑몰 미연결"}</Text>
     </InlineStack>
   );
 }
 
-// One Odoo receipt in the list: its number, date, kind and a preview of what comes in.
+// One line of the receipt list: number, date, kind and a glance at the products.
+// Clicking it asks whether to show this receipt in the app.
 function ArrivalRow({ arrival, chosen, isNew, override, onChoose }) {
-  const [all, setAll] = useState(false);
   const date = override.date || arrival.odooDate;
   const kind = override.kind || arrival.odooKind;
-  const linked = arrival.items.filter((item) => item.linked).length;
-  const shownItems = all ? arrival.items : arrival.items.slice(0, PREVIEW_COUNT);
+  const today = new Date().toISOString().slice(0, 10);
+  const names = arrival.items.slice(0, 3).map((item) => item.name).join(", ");
+  const rest = arrival.items.length - 3;
+  const open = () => onChoose(chosen ? null : arrival);
   return (
-    <Box padding="300" borderWidth={chosen ? "050" : "025"} borderColor={chosen ? "border-emphasis" : "border"} borderRadius="300" background={chosen ? "bg-surface-selected" : "bg-surface"}>
-      <BlockStack gap="200">
-        <InlineStack align="space-between" blockAlign="center" wrap>
-          <InlineStack gap="200" blockAlign="center" wrap>
-            <Text as="h3" variant="headingMd">{arrival.ref}</Text>
-            <Badge tone={kind === "container" ? "critical" : "info"}>{KIND_LABEL[kind]}</Badge>
-            {chosen && <Badge tone="success">앱에 표시 중</Badge>}
-            {isNew && <Badge tone="attention">새 입고</Badge>}
+    <div role="button" tabIndex={0} onClick={open} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } }}
+      style={{ cursor: "pointer" }} aria-label={chosen ? `${arrival.ref} 표시 끄기` : `${arrival.ref} 입고로 설정`}>
+      <Box paddingBlock="250" paddingInline="300" borderWidth={chosen ? "050" : "025"} borderColor={chosen ? "border-emphasis" : "border"} borderRadius="200" background={chosen ? "bg-surface-selected" : "bg-surface"}>
+        <InlineStack align="space-between" blockAlign="center" gap="300" wrap={false}>
+          <InlineStack gap="300" blockAlign="center" wrap={false}>
+            <InlineStack gap="050" wrap={false}>
+              {arrival.items.slice(0, 3).map((item) => <Thumbnail key={item.key} size="extraSmall" source={item.image || BLANK} alt="" />)}
+            </InlineStack>
+            <BlockStack gap="050">
+              <InlineStack gap="200" blockAlign="center" wrap>
+                <Text as="span" variant="headingSm">{arrival.ref}</Text>
+                <Badge tone={kind === "container" ? "critical" : "info"}>{KIND_LABEL[kind]}</Badge>
+                {chosen && <Badge tone="success">앱에 표시 중</Badge>}
+                {isNew && <Badge tone="attention">새 입고</Badge>}
+                {date && date < today && <Badge tone="warning">예정일 지남</Badge>}
+              </InlineStack>
+              <Text as="span" tone="subdued" variant="bodySm">
+                {formatDate(date)}{override.date ? " (직접 지정)" : ""} · 품목 {arrival.items.length}개{arrival.supplier ? ` · ${arrival.supplier}` : ""}
+              </Text>
+              <Text as="span" variant="bodySm" truncate>{names}{rest > 0 ? ` 외 ${rest}개` : ""}</Text>
+            </BlockStack>
           </InlineStack>
-          {chosen
-            ? <Button onClick={() => onChoose(null)}>표시 끄기</Button>
-            : <Button variant="primary" onClick={() => onChoose(arrival)}>이 입고로 설정</Button>}
+          <Text as="span" variant="bodySm" tone={chosen ? "subdued" : "magic"}>{chosen ? "표시 끄기" : "설정 ›"}</Text>
         </InlineStack>
-        <Text as="p" tone="subdued" variant="bodySm">
-          입고 예정 {formatDate(date)}{override.date ? " (직접 지정)" : ""}{arrival.supplier ? ` · ${arrival.supplier}` : ""} · 품목 {arrival.items.length}개 중 {linked}개 쇼핑몰 연결
-        </Text>
-        <BlockStack gap="100">
-          {shownItems.map((item) => <ItemLine key={item.key} item={item} />)}
-        </BlockStack>
-        {arrival.items.length > PREVIEW_COUNT && (
-          <div><Button variant="plain" onClick={() => setAll(!all)}>{all ? "접기" : `전체 품목 보기 (${arrival.items.length - PREVIEW_COUNT}개 더)`}</Button></div>
-        )}
-      </BlockStack>
-    </Box>
+      </Box>
+    </div>
   );
 }
 
@@ -201,7 +206,7 @@ function PicksCard({ arrival, override, copy, saving, onSave }) {
             <Text as="p" variant="headingSm">{title}</Text>
             <InlineStack gap="150" blockAlign="center">
               {(picks.length ? picks.map((key) => byKey.get(key)).filter(Boolean) : linkedItems.slice(0, 4)).map((item) => (
-                <Thumbnail key={item.key} size="small" source={item.image || "data:image/gif;base64,R0lGODlhAQABAAAAACw="} alt={item.name} />
+                <Thumbnail key={item.key} size="small" source={item.image || BLANK} alt={item.name} />
               ))}
               <Text as="span" variant="bodySm" tone="critical">입고 상품 보기 ›</Text>
             </InlineStack>
@@ -303,6 +308,7 @@ export default function ArrivalsPage() {
           <BlockStack gap="300">
             <BlockStack gap="050">
               <Text as="h2" variant="headingMd">1. 앱에 표시할 입고</Text>
+              <Text as="p" tone="subdued" variant="bodySm">Odoo에 열려 있는 입고 전체입니다. 줄을 누르면 들어오는 상품을 보고 앱에 표시할지 정할 수 있습니다.</Text>
               <Text as="p" tone="subdued" variant="bodySm">마지막 동기화: {data.lastSyncedAt ? new Date(data.lastSyncedAt).toLocaleString("ko-KR") : "기록 없음"} · 매시 7분 Odoo 자동 동기화</Text>
             </BlockStack>
             {!data.selection && data.containers.length > 0 && <Banner tone="info">아직 고른 입고가 없어 가장 가까운 입고가 앱 홈에 보입니다. 아래에서 하나를 골라주세요.</Banner>}
@@ -346,6 +352,12 @@ export default function ArrivalsPage() {
             <BlockStack gap="200">
               <Text as="p"><strong>{pending.ref}</strong> ({formatDate(overrideOf(pending.ref).date || pending.odooDate)}, {KIND_LABEL[overrideOf(pending.ref).kind || pending.odooKind]}) 입고로 설정하시겠습니까?</Text>
               <Text as="p" tone="subdued">앱 홈 입고 카드와 입고 상품 목록에 이 입고만 보입니다.{chosen ? ` 지금 표시 중인 ${chosen.ref}는 앱에서 내려갑니다.` : ""}</Text>
+              <Divider />
+              <Text as="p" fontWeight="semibold">들어오는 상품 {pending.items.length}개</Text>
+              <BlockStack gap="100">
+                {pending.items.slice(0, PREVIEW_COUNT).map((item) => <ItemLine key={item.key} item={item} />)}
+              </BlockStack>
+              {pending.items.length > PREVIEW_COUNT && <Text as="p" tone="subdued" variant="bodySm">외 {pending.items.length - PREVIEW_COUNT}개</Text>}
             </BlockStack>
           ) : (
             <Text as="p">앱 홈에서 입고 카드를 내리시겠습니까? 다시 고를 때까지 앱에 입고 일정이 보이지 않습니다.</Text>

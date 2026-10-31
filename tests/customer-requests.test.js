@@ -152,7 +152,8 @@ test("arrival queries use real fields, page bounds and public response allowlist
     assert.equal(args.select.items.select.expectedQty, undefined);
     assert.equal(args.select.items.take, 101);
     assert.deepEqual(args.where.status, { in: ["SCHEDULED", "IN_TRANSIT"] });
-    assert.match(args.where.scheduledDate.gte, /^\d{4}-\d{2}-\d{2}$/);
+    assert.match(args.where.OR[0].scheduledDate.gte, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(args.where.OR.length, 1, "without a chosen receipt only the date window applies");
     assert.deepEqual(args.orderBy, [{ scheduledDate: "asc" }, { id: "asc" }]);
     return ["c1", "c2"].map(id => ({ id, status: "IN_TRANSIT", containerRef: "PRIVATE", scheduledDate: "2026-11-01", supplier: "PRIVATE",
       items: Array.from({ length: 101 }, (_, index) => ({ sku: String(index), productName: "Rice", barcode: "PRIVATE", expectedQty: 999 })) }));
