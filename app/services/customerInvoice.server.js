@@ -1,4 +1,5 @@
 import prisma, { ensureDatabaseSchema } from "../db.server.js";
+import { getShopAliases } from "./subscriptionService.server.js";
 import {
   generateCustomerInvoiceToken,
   normalizeShopDomain,
@@ -47,7 +48,8 @@ export async function findIssuedInvoice({ shop, orderGid }, db = prisma) {
     try { await ensureDatabaseSchema(); } catch {}
   }
   const record = await db.inspectionRecord.findFirst({
-    where: { orderId: orderGid, shop, invoiceNumber: { not: null } },
+    // Same matching as the app's invoice lookup: shop aliases and either ID form.
+    where: { orderId: { in: [orderGid, String(orderGid).split("/").pop()] }, shop: { in: getShopAliases(shop) }, invoiceNumber: { not: null } },
     select: { invoiceNumber: true, invoiceIssuedAt: true, invoiceSnapshot: true },
   });
   if (!record?.invoiceNumber || !record.invoiceSnapshot?.order) return null;

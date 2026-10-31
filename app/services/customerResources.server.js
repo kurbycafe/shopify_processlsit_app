@@ -130,7 +130,7 @@ export async function resolveArrivalSkus({ graphql, shop, codes }) {
   return result;
 }
 
-export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty }) {
+export function createCustomerResolver({ db, verify, graphql, customerQuery, restock, subscribe, loyalty, issueInvoice }) {
  return async function resolveCustomerResource({ request, resource, shop }) {
   if (resource === 'cart-reminder') return customerCartReminder({db,shop,request,verify,input:request.method==='GET'?undefined:await readJsonPayload(request,12000)});
   if (resource === 'price-alerts') return customerPriceAlerts({db,shop,request,verify,graphql,input:request.method === 'GET' ? undefined : await readJsonPayload(request,2048)});
@@ -173,7 +173,7 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     // Verify ownership via customerQuery or verify+graphql
     await getCustomerInspection({ request, shop, verify, graphql, db, customerQuery });
     const numericOrderId = orderId.split("/").pop();
-    const record = await db.inspectionRecord?.findFirst?.({
+    let record = await db.inspectionRecord?.findFirst?.({
       where: {
         shop: { in: getShopAliases(shop) },
         orderId: { in: [orderId, numericOrderId] },
@@ -188,6 +188,17 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
         customVat: true,
       },
     });
+    // A shipped order whose Rechnung was never issued (older orders, or a missed
+    // fulfillment webhook) gets it now, by the same rule as the webhook, so the
+    // customer always receives process-list's own Rechnung.
+    if (!record?.invoiceNumber && issueInvoice) {
+      try {
+        const issued = await issueInvoice({ shop, orderGid: orderId });
+        if (issued?.invoiceNumber) record = { ...record, invoiceNumber: issued.invoiceNumber, invoiceIssuedAt: issued.issuedAt, invoiceSnapshot: issued.snapshot };
+      } catch {
+        console.warn("[Customer invoice] Issuing on request failed");
+      }
+    }
     let downloadUrl = null, pdfUrl = null;
     if (record?.invoiceNumber) {
       try {
