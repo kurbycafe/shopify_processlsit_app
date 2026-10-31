@@ -54,3 +54,9 @@ scopes = "read_all_orders,read_content,read_customers,read_orders,write_content,
 
 [auth]
 redirect_urls = [ "https://process-list-beryl.vercel.app" ]
+
+# dawayo.de/apps/dawayo-reviews/* → process-list /proxy/* (product reviews on the web shop)
+[app_proxy]
+url = "https://process-list-beryl.vercel.app/proxy"
+subpath = "dawayo-reviews"
+prefix = "apps"

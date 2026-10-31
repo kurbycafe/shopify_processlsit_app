@@ -1,0 +1,8 @@
+{
+  "name": "DAWAYO 리뷰",
+  "settings": {
+    "heading": "제목",
+    "limit": "처음 보여줄 리뷰 수",
+    "accent": "별 색상"
+  }
+}
