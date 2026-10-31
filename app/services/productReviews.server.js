@@ -1,6 +1,5 @@
 import { MobileApiError } from "./mobileApi.server.js";
-import { reviewImage } from "./customerCommunity.server.js";
-import { reactionCounts } from "./customerCommunity.server.js";
+import { reviewImage, reactionCounts } from "./customerCommunity.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
 import { createHash } from "node:crypto";
 

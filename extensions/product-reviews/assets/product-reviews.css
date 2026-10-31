@@ -20,3 +20,21 @@
 .dw-reviews__lightbox img { display: block; max-width: 100%; max-height: 85vh; border-radius: 12px; }
 .dw-reviews__lightbox button { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 22px; cursor: pointer; }
 @media (max-width: 480px) { .dw-review__photo { width: 68px; height: 68px; } }
+.dw-reviews__write { margin-bottom: 1rem; }
+.dw-reviews__open, .dw-reviews__submit { padding: 0.65rem 1.2rem; border: 0; border-radius: 8px; background: var(--dw-accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.dw-reviews__submit:disabled { opacity: 0.6; cursor: default; }
+.dw-reviews__login { text-decoration: underline; }
+.dw-reviews__form { display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 12px; }
+.dw-reviews__rating { display: flex; gap: 4px; border: 0; padding: 0; margin: 0; }
+.dw-reviews__rating legend { margin-bottom: 0.35rem; font-weight: 600; }
+.dw-star--pick { padding: 2px; border: 0; background: transparent; cursor: pointer; }
+.dw-star--pick svg { width: 28px; height: 28px; }
+.dw-reviews__label { display: grid; gap: 0.35rem; font-weight: 600; }
+.dw-reviews__label textarea { width: 100%; padding: 0.6rem; border: 1px solid rgba(0, 0, 0, 0.25); border-radius: 8px; font: inherit; font-weight: 400; resize: vertical; box-sizing: border-box; }
+.dw-reviews__photo-pick { display: flex; align-items: center; gap: 0.75rem; }
+.dw-reviews__file { padding: 0.5rem 0.9rem; border: 1px dashed rgba(0, 0, 0, 0.35); border-radius: 8px; cursor: pointer; }
+.dw-reviews__preview { position: relative; display: inline-block; }
+.dw-reviews__preview img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; display: block; }
+.dw-reviews__preview button { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: #111; color: #fff; cursor: pointer; line-height: 1; }
+.dw-reviews__error { margin: 0; color: #b91c1c; }
+.dw-reviews__thanks { margin: 0; font-weight: 600; }
