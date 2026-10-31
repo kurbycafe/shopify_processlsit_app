@@ -237,17 +237,17 @@ export default function B2bRequestsManager() {
       {!isLoading && filteredRequests.length === 0 && (
         <Card>
           <EmptyState
-            heading="해당하는 B2B 신청 내역이 없습니다."
+            heading="신청 내역이 없습니다."
             image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
           >
             <p>
               {statusFilter === "REQUESTED"
-                ? "현재 새로 접수되어 검토를 기다리는 B2B 도매 신청이 없습니다."
+                ? "신규 접수된 B2B 도매 신청 건이 없습니다."
                 : statusFilter === "REVIEWING"
-                ? "현재 검토 중인 B2B 신청이 없습니다."
+                ? "검토 중인 B2B 신청 건이 없습니다."
                 : statusFilter === "CLOSED"
-                ? "처리 완료된 B2B 신청 내역이 없습니다."
-                : "선택하신 조건에 부합하는 B2B 신청 건이 없습니다."}
+                ? "처리 완료된 B2B 신청 건이 없습니다."
+                : "조회된 B2B 신청 건이 없습니다."}
             </p>
           </EmptyState>
         </Card>
@@ -258,7 +258,7 @@ export default function B2bRequestsManager() {
         <BlockStack gap="300">
           <InlineStack align="space-between" blockAlign="center">
             <Text variant="bodySm" tone="subdued">
-              조회 결과: 총 {filteredRequests.length}건
+              총 {filteredRequests.length}건
             </Text>
           </InlineStack>
 
@@ -284,188 +284,155 @@ export default function B2bRequestsManager() {
               <Card key={record.id}>
                 <BlockStack gap="400">
                   {/* Header Row: Company Name & Status */}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      borderBottom: "1px solid #E2E8F0",
-                      paddingBottom: "12px",
-                      gap: "12px",
-                    }}
-                  >
+                  <InlineStack align="space-between" blockAlign="center">
                     <div>
-                      <InlineStack gap="200" blockAlign="center">
-                        <span style={{ fontSize: "20px" }}>🏢</span>
-                        <Text variant="headingMd" as="h3">
-                          {companyName}
-                        </Text>
-                      </InlineStack>
+                      <Text variant="headingMd" as="h3">
+                        {companyName}
+                      </Text>
                       <div style={{ marginTop: "4px" }}>
                         <Text variant="bodySm" tone="subdued" as="span">
-                          접수번호: {record.id} · 접수일시: {submittedDate}
+                          접수번호: {record.id} · {submittedDate}
                         </Text>
                       </div>
                     </div>
 
-                    <InlineStack gap="200" blockAlign="center">
-                      <Badge tone={statusTone} size="large">
-                        {statusLabel}
-                      </Badge>
-                    </InlineStack>
-                  </div>
+                    <Badge tone={statusTone} size="large">
+                      {statusLabel}
+                    </Badge>
+                  </InlineStack>
 
                   {/* Business Information Grid */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                      gap: "12px",
-                      background: "#F8FAFC",
-                      padding: "16px",
-                      borderRadius: "10px",
-                      border: "1px solid #E2E8F0",
-                    }}
+                  <Box
+                    background="bg-surface-secondary"
+                    padding="400"
+                    borderRadius="200"
                   >
-                    {/* VAT ID / USt-IdNr */}
-                    <div>
-                      <Text variant="bodySm" fontWeight="semibold" tone="subdued">
-                        사업자등록번호 / USt-IdNr. (VAT ID)
-                      </Text>
-                      <div style={{ marginTop: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span
-                          style={{
-                            fontFamily: "monospace",
-                            fontWeight: 700,
-                            fontSize: "14px",
-                            color: vatId ? "#0F172A" : "#94A3B8",
-                          }}
-                        >
-                          {vatId || "미기재"}
-                        </span>
-                        {vatId && (
-                          <a
-                            href={`https://ec.europa.eu/taxation_customs/vies/#/vat-validation`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontSize: "11px",
-                              color: "#2563EB",
-                              textDecoration: "underline",
-                              fontWeight: 600,
-                            }}
-                          >
-                            EU VIES 검증 ↗
-                          </a>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Contact Person */}
-                    <div>
-                      <Text variant="bodySm" fontWeight="semibold" tone="subdued">
-                        담당자 성함
-                      </Text>
-                      <div style={{ marginTop: "4px" }}>
-                        <Text variant="bodyMd" fontWeight="bold">
-                          {contactName}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                        gap: "16px",
+                      }}
+                    >
+                      {/* VAT ID */}
+                      <div>
+                        <Text variant="bodySm" tone="subdued">
+                          사업자등록번호 (VAT ID)
                         </Text>
+                        <div style={{ marginTop: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <Text variant="bodyMd" fontWeight="semibold">
+                            {vatId || "미기재"}
+                          </Text>
+                          {vatId && (
+                            <a
+                              href="https://ec.europa.eu/taxation_customs/vies/#/vat-validation"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                fontSize: "12px",
+                                color: "#2563EB",
+                                textDecoration: "underline",
+                              }}
+                            >
+                              VIES 조회
+                            </a>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Email with direct mailto */}
-                    <div>
-                      <Text variant="bodySm" fontWeight="semibold" tone="subdued">
-                        이메일 주소
-                      </Text>
-                      <div style={{ marginTop: "4px" }}>
-                        {email ? (
-                          <a
-                            href={`mailto:${email}?subject=${encodeURIComponent(
-                              `[다와요 DAWAYO] ${companyName} 도매 회원 신청 및 단가표 안내`
-                            )}`}
-                            style={{
-                              color: "#2563EB",
-                              fontWeight: 600,
-                              fontSize: "13px",
-                              textDecoration: "underline",
-                              wordBreak: "break-all",
-                            }}
-                          >
-                            {email} ✉
-                          </a>
-                        ) : (
-                          <Text variant="bodyMd" tone="subdued">미기재</Text>
-                        )}
+                      {/* Contact Person */}
+                      <div>
+                        <Text variant="bodySm" tone="subdued">
+                          담당자
+                        </Text>
+                        <div style={{ marginTop: "4px" }}>
+                          <Text variant="bodyMd" fontWeight="semibold">
+                            {contactName}
+                          </Text>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Phone with direct tel */}
-                    <div>
-                      <Text variant="bodySm" fontWeight="semibold" tone="subdued">
-                        전화번호
-                      </Text>
-                      <div style={{ marginTop: "4px" }}>
-                        {phone ? (
-                          <a
-                            href={`tel:${phone}`}
-                            style={{
-                              color: "#0F172A",
-                              fontWeight: 600,
-                              fontSize: "13px",
-                              textDecoration: "none",
-                            }}
-                          >
-                            📞 {phone}
-                          </a>
-                        ) : (
-                          <Text variant="bodyMd" tone="subdued">미기재</Text>
-                        )}
+                      {/* Email */}
+                      <div>
+                        <Text variant="bodySm" tone="subdued">
+                          이메일
+                        </Text>
+                        <div style={{ marginTop: "4px" }}>
+                          {email ? (
+                            <a
+                              href={`mailto:${email}?subject=${encodeURIComponent(
+                                `[다와요] ${companyName} 도매 회원 신청 안내`
+                              )}`}
+                              style={{
+                                fontSize: "13px",
+                                color: "#2563EB",
+                                textDecoration: "underline",
+                                wordBreak: "break-all",
+                              }}
+                            >
+                              {email}
+                            </a>
+                          ) : (
+                            <Text variant="bodyMd" tone="subdued">미기재</Text>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Phone */}
+                      <div>
+                        <Text variant="bodySm" tone="subdued">
+                          전화번호
+                        </Text>
+                        <div style={{ marginTop: "4px" }}>
+                          {phone ? (
+                            <a
+                              href={`tel:${phone}`}
+                              style={{
+                                fontSize: "13px",
+                                color: "inherit",
+                                textDecoration: "none",
+                              }}
+                            >
+                              {phone}
+                            </a>
+                          ) : (
+                            <Text variant="bodyMd" tone="subdued">미기재</Text>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </Box>
 
                   {/* Inquiry / Message Box */}
                   <div>
-                    <Text variant="bodySm" fontWeight="semibold" tone="subdued">
-                      문의 및 필요 품목 / 메시지
+                    <Text variant="bodySm" tone="subdued">
+                      문의 내용
                     </Text>
-                    <Box
-                      background="bg-surface-secondary"
-                      padding="300"
-                      borderRadius="200"
-                      borderWidth="025"
-                      borderColor="border"
-                    >
-                      <div
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          fontSize: "13px",
-                          lineHeight: "1.6",
-                          color: message ? "#1E293B" : "#94A3B8",
-                          fontStyle: message ? "normal" : "italic",
-                        }}
+                    <div style={{ marginTop: "6px" }}>
+                      <Box
+                        background="bg-surface"
+                        padding="300"
+                        borderRadius="200"
+                        borderWidth="025"
+                        borderColor="border"
                       >
-                        {message || "별도의 추가 작성 내용이 없습니다."}
-                      </div>
-                    </Box>
+                        <div
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            fontSize: "13px",
+                            lineHeight: "1.6",
+                            color: message ? undefined : "#64748B",
+                          }}
+                        >
+                          {message || "작성된 문의 내용이 없습니다."}
+                        </div>
+                      </Box>
+                    </div>
                   </div>
 
-                  {/* Status Change Buttons Bar */}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      alignItems: "center",
-                      gap: "8px",
-                      paddingTop: "12px",
-                      borderTop: "1px solid #E2E8F0",
-                    }}
-                  >
-                    <span style={{ fontSize: "12px", color: "#64748B", marginRight: "auto" }}>
-                      상태 변경:
-                    </span>
-
+                  {/* Actions */}
+                  <Divider />
+                  <InlineStack align="end" gap="200" blockAlign="center">
                     {record.status !== "REQUESTED" && (
                       <Button
                         size="slim"
@@ -484,7 +451,7 @@ export default function B2bRequestsManager() {
                         loading={updateFetcher.state !== "idle"}
                         onClick={() => handleUpdateStatus(record.id, "REVIEWING")}
                       >
-                        검토 중으로 변경
+                        검토 중
                       </Button>
                     )}
 
@@ -496,7 +463,7 @@ export default function B2bRequestsManager() {
                           loading={updateFetcher.state !== "idle"}
                           onClick={() => handleUpdateStatus(record.id, "CLOSED", false)}
                         >
-                          단순 완료 처리
+                          완료 처리
                         </Button>
                         <Button
                           size="slim"
@@ -505,11 +472,11 @@ export default function B2bRequestsManager() {
                           loading={updateFetcher.state !== "idle"}
                           onClick={() => handleUpdateStatus(record.id, "CLOSED", true)}
                         >
-                          승인 &amp; Shopify B2B 태그 부여
+                          승인 (B2B 태그 부여)
                         </Button>
                       </InlineStack>
                     )}
-                  </div>
+                  </InlineStack>
                 </BlockStack>
               </Card>
             );

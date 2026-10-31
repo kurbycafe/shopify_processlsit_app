@@ -2730,14 +2730,17 @@ export default function AppManagementPage() {
                   style={{
                     height: "120px",
                     borderRadius: "8px",
-                    background: "linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)",
+                    background: "#F8FAFC",
+                    border: "1px solid #E2E8F0",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: "36px",
                   }}
                 >
-                  📨
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                  </svg>
                 </div>
                 <div>
                   <div
@@ -2751,10 +2754,9 @@ export default function AppManagementPage() {
                     <Text variant="headingMd" as="h3">
                       고객 문의 · 반품 접수
                     </Text>
-                    <Badge tone="info">실시간 접수</Badge>
                   </div>
                   <Text variant="bodyMd" tone="subdued" as="p">
-                    모바일 앱 마이페이지에서 접수된 1:1 고객 문의, 반품/교환, 배송 파손 클레임, B2B 사업자 문의, 포토 후기 내역을 확인하고 처리 상태를 관리합니다.
+                    모바일 앱 마이페이지에서 접수된 1:1 고객 문의, 반품/교환 및 클레임 접수 내역을 확인하고 처리합니다.
                   </Text>
                 </div>
                 <div>
@@ -2791,10 +2793,9 @@ export default function AppManagementPage() {
                     <Text variant="headingMd" as="h3">
                       B2B 도매 회원 신청
                     </Text>
-                    <Badge tone="success">사업자 전담</Badge>
                   </div>
                   <Text variant="bodyMd" tone="subdued" as="p">
-                    모바일 앱에서 접수된 유럽 식당, 카페, 아시안 마트 사업자의 대량구매 및 B2B 도매 회원 신청 내역을 별도로 확인하고 승인 상태를 관리합니다.
+                    모바일 앱에서 접수된 B2B 도매 회원 신청 및 사업자 등록 정보를 확인하고 승인합니다.
                   </Text>
                 </div>
                 <div>
