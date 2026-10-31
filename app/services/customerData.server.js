@@ -7,6 +7,7 @@ import { getRestockDetailsBySku } from "./odooClient.server.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { createCustomerResolver } from "./customerResources.server.js";
 import { createSubscription } from "./subscriptionService.server.js";
+import { autoIssueInvoiceOnFulfillment } from "./invoiceService.server.js";
 
 async function graphql(shop, query, variables) {
   let phase = "offline-session";
@@ -37,4 +38,15 @@ async function restock({ shop, variant }) {
   }
 }
 
-export const resolveCustomerResource = createCustomerResolver({ db: prisma, verify: verifyCustomer, graphql, customerQuery: queryCustomerAccount, restock, subscribe: createSubscription, loyalty: createJoyLoyalty() });
+// Issues the Rechnung for a fully shipped, not cancelled order that has none
+// yet, the same rule the orders/updated webhook uses. Dated today.
+async function issueInvoice({ shop, orderGid }) {
+  const admin = await offlineAdmin(shop);
+  const response = await admin.graphql(`query InvoiceEligibility($id: ID!) { order(id: $id) { name cancelledAt displayFulfillmentStatus } }`, { variables: { id: orderGid } });
+  const order = (await response.json())?.data?.order;
+  if (!order || order.cancelledAt || order.displayFulfillmentStatus !== "FULFILLED") return null;
+  // No webhook payload: the snapshot comes only from the Admin API order, never a stub.
+  return autoIssueInvoiceOnFulfillment({ shop, orderGid, orderName: order.name, adminClient: admin });
+}
+
+export const resolveCustomerResource = createCustomerResolver({ db: prisma, verify: verifyCustomer, graphql, customerQuery: queryCustomerAccount, restock, subscribe: createSubscription, loyalty: createJoyLoyalty(), issueInvoice });
