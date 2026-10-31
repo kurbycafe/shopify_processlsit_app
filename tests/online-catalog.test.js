@@ -13,8 +13,9 @@ test("collects every online store page and caches the list", async () => {
   const fetchImpl = async (url) => { calls++; return pages([[1, 2], [3]])(url); };
   const data = await loadOnlineProductIds({ fetchImpl });
   assert.deepEqual(data.ids, ["1", "2", "3"]);
+  const callsAfterFirstLoad = calls;
   await loadOnlineProductIds({ fetchImpl });
-  assert.equal(calls, 3, "second call is served from cache");
+  assert.equal(calls, callsAfterFirstLoad, "second call is served from cache");
 });
 
 test("a failed refresh keeps serving the last good list; no list at all is an error", async () => {

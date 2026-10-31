@@ -35,7 +35,6 @@ import {
   DEFAULT_BRANDS,
 } from "../services/mobileStorefront.server.js";
 import { normalizeArrivalCopy } from "../utils/arrivalCopy.js";
-import { loadOnlineProductIds } from "../services/onlineCatalog.server.js";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 function isoToLocalInput(iso) {
@@ -397,14 +396,11 @@ async function loadLiveVariantPrices(admin, campaigns) {
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
-  // Product types of products sold on dawayo.de, for the category product-type picker; independent of the config.
-  const onlineProductTypesTask = loadOnlineProductIds().then((d) => d.productTypes || {}).catch(() => ({}));
   const config = await getStorefrontConfig(shop, { includeInactive: true, includeRecipes: false });
-  const [liveVariantPrices, onlineProductTypes] = await Promise.all([
-    loadLiveVariantPrices(admin, config.groupBuying),
-    onlineProductTypesTask,
-  ]);
-  return { shop, config, liveVariantPrices, onlineProductTypes };
+  const liveVariantPrices = await loadLiveVariantPrices(admin, config.groupBuying);
+  // Online product types are loaded by the page from the CDN-cached online-products endpoint,
+  // so a cold catalog cache never holds up the whole page.
+  return { shop, config, liveVariantPrices };
 };
 
 export const action = async ({ request }) => {
@@ -1779,7 +1775,19 @@ function reconcileDraft(current, previous, next, force = false) {
  * ============================================================================ */
 
 export default function AppManagementPage() {
-  const { config, liveVariantPrices = {}, onlineProductTypes = {} } = useLoaderData();
+  const { config, liveVariantPrices = {} } = useLoaderData();
+  // Product types of products sold on dawayo.de, for the category product-type picker.
+  const [onlineProductTypes, setOnlineProductTypes] = useState({});
+  const [onlineProductTypesLoading, setOnlineProductTypesLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/mobile/v1/online-products", { headers: { Accept: "application/json" } })
+      .then((res) => res.json())
+      .then((body) => { if (alive) setOnlineProductTypes(body?.data?.productTypes || {}); })
+      .catch(() => {})
+      .finally(() => { if (alive) setOnlineProductTypesLoading(false); });
+    return () => { alive = false; };
+  }, []);
   const livePriceLabel = (gb) => {
     const live = liveVariantPrices[gb.variantId];
     if (!live || !Number.isFinite(live.price)) return "Shopify 판매가 확인 불가";
@@ -4227,7 +4235,7 @@ export default function AppManagementPage() {
                             onChange={(checked) => setCatForm({ ...catForm, productTypes: checked ? [...new Set([...(catForm.productTypes || []), type])] : (catForm.productTypes || []).filter((t) => t !== type) })}
                           />
                         ))}
-                        {Object.keys(onlineProductTypes).length === 0 && <Text tone="subdued" as="p">상품 유형 목록을 불러오지 못했습니다.</Text>}
+                        {Object.keys(onlineProductTypes).length === 0 && <Text tone="subdued" as="p">{onlineProductTypesLoading ? "상품 유형 목록을 불러오는 중…" : "상품 유형 목록을 불러오지 못했습니다."}</Text>}
                       </div>
                       {(catForm.productTypes || []).length > 0 && (
                         <Text variant="bodySm" as="p">선택: {catForm.productTypes.join(", ")} · 약 {catForm.productTypes.reduce((n, t) => n + (onlineProductTypes[t] || 0), 0)}개 상품</Text>
