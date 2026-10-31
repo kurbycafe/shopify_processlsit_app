@@ -1,3 +1,5 @@
+import { executeGraphQLWithRetry } from "./shopifyApi.js";
+
 export const INVENTORY_VARIANTS_QUERY = `#graphql
   query InventoryVariants($first: Int!, $after: String) {
     shop { name currencyCode billingAddress: shopAddress { address1 city zip country countryCodeV2 } }
@@ -17,10 +19,10 @@ export async function fetchInventoryProducts(admin) {
   const cursors = new Set();
   let hasNextPage = true;
   while (hasNextPage) {
-    const response = await admin.graphql(INVENTORY_VARIANTS_QUERY, { variables: { first: 100, after } });
-    const payload = await response.json();
-    const connection = payload.data?.productVariants;
-    if (response.ok === false || payload.errors?.length || !connection) throw new Error("전체 재고 데이터를 불러오지 못했습니다. 다시 시도해 주세요.");
+    // 250 per page (Shopify's maximum) cuts round trips 2.5x; throttled pages are retried instead of failing the report.
+    const payload = await executeGraphQLWithRetry(admin, INVENTORY_VARIANTS_QUERY, { first: 250, after });
+    const connection = payload?.data?.productVariants;
+    if (payload?.errors?.length || !connection) throw new Error("전체 재고 데이터를 불러오지 못했습니다. 다시 시도해 주세요.");
     shop = payload.data.shop || shop;
     for (const variant of connection.nodes || []) {
       if (!variant.product?.id) continue;

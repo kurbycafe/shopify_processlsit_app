@@ -5,6 +5,7 @@ import prisma from "../db.server";
 import { sendCancellationAlertOnce } from "../services/cancellationAlertService.server.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import { autoIssueInvoiceOnFulfillment } from "../services/invoiceService.server.js";
+import { waitUntil } from "@vercel/functions";
 
 export const action = async ({ request }) => {
   const { topic, shop, payload } = await authenticate.webhook(request);
@@ -143,7 +144,11 @@ export const action = async ({ request }) => {
   try {
     await queueOrderPush({ db: prisma, shop, payload, topic });
     if (typeof dispatchMobileNotifications === "function") {
-      await dispatchMobileNotifications({ db: prisma, shop, limit: 20 }).catch(() => {});
+      // Pushes are queued above; sending them after the response keeps Shopify's 5s webhook window free.
+      // The 5-minute dispatch cron picks up anything this background send does not finish.
+      const sending = dispatchMobileNotifications({ db: prisma, shop, limit: 20 }).catch(() => {});
+      if (typeof waitUntil === "function") waitUntil(sending);
+      else await sending;
     }
   } catch { processingFailed = true; }
   return new Response(null, { status: processingFailed ? 503 : 200 });

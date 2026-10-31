@@ -177,3 +177,9 @@ test("the online catalog loads pages in parallel waves and stops at the first em
   assert.ok(peak > 1 && peak <= 4);
   resetOnlineCatalogCache();
 });
+
+test("hashed build assets are cached long-term by the CDN", () => {
+  const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const rule = config.headers?.find((h) => h.source === "/assets/(.*)");
+  assert.equal(rule?.headers?.find((h) => h.key === "Cache-Control")?.value, "public, max-age=31536000, immutable");
+});
