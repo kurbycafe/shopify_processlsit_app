@@ -1,7 +1,7 @@
 import prisma from "../db.server.js";
 import { getShopAliases } from "./subscriptionService.server.js";
 import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
-import { normalizeArrivalCopy } from "../utils/arrivalCopy.js";
+import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides } from "../utils/arrivalCopy.js";
 export { normalizeArrivalCopy };
 
 export const ALLOWED_CATEGORY_ICONS = [
@@ -406,6 +406,8 @@ export function parseExtendedSettings(rawJson) {
     categoryRules: normalizeCategoryRules(parsed.categoryRules),
     brands: Array.isArray(parsed.brands) ? parsed.brands : structuredClone(DEFAULT_BRANDS),
     arrivalCopy: normalizeArrivalCopy(parsed.arrivalCopy),
+    arrivalSelection: normalizeArrivalSelection(parsed.arrivalSelection),
+    arrivalOverrides: normalizeArrivalOverrides(parsed.arrivalOverrides),
   };
 }
 

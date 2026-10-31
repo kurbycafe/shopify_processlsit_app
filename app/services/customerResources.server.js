@@ -15,6 +15,7 @@ import { getCustomerOrders, getCustomerOrderItems } from "./customerOrders.serve
 import { getShopAliases } from "./subscriptionService.server.js";
 import { generateCustomerInvoiceToken } from "../utils/customerInvoiceTokens.js";
 import { saveBusinessInquiry, saveReturnRequest, saveOrderChangeRequest, customerNotificationPreferences, saveSupportRequest, saveSubscriptionRequest, registerPushToken, customerPhotoReviews } from "./customerRequests.server.js";
+import { normalizeArrivalSelection, normalizeArrivalOverrides, isArrivalShown, isArrivalItemShown, arrivalItemKey, arrivalInWindow } from "../utils/arrivalCopy.js";
 
 async function readJsonPayload(request, maxBytes = 8192) {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -57,7 +58,19 @@ const ARRIVAL_SKU_TTL_MS = 10 * 60 * 1000;
 // name) to products sold in the online store. Codes are keyed "sku:X",
 // "barcode:Y" or "title:Z". Unknown, draft or unpublished products stay
 // unmatched; a Shopify outage only drops the links.
-async function resolveArrivalSkus({ graphql, shop, codes }) {
+// The arrivals page settings: which arrivals/items to show and their details.
+async function arrivalSettings(db, shop) {
+  if (!db.mobileStorefrontConfig?.findFirst) return { selection: null, overrides: {} };
+  const config = await db.mobileStorefrontConfig.findFirst({ where: { shop: { in: getShopAliases(shop) } }, select: { tickersJson: true } });
+  let settings = config?.tickersJson;
+  try { if (typeof settings === "string") settings = JSON.parse(settings); } catch { settings = null; }
+  return { selection: normalizeArrivalSelection(settings?.arrivalSelection), overrides: normalizeArrivalOverrides(settings?.arrivalOverrides) };
+}
+
+// How an arrival item is matched to a shop product: SKU, then barcode, then exact name.
+export const arrivalItemCode = (item) => item.sku ? `sku:${item.sku}` : item.barcode ? `barcode:${item.barcode}` : item.productName ? `title:${item.productName.trim()}` : null;
+
+export async function resolveArrivalSkus({ graphql, shop, codes }) {
   const result = new Map();
   const wanted = [...new Set(codes.filter((code) => /^(sku|barcode):[\w.\-/]{1,64}$/.test(code || "") || /^title:[^"\\]{2,200}$/.test(code || "")))];
   const missing = [];
@@ -204,25 +217,44 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     // Upcoming first. Slightly overdue receipts stay visible as "arriving soon"
     // until Odoo marks them done; long-forgotten manual entries do not.
     const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
-    const containers = await db.container.findMany({
+    const { selection, overrides } = await arrivalSettings(db, shop);
+    const configured = Boolean(selection) || Object.keys(overrides).length > 0;
+    const today = new Date().toISOString().slice(0, 10);
+    const listed = await db.container.findMany({
       where: { shop: { in: getShopAliases(shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] }, scheduledDate: { gte: since } },
-      orderBy: [{ scheduledDate: "asc" }, { id: "asc" }], take: page.first + 1,
+      orderBy: [{ scheduledDate: "asc" }, { id: "asc" }], take: configured ? 100 : page.first + 1,
       select: {
-        id: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
+        id: true, containerRef: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
         items: { orderBy: { id: "asc" }, take: ARRIVAL_ITEM_LIMIT + 1, select: { sku: true, barcode: true, productName: true } },
       },
     });
+    // Only the arrivals (and items) chosen on the admin arrivals page, inside
+    // their display window, with the admin's date, kind and item order.
+    const containers = listed
+      .filter((c) => isArrivalShown(selection, c.containerRef) && arrivalInWindow(overrides[c.containerRef], today))
+      .map((c) => {
+        const override = overrides[c.containerRef] || {};
+        const itemSetting = (item) => override.items?.[arrivalItemKey(c.containerRef, item)] || {};
+        const items = (c.items || []).filter((item) => isArrivalItemShown(selection, c.containerRef, item))
+          .map((item, index) => ({ item, index, setting: itemSetting(item) }))
+          .sort((a, b) => (Number(Boolean(b.setting.featured)) - Number(Boolean(a.setting.featured))) || ((a.setting.order ?? 1000) - (b.setting.order ?? 1000)) || (a.index - b.index));
+        return { ...c, override, items, scheduledDate: override.date || c.scheduledDate };
+      })
+      .sort((a, b) => String(a.scheduledDate || "9999").localeCompare(String(b.scheduledDate || "9999")));
     const visible = containers.slice(0, page.first);
-    const codeOf = (item) => item.sku ? `sku:${item.sku}` : item.barcode ? `barcode:${item.barcode}` : item.productName ? `title:${item.productName.trim()}` : null;
-    const products = await resolveArrivalSkus({ graphql, shop, codes: visible.flatMap((c) => (c.items || []).map(codeOf)) });
+    const codeOf = arrivalItemCode;
+    const products = await resolveArrivalSkus({ graphql, shop, codes: visible.flatMap((c) => c.items.map(({ item }) => codeOf(item))) });
     return {
       containers: visible.map((c) => ({
-        status: c.status, kind: c.arrivalKind === "DOMESTIC" ? "domestic" : "container", scheduledDate: c.scheduledDate, updatedAt: c.syncedAt,
-        items: (c.items || []).slice(0, ARRIVAL_ITEM_LIMIT).map((item) => ({
+        status: c.status, scheduledDate: c.scheduledDate, updatedAt: c.syncedAt,
+        kind: c.override.kind || (c.arrivalKind === "DOMESTIC" ? "domestic" : "container"),
+        title: c.override.title || null, note: c.override.note || null,
+        items: c.items.slice(0, ARRIVAL_ITEM_LIMIT).map(({ item, setting }) => ({
           sku: item.sku || null, title: item.productName || "Incoming Item",
           productId: products.get(codeOf(item))?.productId || null, variantId: products.get(codeOf(item))?.variantId || null,
+          featured: setting.featured === true, name: setting.name || null,
         })),
-        itemsTruncated: (c.items || []).length > ARRIVAL_ITEM_LIMIT,
+        itemsTruncated: c.items.length > ARRIVAL_ITEM_LIMIT,
       })),
       pagination: { hasNextPage: containers.length > page.first, nextCursor: null },
     };
