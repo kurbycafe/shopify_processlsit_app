@@ -92,7 +92,7 @@ export async function resolveArrivalSkus({ graphql, shop, codes }) {
     const batch = titles.slice(offset, offset + 25);
     lookups.push((async () => { try {
       const payload = await graphql(shop, `query ArrivalProducts($query: String!) {
-        products(first: 100, query: $query) { nodes { id title status onlineStoreUrl variants(first: 2) { nodes { id } } } }
+        products(first: 100, query: $query) { nodes { id title status onlineStoreUrl featuredImage { url } variants(first: 2) { nodes { id } } } }
       }`, { query: batch.map((code) => `title:"${code.slice(6)}"`).join(" OR ") });
       const found = new Map();
       for (const product of payload?.data?.products?.nodes || []) {
@@ -100,7 +100,7 @@ export async function resolveArrivalSkus({ graphql, shop, codes }) {
         if (!batch.includes(code) || product.status !== "ACTIVE" || !product.onlineStoreUrl) continue;
         // Only an unambiguous single-variant product is linked by name.
         const variants = product.variants?.nodes || [];
-        found.set(code, found.has(code) || variants.length !== 1 ? null : { productId: product.id, variantId: variants[0].id });
+        found.set(code, found.has(code) || variants.length !== 1 ? null : { productId: product.id, variantId: variants[0].id, image: product.featuredImage?.url || null });
       }
       for (const code of batch) remember(code, found.get(code) || null);
     } catch {
@@ -112,13 +112,13 @@ export async function resolveArrivalSkus({ graphql, shop, codes }) {
     const batch = codesById.slice(offset, offset + 50);
     lookups.push((async () => { try {
       const payload = await graphql(shop, `query ArrivalVariants($query: String!) {
-        productVariants(first: 250, query: $query) { nodes { id sku barcode product { id status onlineStoreUrl } } }
+        productVariants(first: 250, query: $query) { nodes { id sku barcode image { url } product { id status onlineStoreUrl featuredImage { url } } } }
       }`, { query: batch.map((code) => { const [field, value] = code.split(/:(.*)/); return `${field}:"${value}"`; }).join(" OR ") });
       const found = new Map();
       for (const variant of payload?.data?.productVariants?.nodes || []) {
         if (variant.product?.status !== "ACTIVE" || !variant.product?.onlineStoreUrl) continue;
         for (const code of [`sku:${variant.sku}`, `barcode:${variant.barcode}`]) {
-          if (batch.includes(code)) found.set(code, found.has(code) ? null : { productId: variant.product.id, variantId: variant.id });
+          if (batch.includes(code)) found.set(code, found.has(code) ? null : { productId: variant.product.id, variantId: variant.id, image: variant.image?.url || variant.product.featuredImage?.url || null });
         }
       }
       for (const code of batch) remember(code, found.get(code) || null);
