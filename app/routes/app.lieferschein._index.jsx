@@ -180,18 +180,12 @@ export const loader = async ({ request }) => {
                 name
                 createdAt
                 email
-                note: note2
                 status
                 tags
-                customer {
-                  numberOfOrders
-                }
                 shippingLine {
                   title
                 }
-                billingAddress {
-                  name company address1 address2 zip city country phone countryCode
-                }
+                billingAddress { name }
                 shippingAddress {
                   name company address1 address2 zip city country phone countryCode
                 }
@@ -240,16 +234,12 @@ export const loader = async ({ request }) => {
                 name
                 createdAt
                 email
-                note
                 displayFinancialStatus
                 displayFulfillmentStatus
                 cancelledAt
                 cancelReason
                 returnStatus
                 tags
-                customer {
-                  numberOfOrders
-                }
                 shippingLines(first: 1) {
                   edges {
                     node {
@@ -257,9 +247,7 @@ export const loader = async ({ request }) => {
                     }
                   }
                 }
-                billingAddress {
-                  name company address1 address2 zip city country phone countryCode
-                }
+                billingAddress { name }
                 shippingAddress {
                   name company address1 address2 zip city country phone countryCode
                 }
@@ -394,7 +382,6 @@ export const loader = async ({ request }) => {
           ? new Date(node.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
           : "-",
         email: node.email || "-",
-        note: node.note || "",
         financialStatus: isDraftMode ? (node.status === "COMPLETED" ? "PAID" : "PENDING") : (node.displayFinancialStatus || "UNKNOWN"),
         shippingMethod: shippingTitle,
         billingAddress: node.billingAddress || null,

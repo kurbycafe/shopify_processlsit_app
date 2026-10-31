@@ -1,5 +1,5 @@
 import prisma from "../db.server.js";
-import { unauthenticated } from "../shopify.server.js";
+import { offlineAdmin, forgetOfflineAdmin } from "./offlineAdmin.server.js";
 import { fetchOdooContainerProducts, isOdooConfigured } from "./odooClient.server.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { readShopifyResource } from "./mobileShopify.server.js";
@@ -10,11 +10,16 @@ export async function resolveMobileResource({ resource, client, page, search }) 
   if (["orders", "order-items", "products"].includes(resource)) {
     let admin;
     try {
-      ({ admin } = await unauthenticated.admin(client.shop));
+      admin = await offlineAdmin(client.shop);
     } catch {
       throw new MobileApiError(503, "SHOPIFY_NOT_CONNECTED", "Open the Shopify app to establish its server session.");
     }
-    return readShopifyResource(admin, resource, page, search);
+    try {
+      return await readShopifyResource(admin, resource, page, search);
+    } catch (error) {
+      forgetOfflineAdmin(client.shop);
+      throw error;
+    }
   }
   if (resource === "inspections") {
     return readDatabase(prisma.inspectionRecord, { shop: client.shop }, {
