@@ -1,0 +1,8 @@
+{
+  "name": "DAWAYO Bewertungen",
+  "settings": {
+    "heading": "Überschrift",
+    "limit": "Zuerst angezeigte Bewertungen",
+    "accent": "Sternfarbe"
+  }
+}

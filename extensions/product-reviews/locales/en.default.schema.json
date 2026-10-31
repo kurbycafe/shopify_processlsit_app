@@ -1,0 +1,8 @@
+{
+  "name": "DAWAYO reviews",
+  "settings": {
+    "heading": "Heading",
+    "limit": "Reviews shown at first",
+    "accent": "Star color"
+  }
+}

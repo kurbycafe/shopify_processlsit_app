@@ -1,0 +1,3 @@
+# Product page block showing the photo reviews customers write in the DAWAYO app.
+name = "DAWAYO Bewertungen"
+type = "theme"
