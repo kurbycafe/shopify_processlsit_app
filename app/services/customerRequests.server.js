@@ -2,7 +2,7 @@ import { pushCustomer, publicPushPreferences, readPushPreferences, savePushPrefe
 import { registerMobileDevice } from "./mobilePushDevices.server.js";
 import { queueSupportReplyPush } from "./mobileNotificationEvents.server.js";
 import { reviewReward } from "./customerLoyalty.server.js";
-import {customerReaction,requireCustomer,reviewImage,reactionCounts} from "./customerCommunity.server.js";
+import {customerReaction,requireCustomer,reviewImage} from "./customerCommunity.server.js";
 import { createHash } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
 import { listPublicReviews, createReview } from "./productReviews.server.js";

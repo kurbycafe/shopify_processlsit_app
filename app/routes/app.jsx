@@ -79,6 +79,7 @@ export default function App() {
         <s-link href="/app/container-catalog">컨테이너 입고</s-link>
         {/* <s-link href="/app/inventory">월별 재고 보고서</s-link> */}
         {/* <s-link href="/app/store-label">매장 라벨 인쇄</s-link> */}
+        <s-link href="/app/reviews">리뷰 관리</s-link>
         <s-link href="/app/recipe-blogs">레시피 커머스</s-link>
         <s-link href="/app/app-management">앱 관리</s-link>
         <s-link href="/app/push-notifications">앱 알림 발송</s-link>
