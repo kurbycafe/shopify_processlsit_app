@@ -232,7 +232,9 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
     const configured = Boolean(selection) || Object.keys(overrides).length > 0;
     const today = new Date().toISOString().slice(0, 10);
     const listed = await db.container.findMany({
-      where: { shop: { in: getShopAliases(shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] }, scheduledDate: { gte: since } },
+      // A receipt chosen on the admin page stays even when Odoo's date has passed.
+      where: { shop: { in: getShopAliases(shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] },
+        OR: [{ scheduledDate: { gte: since } }, ...(selection?.shown.length ? [{ containerRef: { in: selection.shown } }] : [])] },
       orderBy: [{ scheduledDate: "asc" }, { id: "asc" }], take: configured ? 100 : page.first + 1,
       select: {
         id: true, containerRef: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
