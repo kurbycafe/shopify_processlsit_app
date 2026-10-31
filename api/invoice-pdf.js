@@ -35,9 +35,9 @@ export default async function handler(req, res) {
   const view = buildCustomerInvoiceView(invoice);
   if (!view) return send(res, 404, "Not found.", text);
 
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const pageUrl = `${proto}://${host}/customer-invoice/${orderNumeric}?shop=${encodeURIComponent(shop)}&t=${encodeURIComponent(token)}`;
+  // Chrome only ever opens this app's own invoice page, never a host from the request.
+  const origin = new URL(process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app").origin;
+  const pageUrl = `${origin}/customer-invoice/${orderNumeric}?shop=${encodeURIComponent(shop)}&t=${encodeURIComponent(token)}`;
   try {
     let bytes;
     try {

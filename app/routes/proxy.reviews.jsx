@@ -2,6 +2,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { MobileApiError } from "../services/mobileApi.server.js";
 import { listPublicReviews, createReview } from "../services/productReviews.server.js";
+import { enforceRateLimit } from "../services/rateLimit.server.js";
 
 // dawayo.de/apps/dawayo-reviews/reviews → here, through the Shopify app proxy.
 // Shopify signs every request; `logged_in_customer_id` is set only for a
@@ -9,7 +10,8 @@ import { listPublicReviews, createReview } from "../services/productReviews.serv
 const HEADERS = { "Cache-Control": "no-store" };
 const fail = (error) => {
   const known = error instanceof MobileApiError;
-  return Response.json({ success: false, error: { code: known ? error.code : "SERVER_ERROR", message: known ? error.message : "Something went wrong." } }, { status: known ? error.status : 500, headers: HEADERS });
+  const headers = error?.retryAfter ? { ...HEADERS, "Retry-After": String(error.retryAfter) } : HEADERS;
+  return Response.json({ success: false, error: { code: known ? error.code : "SERVER_ERROR", message: known ? error.message : "Something went wrong." } }, { status: known ? error.status : 500, headers });
 };
 
 export const loader = async ({ request }) => {
@@ -44,6 +46,7 @@ export const action = async ({ request }) => {
     const customerNumber = new URL(request.url).searchParams.get("logged_in_customer_id");
     if (!/^\d+$/.test(customerNumber || "")) throw new MobileApiError(401, "LOGIN_REQUIRED", "Please sign in.");
     const customerId = `gid://shopify/Customer/${customerNumber}`;
+    await enforceRateLimit({ db: prisma, request, bucket: "web-review", identity: customerId });
     const body = await request.text();
     if (body.length > 400_000) throw new MobileApiError(413, "TOO_LARGE", "The photo is too large.");
     let input;

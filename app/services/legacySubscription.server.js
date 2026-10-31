@@ -1,5 +1,6 @@
 import { MobileApiError, readId } from "./mobileApi.server.js";
 import { customerShop } from "./customerApi.server.js";
+import { limitCustomerWrite } from "./rateLimit.server.js";
 export const SUBSCRIPTION_CUSTOMER_QUERY = `query SubscriptionCustomer { customer { id emailAddress { emailAddress } } }`;
 const DEFAULT_ORIGINS = "https://dawayo.de,https://www.dawayo.de,capacitor://localhost,http://localhost,https://localhost,http://localhost:5173,http://127.0.0.1:5173,https://dawayo-mobile-app.vercel.app";
 async function readBody(request) {
@@ -31,6 +32,7 @@ export function createLegacySubscriptionHandler({ resolve, customerQuery, cancel
       return Response.json({success:true,data:{variantId,etaDate:data.estimatedDate,etaSource:data.source||null,scheduleStatus:data.scheduleStatus}}, {headers});
     }
     if(request.method!=="POST")throw new MobileApiError(405,"METHOD_NOT_ALLOWED","Unsupported request method.");
+    if(env===process.env)await limitCustomerWrite(request,"restock-subscription");
     const input=await readBody(request);
     const variantId=readId(input.variantId,"ProductVariant");
     if((input.intent||"subscribe")==="unsubscribe") {
