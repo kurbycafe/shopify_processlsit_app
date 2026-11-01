@@ -364,41 +364,6 @@ export default function Inspect() {
     setTimeout(() => setHighlightedRowId(null), 1000);
   };
 
-  const isOrderFullyInspected = useCallback((items = []) => {
-    return (
-      Array.isArray(items) &&
-      items.length > 0 &&
-      items.every(
-        (it) =>
-          !it.issueType &&
-          Number(it.orderedQuantity) > 0 &&
-          Number(it.inspectedQuantity) >= Number(it.orderedQuantity)
-      )
-    );
-  }, []);
-
-  const submitInspection = useCallback(
-    (
-      itemsToSave,
-      statusText = "모든 상품의 검수가 완료되어 자동으로 저장합니다."
-    ) => {
-      if (!currentOrder || saveFetcher.state !== "idle") return;
-      setMessage({ type: "success", text: statusText });
-      saveFetcher.submit(
-        {
-          intent: "save_inspection",
-          orderId: currentOrder.id,
-          orderName: currentOrder.name,
-          items: JSON.stringify(itemsToSave || currentOrder.items),
-          inspectorName: currentInspector || inspectorName || "",
-          orderEmail: currentOrder.email || "",
-        },
-        { method: "POST" }
-      );
-    },
-    [currentOrder, saveFetcher, currentInspector, inspectorName]
-  );
-
   const processBarcode = useCallback(
     (scannedBarcode) => {
       if (!currentOrder || !scannedBarcode || !String(scannedBarcode).trim()) return;
@@ -443,16 +408,9 @@ export default function Inspect() {
           };
           setLogs((prev) => [newLog, ...prev]);
           setCurrentOrder({ ...currentOrder, items: updatedItems });
+          setMessage({ type: "success", text: newLog.text });
           playSuccessBeep();
           highlightRow(item.id);
-          if (isOrderFullyInspected(updatedItems)) {
-            submitInspection(
-              updatedItems,
-              `[${item.title}] 마지막 수량 검수 완료 — 검수 결과를 자동 저장합니다.`
-            );
-            return;
-          }
-          setMessage({ type: "success", text: newLog.text });
         } else {
           const newLog = {
             time: timestamp,
@@ -480,7 +438,7 @@ export default function Inspect() {
       }
       setTimeout(() => barcodeRef.current?.focus(), 80);
     },
-    [currentOrder, isOrderFullyInspected, submitInspection]
+    [currentOrder]
   );
 
   // Initial autofocus and Hands-Free Scanner for Order Search
@@ -776,23 +734,13 @@ export default function Inspect() {
 
   const adjustQuantity = (itemId, amount) => {
     if (!currentOrder) return;
-    const index = currentOrder.items.findIndex((i) => i.id === itemId);
+    const updatedItems = [...currentOrder.items];
+    const index = updatedItems.findIndex((i) => i.id === itemId);
     if (index > -1) {
-      const target = currentOrder.items[index];
-      const newQty = target.inspectedQuantity + amount;
-      if (newQty >= 0 && newQty <= target.orderedQuantity) {
-        const updatedItems = currentOrder.items.map((it, idx) =>
-          idx === index ? { ...it, inspectedQuantity: newQty } : it
-        );
+      const newQty = updatedItems[index].inspectedQuantity + amount;
+      if (newQty >= 0 && newQty <= updatedItems[index].orderedQuantity) {
+        updatedItems[index].inspectedQuantity = newQty;
         setCurrentOrder({ ...currentOrder, items: updatedItems });
-        if (amount > 0 && isOrderFullyInspected(updatedItems)) {
-          playSuccessBeep();
-          submitInspection(
-            updatedItems,
-            "모든 상품의 검수가 완료되어 자동으로 완료 처리합니다."
-          );
-          return;
-        }
       }
     }
     setTimeout(() => barcodeRef.current?.focus(), 100);
@@ -808,13 +756,6 @@ export default function Inspect() {
     });
     setCurrentOrder({ ...currentOrder, items: updatedItems });
     playSuccessBeep();
-    if (isOrderFullyInspected(updatedItems)) {
-      submitInspection(
-        updatedItems,
-        "모든 상품의 검수가 완료되어 자동으로 완료 처리합니다."
-      );
-      return;
-    }
     setTimeout(() => barcodeRef.current?.focus(), 100);
   };
 
@@ -896,15 +837,23 @@ export default function Inspect() {
     }));
     setCurrentOrder({ ...currentOrder, items: updatedItems });
     playSuccessBeep();
-    submitInspection(
-      updatedItems,
-      "모든 상품의 검수 수량을 완료 처리하고 자동 저장합니다."
-    );
+    setMessage({ type: "success", text: "모든 상품의 검수 수량을 완료 처리했습니다." });
+    setTimeout(() => barcodeRef.current?.focus(), 80);
   };
 
   const handleSave = () => {
     if (!currentOrder) return;
-    submitInspection(currentOrder.items, "검수 결과를 저장하고 있습니다...");
+    saveFetcher.submit(
+      {
+        intent: "save_inspection",
+        orderId: currentOrder.id,
+        orderName: currentOrder.name,
+        items: JSON.stringify(currentOrder.items),
+        inspectorName: currentInspector || inspectorName || "",
+        orderEmail: currentOrder.email || "",
+      },
+      { method: "POST" }
+    );
   };
 
   // Progress metrics
@@ -1278,13 +1227,7 @@ export default function Inspect() {
                 </form>
                 <InlineStack align="space-between" blockAlign="center" gap="200" wrap>
                   <Text as="p" tone="subdued">스캔 후 Enter를 누르면 수량이 반영됩니다.</Text>
-                  <Button
-                    variant="plain"
-                    onClick={handleCompleteAll}
-                    disabled={saveFetcher.state !== "idle"}
-                  >
-                    전체 일괄 완료
-                  </Button>
+                  <Button variant="plain" onClick={handleCompleteAll}>전체 일괄 완료</Button>
                 </InlineStack>
               </BlockStack>
             </Card>
