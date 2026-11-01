@@ -38,7 +38,7 @@ export async function renderInvoicePagePdf(url) {
     const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 20000 });
     if (!response?.ok()) throw new Error(`Invoice page returned ${response?.status()}`);
     await page.evaluate(() => document.fonts.ready);
-    return await page.pdf({ format: "A4", printBackground: true, preferCSSPageSize: true });
+    return await page.pdf({ format: "A4", printBackground: true, preferCSSPageSize: true, margin: { top: "12mm", right: "15mm", bottom: "12mm", left: "15mm" } });
   } finally {
     await browser.close();
   }

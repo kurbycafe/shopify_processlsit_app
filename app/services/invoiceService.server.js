@@ -160,6 +160,7 @@ export const ORDER_FOR_INVOICE_QUERY = `#graphql
     order(id: $id) {
       id
       name
+      totalWeight
       createdAt
       taxesIncluded
       email
@@ -281,7 +282,7 @@ export function buildSnapshotFromGraphQLNode(node) {
     customBillingAddress: null,
     customShippingAddress: null,
     customVat: node.customer?.vat?.value || null,
-    totalWeightKg: "0.000",
+    totalWeightKg: node.totalWeight ? (Number(node.totalWeight) / 1000).toFixed(3) : "0.000",
     totalPrice: node.totalPriceSet?.shopMoney?.amount || "0.00",
     subtotalPrice: node.subtotalPriceSet?.shopMoney?.amount || "0.00",
     totalTax: node.totalTaxSet?.shopMoney?.amount || "0.00",

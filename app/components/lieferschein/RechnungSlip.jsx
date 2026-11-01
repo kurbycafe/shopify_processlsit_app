@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { formatTaxPercent } from "../../utils/taxDisplay.js";
 import { COMPANY, getCompanyBankAccount } from "../../constants/company.js";
 import {
@@ -253,6 +254,25 @@ export default function RechnungSlip({ view, showImages, showBarcodes, showSkus 
       : "-");
   const invoiceDate = formatInvoiceDate(invoice?.issuedAt || new Date());
 
+  const computedWeightKg = useMemo(() => {
+    if (order.totalWeightKg && Number(order.totalWeightKg) > 0) {
+      return order.totalWeightKg;
+    }
+    let grams = 0;
+    for (const item of order.items || []) {
+      const title = item.title || "";
+      const qty = item.quantity || 1;
+      const kgMatch = title.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);
+      const gMatch = title.match(/(\d+(?:[.,]\d+)?)\s*(?:g|ml)\b/i);
+      if (kgMatch) {
+        grams += parseFloat(kgMatch[1].replace(",", ".")) * 1000 * qty;
+      } else if (gMatch) {
+        grams += parseFloat(gMatch[1].replace(",", ".")) * qty;
+      }
+    }
+    return grams > 0 ? (grams / 1000).toFixed(3) : null;
+  }, [order.totalWeightKg, order.items]);
+
   return (
     <div className="packing-slip rechnung-slip">
       {order.isCustomerHold && (
@@ -287,7 +307,14 @@ export default function RechnungSlip({ view, showImages, showBarcodes, showSkus 
               <tr><td className="info-label">Bestelldatum</td><td className="info-value">{order.createdAt}</td></tr>
               <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
               <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-              <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.totalWeightKg} kg</td></tr>
+              {computedWeightKg && (
+                <tr>
+                  <td className="info-label">Gesamtgewicht</td>
+                  <td className="info-value highlight-weight" style={{ color: "#111", fontWeight: "bold" }}>
+                    {computedWeightKg} kg
+                  </td>
+                </tr>
+              )}
               <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
               <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
             </tbody>
