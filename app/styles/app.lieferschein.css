@@ -1,3 +1,8 @@
+@page {
+  size: A4 portrait;
+  margin: 12mm 15mm;
+}
+
 @import url("https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700;800&display=swap");
 
 .admin-panel {
