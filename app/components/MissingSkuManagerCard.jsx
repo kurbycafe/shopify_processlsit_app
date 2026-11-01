@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Banner,
@@ -37,7 +37,9 @@ export function MissingSkuManagerCard({
 }) {
   const [drafts, setDrafts] = useState({});
   const [createInShopify, setCreateInShopify] = useState(true);
+  const [autoResolveCollision, setAutoResolveCollision] = useState(true);
   const [confirmTargets, setConfirmTargets] = useState(null);
+  const prevContainerRef = useRef(containerRef);
 
   // Build initial duplicate-free SKU drafts whenever missingItems or nextSkuByPrefix changes
   const initialDrafts = useMemo(() => {
@@ -57,9 +59,14 @@ export function MissingSkuManagerCard({
 
     const map = {};
     missingItems.forEach((item, idx) => {
-      const key = item.rowKey || item.itemId || `${item.odooName || item.productName || "item"}-${idx}`;
+      const key =
+        item.rowKey ||
+        item.itemId ||
+        `${item.odooName || item.productName || "item"}-${idx}`;
       const name = item.odooName || item.productName || item.name || "";
-      const prefix = (item.suggestedPrefix || inferOdooSkuPrefix(name)).toUpperCase();
+      const prefix = (
+        item.suggestedPrefix || inferOdooSkuPrefix(name)
+      ).toUpperCase();
       let suggestedSku = item.suggestedSku
         ? String(item.suggestedSku).trim().toUpperCase()
         : "";
@@ -76,11 +83,14 @@ export function MissingSkuManagerCard({
         productName: name,
         prefix,
         sku: suggestedSku,
+        serverSuggestedSku: suggestedSku,
         barcode:
           item.barcode && item.barcode !== "N/A" ? String(item.barcode) : "",
         wholesalePrice: item.wholesalePrice || 0,
         retailPrice: item.retailPrice || 0,
-        shopifyMatchedByTitle: Boolean(item.shopifyMatchedByTitle || item.linked),
+        shopifyMatchedByTitle: Boolean(
+          item.shopifyMatchedByTitle || item.linked
+        ),
         existingShopifySku: item.existingShopifySku || "",
       };
     });
@@ -88,18 +98,63 @@ export function MissingSkuManagerCard({
   }, [missingItems, allContainerSkus, nextSkuByPrefix]);
 
   useEffect(() => {
-    setDrafts(initialDrafts);
-  }, [initialDrafts]);
+    const containerChanged = prevContainerRef.current !== containerRef;
+    prevContainerRef.current = containerRef;
+
+    setDrafts((prev) => {
+      if (containerChanged) return initialDrafts;
+      const next = {};
+      for (const [key, initRow] of Object.entries(initialDrafts)) {
+        const existing = prev[key];
+        if (!existing) {
+          next[key] = initRow;
+        } else {
+          const userEditedSku =
+            existing.sku !== existing.serverSuggestedSku;
+          next[key] = {
+            ...initRow,
+            prefix: existing.prefix || initRow.prefix,
+            sku: userEditedSku ? existing.sku : initRow.sku,
+            serverSuggestedSku: initRow.serverSuggestedSku,
+            barcode: existing.barcode !== undefined ? existing.barcode : initRow.barcode,
+          };
+        }
+      }
+      return next;
+    });
+  }, [containerRef, initialDrafts]);
+
+  // If the server returned nextAvailableByKey after a collision check, update those draft SKUs immediately
+  useEffect(() => {
+    if (!resultBanner?.nextAvailableByKey) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const [key, replacementSku] of Object.entries(
+        resultBanner.nextAvailableByKey
+      )) {
+        if (next[key] && replacementSku) {
+          next[key] = {
+            ...next[key],
+            sku: replacementSku,
+            serverSuggestedSku: replacementSku,
+          };
+        }
+      }
+      return next;
+    });
+  }, [resultBanner]);
 
   const rows = useMemo(
     () =>
-      missingItems.map((item, idx) => {
-        const key =
-          item.rowKey ||
-          item.itemId ||
-          `${item.odooName || item.productName || "item"}-${idx}`;
-        return drafts[key] || initialDrafts[key];
-      }).filter(Boolean),
+      missingItems
+        .map((item, idx) => {
+          const key =
+            item.rowKey ||
+            item.itemId ||
+            `${item.odooName || item.productName || "item"}-${idx}`;
+          return drafts[key] || initialDrafts[key];
+        })
+        .filter(Boolean),
     [missingItems, drafts, initialDrafts]
   );
 
@@ -154,7 +209,9 @@ export function MissingSkuManagerCard({
           .map((s) => String(s || "").trim().toUpperCase())
           .filter(Boolean)
       );
-      const baseNext = nextSkuByPrefix?.[newPrefix];
+      const effectiveNextByPrefix =
+        resultBanner?.nextSkuByPrefix || nextSkuByPrefix;
+      const baseNext = effectiveNextByPrefix?.[newPrefix];
       if (baseNext && baseNext.startsWith(newPrefix)) {
         const num = Number.parseInt(baseNext.slice(newPrefix.length), 10);
         if (Number.isFinite(num) && num > 1) {
@@ -173,6 +230,7 @@ export function MissingSkuManagerCard({
           ...prev[rowKey],
           prefix: newPrefix,
           sku: nextSku,
+          serverSuggestedSku: nextSku,
         },
       };
     });
@@ -200,9 +258,11 @@ export function MissingSkuManagerCard({
   const handleConfirmSubmit = () => {
     if (!confirmTargets || !onApplySkus) return;
     const payload = confirmTargets.map((r) => ({
+      key: r.key,
       itemId: r.itemId,
       odooProductId: r.odooProductId,
       productName: r.productName,
+      prefix: r.prefix,
       sku: String(r.sku || "").trim().toUpperCase(),
       barcode: String(r.barcode || "").trim(),
       wholesalePrice: r.wholesalePrice,
@@ -212,6 +272,7 @@ export function MissingSkuManagerCard({
     onApplySkus({
       assignments: payload,
       createInShopifyIfMissing: createInShopify,
+      autoResolveCollision,
     });
   };
 
@@ -249,11 +310,18 @@ export function MissingSkuManagerCard({
             </Banner>
           )}
 
-          <Checkbox
-            label="Shopify 스토어에 아직 없는 상품인 경우 초안(DRAFT) 상품으로 자동 등록 후 SKU 연결"
-            checked={createInShopify}
-            onChange={setCreateInShopify}
-          />
+          <BlockStack gap="150">
+            <Checkbox
+              label="Odoo·Shopify에 동일 번호가 이미 있으면 다음 빈 번호로 자동 채번하여 적용 (권장)"
+              checked={autoResolveCollision}
+              onChange={setAutoResolveCollision}
+            />
+            <Checkbox
+              label="Shopify 스토어에 아직 없는 상품인 경우 초안(DRAFT) 상품으로 자동 등록 후 SKU 연결"
+              checked={createInShopify}
+              onChange={setCreateInShopify}
+            />
+          </BlockStack>
 
           <Divider />
 
@@ -351,7 +419,9 @@ export function MissingSkuManagerCard({
               아래 {confirmTargets?.length || 0}개 품목의 SKU를 Odoo ERP(`product.product`)와 Shopify 스토어에 동시에 적용하시겠습니까?
             </Text>
             <Text as="p" tone="subdued" variant="bodySm">
-              적용 전 Odoo와 Shopify 전체 상품에 대해 SKU 중복 여부를 최종 확인하며, 다른 상품이 이미 사용 중인 번호는 차단됩니다.
+              {autoResolveCollision
+                ? "적용 직전 Odoo와 Shopify 전체 상품을 재검증하며, 이미 사용 중인 번호가 감지되면 해당 카테고리의 다음 빈 번호로 자동 채번하여 반영합니다."
+                : "적용 전 Odoo와 Shopify 전체 상품에 대해 SKU 중복 여부를 최종 확인하며, 다른 상품이 이미 사용 중인 번호는 차단됩니다."}
             </Text>
             <Divider />
             <BlockStack gap="100">
@@ -372,4 +442,3 @@ export function MissingSkuManagerCard({
     </>
   );
 }
-

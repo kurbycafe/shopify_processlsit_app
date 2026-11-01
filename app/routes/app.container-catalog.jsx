@@ -253,6 +253,8 @@ export const action = async ({ request }) => {
     const containerRef = String(formData.get("containerRef") || "").trim();
     const createInShopifyIfMissing =
       formData.get("createInShopifyIfMissing") === "true";
+    const autoResolveCollision =
+      formData.get("autoResolveCollision") !== "false";
     let assignments = [];
     try {
       assignments = JSON.parse(String(formData.get("assignments") || "[]"));
@@ -270,6 +272,7 @@ export const action = async ({ request }) => {
         containerRef,
         assignments,
         createInShopifyIfMissing,
+        autoResolveCollision,
       });
     } catch (err) {
       return {
@@ -870,12 +873,13 @@ export default function ContainerCatalog() {
                   nextSkuByPrefix={data.nextSkuByPrefix || {}}
                   applying={skuFetcher.state !== "idle"}
                   resultBanner={skuFetcher.data || null}
-                  onApplySkus={({ assignments, createInShopifyIfMissing }) => {
+                  onApplySkus={({ assignments, createInShopifyIfMissing, autoResolveCollision }) => {
                     skuFetcher.submit(
                       {
                         intent: "assign_skus",
                         containerRef: poName || containerRef,
                         createInShopifyIfMissing: String(Boolean(createInShopifyIfMissing)),
+                        autoResolveCollision: String(autoResolveCollision !== false),
                         assignments: JSON.stringify(assignments),
                       },
                       { method: "POST" }
