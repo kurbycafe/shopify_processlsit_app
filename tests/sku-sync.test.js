@@ -217,6 +217,37 @@ test("applySkusToOdooAndShopify prevents duplicates in Odoo and Shopify and sync
   assert.equal(shopifyUpdates.length, 1);
   assert.equal(shopifyUpdates[0].variants[0].inventoryItem.sku, "C40305");
   assert.equal(dbRows[0].sku, "C40305");
+  // 5. Auto-resolve collision when autoResolveCollision is true (e.g. C40316/C40317 used in Odoo -> advances to C40318)
+  const autoResolveWrites = [];
+  const rpcWithC40317 = async (model, method, args) => {
+    if (model === "product.product" && method === "search_read") {
+      return [
+        { id: 901, default_code: "C40316", name: "Odoo Existing Soup 1" },
+        { id: 902, default_code: "C40317", name: "Kohnan Microwavable Rice with 16 Multigrain Cereals 160g" },
+      ];
+    }
+    if (model === "product.product" && method === "write") {
+      autoResolveWrites.push({ ids: args[0], data: args[1] });
+      return true;
+    }
+    return [];
+  };
+
+  const autoRes = await applySkusToOdooAndShopify({
+    db,
+    admin,
+    rpc: rpcWithC40317,
+    shop: "s.myshopify.com",
+    containerRef: "2026-00459",
+    autoResolveCollision: true,
+    assignments: [
+      { key: "row-1", itemId: "row-1", odooProductId: 501, productName: "한우진곰탕 (대상) 450g", sku: "C40317" },
+    ],
+  });
+  assert.equal(autoRes.ok, true);
+  assert.equal(autoRes.results[0].sku, "C40318");
+  assert.equal(autoRes.results[0].autoResolvedFrom, "C40317");
+  assert.deepEqual(autoResolveWrites[0], { ids: [501], data: { default_code: "C40318" } });
 });
 
 test("syncOdooArrivals preserves all PO lines when a container has only a partial backorder picking open", async () => {

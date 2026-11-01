@@ -9,7 +9,7 @@ import { getShopAliases } from "../services/subscriptionService.server.js";
 import { arrivalItemCode, resolveArrivalSkus } from "../services/customerResources.server.js";
 import { getOdooRpc } from "../services/odooClient.server.js";
 import { syncOdooArrivals } from "../services/arrivalsSync.server.js";
-import { collectExistingSkus, applySkusToOdooAndShopify } from "../services/skuSync.server.js";
+import { collectExistingSkus, suggestAvailableSkus, applySkusToOdooAndShopify } from "../services/skuSync.server.js";
 import { ODOO_SKU_CATEGORIES, computeNextAvailableSku } from "../utils/odooSkuCategories.js";
 import { MissingSkuManagerCard } from "../components/MissingSkuManagerCard.jsx";
 import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides, arrivalItemKey } from "../utils/arrivalCopy.js";
@@ -24,7 +24,7 @@ const ITEM_LIMIT = 300;
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
-  const [config, containers, usedSkus] = await Promise.all([
+  const [config, containers] = await Promise.all([
     prisma.mobileStorefrontConfig.findUnique({ where: { shop } }),
     prisma.container.findMany({
       // Every open Odoo receipt, also overdue or undated ones, so any can be chosen.
@@ -34,14 +34,43 @@ export const loader = async ({ request }) => {
         _count: { select: { items: true } },
         items: { orderBy: { id: "asc" }, take: ITEM_LIMIT, select: { id: true, sku: true, barcode: true, productName: true, expectedQty: true } } },
     }),
-    collectExistingSkus({ db: prisma, prefixes: [] }),
   ]);
-  const nextSkuByPrefix = {};
-  for (const cat of ODOO_SKU_CATEGORIES) {
-    nextSkuByPrefix[cat.prefix] = computeNextAvailableSku(cat.prefix, usedSkus);
-  }
+  const missingTargets = containers.flatMap((c) =>
+    c.items
+      .filter((item) => !item.sku)
+      .map((item) => ({
+        itemId: item.id,
+        productName: item.productName,
+        barcode: item.barcode || "",
+      }))
+  );
   const graphql = (_shop, query, variables) => admin.graphql(query, { variables }).then((response) => response.json());
-  const links = await resolveArrivalSkus({ graphql, shop: session.shop, codes: containers.flatMap((c) => c.items.map(arrivalItemCode)) });
+  const [links, skuSuggestionResult] = await Promise.all([
+    resolveArrivalSkus({ graphql, shop: session.shop, codes: containers.flatMap((c) => c.items.map(arrivalItemCode)) }),
+    missingTargets.length > 0
+      ? getOdooRpc()
+          .catch(() => null)
+          .then((rpc) =>
+            suggestAvailableSkus({
+              db: prisma,
+              admin,
+              rpc,
+              items: missingTargets,
+            })
+          )
+          .catch(() => null)
+      : collectExistingSkus({ db: prisma, prefixes: [] }).then((usedSkus) => {
+          const map = {};
+          for (const cat of ODOO_SKU_CATEGORIES) {
+            map[cat.prefix] = computeNextAvailableSku(cat.prefix, usedSkus);
+          }
+          return { suggestions: [], nextSkuByPrefix: map };
+        }),
+  ]);
+  const nextSkuByPrefix = skuSuggestionResult?.nextSkuByPrefix || {};
+  const suggestionByItemId = new Map(
+    (skuSuggestionResult?.suggestions || []).map((s) => [s.itemId, s])
+  );
   const settings = parseExtendedSettings(config?.tickersJson);
   return {
     copy: normalizeArrivalCopy(settings.arrivalCopy),
@@ -55,7 +84,22 @@ export const loader = async ({ request }) => {
       itemCount: c._count?.items ?? c.items.length,
       items: c.items.map((item) => {
         const link = links.get(arrivalItemCode(item));
-        return { key: arrivalItemKey(c.containerRef, item), itemId: item.id, name: item.productName, productName: item.productName, sku: item.sku, barcode: item.barcode, qty: item.expectedQty, linked: Boolean(link), image: link?.image || null };
+        const sug = suggestionByItemId.get(item.id);
+        return {
+          key: arrivalItemKey(c.containerRef, item),
+          itemId: item.id,
+          name: item.productName,
+          productName: item.productName,
+          sku: item.sku,
+          barcode: item.barcode || sug?.barcode || null,
+          qty: item.expectedQty,
+          linked: Boolean(link),
+          image: link?.image || sug?.shopifyMatch?.imageUrl || null,
+          suggestedPrefix: sug?.prefix || null,
+          suggestedSku: sug?.suggestedSku || null,
+          shopifyMatchedByTitle: Boolean(link || sug?.shopifyMatch),
+          existingShopifySku: sug?.shopifyMatch?.existingSku || "",
+        };
       }),
     })),
   };
@@ -77,6 +121,7 @@ export const action = async ({ request }) => {
   if (intent === "assign_skus") {
     const containerRef = String(form.get("containerRef") || "").trim();
     const createInShopifyIfMissing = form.get("createInShopifyIfMissing") === "true";
+    const autoResolveCollision = form.get("autoResolveCollision") !== "false";
     let assignments = [];
     try {
       assignments = JSON.parse(String(form.get("assignments") || "[]"));
@@ -93,6 +138,7 @@ export const action = async ({ request }) => {
         containerRef,
         assignments,
         createInShopifyIfMissing,
+        autoResolveCollision,
       });
     } catch (err) {
       return { ok: false, message: `SKU 적용 실패: ${err.message}` };
@@ -375,12 +421,13 @@ export default function ArrivalsPage() {
             nextSkuByPrefix={data.nextSkuByPrefix || {}}
             applying={skuAssigner.state !== "idle"}
             resultBanner={skuAssigner.data || null}
-            onApplySkus={({ assignments, createInShopifyIfMissing }) => {
+            onApplySkus={({ assignments, createInShopifyIfMissing, autoResolveCollision }) => {
               skuAssigner.submit(
                 {
                   intent: "assign_skus",
                   containerRef: activeForSku.ref,
                   createInShopifyIfMissing: String(Boolean(createInShopifyIfMissing)),
+                  autoResolveCollision: String(autoResolveCollision !== false),
                   assignments: JSON.stringify(assignments),
                 },
                 { method: "post" }
