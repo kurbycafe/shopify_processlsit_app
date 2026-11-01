@@ -310,7 +310,7 @@ export default function RechnungSlip({ view, showImages, showBarcodes, showSkus 
               {computedWeightKg && (
                 <tr>
                   <td className="info-label">Gesamtgewicht</td>
-                  <td className="info-value highlight-weight" style={{ color: "#111", fontWeight: "bold" }}>
+                  <td className="info-value" style={{ fontWeight: "bold" }}>
                     {computedWeightKg} kg
                   </td>
                 </tr>
