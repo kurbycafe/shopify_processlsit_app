@@ -54,6 +54,10 @@ const ARRIVAL_ITEM_LIMIT = 100;
 const arrivalSkuCache = new Map();
 const ARRIVAL_SKU_TTL_MS = 10 * 60 * 1000;
 
+export function clearArrivalSkuCache() {
+  arrivalSkuCache.clear();
+}
+
 // Maps Odoo SKUs (or, when Odoo has no SKU, barcodes, then the exact product
 // name) to products sold in the online store. Codes are keyed "sku:X",
 // "barcode:Y" or "title:Z". Unknown, draft or unpublished products stay

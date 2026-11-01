@@ -85,3 +85,70 @@ export async function readOdooReceiptStates({ rpc, refs }) {
   }
   return states;
 }
+
+/**
+ * Reads full purchase order lines for open arrival references so backorder splits
+ * in stock.picking never drop the rest of the container's products from the arrival board.
+ */
+export async function readOdooPurchaseOrders({ rpc, refs }) {
+  if (!Array.isArray(refs) || !refs.length) return new Map();
+  const cleanRefs = [...new Set(refs.map(r => String(r || "").trim()).filter(Boolean))];
+  if (!cleanRefs.length) return new Map();
+
+  const orders = ensureArray(await rpc("purchase.order", "search_read", [[["name", "in", cleanRefs]]], {
+    fields: ["id", "name", "order_line", "partner_id", "date_planned"],
+    limit: 100,
+  }));
+  const lineIds = orders.flatMap(po => po.order_line || []);
+  if (!lineIds.length) return new Map();
+
+  const lines = ensureArray(await rpc("purchase.order.line", "read", [lineIds], {
+    fields: ["id", "order_id", "product_id", "product_qty", "price_unit", "name", "unit_per_box", "box_qty"],
+  }));
+  const productIds = [...new Set(lines.map(l => (Array.isArray(l.product_id) ? l.product_id[0] : l.product_id)).filter(Boolean))];
+  const products = productIds.length
+    ? ensureArray(await rpc("product.product", "read", [productIds], { fields: ["id", "default_code", "barcode", "name"] }))
+    : [];
+  const productById = new Map(products.map(p => [p.id, p]));
+  const linesByOrderId = new Map();
+  for (const line of lines) {
+    const orderId = Array.isArray(line.order_id) ? line.order_id[0] : line.order_id;
+    if (!orderId) continue;
+    const list = linesByOrderId.get(orderId) || [];
+    list.push(line);
+    linesByOrderId.set(orderId, list);
+  }
+
+  const byRef = new Map();
+  for (const po of orders) {
+    const ref = String(po.name || "").trim();
+    const orderLines = linesByOrderId.get(po.id) || [];
+    const itemsMap = new Map();
+    for (const line of orderLines) {
+      const prodId = Array.isArray(line.product_id) ? line.product_id[0] : line.product_id;
+      const prod = productById.get(prodId);
+      const sku = prod?.default_code ? String(prod.default_code).trim() : null;
+      const barcode = prod?.barcode ? String(prod.barcode).trim() : null;
+      const odooName = line.name ? String(line.name).split("\n")[0].trim() : (prod?.name || "품목");
+      const key = sku || barcode || (prodId ? `odoo-${prodId}` : `line-${line.id}`);
+      const existing = itemsMap.get(key) || {
+        sku,
+        barcode,
+        odooName,
+        qty: 0,
+        wholesalePrice: Number(line.price_unit) || 0,
+        unitPerBox: Math.max(0, Math.round(Number(line.unit_per_box) || 0)),
+        boxQty: Math.max(0, Math.round(Number(line.box_qty) || 0)),
+      };
+      existing.qty += Math.max(0, Math.round(Number(line.product_qty) || 0));
+      itemsMap.set(key, existing);
+    }
+    byRef.set(ref, {
+      ref,
+      supplier: Array.isArray(po.partner_id) ? po.partner_id[1] : null,
+      scheduledDate: berlinDate(po.date_planned),
+      items: [...itemsMap.values()],
+    });
+  }
+  return byRef;
+}
