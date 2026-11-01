@@ -9,11 +9,17 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import {
   fetchOdooContainerProducts,
+  getOdooRpc,
   getUpcomingContainers,
   isOdooConfigured,
 } from "../services/odooClient.server.js";
+import {
+  suggestAvailableSkus,
+  applySkusToOdooAndShopify,
+} from "../services/skuSync.server.js";
 import { notifySubscribersForContainer } from "../services/subscriptionService.server.js";
 import { changeContainerStatus } from "../services/containerStatus.server.js";
+import { MissingSkuManagerCard } from "../components/MissingSkuManagerCard.jsx";
 import StatusBadge from "../components/common/StatusBadge";
 import AppEmptyState from "../components/common/AppEmptyState";
 
@@ -116,9 +122,11 @@ export const action = async ({ request }) => {
       }
 
       // 3. Combine Odoo + Shopify data
-      const matchedItems = items.map((item) => {
+      const matchedItems = items.map((item, idx) => {
         const shopifyVar = shopifyVariants[item.sku];
         return {
+          rowKey: `${item.odooProductId || item.odooName || "row"}-${idx}`,
+          odooProductId: item.odooProductId || null,
           sku: item.sku,
           barcode: item.barcode || shopifyVar?.barcode || "N/A",
           odooName: item.odooName,
@@ -136,6 +144,50 @@ export const action = async ({ request }) => {
           boxQty: item.boxQty,
         };
       });
+
+      // 3b. For SKU-less items, compute Odoo-standard SKU suggestions & check title match in Shopify
+      let nextSkuByPrefix = {};
+      const missingSkuTargets = matchedItems.filter((it) => !it.sku);
+      if (missingSkuTargets.length > 0) {
+        try {
+          const rpc = await getOdooRpc().catch(() => null);
+          const suggestionResult = await suggestAvailableSkus({
+            db: prisma,
+            admin,
+            rpc,
+            items: missingSkuTargets.map((it) => ({
+              itemId: it.rowKey,
+              odooProductId: it.odooProductId,
+              productName: it.odooName,
+              barcode: it.barcode !== "N/A" ? it.barcode : "",
+            })),
+          });
+          nextSkuByPrefix = suggestionResult.nextSkuByPrefix || {};
+          const byKey = new Map(
+            (suggestionResult.suggestions || []).map((s) => [s.itemId, s])
+          );
+          for (const it of matchedItems) {
+            const sug = byKey.get(it.rowKey);
+            if (!sug) continue;
+            it.suggestedPrefix = sug.prefix;
+            it.suggestedSku = sug.suggestedSku;
+            it.shopifyMatchedByTitle = Boolean(sug.shopifyMatch);
+            it.existingShopifySku = sug.shopifyMatch?.existingSku || "";
+            if (sug.shopifyMatch) {
+              if (!it.shopifyName) it.shopifyName = sug.shopifyMatch.title || "";
+              if (!it.imageUrl) it.imageUrl = sug.shopifyMatch.imageUrl || "";
+              if (!it.retailPrice && sug.shopifyMatch.price) {
+                it.retailPrice = sug.shopifyMatch.price;
+              }
+              if (it.barcode === "N/A" && sug.shopifyMatch.barcode) {
+                it.barcode = sug.shopifyMatch.barcode;
+              }
+            }
+          }
+        } catch (sugErr) {
+          console.warn("SKU suggestion enrichment notice:", sugErr.message);
+        }
+      }
 
       let savedStatus = null;
       // 4. Safe sync into local Prisma database
@@ -191,9 +243,39 @@ export const action = async ({ request }) => {
         console.warn("DB Container auto-sync notice:", dbSyncErr.message);
       }
 
-      return { poName, partnerId, scheduledDate, items: matchedItems, status: savedStatus, syncWarning: savedStatus ? null : "조회는 완료되었지만 입고 기록 저장에 실패했습니다. 다시 조회해 주세요." };
+      return { poName, partnerId, scheduledDate, items: matchedItems, nextSkuByPrefix, status: savedStatus, syncWarning: savedStatus ? null : "조회는 완료되었지만 입고 기록 저장에 실패했습니다. 다시 조회해 주세요." };
     } catch (err) {
       return { error: `불러오기 실패: ${err.message}` };
+    }
+  }
+
+  if (intent === "assign_skus") {
+    const containerRef = String(formData.get("containerRef") || "").trim();
+    const createInShopifyIfMissing =
+      formData.get("createInShopifyIfMissing") === "true";
+    let assignments = [];
+    try {
+      assignments = JSON.parse(String(formData.get("assignments") || "[]"));
+    } catch {
+      return { ok: false, message: "잘못된 SKU 요청 데이터입니다." };
+    }
+
+    try {
+      const rpc = await getOdooRpc();
+      return await applySkusToOdooAndShopify({
+        db: prisma,
+        admin,
+        rpc,
+        shop,
+        containerRef,
+        assignments,
+        createInShopifyIfMissing,
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        message: `SKU 적용 중 오류가 발생했습니다: ${err.message}`,
+      };
     }
   }
 
@@ -215,6 +297,7 @@ export default function ContainerCatalog() {
   const { upcomingOdoo, odooAvailable } = useLoaderData();
   const fetcher = useFetcher();
   const statusFetcher = useFetcher();
+  const skuFetcher = useFetcher();
   const [pendingStatus, setPendingStatus] = useState(null);
   const [searchParams] = useSearchParams();
   const [containerRef, setContainerRef] = useState("");
@@ -233,7 +316,41 @@ export default function ContainerCatalog() {
 
   const loading = fetcher.state === "submitting";
   const data = fetcher.data || {};
-  const items = useMemo(() => data.items || [], [data.items]);
+  const appliedSkuMap = useMemo(() => {
+    const map = new Map();
+    if (skuFetcher.data?.ok && Array.isArray(skuFetcher.data.results)) {
+      for (const r of skuFetcher.data.results) {
+        map.set(r.productName, r);
+      }
+    }
+    return map;
+  }, [skuFetcher.data]);
+
+  const items = useMemo(() => {
+    const raw = data.items || [];
+    if (appliedSkuMap.size === 0) return raw;
+    return raw.map((it) => {
+      const applied = appliedSkuMap.get(it.odooName) || appliedSkuMap.get(it.shopifyName);
+      if (!applied) return it;
+      return {
+        ...it,
+        sku: applied.sku,
+        barcode: applied.barcode || it.barcode,
+        shopifyName: applied.shopifyTitle || it.shopifyName || it.odooName,
+        imageUrl: applied.imageUrl || it.imageUrl,
+        isMatched: Boolean(applied.shopifyUpdated || it.isMatched),
+      };
+    });
+  }, [data.items, appliedSkuMap]);
+
+  const missingSkuItems = useMemo(
+    () => items.filter((it) => !it.sku),
+    [items]
+  );
+  const allContainerSkus = useMemo(
+    () => items.map((it) => it.sku).filter(Boolean),
+    [items]
+  );
   const poName = data.poName || "";
   const partnerId = data.partnerId || "";
   const currentStatus = statusFetcher.data?.containerRef === poName && statusFetcher.data?.success ? statusFetcher.data.status : data.status;
@@ -725,6 +842,14 @@ export default function ContainerCatalog() {
               </Card>
             </Layout.Section>
 
+            {skuFetcher.data && missingSkuItems.length === 0 && (
+              <Layout.Section>
+                <Banner tone={skuFetcher.data.ok ? "success" : "critical"}>
+                  <p>{skuFetcher.data.message}</p>
+                </Banner>
+              </Layout.Section>
+            )}
+
             {unmatchedCount > 0 && (
               <Layout.Section>
                 <Banner tone="warning">
@@ -733,6 +858,30 @@ export default function ContainerCatalog() {
                     미등록 상품은 도매 카탈로그 PDF 출력 시 임시 Odoo 제품명으로 표기되며 소매 가격 및 사진이 제공되지 않습니다.
                   </p>
                 </Banner>
+              </Layout.Section>
+            )}
+
+            {missingSkuItems.length > 0 && (
+              <Layout.Section>
+                <MissingSkuManagerCard
+                  containerRef={poName || containerRef}
+                  missingItems={missingSkuItems}
+                  allContainerSkus={allContainerSkus}
+                  nextSkuByPrefix={data.nextSkuByPrefix || {}}
+                  applying={skuFetcher.state !== "idle"}
+                  resultBanner={skuFetcher.data || null}
+                  onApplySkus={({ assignments, createInShopifyIfMissing }) => {
+                    skuFetcher.submit(
+                      {
+                        intent: "assign_skus",
+                        containerRef: poName || containerRef,
+                        createInShopifyIfMissing: String(Boolean(createInShopifyIfMissing)),
+                        assignments: JSON.stringify(assignments),
+                      },
+                      { method: "POST" }
+                    );
+                  }}
+                />
               </Layout.Section>
             )}
 
@@ -750,15 +899,18 @@ export default function ContainerCatalog() {
 
                     return [
                       <Thumbnail
-                        key={`img-${item.sku}`}
+                        key={`img-${item.rowKey || item.sku}`}
                         source={item.imageUrl || ""}
                         alt={item.sku}
                         size="small"
                       />,
-                      <BlockStack key={`sku-${item.sku}`} gap="050">
+                      <BlockStack key={`sku-${item.rowKey || item.sku}`} gap="050">
                         <Text variant="bodySm" fontWeight="bold">
                           {item.sku || "N/A"}
                         </Text>
+                        {!item.sku && item.suggestedSku && (
+                          <Badge tone="info">{`추천: ${item.suggestedSku}`}</Badge>
+                        )}
                         <Text variant="bodyXs" tone="subdued">
                           {item.barcode}
                         </Text>

@@ -444,6 +444,7 @@ export async function fetchOdooContainerProducts(containerRef, { exact = false }
       const prodId = Array.isArray(l.product_id) ? l.product_id[0] : l.product_id;
       const prod = productMap[prodId];
       return {
+        odooProductId: prodId || null,
         sku: prod?.default_code || "",
         barcode: prod?.barcode || "",
         odooName: l.name ? l.name.split("\n")[0] : prod?.name || "품목",

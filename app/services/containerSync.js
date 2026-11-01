@@ -5,7 +5,7 @@ function quantity(value) {
 }
 
 // Update existing rows in place. Receipt IDs and quantities survive Odoo resynchronization.
-export async function mergeContainerItems(tx, containerId, incoming, { fromOdoo = false } = {}) {
+export async function mergeContainerItems(tx, containerId, incoming, { fromOdoo = false, keepUnmatched = false } = {}) {
   const current = await tx.containerItem.findMany({ where: { containerId }, orderBy: { createdAt: "asc" } });
   const unused = new Set(current.map(item => item.id));
   for (const item of incoming) {
@@ -21,13 +21,20 @@ export async function mergeContainerItems(tx, containerId, incoming, { fromOdoo 
       if (matches.length > 1) throw new Error("동일한 SKU 또는 바코드의 품목이 여러 개입니다. 입고 행 ID를 확인해 주세요.");
       match = matches[0];
     }
+    if (!match && !item.sku && !item.barcode) {
+      const targetName = String(item.odooName || item.productName || item.title || "").trim();
+      if (targetName) {
+        const nameMatches = available.filter(existing => String(existing.productName || "").trim() === targetName);
+        if (nameMatches.length === 1) match = nameMatches[0];
+      }
+    }
     if (match) unused.delete(match.id);
     const data = {
-      sku: item.sku || null, barcode: item.barcode || null,
+      sku: item.sku || match?.sku || null, barcode: item.barcode || match?.barcode || null,
       productName: item.odooName || item.productName || item.title || "품목",
       expectedQty: quantity(item.expectedQty ?? item.qty ?? 0),
-      unitPrice: item.wholesalePrice ?? item.unitPrice ?? null,
-      unitPerBox: quantity(item.unitPerBox ?? 0), boxQty: quantity(item.boxQty ?? 0),
+      unitPrice: item.wholesalePrice ?? item.unitPrice ?? match?.unitPrice ?? null,
+      unitPerBox: quantity(item.unitPerBox ?? match?.unitPerBox ?? 0), boxQty: quantity(item.boxQty ?? match?.boxQty ?? 0),
     };
     if (!fromOdoo && item.receivedQty !== undefined) data.receivedQty = quantity(item.receivedQty);
     if (match) {
@@ -36,8 +43,8 @@ export async function mergeContainerItems(tx, containerId, incoming, { fromOdoo 
       await tx.containerItem.create({ data: { containerId, ...data, receivedQty: data.receivedQty ?? 0 } });
     }
   }
-  // Keep orphaned receipt evidence; unreceived removed Odoo rows can safely disappear.
-  if (unused.size) await tx.containerItem.deleteMany({ where: { id: { in: [...unused] }, receivedQty: 0 } });
+  // Keep orphaned receipt evidence; unreceived removed Odoo rows can safely disappear unless PO preservation is active.
+  if (unused.size && !keepUnmatched) await tx.containerItem.deleteMany({ where: { id: { in: [...unused] }, receivedQty: 0 } });
 }
 
 export async function lockContainer(tx, shop, reference) {

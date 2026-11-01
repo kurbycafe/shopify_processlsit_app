@@ -9,6 +9,9 @@ import { getShopAliases } from "../services/subscriptionService.server.js";
 import { arrivalItemCode, resolveArrivalSkus } from "../services/customerResources.server.js";
 import { getOdooRpc } from "../services/odooClient.server.js";
 import { syncOdooArrivals } from "../services/arrivalsSync.server.js";
+import { collectExistingSkus, applySkusToOdooAndShopify } from "../services/skuSync.server.js";
+import { ODOO_SKU_CATEGORIES, computeNextAvailableSku } from "../utils/odooSkuCategories.js";
+import { MissingSkuManagerCard } from "../components/MissingSkuManagerCard.jsx";
 import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides, arrivalItemKey } from "../utils/arrivalCopy.js";
 
 // The app's arrival board, in the order it is set up: pick the one Odoo
@@ -21,7 +24,7 @@ const ITEM_LIMIT = 300;
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
-  const [config, containers] = await Promise.all([
+  const [config, containers, usedSkus] = await Promise.all([
     prisma.mobileStorefrontConfig.findUnique({ where: { shop } }),
     prisma.container.findMany({
       // Every open Odoo receipt, also overdue or undated ones, so any can be chosen.
@@ -29,9 +32,14 @@ export const loader = async ({ request }) => {
       orderBy: [{ scheduledDate: { sort: "desc", nulls: "last" } }, { id: "desc" }], take: 50,
       select: { id: true, containerRef: true, supplier: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
         _count: { select: { items: true } },
-        items: { orderBy: { id: "asc" }, take: ITEM_LIMIT, select: { sku: true, barcode: true, productName: true, expectedQty: true } } },
+        items: { orderBy: { id: "asc" }, take: ITEM_LIMIT, select: { id: true, sku: true, barcode: true, productName: true, expectedQty: true } } },
     }),
+    collectExistingSkus({ db: prisma, prefixes: [] }),
   ]);
+  const nextSkuByPrefix = {};
+  for (const cat of ODOO_SKU_CATEGORIES) {
+    nextSkuByPrefix[cat.prefix] = computeNextAvailableSku(cat.prefix, usedSkus);
+  }
   const graphql = (_shop, query, variables) => admin.graphql(query, { variables }).then((response) => response.json());
   const links = await resolveArrivalSkus({ graphql, shop: session.shop, codes: containers.flatMap((c) => c.items.map(arrivalItemCode)) });
   const settings = parseExtendedSettings(config?.tickersJson);
@@ -39,6 +47,7 @@ export const loader = async ({ request }) => {
     copy: normalizeArrivalCopy(settings.arrivalCopy),
     selection: normalizeArrivalSelection(settings.arrivalSelection),
     overrides: normalizeArrivalOverrides(settings.arrivalOverrides),
+    nextSkuByPrefix,
     lastSyncedAt: containers.reduce((latest, c) => (!latest || c.syncedAt > latest ? c.syncedAt : latest), null),
     containers: containers.map((c) => ({
       id: c.id, ref: c.containerRef, supplier: c.supplier, status: c.status, odooDate: c.scheduledDate,
@@ -46,14 +55,14 @@ export const loader = async ({ request }) => {
       itemCount: c._count?.items ?? c.items.length,
       items: c.items.map((item) => {
         const link = links.get(arrivalItemCode(item));
-        return { key: arrivalItemKey(c.containerRef, item), name: item.productName, sku: item.sku, qty: item.expectedQty, linked: Boolean(link), image: link?.image || null };
+        return { key: arrivalItemKey(c.containerRef, item), itemId: item.id, name: item.productName, productName: item.productName, sku: item.sku, barcode: item.barcode, qty: item.expectedQty, linked: Boolean(link), image: link?.image || null };
       }),
     })),
   };
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
   const form = await request.formData();
   const intent = form.get("intent");
@@ -63,6 +72,30 @@ export const action = async ({ request }) => {
       return { ok: true, message: `Odoo에서 ${result.synced}건을 가져왔습니다${result.closed ? `, ${result.closed}건은 입고 완료로 정리했습니다` : ""}${result.failed ? ` (${result.failed}건 실패)` : ""}.` };
     } catch {
       return { ok: false, message: "Odoo에 연결하지 못했습니다. 잠시 후 다시 시도해주세요." };
+    }
+  }
+  if (intent === "assign_skus") {
+    const containerRef = String(form.get("containerRef") || "").trim();
+    const createInShopifyIfMissing = form.get("createInShopifyIfMissing") === "true";
+    let assignments = [];
+    try {
+      assignments = JSON.parse(String(form.get("assignments") || "[]"));
+    } catch {
+      return { ok: false, message: "잘못된 SKU 요청 데이터입니다." };
+    }
+    try {
+      const rpc = await getOdooRpc();
+      return await applySkusToOdooAndShopify({
+        db: prisma,
+        admin,
+        rpc,
+        shop: session.shop,
+        containerRef,
+        assignments,
+        createInShopifyIfMissing,
+      });
+    } catch (err) {
+      return { ok: false, message: `SKU 적용 실패: ${err.message}` };
     }
   }
   try {
@@ -285,13 +318,22 @@ function DetailsCard({ arrival, override, copy, saving, onSave }) {
 
 export default function ArrivalsPage() {
   const data = useLoaderData();
-  const chooser = useFetcher(), arrivalSaver = useFetcher(), syncer = useFetcher(), copySaver = useFetcher();
-  const result = chooser.data || arrivalSaver.data || syncer.data || copySaver.data;
+  const chooser = useFetcher(), arrivalSaver = useFetcher(), syncer = useFetcher(), copySaver = useFetcher(), skuAssigner = useFetcher();
+  const result = chooser.data || arrivalSaver.data || syncer.data || copySaver.data || skuAssigner.data;
   const [pending, setPending] = useState(undefined); // arrival to confirm, null = turn off
 
   // Before anything is chosen, the app shows every arrival (the nearest on the home card).
   const chosenRef = data.selection ? data.containers.find((c) => data.selection.shown.includes(c.ref))?.ref || null : null;
   const chosen = data.containers.find((c) => c.ref === chosenRef) || null;
+  const activeForSku = chosen || pending || data.containers[0] || null;
+  const missingSkuItems = useMemo(
+    () => (activeForSku ? activeForSku.items.filter((it) => !it.sku) : []),
+    [activeForSku]
+  );
+  const allActiveSkus = useMemo(
+    () => (activeForSku ? activeForSku.items.map((it) => it.sku).filter(Boolean) : []),
+    [activeForSku]
+  );
   const lostRef = data.selection?.shown.find((ref) => !data.containers.some((c) => c.ref === ref));
   const reviewed = new Set(data.selection ? data.selection.reviewed : data.containers.map((c) => c.ref));
   const overrideOf = (ref) => data.overrides[ref] || {};
@@ -324,6 +366,28 @@ export default function ArrivalsPage() {
             : <ArrivalTable arrivals={data.containers} chosenRef={chosenRef} overrideOf={overrideOf} onChoose={setPending}
                 isNew={(ref) => Boolean(data.selection) && !reviewed.has(ref)} />}
         </Card>
+
+        {activeForSku && missingSkuItems.length > 0 && (
+          <MissingSkuManagerCard
+            containerRef={activeForSku.ref}
+            missingItems={missingSkuItems}
+            allContainerSkus={allActiveSkus}
+            nextSkuByPrefix={data.nextSkuByPrefix || {}}
+            applying={skuAssigner.state !== "idle"}
+            resultBanner={skuAssigner.data || null}
+            onApplySkus={({ assignments, createInShopifyIfMissing }) => {
+              skuAssigner.submit(
+                {
+                  intent: "assign_skus",
+                  containerRef: activeForSku.ref,
+                  createInShopifyIfMissing: String(Boolean(createInShopifyIfMissing)),
+                  assignments: JSON.stringify(assignments),
+                },
+                { method: "post" }
+              );
+            }}
+          />
+        )}
 
         {chosen && <PicksCard arrival={chosen} override={overrideOf(chosen.ref)} copy={copy} saving={arrivalSaver.state !== "idle" && arrivalSaver.formData?.get("what") === "picks"} onSave={saveArrival("picks")} />}
         {chosen && <DetailsCard arrival={chosen} override={overrideOf(chosen.ref)} copy={copy} saving={arrivalSaver.state !== "idle" && arrivalSaver.formData?.get("what") === "details"} onSave={saveArrival("details")} />}
