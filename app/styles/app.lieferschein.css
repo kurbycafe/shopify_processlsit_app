@@ -715,6 +715,12 @@
   color: #b91c1c !important;
 }
 
+.rechnung-slip .highlight-weight {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: #111111 !important;
+}
+
 .highlight-intl {
   font-size: 13px !important;
   font-weight: 800 !important;
@@ -759,6 +765,10 @@
 
   .highlight-weight {
     color: #b91c1c !important;
+  }
+
+  .rechnung-slip .highlight-weight {
+    color: #111111 !important;
   }
 
   .highlight-intl {
