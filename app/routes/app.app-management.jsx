@@ -5,6 +5,7 @@ import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
 import B2bRequestsManager from "../components/B2bRequestsManager.jsx";
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
+import MobileLiveSimulator from "../components/MobileLiveSimulator.jsx";
 import { useState, useEffect, useRef } from "react";
 import { useLoaderData, useFetcher, useRevalidator, useSearchParams } from "react-router";
 import {
@@ -1737,25 +1738,45 @@ export const action = async ({ request }) => {
  * ============================================================================ */
 
 const TOP_MENU_TABS = [
-  { id: "overview", label: "홈 화면 종합" },
-  { id: "banners", label: "홈 배너 관리" },
-  { id: "hotdeals", label: "오늘의 특가" },
-  { id: "temperatures", label: "상품 온도 관리" },
-  { id: "product-rules", label: "유통기한 관리" },
-  { id: "product-attributes", label: "추천 · 상품 속성" },
-  { id: "categories", label: "카테고리 · 브랜드" },
-  { id: "shipping", label: "콜드체인 · 배송바" },
-  { id: "campaigns", label: "공동구매 · 정기구독" },
-  { id: "pages", label: "상품 · 장바구니 · 마이페이지" },
-  { id: "customer-requests", label: "고객 문의 · 반품 접수" },
-  { id: "b2b-requests", label: "B2B 도매 신청" },
-  { id: "preview", label: "라이브 미리보기" },
+  { id: "overview", label: "홈 화면 종합", group: "home" },
+  { id: "banners", label: "메인 배너 관리", group: "home" },
+  { id: "hotdeals", label: "오늘의 특가", group: "home" },
+  { id: "categories", label: "카테고리 · GNB", group: "home" },
+  { id: "campaigns", label: "공동구매 · 정기구독", group: "home" },
+  { id: "pages", label: "화면별 배너 · 안내", group: "home" },
+
+  { id: "shipping", label: "무료배송 · 티커", group: "operations" },
+  { id: "temperatures", label: "상품 보관온도", group: "operations" },
+  { id: "product-rules", label: "유통기한(MHD)", group: "operations" },
+  { id: "product-attributes", label: "추천 · 상품 속성", group: "operations" },
+
+  { id: "customer-requests", label: "고객 문의 · 반품", group: "cs" },
+  { id: "b2b-requests", label: "B2B 도매 회원 승인", group: "cs" },
+  { id: "preview", label: "전체 화면 미리보기", group: "home" },
 ];
 
 const MENU_GROUPS = [
-  { label: "홈과 상품", ids: ["overview", "banners", "hotdeals", "temperatures", "product-rules", "product-attributes", "categories"] },
-  { label: "운영 설정", ids: ["shipping", "campaigns", "pages"] },
-  { label: "고객과 확인", ids: ["customer-requests", "b2b-requests", "preview"] },
+  {
+    id: "home",
+    label: "홈 화면 편성",
+    badge: "6개",
+    description: "메인 배너, 특가, 카테고리 및 공동구매",
+    ids: ["overview", "banners", "hotdeals", "categories", "campaigns", "pages", "preview"],
+  },
+  {
+    id: "operations",
+    label: "물류 및 운영 정책",
+    badge: "4개",
+    description: "무료배송 게이지, 보관온도, 유통기한(MHD)",
+    ids: ["shipping", "temperatures", "product-rules", "product-attributes"],
+  },
+  {
+    id: "cs",
+    label: "고객 서비스 · 신청",
+    badge: "2개",
+    description: "고객 1:1 문의/반품 및 B2B 도매 회원 승인",
+    ids: ["customer-requests", "b2b-requests"],
+  },
 ];
 
 function reconcileDraft(current, previous, next, force = false) {
@@ -1800,6 +1821,37 @@ export default function AppManagementPage() {
   const [logModalTab, setLogModalTab] = useState("logs");
   const [visitedTabs, setVisitedTabs] = useState(() => new Set(["overview", initialTab]));
   const [showLegacyRules, setShowLegacyRules] = useState(false);
+  const activeGroup = MENU_GROUPS.find((g) => g.ids.includes(activeTab)) || MENU_GROUPS[0];
+  const [selectedGroupId, setSelectedGroupId] = useState(activeGroup.id);
+  const [showAllTabs, setShowAllTabs] = useState(false);
+  const [showMobileSimulator, setShowMobileSimulator] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dawayo_mobile_preview_open");
+      if (saved !== null) return saved === "true";
+      return window.innerWidth >= 1200;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    const g = MENU_GROUPS.find((group) => group.ids.includes(activeTab));
+    if (g && g.id !== selectedGroupId) {
+      setSelectedGroupId(g.id);
+    }
+  }, [activeTab]);
+
+  const handleSelectGroup = (groupId) => {
+    setSelectedGroupId(groupId);
+    const targetGroup = MENU_GROUPS.find((g) => g.id === groupId);
+    if (targetGroup && !targetGroup.ids.includes(activeTab)) {
+      setActiveTab(targetGroup.ids[0]);
+    }
+  };
+
+  const displayedTabs = showAllTabs
+    ? TOP_MENU_TABS
+    : TOP_MENU_TABS.filter((tab) => activeGroup.ids.includes(tab.id));
+
   const previousConfig = useRef(config);
   const resetRequested = useRef(false);
 
@@ -2312,91 +2364,185 @@ export default function AppManagementPage() {
       ]}
     >
       <BlockStack gap="500">
-        {/* TOP HORIZONTAL PILL HEADER MENU BAR (Reference SaaS Style) */}
+        {/* TOP HIERARCHICAL NAVIGATION (Polaris Standard) */}
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: "12px",
             background: "#FFFFFF",
-            padding: "12px 16px",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            overflow: "hidden",
           }}
         >
-          <nav aria-label="앱 관리 메뉴" style={{ display: "grid", gap: "12px", flex: "1 1 100%" }}>
-            {MENU_GROUPS.map((group) => (
-              <div key={group.label} style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-                <span style={{ color: "#6B7280", fontSize: "12px", fontWeight: 600, minWidth: "78px" }}>{group.label}</span>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {TOP_MENU_TABS.filter((tab) => group.ids.includes(tab.id)).map((tab) => {
-                    const isSelected = activeTab === tab.id;
-                    return (
-                      <button key={tab.id} type="button" aria-pressed={isSelected} onClick={() => setActiveTab(tab.id)}
-                        style={{ padding: "8px 14px", borderRadius: "20px", border: "1px solid", borderColor: isSelected ? "#1A1A1A" : "#E5E7EB", fontSize: "13px", fontWeight: isSelected ? 600 : 500, backgroundColor: isSelected ? "#1A1A1A" : "#F9FAFB", color: isSelected ? "#FFFFFF" : "#374151", cursor: "pointer" }}>
-                        {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-
+          {/* Level 1: 3-Tier Business Groups & Preview Toggle */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "10px",
-              fontSize: "12px",
-              color: "#6B7280",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "12px",
+              padding: "10px 16px",
+              borderBottom: "1px solid #EDEEEF",
+              background: "#FAFBFB",
             }}
           >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "#ECFDF5",
-                color: "#065F46",
-                padding: "4px 10px",
-                borderRadius: "12px",
-                fontWeight: 600,
-                border: "1px solid #A7F3D0",
-              }}
-            >
+            {/* Group Tabs */}
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: "#6D7175", textTransform: "uppercase", letterSpacing: "0.5px", marginRight: "4px" }}>
+                업무 영역
+              </span>
+              {MENU_GROUPS.map((group) => {
+                const isGroupActive = activeGroup.id === group.id;
+                return (
+                  <button
+                    key={group.id}
+                    type="button"
+                    onClick={() => handleSelectGroup(group.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      border: isGroupActive ? "1px solid #202223" : "1px solid #E1E3E5",
+                      background: isGroupActive ? "#202223" : "#FFFFFF",
+                      color: isGroupActive ? "#FFFFFF" : "#202223",
+                      fontSize: "13px",
+                      fontWeight: isGroupActive ? 600 : 500,
+                      cursor: "pointer",
+                      transition: "background-color 0.1s ease",
+                    }}
+                  >
+                    <span>{group.label}</span>
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        padding: "1px 5px",
+                        borderRadius: "4px",
+                        background: isGroupActive ? "rgba(255, 255, 255, 0.2)" : "#EDEEEF",
+                        color: isGroupActive ? "#FFFFFF" : "#6D7175",
+                      }}
+                    >
+                      {group.ids.filter(id => id !== 'preview').length}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Show All Tabs Toggle */}
+              <button
+                type="button"
+                onClick={() => setShowAllTabs(!showAllTabs)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #D2D5D8",
+                  background: showAllTabs ? "#F1F2F4" : "#FFFFFF",
+                  color: "#202223",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                {showAllTabs ? "전체 메뉴 (12) 표시 중" : "전체 메뉴 보기"}
+              </button>
+            </div>
+
+            {/* Right Controls: Simulator Toggle & Status */}
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {/* Mobile Simulator Toggle Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !showMobileSimulator;
+                  setShowMobileSimulator(next);
+                  try { localStorage.setItem("dawayo_mobile_preview_open", String(next)); } catch {}
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  borderRadius: "6px",
+                  border: showMobileSimulator ? "1px solid #202223" : "1px solid #D2D5D8",
+                  background: showMobileSimulator ? "#202223" : "#FFFFFF",
+                  color: showMobileSimulator ? "#FFFFFF" : "#202223",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                  <line x1="12" y1="18" x2="12.01" y2="18" />
+                </svg>
+                <span>{showMobileSimulator ? "모바일 미리보기 표시" : "모바일 미리보기 숨김"}</span>
+              </button>
+
+              {/* Deploy Status */}
               <span
                 style={{
-                  width: "6px",
-                  height: "6px",
-                  borderRadius: "50%",
-                  backgroundColor: "#10B981",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "#F1F8F5",
+                  color: "#0F5B38",
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  fontWeight: 500,
+                  fontSize: "11px",
+                  border: "1px solid #AEE9D1",
                 }}
-              />
-              실시간 앱 반영 완료 ({(() => {
-                const ts = Number(config.configVersion);
-                if (!Number.isNaN(ts) && ts > 1000000000000) {
-                  const d = new Date(ts);
-                  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-                }
-                return `버전: ${String(config.configVersion).slice(-6)}`;
-              })()})
+              >
+                <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#108043" }} />
+                실시간 앱 반영 완료
+              </span>
+            </div>
+          </div>
+
+          {/* Level 2: Sub-Tabs Bar */}
+          <div
+            style={{
+              padding: "8px 16px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flexWrap: "wrap",
+              background: "#FFFFFF",
+            }}
+          >
+            <span style={{ fontSize: "11px", fontWeight: 600, color: "#6D7175", minWidth: "48px" }}>
+              {showAllTabs ? "전체" : activeGroup.label}:
             </span>
-            <a
-              href="/api/mobile/v1/storefront-config"
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                fontSize: "11px",
-                color: "#2563EB",
-                textDecoration: "underline",
-                cursor: "pointer",
-              }}
-            >
-              API 실시간 로그 확인
-            </a>
+
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", flex: 1 }}>
+              {displayedTabs.filter(t => t.id !== 'preview').map((tab) => {
+                const isSelected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => setActiveTab(tab.id)}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "4px",
+                      border: "1px solid",
+                      borderColor: isSelected ? "#202223" : "transparent",
+                      fontSize: "12px",
+                      fontWeight: isSelected ? 600 : 400,
+                      backgroundColor: isSelected ? "#F1F2F4" : "transparent",
+                      color: isSelected ? "#202223" : "#5C5F62",
+                      cursor: "pointer",
+                      transition: "all 0.1s ease",
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -2419,7 +2565,9 @@ export default function AppManagementPage() {
         {/* =================================================================
          * TAB 0: OVERVIEW (Reference Card Grid with Geometric SVG Previews)
          * ================================================================= */}
-        {activeTab === "overview" && (
+        <div style={{ display: "flex", gap: "24px", alignItems: "flex-start", width: "100%", position: "relative" }}>
+          <div style={{ flex: "1 1 0%", minWidth: 0 }}>
+            {activeTab === "overview" && (
           <BlockStack gap="500">
             <div
               style={{
@@ -6349,272 +6497,92 @@ export default function AppManagementPage() {
             style={{
               display: "flex",
               justifyContent: "center",
-              padding: "20px",
-              background: "#F1F5F9",
+              padding: "24px",
+              background: "#F8FAFC",
               borderRadius: "16px",
               border: "1px solid #CBD5E1",
             }}
           >
-            {/* 375x740 Smartphone Viewport Simulator */}
-            <div
-              style={{
-                width: "375px",
-                maxWidth: "100%",
-                background: "#FFFFFF",
-                borderRadius: "32px",
-                border: "8px solid #1E293B",
-                overflow: "hidden",
-                boxShadow: "0 20px 40px rgba(0,0,0,0.12)",
-              }}
-            >
-              {/* Shipping Bar */}
-              <div
-                style={{
-                  background: "#111827",
-                  color: "#FFFFFF",
-                  fontSize: "11px",
-                  padding: "6px 12px",
-                  textAlign: "center",
-                  fontWeight: 600,
-                }}
-              >
-                {shippingNoticeKo}
-              </div>
-
-              {/* Sticky GNB Preview */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: "14px",
-                  padding: "10px 14px",
-                  borderBottom: "1px solid #F1F5F9",
-                  overflowX: "auto",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                }}
-              >
-                {(config.categories || [])
-                  .filter((c) => c.isActive && c.isGnbTab)
-                  .map((c, idx) => (
-                    <span
-                      key={c.id}
-                      style={{
-                        color: idx === 0 ? "#E30613" : "#4B5563",
-                        borderBottom: idx === 0 ? "2px solid #E30613" : "none",
-                        paddingBottom: "4px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {c.name?.ko}
-                    </span>
-                  ))}
-              </div>
-
-              {/* Hero Banner Preview */}
-              {previewBanner && (
-                <div style={{ padding: "12px" }}>
-                  <div
-                    style={{
-                      background: previewBanner.bgGradient,
-                      borderRadius: "16px",
-                      padding: "16px",
-                      color: "#FFFFFF",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "10px",
-                    }}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          background: "rgba(0,0,0,0.25)",
-                          padding: "2px 8px",
-                          borderRadius: "10px",
-                          fontWeight: 700,
-                        }}
-                      >
-                        {previewBanner.tag?.ko}
-                      </span>
-                      <div
-                        style={{
-                          fontSize: "15px",
-                          fontWeight: 800,
-                          marginTop: "6px",
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        {previewBanner.title?.ko}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          opacity: 0.9,
-                          marginTop: "4px",
-                        }}
-                      >
-                        {previewBanner.sub?.ko}
-                      </div>
-                    </div>
-                    {previewBanner.image && (
-                      <img
-                        src={previewBanner.image}
-                        alt=""
-                        style={{
-                          width: "72px",
-                          height: "72px",
-                          borderRadius: "12px",
-                          objectFit: "cover",
-                          background: "#FFFFFF",
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Category Squircles Preview */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  gap: "10px",
-                  padding: "8px 14px 16px",
-                }}
-              >
-                {(config.categories || [])
-                  .filter((c) => c.isActive && c.isCarousel)
-                  .slice(0, 8)
-                  .map((c) => (
-                    <div
-                      key={c.id}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: "4px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: "48px",
-                          height: "48px",
-                          borderRadius: "16px",
-                          background: "#F5F5F7",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <CategoryVectorIcon name={c.iconName} size={20} />
-                      </div>
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          color: "#1F2937",
-                        }}
-                      >
-                        {c.name?.ko}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-
-              {/* Hot Deals Preview */}
-              <div style={{ padding: "12px 14px", background: "#F8FAFC" }}>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: 800,
-                    color: "#111827",
-                    marginBottom: "10px",
-                  }}
-                >
-                  {hotDealSettings.sectionTitleKo || "오늘만 특별한 가격"}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(3, 1fr)",
-                    gap: "8px",
-                  }}
-                >
-                  {(config.hotDeals || [])
-                    .filter((d) => d.isActive)
-                    .slice(0, 3)
-                    .map((d) => (
-                      <div key={d.id}>
-                        <div
-                          style={{
-                            height: "90px",
-                            background: "#F4F5F7",
-                            borderRadius: "12px",
-                            position: "relative",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <span
-                            style={{
-                              position: "absolute",
-                              top: "6px",
-                              left: "6px",
-                              background: "#E30613",
-                              color: "#FFFFFF",
-                              fontSize: "10px",
-                              fontWeight: 800,
-                              padding: "1px 5px",
-                              borderRadius: "4px",
-                            }}
-                          >
-                            -{d.discountRate}%
-                          </span>
-                          {d.image && (
-                            <img
-                              src={d.image}
-                              alt=""
-                              style={{
-                                width: "75%",
-                                height: "75%",
-                                objectFit: "contain",
-                                mixBlendMode: "multiply",
-                              }}
-                            />
-                          )}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            marginTop: "6px",
-                            color: "#111827",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {d.name?.ko}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: 800,
-                            color: "#E30613",
-                          }}
-                        >
-                          €{Number(d.salePrice).toFixed(2)}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
+            <MobileLiveSimulator
+              config={config}
+              activeTab={activeTab}
+              bannerForm={bannerForm}
+              editingBanner={editingBanner}
+              dealForm={dealForm}
+              hotDealSettings={hotDealSettings}
+              shippingNoticeKo={shippingNoticeKo}
+              freeShippingThreshold={freeShippingThreshold}
+              standalone={true}
+            />
           </div>
         )}
-      </BlockStack>
+          </div>
+
+          {/* Right Column: Sticky Mobile Simulator */}
+          {showMobileSimulator && activeTab !== "preview" && (
+            <div
+              style={{
+                width: "360px",
+                flexShrink: 0,
+                position: "sticky",
+                top: "16px",
+                alignSelf: "flex-start",
+                zIndex: 20,
+              }}
+            >
+              <MobileLiveSimulator
+                config={config}
+                activeTab={activeTab}
+                bannerForm={bannerForm}
+                editingBanner={editingBanner}
+                dealForm={dealForm}
+                hotDealSettings={hotDealSettings}
+                shippingNoticeKo={shippingNoticeKo}
+                freeShippingThreshold={freeShippingThreshold}
+                onClose={() => {
+                  setShowMobileSimulator(false);
+                  try { localStorage.setItem("dawayo_mobile_preview_open", "false"); } catch {}
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Floating Quick Opener when Simulator is closed */}
+        {!showMobileSimulator && activeTab !== "preview" && (
+          <button
+            type="button"
+            onClick={() => {
+              setShowMobileSimulator(true);
+              try { localStorage.setItem("dawayo_mobile_preview_open", "true"); } catch {}
+            }}
+            style={{
+              position: "fixed",
+              bottom: "24px",
+              right: "24px",
+              zIndex: 999,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "8px 14px",
+              background: "#202223",
+              color: "#FFFFFF",
+              borderRadius: "6px",
+              border: "1px solid #303030",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              fontWeight: 600,
+              fontSize: "12px",
+              cursor: "pointer",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+              <line x1="12" y1="18" x2="12.01" y2="18" />
+            </svg>
+            <span>모바일 미리보기 열기</span>
+          </button>
+        )}
+</BlockStack>
 
       {/* LOG & DEPLOYMENT STATUS MODAL (Clean Simple Table) */}
       <Modal
