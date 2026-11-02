@@ -133,10 +133,44 @@ export async function action({ request }) {
 }
 
 // --- MAIN FRONTEND COMPONENT ---
-export default function RecipeBlogs() {
-  const { recipes, blogs, shopUrl } = useLoaderData();
+export function RecipeCommerceManager({ active = true }) {
+  const loaderFetcher = useFetcher();
+  useEffect(() => {
+    if (active && !loaderFetcher.data && loaderFetcher.state === "idle") {
+      loaderFetcher.load("/app/recipe-blogs");
+    }
+  }, [active, loaderFetcher.data, loaderFetcher.state]);
+
+  if (!loaderFetcher.data) {
+    return (
+      <Card>
+        <Box padding="400">
+          <Text as="p" tone="subdued">레시피 커머스 데이터를 불러오는 중입니다...</Text>
+        </Box>
+      </Card>
+    );
+  }
+
+  return (
+    <RecipeBlogs
+      loaderData={{
+        recipes: loaderFetcher.data.recipes || [],
+        blogs: loaderFetcher.data.blogs || [],
+        shopUrl: loaderFetcher.data.shopUrl || "",
+      }}
+      actionUrl="/app/recipe-blogs"
+      embedded={true}
+      onReload={() => loaderFetcher.load("/app/recipe-blogs")}
+    />
+  );
+}
+
+export default function RecipeBlogs(props = {}) {
+  const { recipes, blogs, shopUrl } = props.loaderData || useLoaderData();
+  const { actionUrl, embedded = false, onReload } = props;
   const fetcher = useFetcher();
   const actionFetcher = useFetcher();
+  const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
   const submissionLock = useRef(false);
   const draftId = useRef(null);
   const handledActionResult = useRef(null);
@@ -212,6 +246,7 @@ export default function RecipeBlogs() {
       setIngredients([]);
     }
     setToastMessage({ type: result.success ? "success" : "critical", title: result.success ? "처리 완료" : "처리 실패", content: result.error || result.message || "레시피가 저장되었습니다." });
+    if (result.success && onReload) onReload();
   }, [actionFetcher.state, actionFetcher.data, selectedRecipe?.id]);
 
   // Load recipe into editor
@@ -376,7 +411,7 @@ export default function RecipeBlogs() {
 
     submittedProducts.current = selectedProducts;
     submissionLock.current = true;
-    actionFetcher.submit(formData, { method: "post" });
+    actionFetcher.submit(formData, submitOpts);
 
     setToastMessage({
       type: "info",
@@ -397,7 +432,7 @@ export default function RecipeBlogs() {
     formData.set("intent", "delete");
     formData.set("id", deleteRecipeId);
     submissionLock.current = true;
-    actionFetcher.submit(formData, { method: "post" });
+    actionFetcher.submit(formData, submitOpts);
     setDeleteRecipeId(null);
   };
 
@@ -426,16 +461,21 @@ export default function RecipeBlogs() {
     products: selectedProducts,
   };
 
-  return (
-    <Page
-      title="K-Food 레시피 커머스 플랫폼 (Recipe Commerce Platform)"
-      subtitle="유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화"
-      primaryAction={{
-        content: "K-Food 프리셋 라이브러리 열기",
-        onAction: () => setPresetModalOpen(true),
-      }}
-    >
+  const contentBody = (
       <BlockStack gap="500">
+        {embedded && (
+          <Card>
+            <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+              <BlockStack gap="050">
+                <Text as="h2" variant="headingMd">K-Food 레시피 커머스 플랫폼</Text>
+                <Text as="p" tone="subdued" variant="bodySm">유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화</Text>
+              </BlockStack>
+              <Button variant="primary" onClick={() => setPresetModalOpen(true)}>
+                K-Food 프리셋 라이브러리 열기
+              </Button>
+            </InlineStack>
+          </Card>
+        )}
         
         {/* KPI Metrics Dashboard Header */}
         <RecipeDashboardHeader recipes={recipes} />
@@ -675,6 +715,20 @@ export default function RecipeBlogs() {
         />
 
       </BlockStack>
+  );
+
+  if (embedded) return contentBody;
+
+  return (
+    <Page
+      title="K-Food 레시피 커머스 플랫폼 (Recipe Commerce Platform)"
+      subtitle="유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화"
+      primaryAction={{
+        content: "K-Food 프리셋 라이브러리 열기",
+        onAction: () => setPresetModalOpen(true),
+      }}
+    >
+      {contentBody}
     </Page>
   );
 }

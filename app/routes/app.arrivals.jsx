@@ -362,11 +362,17 @@ function DetailsCard({ arrival, override, copy, saving, onSave }) {
   );
 }
 
-export default function ArrivalsPage() {
-  const data = useLoaderData();
+function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
   const chooser = useFetcher(), arrivalSaver = useFetcher(), syncer = useFetcher(), copySaver = useFetcher(), skuAssigner = useFetcher();
   const result = chooser.data || arrivalSaver.data || syncer.data || copySaver.data || skuAssigner.data;
   const [pending, setPending] = useState(undefined); // arrival to confirm, null = turn off
+  const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
+
+  useEffect(() => {
+    if (onReload && result) {
+      onReload();
+    }
+  }, [result]);
 
   // Before anything is chosen, the app shows every arrival (the nearest on the home card).
   const chosenRef = data.selection ? data.containers.find((c) => data.selection.shown.includes(c.ref))?.ref || null : null;
@@ -384,19 +390,31 @@ export default function ArrivalsPage() {
   const reviewed = new Set(data.selection ? data.selection.reviewed : data.containers.map((c) => c.ref));
   const overrideOf = (ref) => data.overrides[ref] || {};
   const confirm = () => {
-    chooser.submit({ intent: "choose", ref: pending ? pending.ref : "", reviewed: JSON.stringify(data.containers.map((c) => c.ref)) }, { method: "post" });
+    chooser.submit({ intent: "choose", ref: pending ? pending.ref : "", reviewed: JSON.stringify(data.containers.map((c) => c.ref)) }, submitOpts);
     setPending(undefined);
   };
-  const saveArrival = (what) => (override) => arrivalSaver.submit({ intent: "arrival", what, ref: chosen.ref, override: JSON.stringify(override) }, { method: "post" });
+  const saveArrival = (what) => (override) => arrivalSaver.submit({ intent: "arrival", what, ref: chosen.ref, override: JSON.stringify(override) }, submitOpts);
 
   const [copy, setCopy] = useState(data.copy);
   useEffect(() => setCopy(data.copy), [data.copy]);
   const setCopyField = (kind, field, value) => setCopy((current) => ({ ...current, [kind]: { ...current[kind], [field]: value } }));
 
-  return (
-    <Page title="앱 입고 일정" subtitle="Odoo 입고 중 앱 홈에 보여줄 입고를 고릅니다."
-      secondaryActions={[{ content: "Odoo에서 지금 가져오기", loading: syncer.state !== "idle", onAction: () => syncer.submit({ intent: "sync" }, { method: "post" }) }]}>
+  const inner = (
+    <>
       <BlockStack gap="400">
+        {embedded && (
+          <Card>
+            <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+              <BlockStack gap="050">
+                <Text as="h2" variant="headingMd">앱 입고 일정</Text>
+                <Text as="p" tone="subdued" variant="bodySm">Odoo 입고 중 모바일 앱 홈에 보여줄 입고를 고르고 미등록 SKU를 설정합니다.</Text>
+              </BlockStack>
+              <Button loading={syncer.state !== "idle"} onClick={() => syncer.submit({ intent: "sync" }, submitOpts)}>
+                Odoo에서 지금 가져오기
+              </Button>
+            </InlineStack>
+          </Card>
+        )}
         {result && <Banner tone={result.ok ? "success" : "critical"}>{result.message}</Banner>}
         {lostRef && !chosen && <Banner tone="warning">설정했던 입고 {lostRef}가 입고 완료되어 목록에서 빠졌습니다. 앱 홈에 입고 카드가 보이지 않으니 다음 입고를 골라주세요.</Banner>}
         {!data.selection && data.containers.length > 0 && <Banner tone="info">선택한 입고가 없어 가장 가까운 입고가 앱에 표시되고 있습니다.</Banner>}
@@ -430,7 +448,7 @@ export default function ArrivalsPage() {
                   autoResolveCollision: String(autoResolveCollision !== false),
                   assignments: JSON.stringify(assignments),
                 },
-                { method: "post" }
+                submitOpts
               );
             }}
           />
@@ -453,7 +471,7 @@ export default function ArrivalsPage() {
               </BlockStack>
             ))}
             <InlineStack align="end">
-              <Button loading={copySaver.state !== "idle"} onClick={() => copySaver.submit({ intent: "copy", copy: JSON.stringify(copy) }, { method: "post" })}>기본 문구 저장</Button>
+              <Button loading={copySaver.state !== "idle"} onClick={() => copySaver.submit({ intent: "copy", copy: JSON.stringify(copy) }, submitOpts)}>기본 문구 저장</Button>
             </InlineStack>
           </BlockStack>
         </Card>
@@ -479,6 +497,48 @@ export default function ArrivalsPage() {
           )}
         </Modal.Section>
       </Modal>
+    </>
+  );
+
+  if (embedded) return inner;
+
+  return (
+    <Page title="앱 입고 일정" subtitle="Odoo 입고 중 앱 홈에 보여줄 입고를 고릅니다."
+      secondaryActions={[{ content: "Odoo에서 지금 가져오기", loading: syncer.state !== "idle", onAction: () => syncer.submit({ intent: "sync" }, submitOpts) }]}>
+      {inner}
     </Page>
   );
+}
+
+export function ArrivalsManager({ active = true }) {
+  const loaderFetcher = useFetcher();
+  useEffect(() => {
+    if (active && !loaderFetcher.data && loaderFetcher.state === "idle") {
+      loaderFetcher.load("/app/arrivals");
+    }
+  }, [active, loaderFetcher.data, loaderFetcher.state]);
+
+  if (!loaderFetcher.data) {
+    return (
+      <Card>
+        <Box padding="400">
+          <Text as="p" tone="subdued">앱 입고 일정을 불러오는 중입니다...</Text>
+        </Box>
+      </Card>
+    );
+  }
+
+  return (
+    <ArrivalsContent
+      data={loaderFetcher.data}
+      actionUrl="/app/arrivals"
+      embedded={true}
+      onReload={() => loaderFetcher.load("/app/arrivals")}
+    />
+  );
+}
+
+export default function ArrivalsPage() {
+  const data = useLoaderData();
+  return <ArrivalsContent data={data} />;
 }

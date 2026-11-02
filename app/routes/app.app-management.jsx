@@ -3,6 +3,10 @@ import ProductAttributesManager from "../components/ProductAttributesManager.jsx
 import BannerImageUploader from "../components/BannerImageUploader.jsx";
 import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
 import B2bRequestsManager from "../components/B2bRequestsManager.jsx";
+import { ArrivalsManager } from "./app.arrivals.jsx";
+import { ReviewsManager } from "./app.reviews.jsx";
+import { RecipeCommerceManager } from "./app.recipe-blogs.jsx";
+import { PushNotificationsManager } from "./app.push-notifications.jsx";
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import MobileLiveSimulator from "../components/MobileLiveSimulator.jsx";
@@ -1743,13 +1747,17 @@ const TOP_MENU_TABS = [
   { id: "hotdeals", label: "오늘의 특가", group: "home" },
   { id: "categories", label: "카테고리 · GNB", group: "home" },
   { id: "campaigns", label: "공동구매 · 정기구독", group: "home" },
+  { id: "recipes", label: "레시피 커머스", group: "home" },
   { id: "pages", label: "화면별 배너 · 안내", group: "home" },
 
+  { id: "arrivals", label: "앱 입고 일정", group: "operations" },
   { id: "shipping", label: "무료배송 · 티커", group: "operations" },
   { id: "temperatures", label: "상품 보관온도", group: "operations" },
   { id: "product-rules", label: "유통기한(MHD)", group: "operations" },
   { id: "product-attributes", label: "추천 · 상품 속성", group: "operations" },
 
+  { id: "reviews", label: "리뷰 관리", group: "cs" },
+  { id: "push-notifications", label: "앱 알림 발송", group: "cs" },
   { id: "customer-requests", label: "고객 문의 · 반품", group: "cs" },
   { id: "b2b-requests", label: "B2B 도매 회원 승인", group: "cs" },
   { id: "preview", label: "전체 화면 미리보기", group: "home" },
@@ -1759,23 +1767,23 @@ const MENU_GROUPS = [
   {
     id: "home",
     label: "홈 화면 편성",
-    badge: "6개",
-    description: "메인 배너, 특가, 카테고리 및 공동구매",
-    ids: ["overview", "banners", "hotdeals", "categories", "campaigns", "pages", "preview"],
+    badge: "7개",
+    description: "메인 배너, 특가, 카테고리, 공동구매 및 레시피 커머스",
+    ids: ["overview", "banners", "hotdeals", "categories", "campaigns", "recipes", "pages", "preview"],
   },
   {
     id: "operations",
     label: "물류 및 운영 정책",
-    badge: "4개",
-    description: "무료배송 게이지, 보관온도, 유통기한(MHD)",
-    ids: ["shipping", "temperatures", "product-rules", "product-attributes"],
+    badge: "5개",
+    description: "앱 입고 일정, 무료배송 게이지, 보관온도, 유통기한(MHD)",
+    ids: ["arrivals", "shipping", "temperatures", "product-rules", "product-attributes"],
   },
   {
     id: "cs",
-    label: "고객 서비스 · 신청",
-    badge: "2개",
-    description: "고객 1:1 문의/반품 및 B2B 도매 회원 승인",
-    ids: ["customer-requests", "b2b-requests"],
+    label: "고객 서비스 · 알림",
+    badge: "4개",
+    description: "리뷰 관리, 푸시 알림 발송, 1:1 문의/반품 및 B2B 도매 회원 승인",
+    ids: ["reviews", "push-notifications", "customer-requests", "b2b-requests"],
   },
 ];
 
@@ -2445,7 +2453,7 @@ export default function AppManagementPage() {
                   cursor: "pointer",
                 }}
               >
-                {showAllTabs ? "전체 메뉴 (12) 표시 중" : "전체 메뉴 보기"}
+                {showAllTabs ? `전체 메뉴 (${TOP_MENU_TABS.filter((t) => t.id !== "preview").length}) 표시 중` : "전체 메뉴 보기"}
               </button>
             </div>
 
@@ -2917,6 +2925,131 @@ export default function AppManagementPage() {
                 </div>
               </div>
             </div>
+
+              {/* Embedded Sub-Managers Quick Access Cards */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                  gap: "16px",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#FFFFFF",
+                    borderRadius: "12px",
+                    border: "1px solid #E5E7EB",
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                  }}
+                >
+                  <div>
+                    <div style={{ marginBottom: "6px" }}>
+                      <Text variant="headingMd" as="h3">
+                        앱 입고 일정
+                      </Text>
+                    </div>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      Odoo 입고 컨테이너를 선택하여 모바일 앱에 노출할 이번 달 입고 일정과 미등록 SKU를 관리합니다.
+                    </Text>
+                  </div>
+                  <div>
+                    <Button onClick={() => setActiveTab("arrivals")}>
+                      입고 일정 관리
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: "#FFFFFF",
+                    borderRadius: "12px",
+                    border: "1px solid #E5E7EB",
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                  }}
+                >
+                  <div>
+                    <div style={{ marginBottom: "6px" }}>
+                      <Text variant="headingMd" as="h3">
+                        레시피 커머스
+                      </Text>
+                    </div>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      모바일 앱 커뮤니티 탭에 노출되는 레시피 아티클과 원클릭 장바구니 담기 연동 상품을 관리합니다.
+                    </Text>
+                  </div>
+                  <div>
+                    <Button onClick={() => setActiveTab("recipes")}>
+                      레시피 관리
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: "#FFFFFF",
+                    borderRadius: "12px",
+                    border: "1px solid #E5E7EB",
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                  }}
+                >
+                  <div>
+                    <div style={{ marginBottom: "6px" }}>
+                      <Text variant="headingMd" as="h3">
+                        리뷰 관리
+                      </Text>
+                    </div>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      모바일 앱에서 작성된 상품 구매 후기, 평점 및 포토 리뷰 노출 상태를 검수하고 관리합니다.
+                    </Text>
+                  </div>
+                  <div>
+                    <Button onClick={() => setActiveTab("reviews")}>
+                      리뷰 관리
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: "#FFFFFF",
+                    borderRadius: "12px",
+                    border: "1px solid #E5E7EB",
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                  }}
+                >
+                  <div>
+                    <div style={{ marginBottom: "6px" }}>
+                      <Text variant="headingMd" as="h3">
+                        앱 알림 발송
+                      </Text>
+                    </div>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      모바일 앱 사용자에게 다국어 푸시 알림 캠페인을 작성하여 즉시 또는 예약 발송합니다.
+                    </Text>
+                  </div>
+                  <div>
+                    <Button onClick={() => setActiveTab("push-notifications")}>
+                      알림 발송 관리
+                    </Button>
+                  </div>
+                </div>
+              </div>
 
               {/* B2B Wholesale Inquiries Card */}
               <div
@@ -6492,6 +6625,30 @@ export default function AppManagementPage() {
         {/* =================================================================
          * TAB 6: LIVE MOBILE SIMULATOR PREVIEW (Trend A Frame)
          * ================================================================= */}
+        {visitedTabs.has("arrivals") && (
+          <div style={{ display: activeTab === "arrivals" ? "block" : "none" }}>
+            <ArrivalsManager active={activeTab === "arrivals"} />
+          </div>
+        )}
+
+        {visitedTabs.has("reviews") && (
+          <div style={{ display: activeTab === "reviews" ? "block" : "none" }}>
+            <ReviewsManager active={activeTab === "reviews"} />
+          </div>
+        )}
+
+        {visitedTabs.has("recipes") && (
+          <div style={{ display: activeTab === "recipes" ? "block" : "none" }}>
+            <RecipeCommerceManager active={activeTab === "recipes"} />
+          </div>
+        )}
+
+        {visitedTabs.has("push-notifications") && (
+          <div style={{ display: activeTab === "push-notifications" ? "block" : "none" }}>
+            <PushNotificationsManager active={activeTab === "push-notifications"} />
+          </div>
+        )}
+
         {activeTab === "preview" && (
           <div
             style={{
