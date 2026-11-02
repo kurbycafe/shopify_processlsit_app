@@ -6,6 +6,7 @@ import {customerReaction,requireCustomer,reviewImage} from "./customerCommunity.
 import { createHash } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
 import { listPublicReviews, createReview } from "./productReviews.server.js";
+import { ensureCustomerB2bCoupon } from "./b2bCoupon.server.js";
 
 export const CUSTOMER_RETURN_ORDER_QUERY = `query ProcesslistReturnOrder($search: String!) {
   customer { id orders(first: 5, query: $search) { nodes { id name } } }
@@ -204,6 +205,27 @@ export async function updateCustomerRequest({ db, shop, id, status, reply = unde
           customerTagged = true;
         } else if (targetGid) {
           customerTagged = true;
+        }
+
+        if (targetGid && typeof db.customerRequest?.upsert === "function") {
+          const issued = await ensureCustomerB2bCoupon({
+            db,
+            shop,
+            customerId: targetGid,
+            companyName: record.payload?.companyName || null,
+            adminClient: admin,
+          });
+          if (issued?.code) {
+            const mergedPayload = {
+              ...(nextPayload || record.payload || {}),
+              b2bCouponCode: issued.code,
+              b2bCouponExpiresAt: issued.expiresAt,
+            };
+            await db.customerRequest.updateMany({
+              where: { id, shop },
+              data: { customerId: targetGid, payload: mergedPayload },
+            });
+          }
         }
       }
     } catch (tagErr) {

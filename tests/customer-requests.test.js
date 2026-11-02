@@ -274,3 +274,77 @@ test("admin reply updates customer request payload with reply, adminReply, and r
   assert.equal(savedUpdate.data.payload.reply, "안녕하세요 고객님, 재발송 및 포인트 보상이 완료되었습니다.");
   assert.equal(savedUpdate.data.payload.adminReply, "안녕하세요 고객님, 재발송 및 포인트 보상이 완료되었습니다.");
 });
+
+
+test("b2b-coupon issues 10% coupon valid for 2 months for approved B2B members and auto-renews when expired", async () => {
+  const rows = [];
+  const db = {
+    customerRequest: {
+      findFirst: async ({ where }) => {
+        return rows.find((r) => {
+          if (where.shop && (where.shop.in ? !where.shop.in.includes(r.shop) : r.shop !== where.shop)) return false;
+          if (where.type && r.type !== where.type) return false;
+          if (where.status && r.status !== where.status) return false;
+          if (where.customerId && r.customerId !== where.customerId) return false;
+          return true;
+        }) || null;
+      },
+      findMany: async ({ where }) => {
+        return rows.filter((r) => r.shop === where.shop && r.type === where.type && r.status === where.status);
+      },
+      upsert: async ({ where, create, update }) => {
+        const existingIndex = rows.findIndex((r) => r.requestKey === where.requestKey);
+        if (existingIndex >= 0) {
+          rows[existingIndex] = { ...rows[existingIndex], ...update };
+          return rows[existingIndex];
+        }
+        const created = { ...create, id: "req-" + rows.length, createdAt: new Date() };
+        rows.push(created);
+        return created;
+      },
+    },
+  };
+  const resolve = createCustomerResolver({
+    db,
+    verify: async () => customerId,
+    graphql: async () => ({
+      data: {
+        discountCodeBasicCreate: {
+          codeDiscountNode: { id: "gid://shopify/DiscountCodeNode/1" },
+          userErrors: [],
+        },
+      },
+    }),
+  });
+
+  const beforeApproval = await resolve({ request: req(null, "GET", "b2b-coupon"), resource: "b2b-coupon", shop });
+  assert.equal(beforeApproval.isB2b, false);
+  assert.equal(beforeApproval.coupon, null);
+
+  rows.push({
+    id: "req-b2b-approved",
+    shop,
+    type: "B2B",
+    status: "CLOSED",
+    customerId,
+    payload: { companyName: "Dawayo Gastro GmbH", email: "b2b@dawayo.de" },
+  });
+
+  const firstCouponRes = await resolve({ request: req(null, "GET", "b2b-coupon"), resource: "b2b-coupon", shop });
+  assert.equal(firstCouponRes.isB2b, true);
+  assert.equal(firstCouponRes.companyName, "Dawayo Gastro GmbH");
+  assert.ok(firstCouponRes.coupon);
+  assert.match(firstCouponRes.coupon.code, /^B2B10-\d{4}-[A-Z0-9]{6}$/);
+  assert.equal(firstCouponRes.coupon.discountPercent, 10);
+  assert.equal(firstCouponRes.coupon.cycleMonths, 2);
+
+  const secondCouponRes = await resolve({ request: req(null, "GET", "b2b-coupon"), resource: "b2b-coupon", shop });
+  assert.equal(secondCouponRes.coupon.code, firstCouponRes.coupon.code);
+
+  const savedCouponRow = rows.find((r) => r.type === "B2B_COUPON");
+  savedCouponRow.payload.expiresAtIso = "2020-01-01T00:00:00.000Z";
+  const renewedRes = await resolve({ request: req(null, "GET", "b2b-coupon"), resource: "b2b-coupon", shop });
+  assert.equal(renewedRes.isB2b, true);
+  assert.ok(renewedRes.coupon.code);
+  assert.notEqual(renewedRes.coupon.expiresAtIso, "2020-01-01T00:00:00.000Z");
+});
