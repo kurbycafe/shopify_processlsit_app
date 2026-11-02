@@ -87,21 +87,36 @@ export async function recordTabUsage({ shop, path, user }) {
 export async function getUsageStats(shop = null) {
   await ensureUsageLogSchema();
   try {
-    const whereShop = shop ? `WHERE "shop" = '${shop.replace(/'/g, "''")}'` : "";
-    const summary = await prisma.$queryRawUnsafe(`
-      SELECT "tabName", "path", COUNT(*)::int AS count, MAX("createdAt") AS "lastUsedAt"
-      FROM "AppUsageLog"
-      ${whereShop}
-      GROUP BY "tabName", "path"
-      ORDER BY count DESC
-    `);
-    const recent = await prisma.$queryRawUnsafe(`
-      SELECT "id", "shop", "path", "tabName", "user", "createdAt"
-      FROM "AppUsageLog"
-      ${whereShop}
-      ORDER BY "createdAt" DESC
-      LIMIT 20
-    `);
+    let summary, recent;
+    if (shop) {
+      summary = await prisma.$queryRaw`
+        SELECT "tabName", "path", COUNT(*)::int AS count, MAX("createdAt") AS "lastUsedAt"
+        FROM "AppUsageLog"
+        WHERE "shop" = ${shop}
+        GROUP BY "tabName", "path"
+        ORDER BY count DESC
+      `;
+      recent = await prisma.$queryRaw`
+        SELECT "id", "shop", "path", "tabName", "user", "createdAt"
+        FROM "AppUsageLog"
+        WHERE "shop" = ${shop}
+        ORDER BY "createdAt" DESC
+        LIMIT 20
+      `;
+    } else {
+      summary = await prisma.$queryRaw`
+        SELECT "tabName", "path", COUNT(*)::int AS count, MAX("createdAt") AS "lastUsedAt"
+        FROM "AppUsageLog"
+        GROUP BY "tabName", "path"
+        ORDER BY count DESC
+      `;
+      recent = await prisma.$queryRaw`
+        SELECT "id", "shop", "path", "tabName", "user", "createdAt"
+        FROM "AppUsageLog"
+        ORDER BY "createdAt" DESC
+        LIMIT 20
+      `;
+    }
     return { summary, recent };
   } catch (err) {
     console.warn("[UsageLog Query Error]:", err?.message);
