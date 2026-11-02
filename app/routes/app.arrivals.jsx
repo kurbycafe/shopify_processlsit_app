@@ -165,7 +165,11 @@ export const action = async ({ request }) => {
       override.items = Object.fromEntries(items.map(([key, setting]) => [key, setting.featured && ++picked > MAX_PICKS ? { ...setting, featured: undefined } : setting]));
       const arrivalOverrides = normalizeArrivalOverrides({ ...normalizeArrivalOverrides(settings.arrivalOverrides), [ref]: override });
       tickersJson = { arrivalOverrides };
-      message = form.get("what") === "picks" ? "미리보기 상품을 저장했습니다. 앱을 다시 열면 반영됩니다." : "상세 설정을 저장했습니다. 앱을 다시 열면 반영됩니다.";
+      const rawCopy = form.get("copy");
+      if (rawCopy) {
+        tickersJson.arrivalCopy = normalizeArrivalCopy(JSON.parse(String(rawCopy)));
+      }
+      message = form.get("what") === "picks" ? "미리보기 상품을 저장했습니다. 앱을 다시 열면 반영됩니다." : "상세 설정 및 문구를 저장했습니다. 앱을 다시 열면 반영됩니다.";
     } else {
       tickersJson = { arrivalCopy: normalizeArrivalCopy(JSON.parse(String(form.get("copy") || "{}"))) };
       message = "기본 문구를 저장했습니다. 앱을 다시 열면 반영됩니다.";
@@ -321,40 +325,180 @@ function PicksCard({ arrival, override, copy, saving, onSave }) {
   );
 }
 
-// Optional: the chosen arrival's date, kind, display window, title and note.
-function DetailsCard({ arrival, override, copy, saving, onSave }) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(override);
-  useEffect(() => setDraft(override), [override]);
-  const set = (patch) => setDraft((current) => ({ ...current, ...patch }));
-  const kind = draft.kind || arrival.odooKind;
+// Optional: the chosen arrival's date, kind, display window, title, note, and default copy.
+function DetailsAndCopyCard({ arrival, override, copy, saving, onSave, onSaveCopyOnly }) {
+  const [open, setOpen] = useState(true);
+  const [draft, setDraft] = useState(override || {});
+  const [copyDraft, setCopyDraft] = useState(copy);
+
+  useEffect(() => setDraft(override || {}), [override]);
+  useEffect(() => setCopyDraft(copy), [copy]);
+
+  const setOverrideField = (patch) => setDraft((current) => ({ ...current, ...patch }));
+  const setCopyField = (kind, field, value) =>
+    setCopyDraft((current) => ({ ...current, [kind]: { ...current[kind], [field]: value } }));
+
+  const kind = draft.kind || arrival?.odooKind || "container";
+
+  if (!arrival) {
+    return (
+      <Card>
+        <BlockStack gap="400">
+          <BlockStack gap="050">
+            <Text as="h2" variant="headingSm">기본 문구</Text>
+            <Text as="p" tone="subdued" variant="bodySm">
+              입고별 제목이 없을 때 쓰입니다. {"{date}"}는 입고 날짜로 바뀝니다.
+            </Text>
+          </BlockStack>
+          {KINDS.map(([k, name, titleHint, labelHint]) => (
+            <BlockStack key={k} gap="200">
+              <Text as="h3" variant="headingSm">{name}</Text>
+              <LangFields
+                label="제목"
+                value={copyDraft[k]?.title}
+                placeholder={titleHint}
+                maxLength={120}
+                onChange={(value) => setCopyField(k, "title", value)}
+              />
+              <LangFields
+                label="목록 표시 이름"
+                value={copyDraft[k]?.label}
+                placeholder={labelHint}
+                maxLength={120}
+                onChange={(value) => setCopyField(k, "label", value)}
+              />
+            </BlockStack>
+          ))}
+          <InlineStack align="end">
+            <Button
+              variant="primary"
+              loading={saving}
+              onClick={() => onSaveCopyOnly(copyDraft)}
+            >
+              기본 문구 저장
+            </Button>
+          </InlineStack>
+        </BlockStack>
+      </Card>
+    );
+  }
+
   return (
     <Card>
-      <BlockStack gap="300">
+      <BlockStack gap="400">
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="050">
-            <Text as="h2" variant="headingSm">상세 설정</Text>
-            <Text as="p" tone="subdued" variant="bodySm">날짜, 종류, 표시 기간, 이 입고만의 제목과 안내 문구</Text>
+            <Text as="h2" variant="headingSm">상세 설정 및 기본 문구</Text>
+            <Text as="p" tone="subdued" variant="bodySm">
+              {arrival.ref} 입고의 표시 일정, 전용 문구 및 기본 문구를 한곳에서 설정합니다.
+            </Text>
           </BlockStack>
           <Button onClick={() => setOpen(!open)}>{open ? "닫기" : "열기"}</Button>
         </InlineStack>
         {open && (
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
-              <TextField label="앱에 보일 날짜" type="date" value={draft.date || ""} autoComplete="off" onChange={(value) => set({ date: value || undefined })}
-                helpText={`비우면 Odoo 예정일(${arrival.odooDate || "미정"})을 씁니다. 카운트다운도 이 날짜 기준입니다.`} />
-              <Select label="종류" value={draft.kind || ""} onChange={(value) => set({ kind: value || undefined })}
-                options={[{ label: `Odoo 기준 (${KIND_LABEL[arrival.odooKind]})`, value: "" }, { label: "한국 컨테이너", value: "container" }, { label: "독일 내 입고", value: "domestic" }]} />
+              <TextField
+                label="앱에 보일 날짜"
+                type="date"
+                value={draft.date || ""}
+                autoComplete="off"
+                onChange={(value) => setOverrideField({ date: value || undefined })}
+                helpText={`비우면 Odoo 예정일(${arrival.odooDate || "미정"})을 씁니다. 카운트다운도 이 날짜 기준입니다.`}
+              />
+              <Select
+                label="종류"
+                value={draft.kind || ""}
+                onChange={(value) => setOverrideField({ kind: value || undefined })}
+                options={[
+                  { label: `Odoo 기준 (${KIND_LABEL[arrival.odooKind] || "미지정"})`, value: "" },
+                  { label: "한국 컨테이너", value: "container" },
+                  { label: "독일 내 입고", value: "domestic" },
+                ]}
+              />
             </InlineGrid>
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
-              <TextField label="표시 시작일" type="date" value={draft.showFrom || ""} autoComplete="off" onChange={(value) => set({ showFrom: value || undefined })} helpText="이 날부터 앱에 보입니다. 비우면 바로 표시." />
-              <TextField label="표시 종료일" type="date" value={draft.showUntil || ""} autoComplete="off" onChange={(value) => set({ showUntil: value || undefined })} helpText="이 날까지 보입니다. 비우면 입고가 끝날 때까지." />
+              <TextField
+                label="표시 시작일"
+                type="date"
+                value={draft.showFrom || ""}
+                autoComplete="off"
+                onChange={(value) => setOverrideField({ showFrom: value || undefined })}
+                helpText="이 날부터 앱에 보입니다. 비우면 바로 표시."
+              />
+              <TextField
+                label="표시 종료일"
+                type="date"
+                value={draft.showUntil || ""}
+                autoComplete="off"
+                onChange={(value) => setOverrideField({ showUntil: value || undefined })}
+                helpText="이 날까지 보입니다. 비우면 입고가 끝날 때까지."
+              />
             </InlineGrid>
+
             <Divider />
-            <LangFields label="이 입고의 제목" value={draft.title} maxLength={120} placeholder={copy[kind]?.title?.ko || KINDS.find(([id]) => id === kind)[2]} onChange={(title) => set({ title })} />
-            <Text as="p" tone="subdued" variant="bodySm">{"{date}"} 자리에 날짜가 들어갑니다. 비우면 아래 기본 문구를 씁니다.</Text>
-            <LangFields label="안내 문구" value={draft.note} maxLength={300} multiline={2} placeholder="예: 이번 컨테이너는 냉동식품이 많아요!" onChange={(note) => set({ note })} />
-            <InlineStack align="end"><Button variant="primary" loading={saving} onClick={() => onSave(draft)}>상세 설정 저장</Button></InlineStack>
+
+            <BlockStack gap="200">
+              <Text as="h3" variant="headingSm">이 입고의 전용 문구</Text>
+              <LangFields
+                label="이 입고의 제목"
+                value={draft.title}
+                maxLength={120}
+                placeholder={copyDraft[kind]?.title?.ko || KINDS.find(([id]) => id === kind)?.[2]}
+                onChange={(title) => setOverrideField({ title })}
+              />
+              <Text as="p" tone="subdued" variant="bodySm">
+                {"{date}"} 자리에 날짜가 들어갑니다. 비워둘 경우 아래 기본 문구를 사용합니다.
+              </Text>
+              <LangFields
+                label="안내 문구"
+                value={draft.note}
+                maxLength={300}
+                multiline={2}
+                placeholder="예: 이번 컨테이너는 냉동식품이 많아요!"
+                onChange={(note) => setOverrideField({ note })}
+              />
+            </BlockStack>
+
+            <Divider />
+
+            <BlockStack gap="300">
+              <BlockStack gap="050">
+                <Text as="h3" variant="headingSm">기본 문구 (개별 제목 미입력 시 대체 문구)</Text>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  입고별 제목이 없을 때 쓰입니다. {"{date}"}는 실제 입고 날짜로 바뀝니다.
+                </Text>
+              </BlockStack>
+              {KINDS.map(([k, name, titleHint, labelHint]) => (
+                <BlockStack key={k} gap="200">
+                  <Text as="h4" variant="bodyMd" fontWeight="semibold">{name}</Text>
+                  <LangFields
+                    label="제목"
+                    value={copyDraft[k]?.title}
+                    placeholder={titleHint}
+                    maxLength={120}
+                    onChange={(value) => setCopyField(k, "title", value)}
+                  />
+                  <LangFields
+                    label="목록 표시 이름"
+                    value={copyDraft[k]?.label}
+                    placeholder={labelHint}
+                    maxLength={120}
+                    onChange={(value) => setCopyField(k, "label", value)}
+                  />
+                </BlockStack>
+              ))}
+            </BlockStack>
+
+            <InlineStack align="end">
+              <Button
+                variant="primary"
+                loading={saving}
+                onClick={() => onSave(draft, copyDraft)}
+              >
+                상세 설정 및 기본 문구 저장
+              </Button>
+            </InlineStack>
           </BlockStack>
         )}
       </BlockStack>
@@ -393,7 +537,11 @@ function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
     chooser.submit({ intent: "choose", ref: pending ? pending.ref : "", reviewed: JSON.stringify(data.containers.map((c) => c.ref)) }, submitOpts);
     setPending(undefined);
   };
-  const saveArrival = (what) => (override) => arrivalSaver.submit({ intent: "arrival", what, ref: chosen.ref, override: JSON.stringify(override) }, submitOpts);
+  const saveArrival = (what) => (override, copyToSave) => {
+    const payload = { intent: "arrival", what, ref: chosen.ref, override: JSON.stringify(override) };
+    if (copyToSave) payload.copy = JSON.stringify(copyToSave);
+    arrivalSaver.submit(payload, submitOpts);
+  };
 
   const [copy, setCopy] = useState(data.copy);
   useEffect(() => setCopy(data.copy), [data.copy]);
@@ -455,26 +603,19 @@ function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
         )}
 
         {chosen && <PicksCard arrival={chosen} override={overrideOf(chosen.ref)} copy={copy} saving={arrivalSaver.state !== "idle" && arrivalSaver.formData?.get("what") === "picks"} onSave={saveArrival("picks")} />}
-        {chosen && <DetailsCard arrival={chosen} override={overrideOf(chosen.ref)} copy={copy} saving={arrivalSaver.state !== "idle" && arrivalSaver.formData?.get("what") === "details"} onSave={saveArrival("details")} />}
-
-        <Card>
-          <BlockStack gap="400">
-            <BlockStack gap="050">
-              <Text as="h2" variant="headingSm">기본 문구</Text>
-              <Text as="p" tone="subdued" variant="bodySm">입고별 제목이 없을 때 쓰입니다. {"{date}"}는 입고 날짜로 바뀝니다.</Text>
-            </BlockStack>
-            {KINDS.map(([kind, name, titleHint, labelHint]) => (
-              <BlockStack key={kind} gap="200">
-                <Text as="h3" variant="headingSm">{name}</Text>
-                <LangFields label="제목" value={copy[kind].title} placeholder={titleHint} maxLength={120} onChange={(value) => setCopyField(kind, "title", value)} />
-                <LangFields label="목록 표시 이름" value={copy[kind].label} placeholder={labelHint} maxLength={120} onChange={(value) => setCopyField(kind, "label", value)} />
-              </BlockStack>
-            ))}
-            <InlineStack align="end">
-              <Button loading={copySaver.state !== "idle"} onClick={() => copySaver.submit({ intent: "copy", copy: JSON.stringify(copy) }, submitOpts)}>기본 문구 저장</Button>
-            </InlineStack>
-          </BlockStack>
-        </Card>
+        <DetailsAndCopyCard
+          arrival={chosen}
+          override={chosen ? overrideOf(chosen.ref) : null}
+          copy={copy}
+          saving={
+            (arrivalSaver.state !== "idle" && arrivalSaver.formData?.get("what") === "details") ||
+            copySaver.state !== "idle"
+          }
+          onSave={saveArrival("details")}
+          onSaveCopyOnly={(copyToSave) =>
+            copySaver.submit({ intent: "copy", copy: JSON.stringify(copyToSave) }, submitOpts)
+          }
+        />
       </BlockStack>
 
       <Modal size="large" open={pending !== undefined} onClose={() => setPending(undefined)} title={pending ? "입고 설정 확인" : "입고 표시 끄기"}
