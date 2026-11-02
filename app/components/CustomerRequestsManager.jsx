@@ -121,9 +121,9 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
     );
   };
 
-  const handleUpdateStatus = (id, nextStatus) => {
+  const handleUpdateStatus = (id, nextStatus, recordType) => {
     updateFetcher.submit(
-      { id, status: nextStatus },
+      { id, status: nextStatus, ...(recordType === "B2B" && nextStatus === "CLOSED" ? { applyTags: "true" } : {}) },
       { method: "post", action: "/app/customer-requests" }
     );
   };
@@ -132,7 +132,7 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
     const existingReply = record.payload?.reply || record.payload?.adminReply || "";
     const replyText = (replyDrafts[record.id] ?? existingReply).trim();
     updateFetcher.submit(
-      { id: record.id, status: nextStatus, reply: replyText },
+      { id: record.id, status: nextStatus, reply: replyText, ...(record.type === "B2B" && nextStatus === "CLOSED" ? { applyTags: "true" } : {}) },
       { method: "post", action: "/app/customer-requests" }
     );
   };
@@ -304,6 +304,7 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                     ["전화번호", detail.phone],
                     ["VAT ID", detail.vatId],
                     ["문의내용", detail.message],
+                    ["발급된 10% 쿠폰", detail.b2bCouponCode ? `${detail.b2bCouponCode} (~${detail.b2bCouponExpiresAt || "2개월 주기"})` : null],
                   ]
                 : record.type === "SUPPORT" || record.type === "CLAIM"
                 ? [
@@ -321,6 +322,7 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                         : detail.claimType || "1:1 일반 문의",
                     ],
                     ["문의내용", detail.message],
+                    ["발급된 10% 쿠폰", detail.b2bCouponCode ? `${detail.b2bCouponCode} (~${detail.b2bCouponExpiresAt || "2개월 주기"})` : null],
                   ]
                 : record.type === "RETURN"
                 ? [
@@ -453,7 +455,7 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                   )}
 
                   {/* Admin Reply Box for SUPPORT / CLAIM / RETURN */}
-                  {!readOnlyReplies && ["SUPPORT", "CLAIM", "RETURN"].includes(record.type) && (
+                  {!readOnlyReplies && ["SUPPORT", "CLAIM", "RETURN", "B2B"].includes(record.type) && (
                     <div
                       style={{
                         background: "#F8FAFC",
@@ -535,7 +537,7 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                           variant={st === "CLOSED" ? "primary" : "secondary"}
                           tone={st === "CLOSED" ? "success" : undefined}
                           loading={updateFetcher.state !== "idle"}
-                          onClick={() => handleUpdateStatus(record.id, st)}
+                          onClick={() => handleUpdateStatus(record.id, st, record.type)}
                         >
                           {label}로 변경
                         </Button>
