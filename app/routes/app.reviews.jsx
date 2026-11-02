@@ -42,10 +42,11 @@ function Stars({ rating }) {
   return <span aria-label={`${rating}점`} style={{ color: "#E30613", letterSpacing: 1 }}>{"★".repeat(rating)}<span style={{ color: "#d0d0d0" }}>{"★".repeat(5 - rating)}</span></span>;
 }
 
-function ReviewRow({ review, onPhoto, onDelete }) {
+function ReviewRow({ review, onPhoto, onDelete, actionUrl }) {
   const fetcher = useFetcher();
   const busy = fetcher.state !== "idle";
   const hidden = fetcher.formData ? fetcher.formData.get("hidden") === "true" : review.hidden;
+  const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
   return (
     <Box padding="300" borderWidth="025" borderColor="border" borderRadius="300" background={hidden ? "bg-surface-secondary" : "bg-surface"}>
       <InlineStack gap="300" wrap={false} blockAlign="start">
@@ -65,12 +66,95 @@ function ReviewRow({ review, onPhoto, onDelete }) {
         </BlockStack>
         <div style={{ marginLeft: "auto", flexShrink: 0 }}>
           <ButtonGroup>
-            <Button loading={busy} onClick={() => fetcher.submit({ id: review.id, hidden: String(!hidden) }, { method: "post" })}>{hidden ? "다시 공개" : "숨기기"}</Button>
+            <Button loading={busy} onClick={() => fetcher.submit({ id: review.id, hidden: String(!hidden) }, submitOpts)}>{hidden ? "다시 공개" : "숨기기"}</Button>
             <Button tone="critical" variant="plain" disabled={busy} onClick={() => onDelete(review)}>삭제</Button>
           </ButtonGroup>
         </div>
       </InlineStack>
     </Box>
+  );
+}
+
+export function ReviewsManager({ active = true }) {
+  const listFetcher = useFetcher();
+  const remover = useFetcher();
+  const [source, setSource] = useState("all");
+  const [visibility, setVisibility] = useState("all");
+  const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [cursor, setCursor] = useState(null);
+  const [photo, setPhoto] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+
+  const buildUrl = (nextCursor = cursor) => {
+    const sp = new URLSearchParams();
+    if (source !== "all") sp.set("source", source);
+    if (visibility !== "all") sp.set("visibility", visibility);
+    if (submittedQuery) sp.set("q", submittedQuery);
+    if (nextCursor) sp.set("cursor", nextCursor);
+    const qs = sp.toString();
+    return `/app/reviews${qs ? `?${qs}` : ""}`;
+  };
+
+  useEffect(() => {
+    if (active) {
+      listFetcher.load(buildUrl(cursor));
+    }
+  }, [active, source, visibility, submittedQuery, cursor]);
+
+  useEffect(() => {
+    if (remover.state === "idle" && remover.data?.ok) {
+      setDeleting(null);
+      listFetcher.load(buildUrl(cursor));
+    }
+  }, [remover.state, remover.data]);
+
+  const data = listFetcher.data || { reviews: [], nextCursor: null, source, visibility, query: submittedQuery, error: null };
+  const tab = (currentVal, setter, value, label) => (
+    <Button pressed={currentVal === value} onClick={() => { setCursor(null); setter(value); }}>{label}</Button>
+  );
+
+  return (
+    <BlockStack gap="400">
+      <Card>
+        <BlockStack gap="050">
+          <Text as="h2" variant="headingMd">리뷰 관리</Text>
+          <Text as="p" tone="subdued" variant="bodySm">앱과 dawayo.de에서 작성된 상품 리뷰를 한곳에서 관리합니다. 숨긴 리뷰는 앱과 웹 모두에서 보이지 않습니다.</Text>
+        </BlockStack>
+      </Card>
+      {data.error && <Banner tone="critical">{data.error}</Banner>}
+      <Card>
+        <BlockStack gap="300">
+          <InlineStack gap="400" wrap>
+            <ButtonGroup variant="segmented">{tab(source, setSource, "all", "전체")}{tab(source, setSource, "app", "앱")}{tab(source, setSource, "web", "웹")}</ButtonGroup>
+            <ButtonGroup variant="segmented">{tab(visibility, setVisibility, "all", "모두")}{tab(visibility, setVisibility, "public", "공개")}{tab(visibility, setVisibility, "hidden", "숨김")}</ButtonGroup>
+          </InlineStack>
+          <form onSubmit={(event) => { event.preventDefault(); setCursor(null); setSubmittedQuery(query.trim()); }}>
+            <TextField label="검색" labelHidden value={query} onChange={setQuery} placeholder="상품명, 작성자, 내용으로 검색" autoComplete="off" connectedRight={<Button submit>검색</Button>} />
+          </form>
+        </BlockStack>
+      </Card>
+      <Card>
+        {listFetcher.state !== "idle" && data.reviews.length === 0 ? (
+          <Text as="p" tone="subdued">리뷰를 불러오는 중입니다...</Text>
+        ) : data.reviews.length === 0 ? (
+          <EmptyState heading="표시할 리뷰가 없습니다" image=""><p>조건을 바꾸거나, 앱과 dawayo.de에서 리뷰가 등록되면 여기에 나타납니다.</p></EmptyState>
+        ) : (
+          <BlockStack gap="300">
+            {data.reviews.map((review) => <ReviewRow key={review.id} review={review} onPhoto={setPhoto} onDelete={setDeleting} actionUrl="/app/reviews" />)}
+            {data.nextCursor && <InlineStack align="center"><Button onClick={() => setCursor(data.nextCursor)}>다음 페이지</Button></InlineStack>}
+          </BlockStack>
+        )}
+      </Card>
+      <Modal open={Boolean(photo)} onClose={() => setPhoto(null)} title="리뷰 사진" secondaryActions={[{ content: "닫기", onAction: () => setPhoto(null) }]}>
+        <Modal.Section>{photo && <img src={photo} alt="리뷰 사진" style={{ maxWidth: "100%", maxHeight: "70vh", objectFit: "contain" }} />}</Modal.Section>
+      </Modal>
+      <Modal open={Boolean(deleting)} onClose={() => setDeleting(null)} title="리뷰를 삭제할까요?"
+        primaryAction={{ content: "삭제", destructive: true, loading: remover.state !== "idle", onAction: () => remover.submit({ intent: "delete", id: deleting.id }, { method: "post", action: "/app/reviews" }) }}
+        secondaryActions={[{ content: "취소", onAction: () => setDeleting(null) }]}>
+        <Modal.Section><Text as="p">삭제한 리뷰는 되돌릴 수 없습니다. 잠시 내리기만 하려면 &ldquo;숨기기&rdquo;를 쓰세요.</Text>{remover.data?.ok === false && <Text as="p" tone="critical">{remover.data.error}</Text>}</Modal.Section>
+      </Modal>
+    </BlockStack>
   );
 }
 
