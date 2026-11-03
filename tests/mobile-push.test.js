@@ -241,6 +241,9 @@ test("worker auth fails closed and policy input rejects unknown fields and inval
   assert.equal(authorizePushWorker(new Request("https://example.com"), secret), false);
   assert.equal(authorizePushWorker(new Request("https://example.com", { headers: { authorization: `Bearer ${secret}` } }), secret), true);
   assert.equal(authorizePushWorker(new Request("https://example.com", { headers: { authorization: `Bearer ${"é".repeat(40)}` } }), secret), false);
+  const cron = "c".repeat(40);
+  assert.equal(authorizePushWorker(new Request("https://example.com", { headers: { authorization: `Bearer ${cron}` } }), secret, cron), true);
+  assert.equal(authorizePushWorker(new Request("https://example.com", { headers: { authorization: "Bearer short" } }), undefined, "short"), false);
   const { db } = memory();
   for (const patch of [{ quietStart: 24 }, { timeZone: "not-a-zone" }, { marketing: "yes" }, JSON.parse('{"__proto__":true}')]) await assert.rejects(savePushPreferences(db, shop, owner, patch), { status: 400 });
   assert.equal((await readPushPreferences(db, shop, owner)).pushEnabled, false);

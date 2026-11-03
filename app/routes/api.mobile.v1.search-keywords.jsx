@@ -1,5 +1,11 @@
 import { getStorefrontConfig, recordSearchKeyword } from "../services/mobileStorefront.server.js";
 import { customerShop } from "../services/customerApi.server.js";
+import { enforceRateLimit } from "../services/rateLimit.server.js";
+import prisma from "../db.server.js";
+
+// Anyone can post a search term, so one client gets a small share of the counts
+// that decide the public "popular searches" list.
+const SEARCH_RECORD_LIMIT = 20;
 
 function getCorsHeaders(request) {
   const origin = request.headers.get("origin") || "";
@@ -79,6 +85,15 @@ export const action = async ({ request }) => {
   const corsHeaders = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  try {
+    await enforceRateLimit({ db: prisma, request, bucket: "search-keyword", limit: SEARCH_RECORD_LIMIT });
+  } catch (error) {
+    return Response.json(
+      { success: false, error: { code: "TOO_MANY_REQUESTS", message: "Too many requests. Please try again later." } },
+      { status: 429, headers: { ...corsHeaders, "Retry-After": String(error?.retryAfter || 600) } }
+    );
   }
 
   try {
