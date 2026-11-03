@@ -8,38 +8,10 @@ import {
 } from "../services/odooClient.server.js";
 import { notifySubscribersForContainer } from "../services/subscriptionService.server.js";
 import { mergeContainerItems, lockContainer, completeContainerReceipt } from "../services/containerSync.js";
+import { jsonCorsHeaders } from "../utils/cors.server.js";
 
-// Origin allowlist validation for container endpoints
 function getCorsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  let allowed = false;
-
-  try {
-    if (origin) {
-      const url = new URL(origin);
-      const host = url.hostname.toLowerCase();
-      if (
-        host === "dawayo.de" ||
-        host.endsWith(".dawayo.de") ||
-        host.endsWith(".myshopify.com") ||
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host === "process-list-beryl.vercel.app" || host === "dawayo-mobile-app.vercel.app"
-      ) {
-        allowed = true;
-      }
-    }
-  } catch (e) {
-    allowed = false;
-  }
-
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Shop-Domain",
-    "Access-Control-Max-Age": "86400",
-    "Content-Type": "application/json; charset=utf-8",
-  };
+  return jsonCorsHeaders(request, { methods: "GET, POST, OPTIONS" });
 }
 
 // GET: Retrieve container shipments and item details from DB & Odoo

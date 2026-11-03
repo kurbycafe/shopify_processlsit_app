@@ -5,38 +5,10 @@ import { normalizeOperationalInspectionItems } from "../services/inspectionValid
 import { MobileApiError, readId } from "../services/mobileApi.server.js";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import dayjs from "dayjs";
+import { jsonCorsHeaders } from "../utils/cors.server.js";
 
-// CORS origin validator
 function getCorsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  let allowed = false;
-
-  try {
-    if (origin) {
-      const url = new URL(origin);
-      const host = url.hostname.toLowerCase();
-      if (
-        host === "dawayo.de" ||
-        host.endsWith(".dawayo.de") ||
-        host.endsWith(".myshopify.com") ||
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host === "process-list-beryl.vercel.app" || host === "dawayo-mobile-app.vercel.app"
-      ) {
-        allowed = true;
-      }
-    }
-  } catch (e) {
-    allowed = false;
-  }
-
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Shop-Domain",
-    "Access-Control-Max-Age": "86400",
-    "Content-Type": "application/json; charset=utf-8",
-  };
+  return jsonCorsHeaders(request, { methods: "GET, POST, PUT, OPTIONS" });
 }
 
 // GET: 검수 내역 조회 API

@@ -1,23 +1,8 @@
 import { loadOnlineProductIds } from "../services/onlineCatalog.server.js";
-
-const ALLOWED_ORIGINS = new Set(["capacitor://localhost", "ionic://localhost", "https://localhost"]);
+import { jsonCorsHeaders } from "../utils/cors.server.js";
 
 function corsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  let allowed = ALLOWED_ORIGINS.has(origin);
-  try {
-    const host = origin ? new URL(origin).hostname.toLowerCase() : "";
-    if (host === "dawayo.de" || host.endsWith(".dawayo.de") || host === "localhost" || host === "127.0.0.1") allowed = true;
-  } catch {
-    allowed = false;
-  }
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Accept, X-Shop-Domain",
-    "Vary": "Origin",
-    "Content-Type": "application/json; charset=utf-8",
-  };
+  return jsonCorsHeaders(request, { allowHeaders: "Content-Type, Accept, X-Shop-Domain" });
 }
 
 export const loader = async ({ request }) => {
