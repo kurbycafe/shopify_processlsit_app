@@ -1,40 +1,13 @@
 import prisma from "../db.server";
+import { jsonCorsHeaders } from "../utils/cors.server.js";
 
 const NOTICE_CACHE_TTL_MS = 60 * 1000;
 const noticeMemoryCache = new Map();
 
-// CORS origin validator
 function getCorsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  let allowed = false;
-
-  try {
-    if (origin) {
-      const url = new URL(origin);
-      const host = url.hostname.toLowerCase();
-      if (
-        host === "dawayo.de" ||
-        host.endsWith(".dawayo.de") ||
-        host.endsWith(".myshopify.com") ||
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host === "process-list-beryl.vercel.app" || host === "dawayo-mobile-app.vercel.app"
-      ) {
-        allowed = true;
-      }
-    }
-  } catch (e) {
-    allowed = false;
-  }
-
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Shop-Domain",
-    "Access-Control-Max-Age": "86400",
-    "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
-    "Content-Type": "application/json; charset=utf-8",
-  };
+  return jsonCorsHeaders(request, {
+    extra: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
+  });
 }
 
 function resolveShop(request, explicitShop = null) {

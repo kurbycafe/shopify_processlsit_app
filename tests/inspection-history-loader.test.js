@@ -6,6 +6,7 @@ import ts from "typescript";
 import dayjs from "dayjs";
 import { operationalIdentity } from "../app/services/operationalApi.server.js";
 import { MobileApiError } from "../app/services/mobileApi.server.js";
+import { jsonCorsHeaders } from "../app/utils/cors.server.js";
 
 const token = "inspection-test-token_".padEnd(43, "a");
 const shop = "inspection-test.myshopify.com";
@@ -32,7 +33,7 @@ assert.ok(loaderExpression && corsFunction, "execute the actual route loader and
 function harness({ databaseError = false, schemaError = false } = {}) {
   const calls = { schema: 0, count: [], findMany: [] };
   const dependencies = {
-    operationalIdentity, MobileApiError, dayjs, console: { error() {} },
+    operationalIdentity, MobileApiError, dayjs, jsonCorsHeaders, console: { error() {} },
     ensureDatabaseSchema: async () => { calls.schema++; if (schemaError) throw Error("PRIVATE schema connection details"); },
     prisma: { inspectionRecord: {
       count: async input => { calls.count.push(input); if (databaseError) throw Error("PRIVATE Prisma connection details"); return 1000; },

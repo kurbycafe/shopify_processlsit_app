@@ -1,44 +1,14 @@
 import { getStorefrontConfig, recordSearchKeyword } from "../services/mobileStorefront.server.js";
 import { customerShop } from "../services/customerApi.server.js";
+import { jsonCorsHeaders } from "../utils/cors.server.js";
 
 function getCorsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  let allowed = false;
-
-  try {
-    if (origin) {
-      if (origin === "capacitor://localhost" || origin === "ionic://localhost") {
-        allowed = true;
-      } else {
-        const url = new URL(origin);
-        const host = url.hostname.toLowerCase();
-        if (
-          host === "dawayo.de" ||
-          host.endsWith(".dawayo.de") ||
-          host.endsWith(".myshopify.com") ||
-          host === "localhost" ||
-          host === "127.0.0.1" ||
-          host === "process-list-beryl.vercel.app" || host === "dawayo-mobile-app.vercel.app"
-        ) {
-          allowed = true;
-        }
-      }
-    }
-  } catch {
-    allowed = false;
-  }
-
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
-    "Access-Control-Expose-Headers": "ETag",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin, If-None-Match",
-    "Cache-Control": "public, max-age=15, stale-while-revalidate=60",
-    "Content-Type": "application/json; charset=utf-8",
-  };
+  return jsonCorsHeaders(request, {
+    methods: "GET, POST, OPTIONS",
+    allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
+    vary: ["If-None-Match"],
+    extra: { "Access-Control-Expose-Headers": "ETag", "Cache-Control": "public, max-age=15, stale-while-revalidate=60" },
+  });
 }
 
 export const loader = async ({ request }) => {

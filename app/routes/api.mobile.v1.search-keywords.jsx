@@ -2,48 +2,18 @@ import { getStorefrontConfig, recordSearchKeyword } from "../services/mobileStor
 import { customerShop } from "../services/customerApi.server.js";
 import { enforceRateLimit } from "../services/rateLimit.server.js";
 import prisma from "../db.server.js";
+import { jsonCorsHeaders } from "../utils/cors.server.js";
 
 // Anyone can post a search term, so one client gets a small share of the counts
 // that decide the public "popular searches" list.
 const SEARCH_RECORD_LIMIT = 20;
 
 function getCorsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  let allowed = false;
-
-  try {
-    if (origin) {
-      if (origin === "capacitor://localhost" || origin === "ionic://localhost") {
-        allowed = true;
-      } else {
-        const url = new URL(origin);
-        const host = url.hostname.toLowerCase();
-        if (
-          host === "dawayo.de" ||
-          host.endsWith(".dawayo.de") ||
-          host.endsWith(".myshopify.com") ||
-          host === "localhost" ||
-          host === "127.0.0.1" ||
-          host === "process-list-beryl.vercel.app" || host === "dawayo-mobile-app.vercel.app"
-        ) {
-          allowed = true;
-        }
-      }
-    }
-  } catch {
-    allowed = false;
-  }
-
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : "https://dawayo.de",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Shop-Domain, X-Requested-With",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    "Content-Type": "application/json; charset=utf-8",
-  };
+  return jsonCorsHeaders(request, {
+    methods: "GET, POST, OPTIONS",
+    allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With",
+    extra: { "Cache-Control": "no-cache, no-store, must-revalidate" },
+  });
 }
 
 export const loader = async ({ request }) => {
