@@ -52,7 +52,7 @@
     "subset-font": "^2.9.0",
     "vite-tsconfig-paths": "^5.1.4",
     "web-push": "^3.6.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@shopify/api-codegen-preset": "^1.2.0",
