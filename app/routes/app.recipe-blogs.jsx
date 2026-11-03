@@ -135,11 +135,12 @@ export async function action({ request }) {
 // --- MAIN FRONTEND COMPONENT ---
 export function RecipeCommerceManager({ active = true }) {
   const loaderFetcher = useFetcher();
+  const { load } = loaderFetcher;
   useEffect(() => {
     if (active && !loaderFetcher.data && loaderFetcher.state === "idle") {
-      loaderFetcher.load("/app/recipe-blogs");
+      load("/app/recipe-blogs");
     }
-  }, [active, loaderFetcher.data, loaderFetcher.state]);
+  }, [active, load, loaderFetcher.data, loaderFetcher.state]);
 
   if (!loaderFetcher.data) {
     return (
@@ -170,6 +171,8 @@ export default function RecipeBlogs(props = {}) {
   const routeData = useLoaderData();
   const { recipes, blogs, shopUrl } = props.loaderData || routeData;
   const { actionUrl, embedded = false, onReload } = props;
+  const onReloadRef = useRef(onReload);
+  onReloadRef.current = onReload;
   const fetcher = useFetcher();
   const actionFetcher = useFetcher();
   const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
@@ -248,7 +251,7 @@ export default function RecipeBlogs(props = {}) {
       setIngredients([]);
     }
     setToastMessage({ type: result.success ? "success" : "critical", title: result.success ? "처리 완료" : "처리 실패", content: result.error || result.message || "레시피가 저장되었습니다." });
-    if (result.success && onReload) onReload();
+    if (result.success && onReloadRef.current) onReloadRef.current();
   }, [actionFetcher.state, actionFetcher.data, selectedRecipe?.id]);
 
   // Load recipe into editor

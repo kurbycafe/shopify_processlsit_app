@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoaderData, useActionData, useNavigation, useSubmit, useFetcher, Link } from "react-router";
 import { Page, Card, BlockStack, Text, TextField, Select, Button, InlineStack, Banner, Modal, Checkbox, DataTable, Badge } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
@@ -57,20 +57,24 @@ export function PushNotificationsManager({ active = true }) {
   const [customerIds, setCustomerIds] = useState(""), [productId, setProductId] = useState(""), [schedule, setSchedule] = useState("");
   const [test, setTest] = useState(false), [confirm, setConfirm] = useState(null), [acknowledge, setAcknowledge] = useState(false);
 
-  const loadList = (nextCursor = cursor) => {
+  const { load } = listFetcher;
+  const loadList = useCallback((nextCursor) => {
     const qs = nextCursor ? `?cursor=${encodeURIComponent(nextCursor)}` : "";
-    listFetcher.load(`/app/push-notifications${qs}`);
-  };
+    load(`/app/push-notifications${qs}`);
+  }, [load]);
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
 
   useEffect(() => {
     if (active) loadList(cursor);
-  }, [active, cursor]);
+  }, [active, cursor, loadList]);
 
+  // Refresh the current page after a send, without reacting to cursor changes here.
   useEffect(() => {
     if (actionFetcher.state === "idle" && actionFetcher.data) {
-      loadList(cursor);
+      loadList(cursorRef.current);
     }
-  }, [actionFetcher.state, actionFetcher.data]);
+  }, [actionFetcher.state, actionFetcher.data, loadList]);
 
   const data = listFetcher.data || { records: [], nextCursor: null, configured: true, requestId: "", error: null };
   const result = actionFetcher.data;

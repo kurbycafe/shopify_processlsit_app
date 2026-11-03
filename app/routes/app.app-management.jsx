@@ -1830,26 +1830,19 @@ export default function AppManagementPage() {
   const [visitedTabs, setVisitedTabs] = useState(() => new Set(["overview", initialTab]));
   const [showLegacyRules, setShowLegacyRules] = useState(false);
   const activeGroup = MENU_GROUPS.find((g) => g.ids.includes(activeTab)) || MENU_GROUPS[0];
-  const [selectedGroupId, setSelectedGroupId] = useState(activeGroup.id);
   const [showAllTabs, setShowAllTabs] = useState(false);
   const [showMobileSimulator, setShowMobileSimulator] = useState(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("dawayo_mobile_preview_open");
+      let saved = null;
+      try { saved = localStorage.getItem("dawayo_mobile_preview_open"); } catch { /* storage blocked */ }
       if (saved !== null) return saved === "true";
       return window.innerWidth >= 1200;
     }
     return true;
   });
 
-  useEffect(() => {
-    const g = MENU_GROUPS.find((group) => group.ids.includes(activeTab));
-    if (g && g.id !== selectedGroupId) {
-      setSelectedGroupId(g.id);
-    }
-  }, [activeTab]);
-
+  // The highlighted group always follows the active tab (activeGroup).
   const handleSelectGroup = (groupId) => {
-    setSelectedGroupId(groupId);
     const targetGroup = MENU_GROUPS.find((g) => g.id === groupId);
     if (targetGroup && !targetGroup.ids.includes(activeTab)) {
       setActiveTab(targetGroup.ids[0]);

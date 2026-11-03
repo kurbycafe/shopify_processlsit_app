@@ -639,7 +639,7 @@ export default function Inspect() {
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
       window.removeEventListener("paste", handleGlobalPaste, true);
     };
-  }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode]);
+  }, [currentOrder, cameraModalOpen, issueModalOpen, editingBarcodeId, processBarcode, barcode]);
 
   // Camera scanner lifecycle
   useEffect(() => {

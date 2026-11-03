@@ -25,7 +25,7 @@ export const loader = async ({ request }) => {
 export default function App() {
   const { apiKey } = useLoaderData();
   const checkFetcher = useFetcher();
-  const logFetcher = useFetcher();
+  const { submit: submitLog } = useFetcher();
   const location = useLocation();
   const lastLoggedPathRef = useRef("");
 
@@ -39,11 +39,11 @@ export default function App() {
       savedInspector = localStorage.getItem("dawayo_inspector_name") || "";
     } catch {}
 
-    logFetcher.submit(
+    submitLog(
       { path: currentPath, ...(savedInspector ? { user: savedInspector } : {}) },
       { method: "POST", action: "/api/log-tab" }
     );
-  }, [location.pathname]);
+  }, [location.pathname, submitLog]);
 
   const checkRef = useRef(checkFetcher);
   checkRef.current = checkFetcher;

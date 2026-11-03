@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import { Badge, Banner, BlockStack, Box, Button, ButtonGroup, Card, EmptyState, InlineStack, Modal, Page, Text, TextField } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
@@ -86,7 +86,8 @@ export function ReviewsManager({ active = true }) {
   const [photo, setPhoto] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
-  const buildUrl = (nextCursor = cursor) => {
+  const { load } = listFetcher;
+  const buildUrl = useCallback((nextCursor) => {
     const sp = new URLSearchParams();
     if (source !== "all") sp.set("source", source);
     if (visibility !== "all") sp.set("visibility", visibility);
@@ -94,20 +95,23 @@ export function ReviewsManager({ active = true }) {
     if (nextCursor) sp.set("cursor", nextCursor);
     const qs = sp.toString();
     return `/app/reviews${qs ? `?${qs}` : ""}`;
-  };
+  }, [source, visibility, submittedQuery]);
+  const currentUrl = useRef("");
+  currentUrl.current = buildUrl(cursor);
 
   useEffect(() => {
     if (active) {
-      listFetcher.load(buildUrl(cursor));
+      load(buildUrl(cursor));
     }
-  }, [active, source, visibility, submittedQuery, cursor]);
+  }, [active, buildUrl, cursor, load]);
 
+  // Reload the current page once a delete finishes.
   useEffect(() => {
     if (remover.state === "idle" && remover.data?.ok) {
       setDeleting(null);
-      listFetcher.load(buildUrl(cursor));
+      load(currentUrl.current);
     }
-  }, [remover.state, remover.data]);
+  }, [remover.state, remover.data, load]);
 
   const data = listFetcher.data || { reviews: [], nextCursor: null, source, visibility, query: submittedQuery, error: null };
   const tab = (currentVal, setter, value, label) => (
