@@ -10,8 +10,7 @@ build
 scratch
 tests
 docs
-build_error.txt
-build_out.txt
-picklist_dump2.txt
 test.json
 *.apk
+backup-*.json
+*.log

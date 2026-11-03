@@ -30,3 +30,11 @@ database.sqlite
 .react-router/
 .vercel
 .env*
+
+# Local scratch output, data dumps and backups (may contain credentials or store data)
+/.gemini/antigravity-ide/
+/backup-*.json
+/test.json
+*_dump*.txt
+/build_*.txt
+/scratch/*.log
