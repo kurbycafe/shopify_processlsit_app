@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getTabName, TAB_NAMES } from "../app/services/usageLogger.server.js";
+import { getTabName } from "../app/services/usageLogger.server.js";
 
 test("getTabName accurately maps standard operational tabs", () => {
   assert.equal(getTabName("/app"), "대시보드");

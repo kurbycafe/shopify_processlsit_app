@@ -415,7 +415,7 @@ export const action = async ({ request }) => {
 
   try {
     if (intent === "publish_now") {
-      const version = await bumpStorefrontVersion(shop);
+      await bumpStorefrontVersion(shop);
       return {
         success: true,
         message: "저장된 설정을 앱에 반영했습니다.",
@@ -2158,11 +2158,6 @@ export default function AppManagementPage() {
   }, [config, fetcher.state, fetcher.data]);
 
   const isSubmitting = fetcher.state !== "idle";
-  const previewBanner = (config.banners || []).find((b) => {
-    const now = new Date();
-    return b.isActive && (!b.startsAt || new Date(b.startsAt) <= now) &&
-      (!b.endsAt || new Date(b.endsAt) >= now);
-  });
   const activeBannerCount = (config.banners || []).filter((b) => b.isActive).length;
   const activeDealCount = (config.hotDeals || []).filter((d) => d.isActive).length;
   const activeCategoryCount = (config.categories || []).filter((c) => c.isActive).length;

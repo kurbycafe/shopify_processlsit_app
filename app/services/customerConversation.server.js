@@ -15,7 +15,7 @@ const clean = (value, max, required = false) => {
 // Hide manager-only fields from every customer-facing request history response.
 export function publicSupportPayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
-  const { supportInternal, ...visible } = payload;
+  const { supportInternal: _supportInternal, ...visible } = payload;
   return visible;
 }
 
