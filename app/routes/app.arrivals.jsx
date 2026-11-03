@@ -545,7 +545,6 @@ function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
 
   const [copy, setCopy] = useState(data.copy);
   useEffect(() => setCopy(data.copy), [data.copy]);
-  const setCopyField = (kind, field, value) => setCopy((current) => ({ ...current, [kind]: { ...current[kind], [field]: value } }));
 
   const inner = (
     <>

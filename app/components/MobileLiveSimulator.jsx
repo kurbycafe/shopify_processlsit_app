@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 
 const SQUIRCLE_ICONS = {
   Soup: (
@@ -68,7 +68,6 @@ export default function MobileLiveSimulator({
   config = {},
   activeTab = "overview",
   bannerForm = null,
-  editingBanner = null,
   dealForm = null,
   hotDealSettings = null,
   shippingNoticeKo = "",
