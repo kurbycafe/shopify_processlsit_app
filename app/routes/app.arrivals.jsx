@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher, useLoaderData } from "react-router";
 import { Badge, Banner, BlockStack, Box, Button, Card, Checkbox, Divider, IndexTable, InlineGrid, InlineStack, Modal, Page, Select, Text, TextField, Thumbnail } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
@@ -512,9 +512,12 @@ function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
   const [pending, setPending] = useState(undefined); // arrival to confirm, null = turn off
   const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
 
+  // Reload only when a new result arrives, not when the parent passes a new callback.
+  const onReloadRef = useRef(onReload);
+  onReloadRef.current = onReload;
   useEffect(() => {
-    if (onReload && result) {
-      onReload();
+    if (onReloadRef.current && result) {
+      onReloadRef.current();
     }
   }, [result]);
 
@@ -652,11 +655,12 @@ function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
 
 export function ArrivalsManager({ active = true }) {
   const loaderFetcher = useFetcher();
+  const { load } = loaderFetcher;
   useEffect(() => {
     if (active && !loaderFetcher.data && loaderFetcher.state === "idle") {
-      loaderFetcher.load("/app/arrivals");
+      load("/app/arrivals");
     }
-  }, [active, loaderFetcher.data, loaderFetcher.state]);
+  }, [active, load, loaderFetcher.data, loaderFetcher.state]);
 
   if (!loaderFetcher.data) {
     return (

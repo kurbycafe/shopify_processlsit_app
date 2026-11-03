@@ -29,7 +29,7 @@ function SupportInbox({ active = true }) {
   const [selectedId, setSelectedId] = useState(null);
   const [drafts, setDrafts] = useState({});
   const reply = drafts[selectedId] || "";
-  const setReply = value => setDrafts(current => ({ ...current, [selectedId]: value }));
+  const setReply = useCallback(value => setDrafts(current => ({ ...current, [selectedId]: value })), [selectedId]);
   const [internalDrafts, setInternalDrafts] = useState({});
   const note = internalDrafts[selectedId]?.note || "";
   const assignee = internalDrafts[selectedId]?.assignee || "";
@@ -63,7 +63,7 @@ function SupportInbox({ active = true }) {
       replyFor.current = null;
     }
     updateBefore.current = update.state;
-  }, [update.state, update.data, load, url, reply, selectedId]);
+  }, [update.state, update.data, load, url, reply, selectedId, setReply]);
   const rows = list.data?.requests || [];
   const selected = rows.find(row => row.id === selectedId) || null;
   const choose = row => { setSelectedId(row.id); setInternalDrafts(current => current[row.id] ? current : ({ ...current, [row.id]: { note: row.payload?.supportInternal?.note || "", assignee: row.payload?.supportInternal?.assignee || "" } })); setNotice(""); };
