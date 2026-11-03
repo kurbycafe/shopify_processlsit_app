@@ -166,7 +166,9 @@ export function RecipeCommerceManager({ active = true }) {
 }
 
 export default function RecipeBlogs(props = {}) {
-  const { recipes, blogs, shopUrl } = props.loaderData || useLoaderData();
+  // Called on every render (hooks must not be conditional); embedded callers pass their own data.
+  const routeData = useLoaderData();
+  const { recipes, blogs, shopUrl } = props.loaderData || routeData;
   const { actionUrl, embedded = false, onReload } = props;
   const fetcher = useFetcher();
   const actionFetcher = useFetcher();
