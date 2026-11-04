@@ -103,7 +103,20 @@ const required = [
   "index:InspectionRecord:InspectionRecord_orderId_idx",
   "index:InspectionRecord:InspectionRecord_shop_createdAt_idx",
   "index:InspectionRecord:InspectionRecord_shop_idx",
-  "index:InspectionRecord:InspectionRecord_shop_status_idx"
+  "index:InspectionRecord:InspectionRecord_shop_status_idx",
+  "column:AppFeatureRequest:id",
+  "column:AppFeatureRequest:shop",
+  "column:AppFeatureRequest:kind",
+  "column:AppFeatureRequest:content",
+  "column:AppFeatureRequest:requester",
+  "column:AppFeatureRequest:status",
+  "column:AppFeatureRequest:note",
+  "column:AppFeatureRequest:processedAt",
+  "column:AppFeatureRequest:processedBy",
+  "column:AppFeatureRequest:createdAt",
+  "column:AppFeatureRequest:updatedAt",
+  "index:AppFeatureRequest:AppFeatureRequest_shop_createdAt_idx",
+  "index:AppFeatureRequest:AppFeatureRequest_shop_status_createdAt_idx"
 ];
 export function schemaIsReady(rows) {
   const actual = new Set(rows.map(row => `${row.kind}:${row.tableName}:${row.name}`));
@@ -114,10 +127,10 @@ export async function readSchemaCatalog(db) {
   return db.$queryRaw`
         SELECT 'column' AS kind, table_name AS "tableName", column_name AS name
         FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction')
+        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest')
         UNION ALL
         SELECT 'index' AS kind, tablename AS "tableName", indexname AS name
         FROM pg_indexes
-        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction')
+        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest')
       `;
 }

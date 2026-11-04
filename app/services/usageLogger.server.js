@@ -12,6 +12,7 @@ export const TAB_NAMES = {
   "/app/store-label": "매장 라벨 인쇄",
   "/app/recipe-blogs": "레시피 커머스",
   "/app/app-management": "앱 관리",
+  "/app/app-requests": "앱 개선 요청",
   "/app/push-notifications": "앱 알림 발송",
   "/app/notice": "스토어 공지",
   "/app/settings": "시스템 연동 설정",

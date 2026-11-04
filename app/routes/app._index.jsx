@@ -1,11 +1,12 @@
 import { getDashboardData } from "../services/dashboardData.server.js";
-import { useState, useEffect } from "react";
+import { createAppFeatureRequest } from "../services/appFeatureRequests.server.js";
+import { useState, useEffect, useRef } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
-import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button } from "@shopify/polaris";
+import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button, Select, TextField, Banner, Box } from "@shopify/polaris";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import { getUpcomingContainers, getContainerItemsByPo } from "../utils/odooApi";
 import { getCalendarMonths } from "../utils/dashboardCalendar";
 import {
@@ -35,8 +36,21 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
+  const { session, admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
+
+  if (intent === "create_app_feature_request") {
+    await ensureDatabaseSchema();
+    return await createAppFeatureRequest({
+      db: prisma,
+      shop: session.shop,
+      session,
+      admin,
+      kind: formData.get("kind"),
+      content: formData.get("content"),
+    });
+  }
 
   if (intent === "fetch_container_items") {
     const containerRef = formData.get("containerRef");
@@ -64,6 +78,46 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
   const containerItemsFetcher = useFetcher();
+  const featureRequestFetcher = useFetcher();
+  const lastHandledRequestResultRef = useRef(null);
+
+  // Mobile App Feature Request form states
+  const [requestKind, setRequestKind] = useState("FEATURE");
+  const [requestContent, setRequestContent] = useState("");
+  const [requestBanner, setRequestBanner] = useState(null);
+
+  useEffect(() => {
+    if (featureRequestFetcher.state !== "idle" || !featureRequestFetcher.data) return;
+    if (lastHandledRequestResultRef.current === featureRequestFetcher.data) return;
+    lastHandledRequestResultRef.current = featureRequestFetcher.data;
+
+    if (featureRequestFetcher.data.ok) {
+      setRequestBanner({
+        tone: "success",
+        message: featureRequestFetcher.data.message || "요청이 접수되었습니다",
+      });
+      setRequestContent("");
+    } else if (featureRequestFetcher.data.error) {
+      setRequestBanner({
+        tone: "critical",
+        message: featureRequestFetcher.data.error,
+      });
+    }
+  }, [featureRequestFetcher.state, featureRequestFetcher.data]);
+
+  const handleSubmitFeatureRequest = () => {
+    const trimmed = requestContent.trim();
+    if (!trimmed || featureRequestFetcher.state !== "idle") return;
+    setRequestBanner(null);
+    featureRequestFetcher.submit(
+      {
+        intent: "create_app_feature_request",
+        kind: requestKind,
+        content: trimmed,
+      },
+      { method: "POST" }
+    );
+  };
 
   // Modal states
   const [selectedLog, setSelectedLog] = useState(null);
@@ -94,6 +148,66 @@ export default function Dashboard() {
       subtitle="처리중 주문부터 검수와 입고까지, 필요한 작업을 바로 시작하세요."
     >
       <BlockStack gap="500">
+        {/* 0. 모바일 앱 기능 추가/수정 요청 입력란 */}
+        <Card>
+          <BlockStack gap="300">
+            <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+              <Text variant="headingMd" as="h2">
+                모바일 앱 기능 추가/수정 요청
+              </Text>
+              <Button variant="plain" onClick={() => navigate("/app/app-requests")}>
+                앱 개선 요청 내역 보기
+              </Button>
+            </InlineStack>
+
+            {requestBanner && (
+              <Banner
+                tone={requestBanner.tone}
+                onDismiss={() => setRequestBanner(null)}
+              >
+                <Text as="p">{requestBanner.message}</Text>
+              </Banner>
+            )}
+
+            <Box maxWidth="240px">
+              <Select
+                label="구분"
+                labelInline
+                options={[
+                  { label: "기능 추가", value: "FEATURE" },
+                  { label: "기능 수정", value: "CHANGE" },
+                  { label: "오류", value: "BUG" },
+                ]}
+                value={requestKind}
+                onChange={setRequestKind}
+              />
+            </Box>
+
+            <TextField
+              label="요청 내용"
+              labelHidden
+              placeholder="요청 내용을 적어주세요 (최대 2,000자)"
+              value={requestContent}
+              onChange={setRequestContent}
+              multiline={3}
+              maxLength={2000}
+              showCharacterCount
+              autoComplete="off"
+            />
+
+            <InlineStack align="end">
+              <Button
+                variant="primary"
+                disabled={!requestContent.trim() || featureRequestFetcher.state !== "idle"}
+                loading={featureRequestFetcher.state !== "idle"}
+                onClick={handleSubmitFeatureRequest}
+              >
+                요청하기
+              </Button>
+            </InlineStack>
+          </BlockStack>
+        </Card>
+
         {/* 1. 최상단: 4대 핵심 운영 메트릭 카드 */}
         <DashboardMetricCards
           todayPrintedCount={todayPrintedCount}

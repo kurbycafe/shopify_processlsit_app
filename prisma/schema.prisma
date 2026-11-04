@@ -353,3 +353,20 @@ model ApiRateLimit {
   windowStart DateTime
   count       Int
 }
+
+model AppFeatureRequest {
+  id          Int       @id @default(autoincrement())
+  shop        String
+  kind        String    @default("FEATURE") // FEATURE, CHANGE, BUG
+  content     String    @db.Text
+  requester   String
+  status      String    @default("PENDING") // PENDING, IN_PROGRESS, DONE, ON_HOLD
+  note        String?   @db.Text
+  processedAt DateTime?
+  processedBy String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shop, createdAt])
+  @@index([shop, status, createdAt])
+}

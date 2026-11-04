@@ -144,6 +144,23 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_inspectionRecordId_idx" ON "InspectionItem"("inspectionRecordId");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_variantId_idx" ON "InspectionItem"("variantId");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "InspectionItem_sku_idx" ON "InspectionItem"("sku");`);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "AppFeatureRequest" (
+          "id" SERIAL NOT NULL PRIMARY KEY,
+          "shop" TEXT NOT NULL,
+          "kind" TEXT NOT NULL DEFAULT 'FEATURE',
+          "content" TEXT NOT NULL,
+          "requester" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'PENDING',
+          "note" TEXT,
+          "processedAt" TIMESTAMP(3),
+          "processedBy" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AppFeatureRequest_shop_createdAt_idx" ON "AppFeatureRequest"("shop", "createdAt");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AppFeatureRequest_shop_status_createdAt_idx" ON "AppFeatureRequest"("shop", "status", "createdAt");`);
       await ensureCustomerRequestSchema(prisma);
     } catch (err) {
       schemaEnsuredPromise = null;

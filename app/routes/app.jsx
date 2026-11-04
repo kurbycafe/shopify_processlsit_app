@@ -80,6 +80,7 @@ export default function App() {
         {/* <s-link href="/app/inventory">월별 재고 보고서</s-link> */}
         {/* <s-link href="/app/store-label">매장 라벨 인쇄</s-link> */}
         <s-link href="/app/app-management">앱 관리</s-link>
+        <s-link href="/app/app-requests">앱 개선 요청</s-link>
         {/* <s-link href="/app/notice">스토어 공지</s-link> */}
         <s-link href="/app/settings">시스템 연동 설정</s-link>
       </s-app-nav>
