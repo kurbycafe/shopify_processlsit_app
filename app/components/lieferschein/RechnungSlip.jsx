@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { formatTaxPercent } from "../../utils/taxDisplay.js";
+import { formatCurrency } from "../../utils/formatters.js";
 import { COMPANY, getCompanyBankAccount } from "../../constants/company.js";
 import {
   buildPaymentReference,
@@ -47,10 +48,10 @@ const taxNoteStyle = {
 };
 
 const summaryCellLabel = { padding: "4px 0", fontSize: "11px", color: "#555" };
-const summaryCellValue = { padding: "4px 0", fontSize: "11px", textAlign: "right", fontFamily: "monospace" };
+const summaryCellValue = { padding: "4px 0", fontSize: "11px", textAlign: "right", fontVariantNumeric: "tabular-nums" };
 const summaryRowDivider = { borderBottom: "1px solid #eee" };
-const summaryTotalLabel = { padding: "6px 0", fontSize: "13px", fontWeight: "bold", color: "#111" };
-const summaryTotalValue = { ...summaryTotalLabel, textAlign: "right", fontFamily: "monospace" };
+const summaryTotalLabel = { padding: "8px 10px", fontSize: "15px", fontWeight: "800", color: "#111", background: "#f3f4f6", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" };
+const summaryTotalValue = { ...summaryTotalLabel, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 
 function AddressBlock({ title, address, vatId }) {
   return (
@@ -83,7 +84,7 @@ function PaymentInstructionsBlock({ order }) {
       {outstanding > 0 ? (
         <div className="payment-instructions-text">
           Bitte überweisen Sie den fälligen Betrag von{" "}
-          <strong>{outstanding.toFixed(2)} {order.currencyCode}</strong>{" "}
+          <strong>{formatCurrency(outstanding, order.currencyCode)}</strong>{" "}
           unter Angabe des Verwendungszwecks auf folgendes Bankkonto:
         </div>
       ) : (
@@ -162,21 +163,21 @@ function InvoiceItemsTable({ items, currencyCode, taxDisplayMode, showImages, sh
               <td className="qty-cell-rechnung" style={{ textAlign: "center", fontSize: "14px", fontWeight: "bold" }}>
                 {item.quantity}
               </td>
-              <td style={{ textAlign: "right", fontSize: "11px", fontFamily: "monospace" }}>
+              <td style={{ textAlign: "right", fontSize: "11px", fontVariantNumeric: "tabular-nums" }}>
                 {hasDiscount && (
                   <div style={{ textDecoration: "line-through", color: "#888", fontSize: "10px" }}>
-                    {origUnitPrice.toFixed(2)} {currencyCode}
+                    {formatCurrency(origUnitPrice, currencyCode)}
                   </div>
                 )}
                 <span style={{ fontWeight: hasDiscount ? "bold" : "normal", color: hasDiscount ? "#b91c1c" : "inherit" }}>
-                  {unitPrice.toFixed(2)} {currencyCode}
+                  {formatCurrency(unitPrice, currencyCode)}
                 </span>
               </td>
-              <td style={{ textAlign: "center", fontSize: "11px", fontFamily: "monospace" }}>
+              <td style={{ textAlign: "center", fontSize: "11px", fontVariantNumeric: "tabular-nums" }}>
                 {formatTaxPercent(item.currentRate)}%
               </td>
-              <td style={{ textAlign: "right", fontSize: "11px", fontFamily: "monospace" }}>
-                {totalPrice.toFixed(2)} {currencyCode}
+              <td style={{ textAlign: "right", fontSize: "11px", fontVariantNumeric: "tabular-nums" }}>
+                {formatCurrency(totalPrice, currencyCode)}
               </td>
             </tr>
           );
@@ -196,17 +197,17 @@ function InvoiceSummaryBlock({ totals, currencyCode, taxDisplayMode }) {
         <tbody>
           <tr style={summaryRowDivider}>
             <td style={summaryCellLabel}>{isNet ? "Zwischensumme (Netto):" : "Zwischensumme (Brutto):"}</td>
-            <td style={summaryCellValue}>{finalSubtotal.toFixed(2)} {currencyCode}</td>
+            <td style={summaryCellValue}>{formatCurrency(finalSubtotal, currencyCode)}</td>
           </tr>
           {discount > 0 && (
             <tr style={summaryRowDivider}>
               <td style={summaryCellLabel}>Rabatt:</td>
-              <td style={{ ...summaryCellValue, color: "#b91c1c" }}>-{discount.toFixed(2)} {currencyCode}</td>
+              <td style={{ ...summaryCellValue, color: "#b91c1c" }}>{formatCurrency(-discount, currencyCode)}</td>
             </tr>
           )}
           <tr style={summaryRowDivider}>
             <td style={summaryCellLabel}>{isNet ? "Versandkosten (Netto):" : "Versandkosten:"}</td>
-            <td style={summaryCellValue}>{finalShipping.toFixed(2)} {currencyCode}</td>
+            <td style={summaryCellValue}>{formatCurrency(finalShipping, currencyCode)}</td>
           </tr>
           {Object.entries(vatBreakdown).map(([rate, amount]) => (
             <tr key={rate} style={summaryRowDivider}>
@@ -214,23 +215,23 @@ function InvoiceSummaryBlock({ totals, currencyCode, taxDisplayMode }) {
                 {isNet ? "zzgl." : "inkl."} {formatTaxPercent(rate)}% MwSt.:
               </td>
               <td style={{ ...summaryCellValue, color: "#777", fontStyle: "italic" }}>
-                {amount.toFixed(2)} {currencyCode}
+                {formatCurrency(amount, currencyCode)}
               </td>
             </tr>
           ))}
-          <tr style={{ borderTop: "2px solid #111" }}>
+          <tr>
             <td style={summaryTotalLabel}>{isNet ? "Gesamtsumme (Brutto):" : "Gesamtsumme:"}</td>
-            <td style={summaryTotalValue}>{finalTotal.toFixed(2)} {currencyCode}</td>
+            <td style={summaryTotalValue}>{formatCurrency(finalTotal, currencyCode)}</td>
           </tr>
           {refunded > 0 && (
             <>
               <tr style={summaryRowDivider}>
                 <td style={{ ...summaryCellLabel, color: "#b91c1c", fontWeight: "bold" }}>Erstattet (Refunded):</td>
-                <td style={{ ...summaryCellValue, color: "#b91c1c", fontWeight: "bold" }}>-{refunded.toFixed(2)} {currencyCode}</td>
+                <td style={{ ...summaryCellValue, color: "#b91c1c", fontWeight: "bold" }}>{formatCurrency(-refunded, currencyCode)}</td>
               </tr>
               <tr style={{ borderTop: "1px solid #111", borderBottom: "2px double #111" }}>
                 <td style={summaryTotalLabel}>Gezahlter Betrag (Net Paid):</td>
-                <td style={summaryTotalValue}>{(finalTotal - refunded).toFixed(2)} {currencyCode}</td>
+                <td style={summaryTotalValue}>{formatCurrency(finalTotal - refunded, currencyCode)}</td>
               </tr>
             </>
           )}
@@ -324,11 +325,7 @@ export default function RechnungSlip({ view, showImages, showBarcodes, showSkus 
           <img className="logo" src={COMPANY.logoUrl} alt="DAWAYO" style={{ marginBottom: "8px" }} />
           <div><strong>{COMPANY.legalName}</strong></div>
           <div>{COMPANY.street}, {COMPANY.zip} {COMPANY.city}</div>
-          <div>Geschäftsführer: {COMPANY.managingDirectors.join(", ")}</div>
-          <div>Email: {COMPANY.email}</div>
-          <div>Steuer-ID: {COMPANY.taxNumber}</div>
           <div>USt-ID: {COMPANY.vatId}</div>
-          <div>EORI: {COMPANY.eori}</div>
           {showBarcodes && (
             <div className="barcode-wrapper" style={{ marginTop: "12px" }}>
               <div className="barcode-title">Order Barcode</div>
