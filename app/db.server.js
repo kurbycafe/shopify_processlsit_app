@@ -161,6 +161,38 @@ export async function ensureDatabaseSchema() {
       `);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AppFeatureRequest_shop_createdAt_idx" ON "AppFeatureRequest"("shop", "createdAt");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AppFeatureRequest_shop_status_createdAt_idx" ON "AppFeatureRequest"("shop", "status", "createdAt");`);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "Recipe" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "shop" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "introduction" TEXT NOT NULL,
+          "steps" TEXT NOT NULL,
+          "imageUrl" TEXT,
+          "shopifyArticleId" TEXT,
+          "shopifyBlogId" TEXT,
+          "published" BOOLEAN NOT NULL DEFAULT false,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Recipe_shop_idx" ON "Recipe"("shop");`);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "RecipeProduct" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "recipeId" TEXT NOT NULL,
+          "productId" TEXT NOT NULL,
+          "variantId" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "variantTitle" TEXT,
+          "price" TEXT,
+          "imageUrl" TEXT
+        );
+      `);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RecipeProduct_recipeId_idx" ON "RecipeProduct"("recipeId");`);
+
       await ensureCustomerRequestSchema(prisma);
     } catch (err) {
       schemaEnsuredPromise = null;

@@ -17,7 +17,7 @@ import {
   Modal,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import prisma, { ensureDatabaseSchema } from "../db.server";
 import RecipeDashboardHeader from "../components/recipe/RecipeDashboardHeader";
 import RecipePresetModal from "../components/recipe/RecipePresetModal";
 import RecipeLocalizationEditor from "../components/recipe/RecipeLocalizationEditor";
@@ -76,54 +76,73 @@ export async function loader({ request }) {
     return Response.json({ products });
   }
 
-  // Fetch local recipes with products
-  const rawRecipesTask = prisma.recipe.findMany({
-    where: { shop },
-    include: { products: true },
-    orderBy: { createdAt: "desc" },
-  });
+  try {
+    await ensureDatabaseSchema();
+  } catch (schemaErr) {
+    console.warn("[Recipe Loader] DB schema check blip:", schemaErr?.message);
+  }
 
-  // Fetch store blogs and shop URL with in-memory caching; one Shopify request covers both, alongside the DB read.
-  const now = Date.now();
-  const cached = blogCache.get(shop);
-  let blogs = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.blogs : null;
-  let shopUrl = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.shopUrl : null;
+  try {
+    // Fetch local recipes with products
+    const rawRecipesTask = prisma.recipe.findMany({
+      where: { shop },
+      include: { products: true },
+      orderBy: { createdAt: "desc" },
+    }).catch((dbErr) => {
+      console.error("Error loading recipes from DB:", dbErr);
+      return [];
+    });
 
-  const storeInfoTask = (blogs && shopUrl) ? Promise.resolve(null) : (async () => {
-    try {
-      const res = await admin.graphql(
-        `#graphql
-        query getBlogsAndShop {
-          blogs(first: 30) {
-            nodes {
-              id
-              title
-              handle
+    // Fetch store blogs and shop URL with in-memory caching; one Shopify request covers both, alongside the DB read.
+    const now = Date.now();
+    const cached = blogCache.get(shop);
+    let blogs = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.blogs : null;
+    let shopUrl = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.shopUrl : null;
+
+    const storeInfoTask = (blogs && shopUrl) ? Promise.resolve(null) : (async () => {
+      try {
+        const res = await admin.graphql(
+          `#graphql
+          query getBlogsAndShop {
+            blogs(first: 30) {
+              nodes {
+                id
+                title
+                handle
+              }
             }
-          }
-          shop {
-            primaryDomain {
-              url
+            shop {
+              primaryDomain {
+                url
+              }
             }
-          }
-        }`
-      );
-      return (await res.json()).data || null;
-    } catch (err) {
-      console.error("Error loading Shopify blogs and shop url:", err);
-      return null;
-    }
-  })();
+          }`
+        );
+        return (await res.json()).data || null;
+      } catch (err) {
+        console.error("Error loading Shopify blogs and shop url:", err);
+        return null;
+      }
+    })();
 
-  const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
-  const recipes = rawRecipes.map(unpackRecipe);
+    const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
+    const recipes = (rawRecipes || []).map(unpackRecipe);
 
-  if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
-  if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
+    if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
+    if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
 
-  blogCache.set(shop, { blogs, shopUrl, timestamp: now });
+    blogCache.set(shop, { blogs, shopUrl, timestamp: now });
 
-  return { recipes, blogs, shopUrl };
+    return { recipes, blogs, shopUrl, error: null };
+  } catch (err) {
+    console.error("Recipe loader unexpected error:", err);
+    return {
+      recipes: [],
+      blogs: [],
+      shopUrl: `https://${shop}`,
+      error: "레시피 데이터를 불러오는 중 오류가 발생했습니다: " + (err.message || String(err)),
+    };
+  }
 }
 
 // --- ACTION ---
@@ -142,7 +161,7 @@ export function RecipeCommerceManager({ active = true }) {
     }
   }, [active, load, loaderFetcher.data, loaderFetcher.state]);
 
-  if (!loaderFetcher.data) {
+  if (loaderFetcher.state === "loading" || (!loaderFetcher.data && !loaderFetcher.error)) {
     return (
       <Card>
         <Box padding="400">
@@ -152,12 +171,31 @@ export function RecipeCommerceManager({ active = true }) {
     );
   }
 
+  if (loaderFetcher.error || loaderFetcher.data?.error) {
+    return (
+      <Card>
+        <Box padding="400">
+          <BlockStack gap="300">
+            <Banner tone="critical">
+              <Text as="p">
+                {loaderFetcher.error?.message || loaderFetcher.data?.error || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
+              </Text>
+            </Banner>
+            <InlineStack align="end">
+              <Button onClick={() => load("/app/recipe-blogs")}>다시 시도</Button>
+            </InlineStack>
+          </BlockStack>
+        </Box>
+      </Card>
+    );
+  }
+
   return (
     <RecipeBlogs
       loaderData={{
-        recipes: loaderFetcher.data.recipes || [],
-        blogs: loaderFetcher.data.blogs || [],
-        shopUrl: loaderFetcher.data.shopUrl || "",
+        recipes: loaderFetcher.data?.recipes || [],
+        blogs: loaderFetcher.data?.blogs || [],
+        shopUrl: loaderFetcher.data?.shopUrl || "",
       }}
       actionUrl="/app/recipe-blogs"
       embedded={true}
@@ -169,7 +207,10 @@ export function RecipeCommerceManager({ active = true }) {
 export default function RecipeBlogs(props = {}) {
   // Called on every render (hooks must not be conditional); embedded callers pass their own data.
   const routeData = useLoaderData();
-  const { recipes, blogs, shopUrl } = props.loaderData || routeData;
+  const rawData = props.loaderData || routeData || {};
+  const recipes = Array.isArray(rawData.recipes) ? rawData.recipes : [];
+  const blogs = Array.isArray(rawData.blogs) ? rawData.blogs : [];
+  const shopUrl = rawData.shopUrl || "";
   const { actionUrl, embedded = false, onReload } = props;
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;

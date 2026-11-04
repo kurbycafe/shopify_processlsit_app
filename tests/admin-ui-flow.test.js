@@ -124,6 +124,51 @@ test("recipe product removal during a failed publication is preserved while its 
   assert.equal(page.action.submitted.get("id"), "saved_draft");
 });
 
+test("RecipeBlogs renders safely with empty routeData or missing blogs", () => {
+  const context = {
+    crypto,
+    FormData,
+    React: { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) },
+    useState: (initial) => [initial, () => {}],
+    useRef: (initial) => ({ current: initial }),
+    useEffect: () => {},
+    useLoaderData: () => ({}),
+    useFetcher: () => ({ state: "idle", data: null, submit() {} }),
+  };
+  for (const name of [
+    "Page",
+    "Layout",
+    "Card",
+    "Button",
+    "Select",
+    "BlockStack",
+    "InlineStack",
+    "Text",
+    "Badge",
+    "Banner",
+    "Box",
+    "Divider",
+    "TextField",
+    "Modal",
+    "RecipeDashboardHeader",
+    "RecipePresetModal",
+    "RecipeLocalizationEditor",
+    "RecipeMetadataSettings",
+    "RecipeIngredientsCommerce",
+    "RecipeStorefrontPreviewModal",
+  ]) context[name] = name;
+  vm.createContext(context);
+  vm.runInContext(compiled, context);
+
+  // Both embedded with empty loaderData and route-level with empty useLoaderData() must not throw
+  assert.doesNotThrow(() => {
+    context.component({ loaderData: { recipes: [], blogs: [] } });
+  });
+  assert.doesNotThrow(() => {
+    context.component({});
+  });
+});
+
 test("invoice renders original and discounted unit prices in the correct tax basis", async () => {
   const invoiceSource = await fs.readFile(new URL("../app/components/lieferschein/RechnungSlip.jsx", import.meta.url), "utf8");
   const tableSource = invoiceSource.slice(invoiceSource.indexOf("function InvoiceItemsTable"), invoiceSource.indexOf("function InvoiceSummaryBlock"));
