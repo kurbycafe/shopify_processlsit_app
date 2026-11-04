@@ -8,6 +8,22 @@ import { createPushCampaign, expandPushCampaigns, listPushAdmin, retryPushDelive
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { firebasePushConfigured } from "../services/firebaseMessaging.server.js";
 
+const DELIVERY_STATUS = {
+  QUEUED: { tone: "info", label: "대기" },
+  SENDING: { tone: "attention", label: "발송 중" },
+  RETRY: { tone: "warning", label: "재시도 예정" },
+  SENT: { tone: "success", label: "발송 완료" },
+  EXPANDED: { tone: "success", label: "대상 생성됨" },
+  SKIPPED: { tone: undefined, label: "건너뜀" },
+  REVOKED: { tone: undefined, label: "철회됨" },
+  FAILED: { tone: "critical", label: "실패" },
+  UNKNOWN: { tone: "critical", label: "확인 필요" },
+};
+const statusBadge = (row) => {
+  const status = DELIVERY_STATUS[row.status] || { label: row.status };
+  return <Badge key={row.id} tone={status.tone}>{status.label}</Badge>;
+};
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   try { return { ...(await listPushAdmin({ db, shop: session.shop, cursor: new URL(request.url).searchParams.get("cursor") })), configured: firebasePushConfigured(), requestId: randomUUID() }; }
@@ -112,7 +128,7 @@ export function PushNotificationsManager({ active = true }) {
       </BlockStack></Card>
       <Card><BlockStack gap="300"><InlineStack align="space-between"><Text as="h2" variant="headingMd">발송 대기열·기록</Text><Button disabled={busy || !data.configured} onClick={() => setConfirm({ type: "process" })}>대기열 처리</Button></InlineStack>
         <Text as="p">SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다.</Text>
-        {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, <Badge key={row.id}>{row.status}</Badge>, row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
+        {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, statusBadge(row), row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
         {data.nextCursor && <Button variant="plain" onClick={() => setCursor(data.nextCursor)}>이전 기록 보기</Button>}
       </BlockStack></Card>
       <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirm?.type === "process" ? "대기 중인 알림을 발송하시겠습니까?" : confirm?.type === "retry" ? "다시 발송하시겠습니까?" : "이 내용으로 발송 요청을 저장하시겠습니까?"}
@@ -153,7 +169,7 @@ export default function PushNotificationsPage() {
     </BlockStack></Card>
     <Card><BlockStack gap="300"><InlineStack align="space-between"><Text as="h2" variant="headingMd">발송 대기열·기록</Text><Button disabled={busy || !data.configured} onClick={() => setConfirm({ type: "process" })}>대기열 처리</Button></InlineStack>
       <Text as="p">SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다.</Text>
-      {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, <Badge key={row.id}>{row.status}</Badge>, row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
+      {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, statusBadge(row), row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
       {data.nextCursor && <Link to={`?cursor=${encodeURIComponent(data.nextCursor)}`}>이전 기록 보기</Link>}
     </BlockStack></Card>
     <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirm?.type === "process" ? "대기 중인 알림을 발송하시겠습니까?" : confirm?.type === "retry" ? "다시 발송하시겠습니까?" : "이 내용으로 발송 요청을 저장하시겠습니까?"}

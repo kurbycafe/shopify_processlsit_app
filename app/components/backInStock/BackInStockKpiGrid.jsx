@@ -15,6 +15,7 @@ import {
   CalendarIcon,
   InfoIcon,
 } from "@shopify/polaris-icons";
+import { pressable } from "../../utils/a11y.js";
 
 export default function BackInStockKpiGrid({
   kpiData,
@@ -102,7 +103,8 @@ export default function BackInStockKpiGrid({
         return (
           <div
             key={card.id}
-            onClick={() => onSelectKpiFilter(card.id)}
+            {...pressable(() => onSelectKpiFilter(card.id))}
+            aria-pressed={isSelected}
             style={{
               cursor: "pointer",
               transition: "all 0.2s ease-in-out",

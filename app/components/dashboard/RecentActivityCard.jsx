@@ -1,6 +1,18 @@
 import { Card, BlockStack, Text, InlineStack, Badge, Divider } from "@shopify/polaris";
 import { Link, useNavigate } from "react-router";
 import dayjs from "dayjs";
+import { pressable } from "../../utils/a11y.js";
+
+const INSPECTION_STATUS = {
+  SUCCESS: { tone: "success", label: "검수 성공" },
+  PARTIAL: { tone: "warning", label: "일부 완료" },
+  ISSUE_REPORTED: { tone: "critical", label: "문제 보고됨" },
+  FAILED: { tone: "critical", label: "검수 실패" },
+};
+
+export function inspectionStatusBadge(status) {
+  return INSPECTION_STATUS[status] || { tone: "warning", label: status };
+}
 
 export function RecentActivityCard({ recentLogs, onSelectLog }) {
   const navigate = useNavigate();
@@ -15,27 +27,14 @@ export function RecentActivityCard({ recentLogs, onSelectLog }) {
         {recentLogs && recentLogs.length > 0 ? (
           <BlockStack gap="150">
             {recentLogs.map((log) => {
-              let statusBadgeTone = "warning";
-              let statusText = log.status;
-              if (log.status === "SUCCESS") {
-                statusBadgeTone = "success";
-                statusText = "검수 성공";
-              } else if (log.status === "PARTIAL") {
-                statusBadgeTone = "warning";
-                statusText = "일부 완료";
-              } else if (log.status === "ISSUE_REPORTED") {
-                statusBadgeTone = "critical";
-                statusText = "문제 보고됨";
-              } else if (log.status === "FAILED") {
-                statusBadgeTone = "critical";
-                statusText = "검수 실패";
-              }
+              const { tone: statusBadgeTone, label: statusText } = inspectionStatusBadge(log.status);
 
               return (
                 <div
                   key={log.id}
                   className="recent-log-item"
-                  onClick={() => onSelectLog(log)}
+                  {...pressable(() => onSelectLog(log))}
+                  aria-label={`${log.orderName} 검수 상세 보기`}
                 >
                   <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="100">
