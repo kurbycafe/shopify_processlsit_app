@@ -6,6 +6,7 @@ import * as build from "../build/server/index.js";
 const app = express();
 
 app.disable("x-powered-by");
+app.set("trust proxy", true);
 app.use(compression());
 app.use(express.static("public", { maxAge: "1h" }));
 

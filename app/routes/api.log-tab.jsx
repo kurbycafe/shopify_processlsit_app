@@ -4,7 +4,16 @@ import { getInspectorName } from "../services/inspectorService.server.js";
 
 export const action = async ({ request }) => {
   try {
-    const { session, admin } = await authenticate.admin(request);
+    let session = null;
+    let admin = null;
+    try {
+      const auth = await authenticate.admin(request);
+      session = auth.session;
+      admin = auth.admin;
+    } catch {
+      // Telemetry should never crash or throw if session auth is absent or expired
+    }
+
     const formData = await request.formData();
     const path = String(formData.get("path") || "").trim();
     const clientUser = String(formData.get("user") || "").trim();
@@ -26,9 +35,11 @@ export const action = async ({ request }) => {
       });
     }
 
-    return Response.json({ success: true }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json(
+      { success: true },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   } catch (err) {
-    if (err instanceof Response) throw err;
     return Response.json(
       { success: false, error: err?.message },
       { status: 200, headers: { "Cache-Control": "private, no-store" } }
@@ -37,5 +48,8 @@ export const action = async ({ request }) => {
 };
 
 export const loader = async () => {
-  return Response.json({ success: true }, { headers: { "Cache-Control": "private, no-store" } });
+  return Response.json(
+    { success: true },
+    { headers: { "Cache-Control": "private, no-store" } }
+  );
 };
