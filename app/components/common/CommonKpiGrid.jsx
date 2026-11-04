@@ -7,6 +7,7 @@ import {
   Box,
   Icon,
 } from "@shopify/polaris";
+import { pressable } from "../../utils/a11y.js";
 
 export default function CommonKpiGrid({
   items = [],
@@ -24,7 +25,8 @@ export default function CommonKpiGrid({
         return (
           <div
             key={item.id}
-            onClick={() => onSelectKey && onSelectKey(item.id)}
+            {...pressable(onSelectKey && (() => onSelectKey(item.id)))}
+            aria-pressed={onSelectKey ? isSelected : undefined}
             style={{
               cursor: onSelectKey ? "pointer" : "default",
               transition: "transform 0.15s ease, box-shadow 0.15s ease",

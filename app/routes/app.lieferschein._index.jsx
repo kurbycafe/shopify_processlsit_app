@@ -872,15 +872,22 @@ export default function AdditionalPage() {
             </Text>
           </Text>
           {selectedOrderIds.length > 0 && (
-            <Button
-              variant="primary"
-              onClick={handleBulkPrint}
-            >
-              선택한 주문 인쇄 ({selectedOrderIds.length}건)
-            </Button>
+            <InlineStack gap="200" blockAlign="center">
+              {selectedOrderIds.length > 100 && (
+                <Text as="span" tone="critical">한 번에 100건까지 인쇄할 수 있습니다 (권장 50건)</Text>
+              )}
+              <Button
+                variant="primary"
+                onClick={handleBulkPrint}
+                disabled={selectedOrderIds.length > 100}
+              >
+                선택한 주문 인쇄 ({selectedOrderIds.length}건)
+              </Button>
+            </InlineStack>
           )}
         </div>
 
+        <div style={{ overflowX: "auto" }}>
         <table className="list-table">
           <thead>
             <tr>
@@ -1033,6 +1040,7 @@ export default function AdditionalPage() {
             )}
           </tbody>
         </table>
+        </div>
 
         {loaderData?.pageInfo && (loaderData.pageInfo.hasNextPage || loaderData.pageInfo.hasPreviousPage) && (
           <div style={{ display: "flex", justifyContent: "center", marginBlockStart: "20px", marginBlockEnd: "10px" }}>

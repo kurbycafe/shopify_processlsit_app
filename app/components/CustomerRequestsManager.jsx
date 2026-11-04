@@ -15,6 +15,7 @@ import {
   TextField,
   Modal,
 } from "@shopify/polaris";
+import { pressable } from "../utils/a11y.js";
 
 const STATUS_LABELS = {
   REQUESTED: "접수",
@@ -428,7 +429,8 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                         {photos.map((src, i) => (
                           <div
                             key={i}
-                            onClick={() => setSelectedPhoto(src)}
+                            {...pressable(() => setSelectedPhoto(src))}
+                            aria-label={`첨부 사진 ${i + 1} 크게 보기`}
                             style={{
                               width: "72px",
                               height: "72px",

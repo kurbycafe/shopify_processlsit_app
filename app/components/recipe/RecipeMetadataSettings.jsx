@@ -14,6 +14,7 @@ import {
   SPICE_LEVELS,
   DIETARY_OPTIONS,
 } from "../../utils/recipePresets";
+import { pressable } from "../../utils/a11y.js";
 
 export default function RecipeMetadataSettings({
   category,
@@ -150,7 +151,8 @@ export default function RecipeMetadataSettings({
               return (
                 <div
                   key={opt.id}
-                  onClick={() => handleToggleDietary(opt.id)}
+                  {...pressable(() => handleToggleDietary(opt.id))}
+                  aria-pressed={isSelected}
                   style={{
                     cursor: "pointer",
                     padding: "4px 10px",
