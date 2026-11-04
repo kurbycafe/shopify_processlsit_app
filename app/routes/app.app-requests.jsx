@@ -27,9 +27,11 @@ import {
   listAppFeatureRequests,
   updateAppFeatureRequestStatus,
   canSessionManageFeatureRequestStatus,
+} from "../services/appFeatureRequests.server.js";
+import {
   FEATURE_REQUEST_PAGE_SIZE,
   STATUS_MANAGER_EMAIL,
-} from "../services/appFeatureRequests.server.js";
+} from "../constants/appFeatureRequests.js";
 
 const KIND_LABELS = {
   FEATURE: "기능 추가",
