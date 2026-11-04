@@ -5,6 +5,7 @@ import { ArrivalsManager } from "./app.arrivals.jsx";
 import { ReviewsManager } from "./app.reviews.jsx";
 import { RecipeCommerceManager } from "./app.recipe-blogs.jsx";
 import { PushNotificationsManager } from "./app.push-notifications.jsx";
+import { AppRequestsManager } from "./app.app-requests.jsx";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import MobileLiveSimulator from "../components/MobileLiveSimulator.jsx";
 import { useState, useEffect, useRef } from "react";
@@ -1056,6 +1057,12 @@ export default function AppManagementPage() {
         {visitedTabs.has("push-notifications") && (
           <div style={{ display: activeTab === "push-notifications" ? "block" : "none" }}>
             <PushNotificationsManager active={activeTab === "push-notifications"} />
+          </div>
+        )}
+
+        {visitedTabs.has("app-requests") && (
+          <div style={{ display: activeTab === "app-requests" ? "block" : "none" }}>
+            <AppRequestsManager active={activeTab === "app-requests"} />
           </div>
         )}
 

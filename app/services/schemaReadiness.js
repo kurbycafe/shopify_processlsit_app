@@ -116,7 +116,28 @@ const required = [
   "column:AppFeatureRequest:createdAt",
   "column:AppFeatureRequest:updatedAt",
   "index:AppFeatureRequest:AppFeatureRequest_shop_createdAt_idx",
-  "index:AppFeatureRequest:AppFeatureRequest_shop_status_createdAt_idx"
+  "index:AppFeatureRequest:AppFeatureRequest_shop_status_createdAt_idx",
+  "column:Recipe:id",
+  "column:Recipe:shop",
+  "column:Recipe:title",
+  "column:Recipe:introduction",
+  "column:Recipe:steps",
+  "column:Recipe:imageUrl",
+  "column:Recipe:shopifyArticleId",
+  "column:Recipe:shopifyBlogId",
+  "column:Recipe:published",
+  "column:Recipe:createdAt",
+  "column:Recipe:updatedAt",
+  "index:Recipe:Recipe_shop_idx",
+  "column:RecipeProduct:id",
+  "column:RecipeProduct:recipeId",
+  "column:RecipeProduct:productId",
+  "column:RecipeProduct:variantId",
+  "column:RecipeProduct:title",
+  "column:RecipeProduct:variantTitle",
+  "column:RecipeProduct:price",
+  "column:RecipeProduct:imageUrl",
+  "index:RecipeProduct:RecipeProduct_recipeId_idx"
 ];
 export function schemaIsReady(rows) {
   const actual = new Set(rows.map(row => `${row.kind}:${row.tableName}:${row.name}`));
@@ -127,10 +148,10 @@ export async function readSchemaCatalog(db) {
   return db.$queryRaw`
         SELECT 'column' AS kind, table_name AS "tableName", column_name AS name
         FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest')
+        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct')
         UNION ALL
         SELECT 'index' AS kind, tablename AS "tableName", indexname AS name
         FROM pg_indexes
-        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest')
+        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct')
       `;
 }

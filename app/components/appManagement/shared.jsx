@@ -796,6 +796,7 @@ export const TOP_MENU_TABS = [
   { id: "push-notifications", label: "앱 알림 발송", group: "cs" },
   { id: "customer-requests", label: "고객 문의 · 반품", group: "cs" },
   { id: "b2b-requests", label: "B2B 도매 회원 승인", group: "cs" },
+  { id: "app-requests", label: "앱 개선 요청", group: "cs" },
   { id: "preview", label: "전체 화면 미리보기", group: "home" },
 ];
 
@@ -832,9 +833,9 @@ export const MENU_GROUPS = [
   {
     id: "cs",
     label: "고객 서비스 · 알림",
-    badge: "4개",
+    badge: "5개",
     description:
-      "리뷰 관리, 푸시 알림 발송, 1:1 문의/반품 및 B2B 도매 회원 승인",
-    ids: ["reviews", "push-notifications", "customer-requests", "b2b-requests"],
+      "리뷰 관리, 푸시 알림 발송, 1:1 문의/반품, B2B 도매 승인 및 앱 개선 요청",
+    ids: ["reviews", "push-notifications", "customer-requests", "b2b-requests", "app-requests"],
   },
 ];

@@ -27,7 +27,9 @@ import {
   listAppFeatureRequests,
   updateAppFeatureRequestStatus,
   canSessionManageFeatureRequestStatus,
+  createAppFeatureRequest,
 } from "../services/appFeatureRequests.server.js";
+import { AppFeatureRequestCard } from "../components/common/AppFeatureRequestCard.jsx";
 import {
   FEATURE_REQUEST_PAGE_SIZE,
   STATUS_MANAGER_EMAIL,
@@ -147,6 +149,17 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
 
+  if (intent === "create_app_feature_request") {
+    return await createAppFeatureRequest({
+      db: prisma,
+      shop: session.shop,
+      session,
+      admin,
+      kind: formData.get("kind"),
+      content: formData.get("content"),
+    });
+  }
+
   if (intent === "update_status") {
     return await updateAppFeatureRequestStatus({
       db: prisma,
@@ -162,10 +175,11 @@ export const action = async ({ request }) => {
   return { ok: false, error: "알 수 없는 요청입니다." };
 };
 
-function RequestRow({ item, canManageStatus, expanded, onToggleExpand }) {
+function RequestRow({ item, canManageStatus, expanded, onToggleExpand, actionUrl, onSaved }) {
   const rowFetcher = useFetcher();
   const [draftStatus, setDraftStatus] = useState(item.status || "PENDING");
   const [draftNote, setDraftNote] = useState(item.note || "");
+  const lastSavedRef = useRef(null);
 
   useEffect(() => {
     setDraftStatus(item.status || "PENDING");
@@ -175,6 +189,15 @@ function RequestRow({ item, canManageStatus, expanded, onToggleExpand }) {
     setDraftNote(item.note || "");
   }, [item.note]);
 
+  useEffect(() => {
+    if (rowFetcher.state !== "idle" || !rowFetcher.data) return;
+    if (lastSavedRef.current === rowFetcher.data) return;
+    lastSavedRef.current = rowFetcher.data;
+    if (rowFetcher.data.ok && typeof onSaved === "function") {
+      onSaved();
+    }
+  }, [rowFetcher.state, rowFetcher.data, onSaved]);
+
   const isSubmitting = rowFetcher.state !== "idle";
   const isDirty =
     draftStatus !== (item.status || "PENDING") ||
@@ -182,6 +205,8 @@ function RequestRow({ item, canManageStatus, expanded, onToggleExpand }) {
 
   const handleSave = () => {
     if (!canManageStatus || isSubmitting) return;
+    const submitOpts = { method: "POST" };
+    if (actionUrl) submitOpts.action = actionUrl;
     rowFetcher.submit(
       {
         intent: "update_status",
@@ -189,7 +214,7 @@ function RequestRow({ item, canManageStatus, expanded, onToggleExpand }) {
         status: draftStatus,
         note: draftNote.trim(),
       },
-      { method: "POST" }
+      submitOpts
     );
   };
 
@@ -341,7 +366,57 @@ function RequestRow({ item, canManageStatus, expanded, onToggleExpand }) {
   );
 }
 
-export default function AppFeatureRequestsPage() {
+export function AppRequestsManager({ active = true }) {
+  const loaderFetcher = useFetcher();
+  const { load } = loaderFetcher;
+  useEffect(() => {
+    if (active && !loaderFetcher.data && loaderFetcher.state === "idle") {
+      load("/app/app-requests");
+    }
+  }, [active, load, loaderFetcher.data, loaderFetcher.state]);
+
+  if (loaderFetcher.state === "loading" || (!loaderFetcher.data && !loaderFetcher.error)) {
+    return (
+      <Card>
+        <Box padding="400">
+          <Text as="p" tone="subdued">앱 개선 요청 데이터를 불러오는 중입니다...</Text>
+        </Box>
+      </Card>
+    );
+  }
+
+  if (loaderFetcher.error || loaderFetcher.data?.loaderError) {
+    return (
+      <Card>
+        <Box padding="400">
+          <BlockStack gap="300">
+            <Banner tone="critical">
+              <Text as="p">
+                {loaderFetcher.error?.message || loaderFetcher.data?.loaderError || "데이터를 불러오는 중 오류가 발생했습니다."}
+              </Text>
+            </Banner>
+            <InlineStack align="end">
+              <Button onClick={() => load("/app/app-requests")}>다시 시도</Button>
+            </InlineStack>
+          </BlockStack>
+        </Box>
+      </Card>
+    );
+  }
+
+  return (
+    <AppFeatureRequestsPage
+      loaderData={loaderFetcher.data}
+      actionUrl="/app/app-requests"
+      embedded={true}
+      onReload={() => loaderFetcher.load("/app/app-requests")}
+    />
+  );
+}
+
+export default function AppFeatureRequestsPage(props = {}) {
+  const routeData = useLoaderData();
+  const rawData = props.loaderData || routeData || {};
   const {
     items = [],
     counts = { ALL: 0, PENDING: 0, IN_PROGRESS: 0, DONE: 0, ON_HOLD: 0 },
@@ -349,7 +424,8 @@ export default function AppFeatureRequestsPage() {
     filters = { status: "ALL", search: "" },
     canManageStatus = false,
     loaderError = null,
-  } = useLoaderData();
+  } = rawData;
+  const { actionUrl, embedded = false, onReload } = props;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchInput, setSearchInput] = useState(filters.search || "");
@@ -426,25 +502,27 @@ export default function AppFeatureRequestsPage() {
     });
   };
 
-  return (
-    <Page
-      title="앱 개선 요청"
-      subtitle="대시보드에서 접수된 모바일 앱 기능 추가, 수정 및 오류 요청 내역을 관리합니다."
-    >
-      <BlockStack gap="400">
-        {loaderError && (
-          <Banner tone="critical">
-            <Text as="p">{loaderError}</Text>
-          </Banner>
-        )}
+  const pageContent = (
+    <BlockStack gap="400">
+      {loaderError && (
+        <Banner tone="critical">
+          <Text as="p">{loaderError}</Text>
+        </Banner>
+      )}
 
-        {!canManageStatus && (
-          <Banner tone="info">
-            <Text as="p">
-              처리 상태 및 처리 메모 변경은 관리자({STATUS_MANAGER_EMAIL}) 계정에서만 가능합니다.
-            </Text>
-          </Banner>
-        )}
+      {!canManageStatus && (
+        <Banner tone="info">
+          <Text as="p">
+            처리 상태 및 처리 메모 변경은 관리자({STATUS_MANAGER_EMAIL}) 계정에서만 가능합니다.
+          </Text>
+        </Banner>
+      )}
+
+      <AppFeatureRequestCard
+        actionUrl={actionUrl}
+        showViewListButton={false}
+        onSuccess={onReload}
+      />
 
         <Card padding="0">
           <Tabs
@@ -525,6 +603,8 @@ export default function AppFeatureRequestsPage() {
                       canManageStatus={canManageStatus}
                       expanded={expandedIds.has(item.id)}
                       onToggleExpand={() => toggleExpand(item.id)}
+                      actionUrl={actionUrl}
+                      onSaved={onReload}
                     />
                   ))}
                 </tbody>
@@ -550,6 +630,18 @@ export default function AppFeatureRequestsPage() {
           )}
         </Card>
       </BlockStack>
+  );
+
+  if (embedded) {
+    return pageContent;
+  }
+
+  return (
+    <Page
+      title="앱 개선 요청"
+      subtitle="대시보드에서 접수된 모바일 앱 기능 추가, 수정 및 오류 요청 내역을 관리합니다."
+    >
+      {pageContent}
     </Page>
   );
 }

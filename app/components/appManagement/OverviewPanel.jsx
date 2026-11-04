@@ -1,4 +1,5 @@
 import { Badge, BlockStack, Button, InlineStack, Text } from "@shopify/polaris";
+import { AppFeatureRequestCard } from "../common/AppFeatureRequestCard.jsx";
 import {
   BannerWireframeSvg,
   CampaignsWireframeSvg,
@@ -21,6 +22,8 @@ export function OverviewPanel({
 }) {
   return (
     <BlockStack gap="500">
+      <AppFeatureRequestCard />
+
       <div
         style={{
           display: "flex",
@@ -515,6 +518,36 @@ export function OverviewPanel({
           <div>
             <Button onClick={() => setActiveTab("push-notifications")}>
               알림 발송 관리
+            </Button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: "#FFFFFF",
+            borderRadius: "12px",
+            border: "1px solid #E5E7EB",
+            padding: "20px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}
+        >
+          <div>
+            <div style={{ marginBottom: "6px" }}>
+              <Text variant="headingMd" as="h3">
+                앱 개선 요청
+              </Text>
+            </div>
+            <Text variant="bodyMd" tone="subdued" as="p">
+              모바일 앱 기능 추가, 수정 및 버그 오류 개선 요청을 등록하고
+              처리 현황을 관리합니다.
+            </Text>
+          </div>
+          <div>
+            <Button onClick={() => setActiveTab("app-requests")}>
+              요청 내역 관리
             </Button>
           </div>
         </div>

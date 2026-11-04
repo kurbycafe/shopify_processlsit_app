@@ -9,8 +9,9 @@ import {
   resolveCanonicalShop,
 } from "./mobileStorefront.server.js";
 import { authenticate } from "../shopify.server.js";
-import prisma from "../db.server.js";
+import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { saveStorefrontConfig } from "./productTemperatures.server.js";
+import { createAppFeatureRequest } from "./appFeatureRequests.server.js";
 
 // Server action of the app management screen (moved out of app.app-management.jsx).
 /* ============================================================================
@@ -67,6 +68,18 @@ export async function appManagementAction({ request }) {
   const intent = String(formData.get("intent") || "");
 
   try {
+    if (intent === "create_app_feature_request") {
+      await ensureDatabaseSchema();
+      return await createAppFeatureRequest({
+        db: prisma,
+        shop: session.shop,
+        session,
+        admin,
+        kind: formData.get("kind"),
+        content: formData.get("content"),
+      });
+    }
+
     if (intent === "publish_now") {
       await bumpStorefrontVersion(shop);
       return {
