@@ -148,10 +148,10 @@ export async function readSchemaCatalog(db) {
   return db.$queryRaw`
         SELECT 'column' AS kind, table_name AS "tableName", column_name AS name
         FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct')
+        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct', 'Container')
         UNION ALL
         SELECT 'index' AS kind, tablename AS "tableName", indexname AS name
         FROM pg_indexes
-        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct')
+        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct', 'Container')
       `;
 }
