@@ -835,7 +835,7 @@ export const MENU_GROUPS = [
     label: "고객 서비스 · 알림",
     badge: "5개",
     description:
-      "리뷰 관리, 푸시 알림 발송, 1:1 문의/반품, B2B 도매 승인 및 앱 개선 요청",
+    "리뷰 관리, 푸시 알림 발송, 1:1 문의/반품, B2B 도매 승인 및 앱 개선 요청",
     ids: ["reviews", "push-notifications", "customer-requests", "b2b-requests", "app-requests"],
   },
 ];

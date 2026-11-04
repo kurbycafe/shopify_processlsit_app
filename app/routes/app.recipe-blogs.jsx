@@ -104,45 +104,45 @@ export async function loader({ request }) {
         const res = await admin.graphql(
           `#graphql
           query getBlogsAndShop {
-            blogs(first: 30) {
+          blogs(first: 30) {
               nodes {
-                id
-                title
-                handle
-              }
+              id
+              title
+              handle
             }
+          }
             shop {
-              primaryDomain {
-                url
-              }
+          primaryDomain {
+          url
+        }
             }
           }`
         );
-        return (await res.json()).data || null;
-      } catch (err) {
-        console.error("Error loading Shopify blogs and shop url:", err);
-        return null;
-      }
-    })();
+  return (await res.json()).data || null;
+} catch (err) {
+  console.error("Error loading Shopify blogs and shop url:", err);
+  return null;
+}
+    }) ();
 
-    const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
-    const recipes = (rawRecipes || []).map(unpackRecipe);
+const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
+const recipes = (rawRecipes || []).map(unpackRecipe);
 
-    if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
-    if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
+if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
+if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
 
-    blogCache.set(shop, { blogs, shopUrl, timestamp: now });
+blogCache.set(shop, { blogs, shopUrl, timestamp: now });
 
-    return { recipes, blogs, shopUrl, error: null };
+return { recipes, blogs, shopUrl, error: null };
   } catch (err) {
-    console.error("Recipe loader unexpected error:", err);
-    return {
-      recipes: [],
-      blogs: [],
-      shopUrl: `https://${shop}`,
-      error: "레시피 데이터를 불러오는 중 오류가 발생했습니다: " + (err.message || String(err)),
-    };
-  }
+  console.error("Recipe loader unexpected error:", err);
+  return {
+    recipes: [],
+    blogs: [],
+    shopUrl: `https://${shop}`,
+    error: "레시피 데이터를 불러오는 중 오류가 발생했습니다: " + (err.message || String(err)),
+  };
+}
 }
 
 // --- ACTION ---
@@ -161,353 +161,353 @@ export function RecipeCommerceManager({ active = true }) {
     }
   }, [active, load, loaderFetcher.data, loaderFetcher.state]);
 
-  if (loaderFetcher.state === "loading" || (!loaderFetcher.data && !loaderFetcher.error)) {
+    if (loaderFetcher.state === "loading" || (!loaderFetcher.data && !loaderFetcher.error)) {
+      return (
+        <Card>
+          <Box padding="400">
+            <Text as="p" tone="subdued">레시피 커머스 데이터를 불러오는 중입니다...</Text>
+          </Box>
+        </Card>
+      );
+    }
+
+    if (loaderFetcher.error || loaderFetcher.data?.error) {
+      return (
+        <Card>
+          <Box padding="400">
+            <BlockStack gap="300">
+              <Banner tone="critical">
+                <Text as="p">
+                  {loaderFetcher.error?.message || loaderFetcher.data?.error || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
+                </Text>
+              </Banner>
+              <InlineStack align="end">
+                <Button onClick={() => load("/app/recipe-blogs")}>다시 시도</Button>
+              </InlineStack>
+            </BlockStack>
+          </Box>
+        </Card>
+      );
+    }
+
     return (
-      <Card>
-        <Box padding="400">
-          <Text as="p" tone="subdued">레시피 커머스 데이터를 불러오는 중입니다...</Text>
-        </Box>
-      </Card>
+      <RecipeBlogs
+        loaderData={{
+          recipes: loaderFetcher.data?.recipes || [],
+          blogs: loaderFetcher.data?.blogs || [],
+          shopUrl: loaderFetcher.data?.shopUrl || "",
+        }}
+        actionUrl="/app/recipe-blogs"
+        embedded={true}
+        onReload={() => loaderFetcher.load("/app/recipe-blogs")}
+      />
     );
   }
 
-  if (loaderFetcher.error || loaderFetcher.data?.error) {
-    return (
-      <Card>
-        <Box padding="400">
-          <BlockStack gap="300">
-            <Banner tone="critical">
-              <Text as="p">
-                {loaderFetcher.error?.message || loaderFetcher.data?.error || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
-              </Text>
-            </Banner>
-            <InlineStack align="end">
-              <Button onClick={() => load("/app/recipe-blogs")}>다시 시도</Button>
-            </InlineStack>
-          </BlockStack>
-        </Box>
-      </Card>
-    );
-  }
+  export default function RecipeBlogs(props = {}) {
+    // Called on every render (hooks must not be conditional); embedded callers pass their own data.
+    const routeData = useLoaderData();
+    const rawData = props.loaderData || routeData || {};
+    const recipes = Array.isArray(rawData.recipes) ? rawData.recipes : [];
+    const blogs = Array.isArray(rawData.blogs) ? rawData.blogs : [];
+    const shopUrl = rawData.shopUrl || "";
+    const { actionUrl, embedded = false, onReload } = props;
+    const onReloadRef = useRef(onReload);
+    onReloadRef.current = onReload;
+    const fetcher = useFetcher();
+    const actionFetcher = useFetcher();
+    const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
+    const submissionLock = useRef(false);
+    const draftId = useRef(null);
+    const handledActionResult = useRef(null);
+    const submittedProducts = useRef(null);
 
-  return (
-    <RecipeBlogs
-      loaderData={{
-        recipes: loaderFetcher.data?.recipes || [],
-        blogs: loaderFetcher.data?.blogs || [],
-        shopUrl: loaderFetcher.data?.shopUrl || "",
-      }}
-      actionUrl="/app/recipe-blogs"
-      embedded={true}
-      onReload={() => loaderFetcher.load("/app/recipe-blogs")}
-    />
-  );
-}
+    // Modals state
+    const [presetModalOpen, setPresetModalOpen] = useState(false);
+    const [previewModalOpen, setPreviewModalOpen] = useState(false);
+    const [deleteRecipeId, setDeleteRecipeId] = useState(null);
 
-export default function RecipeBlogs(props = {}) {
-  // Called on every render (hooks must not be conditional); embedded callers pass their own data.
-  const routeData = useLoaderData();
-  const rawData = props.loaderData || routeData || {};
-  const recipes = Array.isArray(rawData.recipes) ? rawData.recipes : [];
-  const blogs = Array.isArray(rawData.blogs) ? rawData.blogs : [];
-  const shopUrl = rawData.shopUrl || "";
-  const { actionUrl, embedded = false, onReload } = props;
-  const onReloadRef = useRef(onReload);
-  onReloadRef.current = onReload;
-  const fetcher = useFetcher();
-  const actionFetcher = useFetcher();
-  const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
-  const submissionLock = useRef(false);
-  const draftId = useRef(null);
-  const handledActionResult = useRef(null);
-  const submittedProducts = useRef(null);
+    // Selected recipe state
+    const [selectedRecipe, setSelectedRecipe] = useState(null);
+    const [listSearchQuery, setListSearchQuery] = useState("");
 
-  // Modals state
-  const [presetModalOpen, setPresetModalOpen] = useState(false);
-  const [previewModalOpen, setPreviewModalOpen] = useState(false);
-  const [deleteRecipeId, setDeleteRecipeId] = useState(null);
+    // Editor Form States
+    const [category, setCategory] = useState("STREET_FOOD");
+    const [occasion, setOccasion] = useState("QUICK_MEAL");
+    const [difficulty, setDifficulty] = useState("EASY");
+    const [prepTimeMinutes, setPrepTimeMinutes] = useState(10);
+    const [cookTimeMinutes, setCookTimeMinutes] = useState(15);
+    const [servings, setServings] = useState(2);
+    const [spiceLevel, setSpiceLevel] = useState(2);
+    const [dietaryFlags, setDietaryFlags] = useState([]);
+    const [imageUrl, setImageUrl] = useState("");
+    const [shopifyBlogId, setShopifyBlogId] = useState(blogs[0]?.id || "");
 
-  // Selected recipe state
-  const [selectedRecipe, setSelectedRecipe] = useState(null);
-  const [listSearchQuery, setListSearchQuery] = useState("");
+    // Translations
+    const [translations, setTranslations] = useState({
+      ko: { title: "", subtitle: "", introduction: "", steps: "" },
+      de: { title: "", subtitle: "", introduction: "", steps: "" },
+      en: { title: "", subtitle: "", introduction: "", steps: "" },
+    });
 
-  // Editor Form States
-  const [category, setCategory] = useState("STREET_FOOD");
-  const [occasion, setOccasion] = useState("QUICK_MEAL");
-  const [difficulty, setDifficulty] = useState("EASY");
-  const [prepTimeMinutes, setPrepTimeMinutes] = useState(10);
-  const [cookTimeMinutes, setCookTimeMinutes] = useState(15);
-  const [servings, setServings] = useState(2);
-  const [spiceLevel, setSpiceLevel] = useState(2);
-  const [dietaryFlags, setDietaryFlags] = useState([]);
-  const [imageUrl, setImageUrl] = useState("");
-  const [shopifyBlogId, setShopifyBlogId] = useState(blogs[0]?.id || "");
+    // Ingredients and Commerce Products
+    const [ingredients, setIngredients] = useState([]);
+    const [selectedProducts, setSelectedProducts] = useState([]);
 
-  // Translations
-  const [translations, setTranslations] = useState({
-    ko: { title: "", subtitle: "", introduction: "", steps: "" },
-    de: { title: "", subtitle: "", introduction: "", steps: "" },
-    en: { title: "", subtitle: "", introduction: "", steps: "" },
-  });
+    // Product live search state
+    const [searchResults, setSearchResults] = useState([]);
+    const [searchLoading, setSearchLoading] = useState(false);
 
-  // Ingredients and Commerce Products
-  const [ingredients, setIngredients] = useState([]);
-  const [selectedProducts, setSelectedProducts] = useState([]);
+    // Feedback banner
+    const [toastMessage, setToastMessage] = useState(null);
 
-  // Product live search state
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
+    const isSaving = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "save";
+    const isPublishing = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "publish";
 
-  // Feedback banner
-  const [toastMessage, setToastMessage] = useState(null);
+    // Watch product search fetcher results
+    useEffect(() => {
+      if (fetcher.data && fetcher.data.products) {
+        setSearchResults(fetcher.data.products);
+        setSearchLoading(false);
+      }
+    }, [fetcher.data]);
 
-  const isSaving = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "save";
-  const isPublishing = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "publish";
+    useEffect(() => {
+      if (actionFetcher.state !== "idle") return;
+      submissionLock.current = false;
+      const result = actionFetcher.data;
+      if (!result || handledActionResult.current === result) return;
+      handledActionResult.current = result;
+      if (result.recipe) {
+        setSelectedRecipe(result.recipe);
+        // Keep edits made while the save request was in flight.
+        setSelectedProducts(current => current === submittedProducts.current ? (result.recipe.products || []) : current);
+        draftId.current = result.recipe.id;
+      }
+      if (result.success && result.deletedId && result.deletedId === selectedRecipe?.id) {
+        setSelectedRecipe(null);
+        draftId.current = null;
+        setTranslations(Object.fromEntries(["ko", "de", "en"].map(locale => [locale, { title: "", subtitle: "", introduction: "", steps: "" }])));
+        setSelectedProducts([]);
+        setIngredients([]);
+      }
+      setToastMessage({ type: result.success ? "success" : "critical", title: result.success ? "처리 완료" : "처리 실패", content: result.error || result.message || "레시피가 저장되었습니다." });
+      if (result.success && onReloadRef.current) onReloadRef.current();
+    }, [actionFetcher.state, actionFetcher.data, selectedRecipe?.id]);
 
-  // Watch product search fetcher results
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.products) {
-      setSearchResults(fetcher.data.products);
-      setSearchLoading(false);
-    }
-  }, [fetcher.data]);
+    // Load recipe into editor
+    const handleEditRecipe = (recipe) => {
+      if (submissionLock.current) return;
+      draftId.current = recipe.id;
+      setSelectedRecipe(recipe);
+      setCategory(recipe.category || "STREET_FOOD");
+      setOccasion(recipe.occasion || "QUICK_MEAL");
+      setDifficulty(recipe.difficulty || "EASY");
+      setPrepTimeMinutes(recipe.prepTimeMinutes || 10);
+      setCookTimeMinutes(recipe.cookTimeMinutes || 15);
+      setServings(recipe.servings || 2);
+      setSpiceLevel(recipe.spiceLevel ?? 2);
+      setImageUrl(recipe.imageUrl || "");
+      setShopifyBlogId(recipe.shopifyBlogId || (blogs[0]?.id || ""));
 
-  useEffect(() => {
-    if (actionFetcher.state !== "idle") return;
-    submissionLock.current = false;
-    const result = actionFetcher.data;
-    if (!result || handledActionResult.current === result) return;
-    handledActionResult.current = result;
-    if (result.recipe) {
-      setSelectedRecipe(result.recipe);
-      // Keep edits made while the save request was in flight.
-      setSelectedProducts(current => current === submittedProducts.current ? (result.recipe.products || []) : current);
-      draftId.current = result.recipe.id;
-    }
-    if (result.success && result.deletedId && result.deletedId === selectedRecipe?.id) {
-      setSelectedRecipe(null);
+      // Defensive parsing for translations
+      let parsedTranslations = recipe.translations;
+      if (typeof parsedTranslations === "string") {
+        try {
+          parsedTranslations = JSON.parse(parsedTranslations);
+        } catch {
+          parsedTranslations = null;
+        }
+      }
+      if (parsedTranslations && typeof parsedTranslations === "object") {
+        setTranslations({
+          ko: parsedTranslations.ko || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+          de: parsedTranslations.de || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+          en: parsedTranslations.en || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+        });
+      } else {
+        setTranslations({
+          ko: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+          de: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+          en: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+        });
+      }
+
+      // Defensive parsing for ingredients
+      let parsedIngredients = recipe.ingredientsJson;
+      if (typeof parsedIngredients === "string") {
+        try {
+          parsedIngredients = JSON.parse(parsedIngredients);
+        } catch {
+          parsedIngredients = [];
+        }
+      }
+      setIngredients(Array.isArray(parsedIngredients) ? parsedIngredients : []);
+
+      // Defensive parsing for dietary flags
+      let parsedFlags = recipe.dietaryFlags;
+      if (typeof parsedFlags === "string") {
+        try {
+          parsedFlags = JSON.parse(parsedFlags);
+        } catch {
+          parsedFlags = [];
+        }
+      }
+      setDietaryFlags(Array.isArray(parsedFlags) ? parsedFlags : []);
+
+      setSelectedProducts(Array.isArray(recipe.products) ? recipe.products : []);
+    };
+
+    // Reset editor for new recipe
+    const handleNewRecipe = () => {
+      if (submissionLock.current) return;
       draftId.current = null;
-      setTranslations(Object.fromEntries(["ko", "de", "en"].map(locale => [locale, { title: "", subtitle: "", introduction: "", steps: "" }])));
-      setSelectedProducts([]);
+      setSelectedRecipe(null);
+      setCategory("STREET_FOOD");
+      setOccasion("QUICK_MEAL");
+      setDifficulty("EASY");
+      setPrepTimeMinutes(10);
+      setCookTimeMinutes(15);
+      setServings(2);
+      setSpiceLevel(2);
+      setDietaryFlags([]);
+      setImageUrl("");
+      setShopifyBlogId(blogs[0]?.id || "");
+      setTranslations({
+        ko: { title: "", subtitle: "", introduction: "", steps: "" },
+        de: { title: "", subtitle: "", introduction: "", steps: "" },
+        en: { title: "", subtitle: "", introduction: "", steps: "" },
+      });
       setIngredients([]);
-    }
-    setToastMessage({ type: result.success ? "success" : "critical", title: result.success ? "처리 완료" : "처리 실패", content: result.error || result.message || "레시피가 저장되었습니다." });
-    if (result.success && onReloadRef.current) onReloadRef.current();
-  }, [actionFetcher.state, actionFetcher.data, selectedRecipe?.id]);
+      setSelectedProducts([]);
+      setSearchResults([]);
+    };
 
-  // Load recipe into editor
-  const handleEditRecipe = (recipe) => {
-    if (submissionLock.current) return;
-    draftId.current = recipe.id;
-    setSelectedRecipe(recipe);
-    setCategory(recipe.category || "STREET_FOOD");
-    setOccasion(recipe.occasion || "QUICK_MEAL");
-    setDifficulty(recipe.difficulty || "EASY");
-    setPrepTimeMinutes(recipe.prepTimeMinutes || 10);
-    setCookTimeMinutes(recipe.cookTimeMinutes || 15);
-    setServings(recipe.servings || 2);
-    setSpiceLevel(recipe.spiceLevel ?? 2);
-    setImageUrl(recipe.imageUrl || "");
-    setShopifyBlogId(recipe.shopifyBlogId || (blogs[0]?.id || ""));
-
-    // Defensive parsing for translations
-    let parsedTranslations = recipe.translations;
-    if (typeof parsedTranslations === "string") {
-      try {
-        parsedTranslations = JSON.parse(parsedTranslations);
-      } catch {
-        parsedTranslations = null;
-      }
-    }
-    if (parsedTranslations && typeof parsedTranslations === "object") {
-      setTranslations({
-        ko: parsedTranslations.ko || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
-        de: parsedTranslations.de || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
-        en: parsedTranslations.en || { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+    // Apply Preset
+    const handleSelectPreset = (preset) => {
+      if (submissionLock.current) return;
+      draftId.current = null;
+      setSelectedProducts([]);
+      setSelectedRecipe(null);
+      setCategory(preset.category);
+      setOccasion(preset.occasion);
+      setDifficulty(preset.difficulty);
+      setPrepTimeMinutes(preset.prepTimeMinutes);
+      setCookTimeMinutes(preset.cookTimeMinutes);
+      setServings(preset.baseServings);
+      setSpiceLevel(preset.spiceLevel);
+      setDietaryFlags(preset.dietaryFlags || []);
+      setImageUrl(preset.imageUrl || "");
+      setShopifyBlogId(blogs[0]?.id || "");
+      setTranslations(preset.translations || {
+        ko: { title: "", subtitle: "", introduction: "", steps: "" },
+        de: { title: "", subtitle: "", introduction: "", steps: "" },
+        en: { title: "", subtitle: "", introduction: "", steps: "" },
       });
-    } else {
-      setTranslations({
-        ko: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
-        de: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
-        en: { title: recipe.title || "", subtitle: "", introduction: recipe.introduction || "", steps: recipe.steps || "" },
+      setIngredients(preset.defaultIngredients || []);
+
+      setToastMessage({
+        type: "success",
+        title: "프리셋 적용 완료",
+        content: `[${preset.translations?.ko?.title || preset.translations?.de?.title || ""}] 프리셋의 다국어 텍스트 및 기본 식재료가 로드되었습니다. 이제 상점 상품을 매칭해 주세요.`,
       });
-    }
+    };
 
-    // Defensive parsing for ingredients
-    let parsedIngredients = recipe.ingredientsJson;
-    if (typeof parsedIngredients === "string") {
-      try {
-        parsedIngredients = JSON.parse(parsedIngredients);
-      } catch {
-        parsedIngredients = [];
+    // Search shopify products
+    const handleSearchProducts = (query) => {
+      setSearchLoading(true);
+      fetcher.load(`/app/recipe-blogs?searchProducts=${encodeURIComponent(query)}`);
+    };
+
+    // Submit action (Save or Publish)
+    const handleSubmitForm = (intent) => {
+      if (submissionLock.current || actionFetcher.state !== "idle") return;
+      const mainTitle = translations.de?.title || translations.ko?.title || translations.en?.title;
+      if (!mainTitle) {
+        setToastMessage({ type: "critical", content: "레시피 제목(독일어 또는 한국어)을 입력해 주세요." });
+        return;
       }
-    }
-    setIngredients(Array.isArray(parsedIngredients) ? parsedIngredients : []);
 
-    // Defensive parsing for dietary flags
-    let parsedFlags = recipe.dietaryFlags;
-    if (typeof parsedFlags === "string") {
-      try {
-        parsedFlags = JSON.parse(parsedFlags);
-      } catch {
-        parsedFlags = [];
+      if (intent === "publish" && !shopifyBlogId) {
+        setToastMessage({ type: "critical", content: "게시할 쇼피파이 블로그 채널을 선택해 주세요." });
+        return;
       }
-    }
-    setDietaryFlags(Array.isArray(parsedFlags) ? parsedFlags : []);
 
-    setSelectedProducts(Array.isArray(recipe.products) ? recipe.products : []);
-  };
+      const formData = new FormData();
+      formData.append("intent", intent);
+      draftId.current ||= crypto.randomUUID();
+      formData.append("draftId", draftId.current);
+      if (selectedRecipe) {
+        formData.append("id", selectedRecipe.id);
+      }
+      formData.append("title", mainTitle);
+      formData.append("category", category);
+      formData.append("occasion", occasion);
+      formData.append("difficulty", difficulty);
+      formData.append("prepTimeMinutes", String(prepTimeMinutes));
+      formData.append("cookTimeMinutes", String(cookTimeMinutes));
+      formData.append("servings", String(servings));
+      formData.append("spiceLevel", String(spiceLevel));
+      formData.append("imageUrl", imageUrl);
+      formData.append("shopifyBlogId", shopifyBlogId);
+      formData.append("dietaryFlags", JSON.stringify(dietaryFlags));
+      formData.append("translations", JSON.stringify(translations));
+      formData.append("ingredientsJson", JSON.stringify(ingredients));
+      formData.append("productsJson", JSON.stringify(selectedProducts));
 
-  // Reset editor for new recipe
-  const handleNewRecipe = () => {
-    if (submissionLock.current) return;
-    draftId.current = null;
-    setSelectedRecipe(null);
-    setCategory("STREET_FOOD");
-    setOccasion("QUICK_MEAL");
-    setDifficulty("EASY");
-    setPrepTimeMinutes(10);
-    setCookTimeMinutes(15);
-    setServings(2);
-    setSpiceLevel(2);
-    setDietaryFlags([]);
-    setImageUrl("");
-    setShopifyBlogId(blogs[0]?.id || "");
-    setTranslations({
-      ko: { title: "", subtitle: "", introduction: "", steps: "" },
-      de: { title: "", subtitle: "", introduction: "", steps: "" },
-      en: { title: "", subtitle: "", introduction: "", steps: "" },
+      submittedProducts.current = selectedProducts;
+      submissionLock.current = true;
+      actionFetcher.submit(formData, submitOpts);
+
+      setToastMessage({
+        type: "info",
+        title: intent === "publish" ? "쇼피파이 전송 중" : "저장 중",
+        content:
+          intent === "publish"
+            ? "쇼피파이에 인터랙티브 커머스 위젯을 포함한 블로그 글을 발행/동기화하고 있습니다..."
+            : "데이터베이스에 레시피 초안을 안전하게 저장 중입니다...",
+      });
+    };
+
+    const handleDeleteRecipe = id => {
+      if (!submissionLock.current) setDeleteRecipeId(id);
+    };
+    const confirmDeleteRecipe = () => {
+      if (!deleteRecipeId || submissionLock.current) return;
+      const formData = new FormData();
+      formData.set("intent", "delete");
+      formData.set("id", deleteRecipeId);
+      submissionLock.current = true;
+      actionFetcher.submit(formData, submitOpts);
+      setDeleteRecipeId(null);
+    };
+
+    // Filtered recipe list
+    const filteredRecipes = recipes.filter((r) => {
+      if (!listSearchQuery.trim()) return true;
+      const q = listSearchQuery.toLowerCase();
+      return (r.title && r.title.toLowerCase().includes(q)) || (r.category && r.category.toLowerCase().includes(q));
     });
-    setIngredients([]);
-    setSelectedProducts([]);
-    setSearchResults([]);
-  };
 
-  // Apply Preset
-  const handleSelectPreset = (preset) => {
-    if (submissionLock.current) return;
-    draftId.current = null;
-    setSelectedProducts([]);
-    setSelectedRecipe(null);
-    setCategory(preset.category);
-    setOccasion(preset.occasion);
-    setDifficulty(preset.difficulty);
-    setPrepTimeMinutes(preset.prepTimeMinutes);
-    setCookTimeMinutes(preset.cookTimeMinutes);
-    setServings(preset.baseServings);
-    setSpiceLevel(preset.spiceLevel);
-    setDietaryFlags(preset.dietaryFlags || []);
-    setImageUrl(preset.imageUrl || "");
-    setShopifyBlogId(blogs[0]?.id || "");
-    setTranslations(preset.translations || {
-      ko: { title: "", subtitle: "", introduction: "", steps: "" },
-      de: { title: "", subtitle: "", introduction: "", steps: "" },
-      en: { title: "", subtitle: "", introduction: "", steps: "" },
-    });
-    setIngredients(preset.defaultIngredients || []);
+    // Current draft object for preview modal
+    const previewRecipeObject = {
+      id: selectedRecipe?.id || "preview_recipe_id",
+      title: translations.de?.title || translations.ko?.title || translations.en?.title || "레시피 제목",
+      introduction: translations.de?.introduction || translations.ko?.introduction || "",
+      steps: translations.de?.steps || translations.ko?.steps || "",
+      imageUrl,
+      category,
+      prepTimeMinutes,
+      cookTimeMinutes,
+      servings,
+      spiceLevel,
+      dietaryFlags,
+      translations,
+      ingredientsJson: ingredients,
+      products: selectedProducts,
+    };
 
-    setToastMessage({
-      type: "success",
-      title: "프리셋 적용 완료",
-      content: `[${preset.translations?.ko?.title || preset.translations?.de?.title || ""}] 프리셋의 다국어 텍스트 및 기본 식재료가 로드되었습니다. 이제 상점 상품을 매칭해 주세요.`,
-    });
-  };
-
-  // Search shopify products
-  const handleSearchProducts = (query) => {
-    setSearchLoading(true);
-    fetcher.load(`/app/recipe-blogs?searchProducts=${encodeURIComponent(query)}`);
-  };
-
-  // Submit action (Save or Publish)
-  const handleSubmitForm = (intent) => {
-    if (submissionLock.current || actionFetcher.state !== "idle") return;
-    const mainTitle = translations.de?.title || translations.ko?.title || translations.en?.title;
-    if (!mainTitle) {
-      setToastMessage({ type: "critical", content: "레시피 제목(독일어 또는 한국어)을 입력해 주세요." });
-      return;
-    }
-
-    if (intent === "publish" && !shopifyBlogId) {
-      setToastMessage({ type: "critical", content: "게시할 쇼피파이 블로그 채널을 선택해 주세요." });
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("intent", intent);
-    draftId.current ||= crypto.randomUUID();
-    formData.append("draftId", draftId.current);
-    if (selectedRecipe) {
-      formData.append("id", selectedRecipe.id);
-    }
-    formData.append("title", mainTitle);
-    formData.append("category", category);
-    formData.append("occasion", occasion);
-    formData.append("difficulty", difficulty);
-    formData.append("prepTimeMinutes", String(prepTimeMinutes));
-    formData.append("cookTimeMinutes", String(cookTimeMinutes));
-    formData.append("servings", String(servings));
-    formData.append("spiceLevel", String(spiceLevel));
-    formData.append("imageUrl", imageUrl);
-    formData.append("shopifyBlogId", shopifyBlogId);
-    formData.append("dietaryFlags", JSON.stringify(dietaryFlags));
-    formData.append("translations", JSON.stringify(translations));
-    formData.append("ingredientsJson", JSON.stringify(ingredients));
-    formData.append("productsJson", JSON.stringify(selectedProducts));
-
-    submittedProducts.current = selectedProducts;
-    submissionLock.current = true;
-    actionFetcher.submit(formData, submitOpts);
-
-    setToastMessage({
-      type: "info",
-      title: intent === "publish" ? "쇼피파이 전송 중" : "저장 중",
-      content:
-        intent === "publish"
-          ? "쇼피파이에 인터랙티브 커머스 위젯을 포함한 블로그 글을 발행/동기화하고 있습니다..."
-          : "데이터베이스에 레시피 초안을 안전하게 저장 중입니다...",
-    });
-  };
-
-  const handleDeleteRecipe = id => {
-    if (!submissionLock.current) setDeleteRecipeId(id);
-  };
-  const confirmDeleteRecipe = () => {
-    if (!deleteRecipeId || submissionLock.current) return;
-    const formData = new FormData();
-    formData.set("intent", "delete");
-    formData.set("id", deleteRecipeId);
-    submissionLock.current = true;
-    actionFetcher.submit(formData, submitOpts);
-    setDeleteRecipeId(null);
-  };
-
-  // Filtered recipe list
-  const filteredRecipes = recipes.filter((r) => {
-    if (!listSearchQuery.trim()) return true;
-    const q = listSearchQuery.toLowerCase();
-    return (r.title && r.title.toLowerCase().includes(q)) || (r.category && r.category.toLowerCase().includes(q));
-  });
-
-  // Current draft object for preview modal
-  const previewRecipeObject = {
-    id: selectedRecipe?.id || "preview_recipe_id",
-    title: translations.de?.title || translations.ko?.title || translations.en?.title || "레시피 제목",
-    introduction: translations.de?.introduction || translations.ko?.introduction || "",
-    steps: translations.de?.steps || translations.ko?.steps || "",
-    imageUrl,
-    category,
-    prepTimeMinutes,
-    cookTimeMinutes,
-    servings,
-    spiceLevel,
-    dietaryFlags,
-    translations,
-    ingredientsJson: ingredients,
-    products: selectedProducts,
-  };
-
-  const contentBody = (
+    const contentBody = (
       <BlockStack gap="500">
         {embedded && (
           <Card>
@@ -522,7 +522,7 @@ export default function RecipeBlogs(props = {}) {
             </InlineStack>
           </Card>
         )}
-        
+
         {/* KPI Metrics Dashboard Header */}
         <RecipeDashboardHeader recipes={recipes} />
 
@@ -643,7 +643,7 @@ export default function RecipeBlogs(props = {}) {
           {/* Right Column: Recipe Editor & Commerce Bundler */}
           <Layout.Section>
             <BlockStack gap="400">
-              
+
               {/* Editor Top Bar Actions */}
               <Card padding="300">
                 <InlineStack align="space-between" blockAlign="center">
@@ -761,20 +761,20 @@ export default function RecipeBlogs(props = {}) {
         />
 
       </BlockStack>
-  );
+    );
 
-  if (embedded) return contentBody;
+    if (embedded) return contentBody;
 
-  return (
-    <Page
-      title="K-Food 레시피 커머스 플랫폼 (Recipe Commerce Platform)"
-      subtitle="유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화"
-      primaryAction={{
-        content: "K-Food 프리셋 라이브러리 열기",
-        onAction: () => setPresetModalOpen(true),
-      }}
-    >
-      {contentBody}
-    </Page>
-  );
-}
+    return (
+      <Page
+        title="K-Food 레시피 커머스 플랫폼 (Recipe Commerce Platform)"
+        subtitle="유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화"
+        primaryAction={{
+          content: "K-Food 프리셋 라이브러리 열기",
+          onAction: () => setPresetModalOpen(true),
+        }}
+      >
+        {contentBody}
+      </Page>
+    );
+  }

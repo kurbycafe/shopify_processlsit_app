@@ -288,7 +288,7 @@ export async function appManagementAction({ request }) {
         imageUrl: String(formData.get("imageUrl") || "").trim(),
         bgGradient: String(
           formData.get("bgGradient") ||
-            "linear-gradient(135deg, #E30613 0%, #B8000B 100%)",
+          "linear-gradient(135deg, #E30613 0%, #B8000B 100%)",
         ).trim(),
       };
 
@@ -1155,13 +1155,13 @@ export async function appManagementAction({ request }) {
 
       const freeShippingThreshold = Number(
         formData.get("freeShippingThreshold") ??
-          existing?.freeShippingThreshold ??
-          60.0,
+        existing?.freeShippingThreshold ??
+        60.0,
       );
       const shippingNoticeKo = String(
         formData.get("shippingNoticeKo") ??
-          existing?.shippingNoticeKo ??
-          "독일 전역 60€ 이상 무료배송 · 신선 안심 출고",
+        existing?.shippingNoticeKo ??
+        "독일 전역 60€ 이상 무료배송 · 신선 안심 출고",
       ).trim();
       const shippingNoticeDe = String(
         formData.get("shippingNoticeDe") ?? existing?.shippingNoticeDe ?? "",

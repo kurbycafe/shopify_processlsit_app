@@ -110,7 +110,7 @@ export default function Dashboard() {
     >
       <BlockStack gap="500">
         {/* 0. 모바일 앱 기능 추가/수정 요청 입력란 */}
-        <AppFeatureRequestCard />
+            <AppFeatureRequestCard />
 
         {/* 1. 최상단: 4대 핵심 운영 메트릭 카드 */}
         <DashboardMetricCards
@@ -189,7 +189,7 @@ export default function Dashboard() {
       >
         <Modal.Section>
           {containerItemsFetcher.state === "submitting" ||
-          containerItemsFetcher.state === "loading" ? (
+            containerItemsFetcher.state === "loading" ? (
             <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
               <Text variant="bodyMd" tone="subdued">
                 품목 정보를 불러오는 중입니다...
@@ -250,15 +250,15 @@ export default function Dashboard() {
         secondaryActions={
           selectedLog && selectedLog.status !== "SUCCESS"
             ? [
-                {
-                  content: "이어서 검수하기",
-                  onAction: () => {
-                    const orderName = selectedLog.orderName;
-                    setSelectedLog(null);
-                    navigate(`/app/inspect?orderName=${encodeURIComponent(orderName)}`);
-                  },
+              {
+                content: "이어서 검수하기",
+                onAction: () => {
+                  const orderName = selectedLog.orderName;
+                  setSelectedLog(null);
+                  navigate(`/app/inspect?orderName=${encodeURIComponent(orderName)}`);
                 },
-              ]
+              },
+            ]
             : []
         }
       >
@@ -301,8 +301,8 @@ export default function Dashboard() {
                       selectedLog.status === "SUCCESS"
                         ? "success"
                         : selectedLog.status === "PARTIAL"
-                        ? "warning"
-                        : "critical"
+                          ? "warning"
+                          : "critical"
                     }
                   >
                     {selectedLog.status}
@@ -347,10 +347,10 @@ export default function Dashboard() {
                           {item.issueType === "REFUND"
                             ? "환불"
                             : item.issueType === "CREDIT"
-                            ? "적립"
-                            : item.issueType === "SUBSTITUTE"
-                            ? "대체"
-                            : item.issueType}
+                              ? "적립"
+                              : item.issueType === "SUBSTITUTE"
+                                ? "대체"
+                                : item.issueType}
                         </Badge>
                       );
                     } else if (item.inspectedQuantity === item.orderedQuantity) {

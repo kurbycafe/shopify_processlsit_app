@@ -30,3 +30,4 @@ CREATE TABLE IF NOT EXISTS "RecipeProduct" (
 
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "RecipeProduct_recipeId_idx" ON "RecipeProduct"("recipeId");
+
