@@ -19,7 +19,7 @@ import { RecentActivityCard } from "../components/dashboard/RecentActivityCard";
 import { ContainerScheduleCard } from "../components/dashboard/ContainerScheduleCard";
 import { ProductivityChartCard } from "../components/dashboard/ProductivityChartCard";
 import { DashboardSystemUpdateCard } from "../components/dashboard/DashboardSystemUpdateCard";
-import { AppFeatureRequestCard } from "../components/common/AppFeatureRequestCard";
+import { AppFeatureRequestCard } from "../components/common/AppFeatureRequestCard.jsx";
 import calendarStyles from "../styles/container-calendar.css?url";
 
 dayjs.extend(relativeTime);

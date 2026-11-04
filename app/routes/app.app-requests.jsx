@@ -29,7 +29,6 @@ import {
   canSessionManageFeatureRequestStatus,
   createAppFeatureRequest,
 } from "../services/appFeatureRequests.server.js";
-import { AppFeatureRequestCard } from "../components/common/AppFeatureRequestCard.jsx";
 import {
   FEATURE_REQUEST_PAGE_SIZE,
   STATUS_MANAGER_EMAIL,
@@ -518,11 +517,6 @@ export const action = async ({ request }) => {
               </Banner>
             )}
 
-            <AppFeatureRequestCard
-              actionUrl={actionUrl}
-              showViewListButton={false}
-              onSuccess={onReload}
-            />
 
             <Card padding="0">
               <Tabs

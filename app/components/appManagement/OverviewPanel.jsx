@@ -1,5 +1,4 @@
 import { Badge, BlockStack, Button, InlineStack, Text } from "@shopify/polaris";
-import { AppFeatureRequestCard } from "../common/AppFeatureRequestCard.jsx";
 import {
   BannerWireframeSvg,
   CampaignsWireframeSvg,
@@ -22,7 +21,6 @@ export function OverviewPanel({
 }) {
   return (
     <BlockStack gap="500">
-      <AppFeatureRequestCard />
 
       <div
         style={{
