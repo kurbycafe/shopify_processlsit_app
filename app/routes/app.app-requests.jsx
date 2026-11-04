@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   useLoaderData,
   useFetcher,
@@ -18,7 +18,6 @@ import {
   Box,
   Text,
   Pagination,
-  Spinner,
   Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
