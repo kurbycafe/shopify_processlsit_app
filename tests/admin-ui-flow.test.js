@@ -7,6 +7,7 @@ import ts from "typescript";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { computeInvoiceTotals } from "../app/utils/invoice.js";
+import { formatCurrency } from "../app/utils/formatters.js";
 
 const source = await fs.readFile(new URL("../app/routes/app.recipe-blogs.jsx", import.meta.url), "utf8");
 const jsx = source.slice(source.indexOf("export default function RecipeBlogs")).replace("export default function", "function") + "\nglobalThis.component = RecipeBlogs;";
@@ -173,14 +174,14 @@ test("invoice renders original and discounted unit prices in the correct tax bas
   const invoiceSource = await fs.readFile(new URL("../app/components/lieferschein/RechnungSlip.jsx", import.meta.url), "utf8");
   const tableSource = invoiceSource.slice(invoiceSource.indexOf("function InvoiceItemsTable"), invoiceSource.indexOf("function InvoiceSummaryBlock"));
   const tableCompiled = ts.transpileModule(tableSource + "\nglobalThis.table = InvoiceItemsTable;", { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const context = { React, formatTaxPercent: value => String(value) };
+  const context = { React, formatTaxPercent: value => String(value), formatCurrency };
   vm.createContext(context);
   vm.runInContext(tableCompiled, context);
   const order = { taxesIncluded: false, totalPrice: "9.52", totalShipping: "0", items: [{ id: "line1", title: "Food", quantity: 1, priceOriginal: "10.00", priceDiscounted: "8.00", originalTaxRate: 19, taxRate: 19 }] };
-  for (const [mode, original, discounted] of [["NET", "10.00", "8.00"], ["GROSS", "11.90", "9.52"]]) {
+  for (const [mode, original, discounted] of [["NET", "10,00 €", "8,00 €"], ["GROSS", "11,90 €", "9,52 €"]]) {
     const { processedItems } = computeInvoiceTotals(order, mode);
     const html = renderToStaticMarkup(React.createElement(context.table, { items: processedItems, currencyCode: "EUR", taxDisplayMode: mode }));
-    assert.match(html, new RegExp(`text-decoration:line-through[^>]*>${original.replace(".", "\\.")} EUR`));
-    assert.ok(html.includes(`${discounted} EUR`));
+    assert.match(html, new RegExp(`text-decoration:line-through[^>]*>${original}`));
+    assert.ok(html.includes(discounted));
   }
 });
