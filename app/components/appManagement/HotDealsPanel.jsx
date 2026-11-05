@@ -98,7 +98,7 @@ export function HotDealsPanel({
                         {
                           label: deal.isActive ? "중지" : "시작",
                           confirm: deal.isActive
-                            ? `특가를 중지하면 Shopify 판매가가 €${Number(deal.basePrice).toFixed(2)}로 돌아갑니다.`
+                            ? "특가를 중지하면 Shopify 판매가가 할인 전 정상가로 돌아갑니다."
                             : `Shopify 판매가가 €${Number(deal.salePrice).toFixed(2)}로 바뀝니다.`,
                           onClick: () =>
                             submit({
