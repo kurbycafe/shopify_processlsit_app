@@ -41,7 +41,7 @@ export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
   const config = await getStorefrontConfig(shop, { includeInactive: true, includeRecipes: false });
-  const liveVariantPrices = await loadLiveVariantPrices(admin, config.groupBuying);
+  const liveVariantPrices = await loadLiveVariantPrices(admin, [...(config.groupBuying || []), ...(config.hotDeals || [])]);
   // Online product types are loaded by the page from the CDN-cached online-products endpoint,
   // so a cold catalog cache never holds up the whole page.
   return { shop, config, liveVariantPrices };
@@ -855,6 +855,7 @@ export default function AppManagementPage() {
           <HotDealsPanel
             activeTab={activeTab}
             config={config}
+            liveVariantPrices={liveVariantPrices}
             dealForm={dealForm}
             fetcher={fetcher}
             handleDealBasePriceChange={handleDealBasePriceChange}
