@@ -15,6 +15,7 @@ import {
 export function HotDealsPanel({
   activeTab,
   config,
+  liveVariantPrices = {},
   dealForm,
   fetcher,
   handleDealBasePriceChange,
@@ -61,6 +62,9 @@ export function HotDealsPanel({
                       fd.append(k, v);
                     fetcher.submit(fd, { method: "post" });
                   };
+                  const live = liveVariantPrices[deal.variantId];
+                  // Admin state and the real Shopify price can drift (failed sync, edits in Shopify).
+                  const notOnShopify = deal.isActive && live && Math.abs(live.price - Number(deal.salePrice)) > 0.005;
                   return (
                     <AdminListRow
                       key={deal.id}
@@ -76,9 +80,10 @@ export function HotDealsPanel({
                         ...(deal.mhdDate
                           ? [{ label: `MHD ${deal.mhdDate}`, tone: "warning" }]
                           : []),
+                        ...(notOnShopify ? [{ label: "Shopify 미반영", tone: "critical" }] : []),
                       ]}
                       title={deal.name?.ko || "상품명 없음"}
-                      subtitle={`€${Number(deal.basePrice).toFixed(2)} → €${Number(deal.salePrice).toFixed(2)}`}
+                      subtitle={`€${Number(deal.basePrice).toFixed(2)} → €${Number(deal.salePrice).toFixed(2)}${live ? ` · 현재 Shopify 판매가 €${live.price.toFixed(2)}` : ""}`}
                       isFirst={idx === 0}
                       isLast={idx === (config.hotDeals || []).length - 1}
                       onMove={(direction) =>
