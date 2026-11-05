@@ -1,8 +1,8 @@
 import { getDashboardData } from "../services/dashboardData.server.js";
 import { createAppFeatureRequest } from "../services/appFeatureRequests.server.js";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
-import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button, Select, TextField, Banner, Box } from "@shopify/polaris";
+import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button } from "@shopify/polaris";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { authenticate } from "../shopify.server";
@@ -15,7 +15,7 @@ import {
   getPastDaysRange,
 } from "../utils/dateTime.js";
 import { DashboardMetricCards } from "../components/dashboard/DashboardMetricCards";
-import { RecentActivityCard } from "../components/dashboard/RecentActivityCard";
+import { RecentActivityCard, inspectionStatusBadge } from "../components/dashboard/RecentActivityCard";
 import { ContainerScheduleCard } from "../components/dashboard/ContainerScheduleCard";
 import { ProductivityChartCard } from "../components/dashboard/ProductivityChartCard";
 import { DashboardSystemUpdateCard } from "../components/dashboard/DashboardSystemUpdateCard";
@@ -55,8 +55,13 @@ export const action = async ({ request }) => {
 
   if (intent === "fetch_container_items") {
     const containerRef = formData.get("containerRef");
-    const items = await getContainerItemsByPo(containerRef);
-    return { items };
+    try {
+      return { items: await getContainerItemsByPo(containerRef) };
+    } catch (error) {
+      // An Odoo outage should show the modal's error text, not replace the whole dashboard.
+      console.error("[dashboard] container items failed", error);
+      return { items: null };
+    }
   }
 
   return null;
@@ -195,6 +200,10 @@ export default function Dashboard() {
                 품목 정보를 불러오는 중입니다...
               </Text>
             </div>
+          ) : containerItemsFetcher.data?.items?.length === 0 ? (
+            <Text as="p" tone="subdued">
+              Odoo에 등록된 입고 품목이 없습니다.
+            </Text>
           ) : containerItemsFetcher.data?.items ? (
             <BlockStack gap="400">
               <Text as="p" tone="subdued">
@@ -296,16 +305,8 @@ export default function Dashboard() {
                   <Text variant="bodySm" tone="subdued">
                     검수 상태
                   </Text>
-                  <Badge
-                    tone={
-                      selectedLog.status === "SUCCESS"
-                        ? "success"
-                        : selectedLog.status === "PARTIAL"
-                          ? "warning"
-                          : "critical"
-                    }
-                  >
-                    {selectedLog.status}
+                  <Badge tone={inspectionStatusBadge(selectedLog.status).tone}>
+                    {inspectionStatusBadge(selectedLog.status).label}
                   </Badge>
                 </div>
                 <div>
