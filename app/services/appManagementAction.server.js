@@ -448,6 +448,11 @@ export async function appManagementAction({ request }) {
         }
       }
 
+      // A deal only counts as running once Shopify really sells at the sale price.
+      const keepActive = isActive && shopifyPriceSynced;
+      if (isActive && !shopifyPriceSynced && !shopifySyncNote) {
+        shopifySyncNote = " (Shopify 상품 옵션이 연결되지 않아 판매가를 바꾸지 못했습니다.)";
+      }
       const data = {
         shop,
         productId,
@@ -465,7 +470,7 @@ export async function appManagementAction({ request }) {
         badgeDe: String(formData.get("badgeDe") || "").trim() || null,
         badgeEn: String(formData.get("badgeEn") || "").trim() || null,
         sortOrder: Number(formData.get("sortOrder") || 1),
-        isActive: formData.get("isActive") === "true",
+        isActive: keepActive,
       };
 
       if (!data.productNameKo || !data.imageUrl) {
@@ -545,11 +550,19 @@ export async function appManagementAction({ request }) {
         await bumpStorefrontVersion(shop);
       }
 
+      if (!shopifyPriceSynced) {
+        return {
+          success: false,
+          message: isActive
+            ? `Shopify 판매가를 바꾸지 못해 특가를 '중지' 상태로 저장했습니다.${shopifySyncNote}`
+            : `특가를 저장했지만 Shopify 판매가를 정상가로 되돌리지 못했습니다. Shopify에서 가격을 확인해 주세요.${shopifySyncNote}`,
+        };
+      }
       return {
         success: true,
-        message: shopifyPriceSynced
-          ? `오늘의 특가 상품이 저장되었으며, Shopify 상점 판매가가 €${salePrice.toFixed(2)}(정상가 €${basePrice.toFixed(2)})로 실시간 동기화되어 결제 시 적용됩니다.`
-          : `오늘의 특가 상품과 MHD 설정이 저장되었습니다.${shopifySyncNote}`,
+        message: isActive
+          ? `특가를 저장했습니다. Shopify 판매가 €${salePrice.toFixed(2)} (정상가 €${basePrice.toFixed(2)})`
+          : `특가를 중지 상태로 저장했습니다. Shopify 판매가 €${basePrice.toFixed(2)}`,
       };
     }
 
@@ -688,6 +701,12 @@ export async function appManagementAction({ request }) {
         }
       }
 
+      if (!shopifyPriceSynced) {
+        return {
+          success: false,
+          message: `Shopify 판매가를 바꾸지 못해 특가 상태를 그대로 두었습니다.${shopifySyncNote || " (상품 옵션 또는 가격 정보가 없습니다.)"}`,
+        };
+      }
       await prisma.mobileHotDeal.update({
         where: { id: dealId },
         data: { isActive: nextIsActive },
