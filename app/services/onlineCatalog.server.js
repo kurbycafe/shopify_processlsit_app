@@ -18,6 +18,7 @@ export async function loadOnlineProductIds({ fetchImpl = fetch, now = () => Date
   pending = (async () => {
     const ids = [];
     const typeCounts = {};
+    const saleIds = [];
     const readPage = async (page) => {
       const res = await fetchImpl(`${STORE_URL}/products.json?limit=250&page=${page}`, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`Online store product list failed (HTTP ${res.status})`);
@@ -37,6 +38,8 @@ export async function loadOnlineProductIds({ fetchImpl = fetch, now = () => Date
         for (const p of products) {
           if (!p?.id) continue;
           ids.push(String(p.id));
+        // On sale on the online store: some variant has a compare-at price above its price.
+        if ((p.variants || []).some((v) => Number(v?.compare_at_price) > Number(v?.price))) saleIds.push(String(p.id));
           const type = String(p.product_type || "").trim();
           if (type) typeCounts[type] = (typeCounts[type] || 0) + 1;
         }
@@ -44,7 +47,7 @@ export async function loadOnlineProductIds({ fetchImpl = fetch, now = () => Date
       }
     }
     if (!ids.length) throw new Error("Online store product list is empty");
-    const data = { ids: [...new Set(ids)], count: new Set(ids).size, productTypes: typeCounts, fetchedAt: new Date(now()).toISOString() };
+    const data = { ids: [...new Set(ids)], count: new Set(ids).size, productTypes: typeCounts, saleIds: [...new Set(saleIds)], fetchedAt: new Date(now()).toISOString() };
     cache = { at: now(), data };
     return data;
   })();
