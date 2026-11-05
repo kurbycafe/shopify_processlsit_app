@@ -57,9 +57,11 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
   });
 
   // 6. Recent QC & Inspection logs
+  // InspectionRecord also holds rows created by printing, invoices and alerts (status PENDING, never inspected);
+  // only rows a completed inspection wrote carry completedAt.
   const recentLogsTask = db.inspectionRecord.findMany({
-    where: { shop },
-    orderBy: { createdAt: "desc" },
+    where: { shop, completedAt: { not: null } },
+    orderBy: { completedAt: "desc" },
     take: 6,
     include: {
       items: true,
