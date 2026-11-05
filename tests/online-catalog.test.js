@@ -28,3 +28,14 @@ test("a failed refresh keeps serving the last good list; no list at all is an er
   await assert.rejects(loadOnlineProductIds({ fetchImpl: failing }));
   await assert.rejects(loadOnlineProductIds({ fetchImpl: pages([[]]) }), /empty/);
 });
+
+test("products with a compare-at price above the price are listed as on sale", async () => {
+  resetOnlineCatalogCache();
+  const fetchImpl = async (url) => ({ ok: true, json: async () => ({ products: new URL(url).searchParams.get("page") === "1" ? [
+    { id: 1, variants: [{ price: "5.00", compare_at_price: "7.00" }] },
+    { id: 2, variants: [{ price: "5.00", compare_at_price: null }] },
+    { id: 3, variants: [{ price: "5.00", compare_at_price: "5.00" }] },
+  ] : [] }) });
+  const data = await loadOnlineProductIds({ fetchImpl });
+  assert.deepEqual(data.saleIds, ["1"]);
+});
