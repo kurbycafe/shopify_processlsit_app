@@ -1,3 +1,4 @@
+import { hotDealPriceChange } from "../utils/hotDealPrice.js";
 import { ALLOWED_CATEGORY_ICONS } from "../components/appManagement/shared.jsx";
 import {
   DEFAULT_BRANDS,
@@ -58,6 +59,34 @@ export async function loadLiveVariantPrices(admin, campaigns) {
       error?.message,
     );
     return {};
+  }
+}
+
+// Applies a hot deal start/stop to the Shopify variant price (see hotDealPriceChange).
+async function syncHotDealPrice(admin, { productId, variantId, active, basePrice, salePrice }) {
+  if (!admin?.graphql || !productId || !variantId || String(variantId).endsWith("/0")) {
+    return { ok: false, note: " (Shopify 상품 옵션이 연결되지 않아 판매가를 바꾸지 못했습니다.)" };
+  }
+  const live = (await loadLiveVariantPrices(admin, [{ variantId }]))[variantId];
+  const change = hotDealPriceChange({ active, basePrice, salePrice, live });
+  if (change === null) return { ok: true };
+  if (change.error) return { ok: false, note: ` (${change.error})` };
+  try {
+    const res = await admin.graphql(
+      `#graphql
+      mutation SyncHotDealPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          userErrors { field message }
+        }
+      }`,
+      { variables: { productId, variants: [{ id: variantId, price: change.price, compareAtPrice: change.compareAtPrice }] } },
+    );
+    const json = await res.json();
+    const userErrors = json?.data?.productVariantsBulkUpdate?.userErrors || [];
+    if (userErrors.length) return { ok: false, note: ` (Shopify 가격 반영 오류: ${userErrors[0].message})` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, note: ` (Shopify API 통신 오류: ${err.message})` };
   }
 }
 
@@ -401,52 +430,9 @@ export async function appManagementAction({ request }) {
 
       const isActive = formData.get("isActive") === "true";
 
-      // 1. Synchronize price to Shopify Storefront/Checkout
-      let shopifyPriceSynced = false;
-      let shopifySyncNote = "";
-      if (admin?.graphql && variantId && !variantId.endsWith("/0")) {
-        try {
-          const syncMutation = `#graphql
-            mutation SyncHotDealPriceToShopify($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-                productVariants {
-                  id
-                  price
-                  compareAtPrice
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-          `;
-          const syncRes = await admin.graphql(syncMutation, {
-            variables: {
-              productId,
-              variants: [
-                {
-                  id: variantId,
-                  price: (isActive ? salePrice : basePrice).toFixed(2),
-                  compareAtPrice: isActive ? basePrice.toFixed(2) : null,
-                },
-              ],
-            },
-          });
-          const syncJson = await syncRes.json();
-          const userErrors =
-            syncJson?.data?.productVariantsBulkUpdate?.userErrors || [];
-          if (userErrors.length > 0) {
-            shopifySyncNote = ` (주의: Shopify 가격 반영 오류 - ${userErrors[0].message})`;
-            console.warn("[HotDeal] Shopify sync userErrors:", userErrors);
-          } else {
-            shopifyPriceSynced = true;
-          }
-        } catch (err) {
-          shopifySyncNote = ` (Shopify API 통신 오류: ${err.message})`;
-          console.warn("[HotDeal] Shopify sync exception:", err);
-        }
-      }
+      const sync = await syncHotDealPrice(admin, { productId, variantId, active: isActive, basePrice, salePrice });
+      const shopifyPriceSynced = sync.ok;
+      let shopifySyncNote = sync.note || "";
 
       // A deal only counts as running once Shopify really sells at the sale price.
       const keepActive = isActive && shopifyPriceSynced;
@@ -562,7 +548,7 @@ export async function appManagementAction({ request }) {
         success: true,
         message: isActive
           ? `특가를 저장했습니다. Shopify 판매가 €${salePrice.toFixed(2)} (정상가 €${basePrice.toFixed(2)})`
-          : `특가를 중지 상태로 저장했습니다. Shopify 판매가 €${basePrice.toFixed(2)}`,
+          : "특가를 중지 상태로 저장했습니다. 진행 중이던 할인은 Shopify 정상가로 되돌렸습니다.",
       };
     }
 
@@ -645,61 +631,15 @@ export async function appManagementAction({ request }) {
       }
       const nextIsActive = !deal.isActive;
 
-      // Synchronize price to Shopify Storefront/Checkout
-      let shopifyPriceSynced = false;
-      let shopifySyncNote = "";
-      if (
-        admin?.graphql &&
-        deal.productId &&
-        deal.variantId &&
-        deal.basePrice &&
-        deal.salePrice
-      ) {
-        try {
-          const syncMutation = `#graphql
-            mutation ToggleHotDealPriceToShopify($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-                productVariants {
-                  id
-                  price
-                  compareAtPrice
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-          `;
-          const syncRes = await admin.graphql(syncMutation, {
-            variables: {
-              productId: deal.productId,
-              variants: [
-                {
-                  id: deal.variantId,
-                  price: (nextIsActive
-                    ? Number(deal.salePrice)
-                    : Number(deal.basePrice)
-                  ).toFixed(2),
-                  compareAtPrice: nextIsActive
-                    ? Number(deal.basePrice).toFixed(2)
-                    : null,
-                },
-              ],
-            },
-          });
-          const syncJson = await syncRes.json();
-          const userErrors =
-            syncJson?.data?.productVariantsBulkUpdate?.userErrors || [];
-          if (userErrors.length > 0) {
-            shopifySyncNote = ` (Shopify 가격 반영 오류: ${userErrors[0].message})`;
-          } else {
-            shopifyPriceSynced = true;
-          }
-        } catch (err) {
-          shopifySyncNote = ` (Shopify API 통신 오류: ${err.message})`;
-        }
-      }
+      const sync = await syncHotDealPrice(admin, {
+        productId: deal.productId,
+        variantId: deal.variantId,
+        active: nextIsActive,
+        basePrice: Number(deal.basePrice),
+        salePrice: Number(deal.salePrice),
+      });
+      const shopifyPriceSynced = sync.ok;
+      const shopifySyncNote = sync.note || "";
 
       if (!shopifyPriceSynced) {
         return {
@@ -719,7 +659,7 @@ export async function appManagementAction({ request }) {
             ? `특가가 활성화되었으며 상점 판매가가 €${Number(deal.salePrice).toFixed(2)}로 실시간 반영되었습니다.`
             : `특가가 활성화되었습니다.${shopifySyncNote}`
           : shopifyPriceSynced
-            ? `특가가 일시 비활성화되었으며 상점 판매가가 정상가(€${Number(deal.basePrice).toFixed(2)})로 복원되었습니다.`
+            ? "특가를 중지했습니다. 진행 중이던 할인은 Shopify 정상가로 되돌렸습니다."
             : `특가가 일시 비활성화되었습니다.${shopifySyncNote}`,
       };
     }
