@@ -89,16 +89,6 @@ export default function Dashboard() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [activeContainerModal, setActiveContainerModal] = useState(false);
   const [modalContainerRef, setModalContainerRef] = useState("");
-  const [showUpdateNotice, setShowUpdateNotice] = useState(false);
-
-  useEffect(() => {
-    const hasSeenUpdate = localStorage.getItem("dawayo_admin_update_v1.5.0_notice");
-    if (!hasSeenUpdate) {
-      setShowUpdateNotice(true);
-      localStorage.setItem("dawayo_admin_update_v1.5.0_notice", "true");
-    }
-  }, []);
-
   const handleSelectContainer = (containerRef) => {
     setModalContainerRef(containerRef);
     setActiveContainerModal(true);
@@ -409,48 +399,6 @@ export default function Dashboard() {
         </Modal.Section>
       </Modal>
 
-      {/* 10월 23일 시스템 성능 및 물류 최적화 일회성 팝업 */}
-      <Modal
-        open={showUpdateNotice}
-        onClose={() => setShowUpdateNotice(false)}
-        title="🎉 10월 23일 시스템 성능 및 물류 최적화 안내 (v1.5.0)"
-        primaryAction={{
-          content: "확인",
-          onAction: () => setShowUpdateNotice(false),
-        }}
-      >
-        <Modal.Section>
-          <BlockStack gap="300">
-            <Text as="p">관리자 페이지 및 물류 출고 시스템에 최적화 업데이트가 적용되었습니다.</Text>
-            <ul
-              style={{
-                paddingLeft: "20px",
-                margin: 0,
-                fontSize: "13.5px",
-                lineHeight: "1.8",
-                color: "#334155",
-              }}
-            >
-              <li>
-                <strong>납품서 로딩 속도 7배 개선:</strong> 페이지가 0.6초 만에 즉시 열리며, PDF 인쇄 시 멈춤 및 누락 현상을 방지했습니다.
-              </li>
-              <li>
-                <strong>피킹 리스트 실시간 검색 추가:</strong> 상품명, 바코드, 창고 위치(레갈)를 입력하는 즉시 화면에서 바로 찾아냅니다.
-              </li>
-              <li>
-                <strong>바코드 연속 스캔 편의성 향상:</strong> 지우지 않고 바코드기로 연속 스캔해도 오류 없이 바로바로 자동 입력됩니다.
-              </li>
-              <li>
-                <strong>뒤로가기 시 필터 상태 유지:</strong> 납품서 상세를 확인하고 돌아와도 선택했던 필터와 검색어가 그대로 유지됩니다.
-              </li>
-              <li>
-                <strong>시스템 속도 및 서버 안정성 강화:</strong> 화면 전환 렉을 없애고, 쇼핑몰 접속자가 몰려도 서버가 느려지지 않도록 보호했습니다.
-              </li>
-            </ul>
-            <Text as="p" tone="subdued">상세 내역은 대시보드 하단의 &apos;시스템 업데이트 내역&apos; 카드를 참고해 주세요.</Text>
-          </BlockStack>
-        </Modal.Section>
-      </Modal>
-    </Page>
+      </Page>
   );
 }
