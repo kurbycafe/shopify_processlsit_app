@@ -221,7 +221,7 @@ export function withLangFallback(ko, de, en) {
 export const DEFAULT_FAQS = [
   {
     q: withLangFallback("배송은 얼마나 걸리나요?", "Wie lange dauert die Lieferung?", "How long does shipping take?"),
-    a: withLangFallback("독일 전역 기준 평균 1~2영업일 내 도착합니다. 냉동/냉장 상품은 전용 콜드체인으로 배송됩니다.", "In Deutschland dauert der Versand im Schnitt 1-2 Werktage. Kühl- und Tiefkühlwaren werden sicher verpackt.", "Standard delivery within Germany takes 1-2 business days. Frozen/fresh goods are dispatched in insulated cold packs.")
+    a: withLangFallback("독일 내 DHL·UPS Standard는 2~3영업일, UPS Express는 1~2영업일 걸립니다. 냉장·냉동 상품은 Express 배송 선택 시에만 발송됩니다.", "Innerhalb Deutschlands: DHL/UPS Standard 2–3 Werktage, UPS Express 1–2 Werktage. Kühl- und Tiefkühlware versenden wir nur mit Expressversand.", "Within Germany: DHL/UPS Standard 2–3 business days, UPS Express 1–2 business days. Chilled and frozen goods ship only with Express.")
   },
   {
     q: withLangFallback("반품/교환은 어떻게 신청하나요?", "Wie kann ich Artikel zurücksenden?", "How do I request a return or exchange?"),
