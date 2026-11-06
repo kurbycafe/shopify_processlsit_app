@@ -124,3 +124,29 @@ test('read-only connection check validates the store and sends no award requests
  const urls=[];const loyalty=createJoyLoyalty({env,fetcher:async url=>{urls.push(url);return ok({id:'joy-shop',isInstalled:true});}});
  assert.equal((await loyalty.checkConnection({shop})).shopVerified,true);assert.equal(urls.length,1);assert.ok(urls[0].endsWith('/whoami'));
 });
+
+test('Joy tier ladder and the customer tier come from Joy itself, cached and validated',async()=>{
+ const tiersRaw=[
+  {id:'t-vip',name:'VIP',targetPoint:1500,tierRewards:[{status:true,title:'5% Point Reward',translateTitle:{en:'5% Point Reward',de:'5% Punkte'}},{status:false,title:'Old perk'}]},
+  {id:'t-base',name:'Customer',targetPoint:0,tierRewards:[{status:true,title:'1% Point Reward'}]},
+  {id:'broken',name:'NoThreshold',targetPoint:''},
+ ];
+ const urls=[];
+ const loyalty=createJoyLoyalty({env,fetcher:async url=>{urls.push(url);
+  if(url.endsWith('/tiers'))return ok(tiersRaw);
+  if(url.endsWith('/whoami'))return ok({id:'joy-shop',isInstalled:true});
+  return ok({shopifyCustomerId:42,point:681,type:'member',tierId:'t-base',tierName:'Customer',tierPoint:40.98,pointsRemain:159.02});}});
+ const tiers=await loyalty.tiers({shop});
+ assert.deepEqual(tiers.map(t=>[t.name,t.minSpend]),[['Customer',0],['VIP',1500]]);
+ assert.deepEqual(tiers[1].perks,[{en:'5% Point Reward',de:'5% Punkte'}]);
+ assert.deepEqual(tiers[0].perks,[{en:'1% Point Reward',de:'1% Point Reward'}]);
+ await loyalty.tiers({shop});assert.equal(urls.filter(u=>u.endsWith('/tiers')).length,1);
+ await assert.rejects(loyalty.tiers({shop:'foreign.myshopify.com'}),{status:503});
+ const balance=await loyalty.balance({shop,customerId});
+ assert.deepEqual(balance.tier,{id:'t-base',name:'Customer',spent:40.98,toNext:159.02});
+ const {db}=memory();
+ const out=await customerLoyalty({db,loyalty,shop,request,customerId});
+ assert.equal(out.tiers.length,2);assert.equal(out.tier.name,'Customer');
+ const down={...provider(),tiers:async()=>{throw Error('joy down');}};
+ assert.equal((await customerLoyalty({db,loyalty:down,shop,request,customerId})).tiers,null);
+});

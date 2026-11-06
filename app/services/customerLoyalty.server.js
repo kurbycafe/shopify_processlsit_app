@@ -62,15 +62,17 @@ export async function customerLoyalty({ db, loyalty, shop, request, customerId, 
     return { reward, balance };
   }
   if (!loyalty) throw new MobileApiError(503, "LOYALTY_UNAVAILABLE", "포인트 서비스 설정을 확인해주세요.");
-  const [balance, records, reviews] = await Promise.all([
+  const [balance, records, reviews, tiers] = await Promise.all([
     loyalty.balance({ shop, customerId, request }).catch(() => ({ points: null, verified: false, source: "JOY", checkedAt: null })),
     db.customerRequest.findMany({ where: { shop, customerId, type: "LOYALTY_CLAIM" }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.customerRequest.findMany({ where: { shop, customerId, type: "PHOTO_REVIEW", status: { not: "CLOSED" } }, orderBy: { createdAt: "desc" }, take: 50 }),
+    // Tier ladder is optional: points and history stay available when Joy tiers cannot be read.
+    loyalty.tiers ? loyalty.tiers({ shop }).catch(() => null) : null,
   ]);
   const subjects = new Set(records.map(record => record.payload.subject));
   const reviewChecks = reviews.filter(review => /^gid:\/\/shopify\/Product\/\d+$/.test(review.payload.productId || "") && !subjects.has(`review:${review.payload.productId}`))
     .map(review => ({ id: review.id, title: review.payload.dishName, createdAt: review.createdAt }));
-  return { ...balance, policy: LOYALTY_POLICY, earningAvailable: loyalty.configured(), claims: records.map(receipt), reviewChecks };
+  return { ...balance, tiers, policy: LOYALTY_POLICY, earningAvailable: loyalty.configured(), claims: records.map(receipt), reviewChecks };
 }
 
 export const REVIEW_PURCHASE_QUERY = `query MobileReviewPurchase($after: String) {

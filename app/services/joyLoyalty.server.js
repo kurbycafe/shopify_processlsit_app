@@ -5,6 +5,24 @@ export const LOYALTY_POLICY = Object.freeze({ attendance: 50, textReview: 50, ph
 const BASE = "https://dev-api.joy.so/rest_api/v2";
 const knownShopId = "hZqmVv0Uq3KmOgFTpV4v";
 const unavailable = () => new MobileApiError(503, "LOYALTY_UNAVAILABLE", "포인트 서비스에 연결하지 못했습니다. 잠시 후 다시 확인해주세요.");
+const num = value => (value === "" || value == null ? NaN : Number(value));
+// Joy's own tier for this customer: tierPoint = € counted toward tiers, pointsRemain = € to the next tier.
+export function joyCustomerTier(data) {
+  if (typeof data?.tierId !== "string" || typeof data.tierName !== "string") return null;
+  const spent = num(data.tierPoint), toNext = num(data.pointsRemain);
+  return { id: data.tierId, name: data.tierName, spent: Number.isFinite(spent) && spent >= 0 ? spent : null,
+    toNext: Number.isFinite(toNext) && toNext >= 0 ? toNext : null };
+}
+export function joyTierList(rows) {
+  if (!Array.isArray(rows)) return null;
+  const tiers = rows.map(row => ({
+    id: row?.id, name: row?.name, minSpend: num(row?.targetPoint),
+    perks: (Array.isArray(row?.tierRewards) ? row.tierRewards : []).filter(reward => reward?.status !== false && typeof reward?.title === "string")
+      .map(reward => ({ en: reward.translateTitle?.en || reward.title, de: reward.translateTitle?.de || reward.title })),
+  })).filter(tier => typeof tier.id === "string" && typeof tier.name === "string" && Number.isFinite(tier.minSpend) && tier.minSpend >= 0);
+  return tiers.length ? tiers.sort((a, b) => a.minSpend - b.minSpend) : null;
+}
+const TIER_CACHE_MS = 10 * 60 * 1000;
 export class JoyRequestError extends Error {
   constructor(definitive = false) { super("Joy request failed"); this.definitive = definitive; }
 }
@@ -39,8 +57,18 @@ export function createJoyLoyalty({ env = process.env, fetcher = fetch } = {}) {
     if (String(data.shopifyCustomerId) !== customerId.split("/").pop() || !Number.isFinite(data.point) || data.point < 0) throw unavailable();
     return data;
   }
+  let tierCache = null;
   return {
     configured,
+    /** Tier ladder exactly as set up in Joy (names, € thresholds, rewards). Cached 10 minutes. */
+    async tiers({ shop }) {
+      assertShop(shop);
+      if (tierCache && Date.now() - tierCache.at < TIER_CACHE_MS) return tierCache.tiers;
+      const tiers = joyTierList((await call("/tiers")).data);
+      if (!tiers) throw unavailable();
+      tierCache = { at: Date.now(), tiers };
+      return tiers;
+    },
     async checkConnection({ shop }) {
       assertShop(shop);
       try {
@@ -51,11 +79,12 @@ export function createJoyLoyalty({ env = process.env, fetcher = fetch } = {}) {
     },
     async balance({ shop, customerId, request }) {
       try {
-        let points, joyQrCode;
+        let points, joyQrCode, tier = null;
         const rawShopifyId = customerId.split("/").pop();
         if (configured()) {
           const cust = await customer(shop, customerId);
           points = cust.point;
+          tier = joyCustomerTier(cust);
           if (cust.id) joyQrCode = `joy_${rawShopifyId}_${cust.id}_avada`;
         } else {
           // Official native grant: read the real balance without a headless secret.
@@ -77,7 +106,7 @@ export function createJoyLoyalty({ env = process.env, fetcher = fetch } = {}) {
           if (result.data?.id) joyQrCode = `joy_${rawShopifyId}_${result.data.id}_avada`;
         }
         if (typeof points !== "number" || !Number.isFinite(points) || points < 0) throw unavailable();
-        return { points, verified: true, source: "JOY", checkedAt: new Date().toISOString(), joyQrCode };
+        return { points, verified: true, source: "JOY", checkedAt: new Date().toISOString(), joyQrCode, tier };
       } catch { throw unavailable(); }
     },
     async prepare({ shop, customerId }) {
