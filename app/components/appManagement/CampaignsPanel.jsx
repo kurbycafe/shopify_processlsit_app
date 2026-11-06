@@ -74,6 +74,7 @@ export function CampaignsPanel({
                     endsAt: "",
                     imageUrl: "",
                     isActive: true,
+                    discountCode: "",
                   },
                 ]);
                 setActiveGbSearchIdx(newIdx);
@@ -426,13 +427,29 @@ export function CampaignsPanel({
                       </div>
                     </InlineStack>
 
+                    <InlineStack gap="300">
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="Shopify 할인 코드 (선택 - 결제 시 자동 적용)"
+                          value={gb.discountCode || ""}
+                          onChange={(v) => {
+                            const next = [...groupBuying];
+                            next[idx] = { ...next[idx], discountCode: v.trim().toUpperCase() };
+                            setGroupBuying(next);
+                          }}
+                          placeholder="예: GB-KIMCHI-20"
+                          helpText="Shopify Admin에서 생성한 할인 코드를 입력하면 고객이 장바구니에서 결제할 때 자동으로 할인가가 적용됩니다."
+                          autoComplete="off"
+                        />
+                      </div>
+                    </InlineStack>
+
                     <Banner tone="info">
                       앱에는 Shopify 판매가
                       {gb.variantId && liveVariantPrices[gb.variantId]
                         ? ` (현재 €${liveVariantPrices[gb.variantId].price.toFixed(2)})`
                         : ""}
-                      가 그대로 표시되고 결제됩니다. 공동구매 할인은 Shopify에서
-                      상품 가격·비교 가격을 바꿔야 적용됩니다.
+                      가 기본 표시됩니다. 결제창 할인은 Shopify Admin에서 상품 판매가를 직접 변경하거나, 위 &apos;Shopify 할인 코드&apos;를 입력해 두면 결제 시 자동으로 할인가가 적용됩니다.
                     </Banner>
 
                     <InlineStack gap="300" blockAlign="end">

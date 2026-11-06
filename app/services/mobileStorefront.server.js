@@ -445,10 +445,11 @@ export function normalizeGroupBuyingInput(campaigns) {
     if (raw.currentCount != null && raw.currentCount !== "" && currentCount == null) {
       return { campaigns: [], error: `${label}: 현재 참여 인원은 0 이상의 숫자로 입력해 주세요.` };
     }
+    const discountCode = typeof raw.discountCode === 'string' ? raw.discountCode.trim().toUpperCase() : '';
     const rest = { ...raw };
     delete rest.groupPrice;
     delete rest.endsInHours;
-    out.push({ ...rest, isActive, endsAt, targetCount, currentCount });
+    out.push({ ...rest, isActive, endsAt, targetCount, currentCount, discountCode });
   }
   return { campaigns: out, error: null };
 }
@@ -474,6 +475,7 @@ export function toPublicGroupBuying(campaigns, now = new Date()) {
         id: String(g.id || g.variantId || g.productId),
         productId: g.productId || "",
         variantId: g.variantId || "",
+        discountCode: typeof g.discountCode === "string" ? g.discountCode.trim().toUpperCase() : "",
         title: withLangFallback(g.titleKo || "", g.titleDe, g.titleEn),
         desc: withLangFallback(g.descKo || "", g.descDe, g.descEn),
         targetCount: targetCount && targetCount > 0 ? targetCount : null,
