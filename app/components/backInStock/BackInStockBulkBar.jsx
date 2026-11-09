@@ -1,7 +1,6 @@
 import {
   Card,
   InlineStack,
-  Text,
   Button,
   Badge,
 } from "@shopify/polaris";
@@ -24,10 +23,7 @@ export default function BackInStockBulkBar({
     <Card padding="300" background="bg-surface-selected">
       <InlineStack align="space-between" blockAlign="center" wrap>
         <InlineStack gap="200" blockAlign="center">
-          <Badge tone="interactive">{`${selectedCount}개 선택됨`}</Badge>
-          <Text variant="bodySm" fontWeight="semibold">
-            선택한 항목에 대한 일괄 작업을 실행할 수 있습니다.
-          </Text>
+          <Badge tone="interactive">{`${selectedCount}개 항목 선택됨`}</Badge>
         </InlineStack>
 
         <InlineStack gap="200">

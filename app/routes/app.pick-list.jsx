@@ -179,7 +179,7 @@ const WarehouseTableSection = memo(function WarehouseTableSection({
           </InlineStack>
 
           <Text variant="bodySm" fontWeight="semibold">
-            {`피킹 수량: 총 ${totalQty.toLocaleString()} 개 (레갈번호 오름차순 정렬)`}
+            {`총 피킹 수량 ${totalQty.toLocaleString()}개`}
           </Text>
         </InlineStack>
       </Box>
@@ -437,7 +437,7 @@ export default function PickListPage() {
   return (
     <Page
       title="처리중 리스트"
-      subtitle="매장창고와 신창고 구역별로 레갈번호 오름차순 정렬된 처리중 리스트를 제공합니다."
+      subtitle="창고 구역 및 레갈 번호순으로 정렬된 미출고 품목 목록입니다."
       backAction={{ content: "대시보드", url: "/app" }}
       primaryAction={{
         content: "PDF 인쇄 및 이메일 전송",
@@ -566,26 +566,26 @@ export default function PickListPage() {
                   pressed={warehouseTab === "ALL"}
                   onClick={handleSelectTabAll}
                 >
-                  {`전체 목록 (${items.length}종)`}
+                  {`전체 (${items.length}종)`}
                 </Button>
                 <Button
                   pressed={warehouseTab === "STORE"}
                   onClick={handleSelectTabStore}
                 >
-                  {`매장창고 피킹 (STORE) [${storeItems.length}종 / ${storeQty}개]`}
+                  {`매장창고 (${storeItems.length}종 · ${storeQty}개)`}
                 </Button>
                 <Button
                   pressed={warehouseTab === "NEW_ONLY"}
                   onClick={handleSelectTabNew}
                 >
-                  {`신창고 전용 피킹 (NEW WH) [${newOnlyItems.length}종 / ${newOnlyQty}개]`}
+                  {`신창고 전용 (${newOnlyItems.length}종 · ${newOnlyQty}개)`}
                 </Button>
                 {noBinItems.length > 0 && (
                   <Button
                     pressed={warehouseTab === "NO_BIN"}
                     onClick={handleSelectTabNoBin}
                   >
-                    {`위치 미지정 [${noBinItems.length}종]`}
+                    {`위치 미지정 (${noBinItems.length}종)`}
                   </Button>
                 )}
               </ButtonGroup>
@@ -639,7 +639,7 @@ export default function PickListPage() {
             {/* 전체 뷰 또는 매장창고 탭 선택 시: 매장창고 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "STORE") && (
               <WarehouseTableSection
-                title="매장창고 처리중 리스트 (STORE WAREHOUSE)"
+                title="매장창고 피킹 목록"
                 categoryBadge={<Badge tone="info">매장창고</Badge>}
                 itemList={filteredStore}
                 totalQty={filteredStoreQty}
@@ -650,7 +650,7 @@ export default function PickListPage() {
             {/* 전체 뷰 또는 신창고 탭 선택 시: 신창고 전용 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "NEW_ONLY") && (
               <WarehouseTableSection
-                title="신창고 전용 처리중 리스트 (NEW / MAIN WAREHOUSE)"
+                title="신창고 전용 피킹 목록"
                 categoryBadge={<Badge tone="attention">신창고 전용</Badge>}
                 itemList={filteredNewOnly}
                 totalQty={filteredNewOnlyQty}
@@ -661,7 +661,7 @@ export default function PickListPage() {
             {/* 전체 뷰 또는 위치 미지정 탭 선택 시: 위치 미지정 테이블 */}
             {(warehouseTab === "ALL" || warehouseTab === "NO_BIN") && noBinItems.length > 0 && (
               <WarehouseTableSection
-                title="위치 미지정 처리중 리스트 (UNASSIGNED LOCATION)"
+                title="위치 미지정 품목"
                 categoryBadge={<Badge tone="warning">위치 미지정</Badge>}
                 itemList={filteredNoBin}
                 totalQty={filteredNoBinQty}

@@ -1,6 +1,6 @@
 import { getDashboardData } from "../services/dashboardData.server.js";
 import { createAppFeatureRequest } from "../services/appFeatureRequests.server.js";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
 import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button } from "@shopify/polaris";
 import dayjs from "dayjs";
@@ -99,10 +99,7 @@ export default function Dashboard() {
   };
 
   return (
-    <Page
-      title="물류 운영 대시보드"
-      subtitle="처리중 주문부터 검수와 입고까지, 필요한 작업을 바로 시작하세요."
-    >
+    <Page title="물류 운영 대시보드">
       <BlockStack gap="500">
         {/* 0. 모바일 앱 기능 추가/수정 요청 입력란 */}
             <AppFeatureRequestCard />
@@ -197,13 +194,13 @@ export default function Dashboard() {
           ) : containerItemsFetcher.data?.items ? (
             <BlockStack gap="400">
               <Text as="p" tone="subdued">
-                이 컨테이너에 적재되어 수입되는 Odoo ERP 상의 원본 품목 리스트와 수량입니다.
+                해당 컨테이너의 입고 예정 품목 및 수량입니다.
               </Text>
               <div style={{ maxHeight: "350px", overflowY: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
-                      <th style={{ padding: "8px", color: "#475569" }}>품목명 (Odoo Description)</th>
+                      <th style={{ padding: "8px", color: "#475569" }}>품목명</th>
                       <th style={{ padding: "8px", color: "#475569", textAlign: "right" }}>
                         총 입고 예정 수량
                       </th>

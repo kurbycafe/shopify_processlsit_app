@@ -15,7 +15,7 @@ export function ContainerScheduleCard({
       <BlockStack gap="400">
         <InlineStack align="space-between" blockAlign="center">
           <Text variant="headingMd" as="h2">
-            컨테이너 입고 일정 및 2개월 캘린더
+            컨테이너 입고 일정
           </Text>
           <Link to="/app/container-catalog" style={{ textDecoration: "none" }}>
             <Text variant="bodySm" tone="success" fontWeight="bold">

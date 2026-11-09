@@ -110,7 +110,7 @@ export default function BackInStockSubscriberTable({
               <th style={{ padding: "10px 12px", width: "90px" }}>채널</th>
               <th style={{ padding: "10px 12px", width: "100px" }}>상태</th>
               <th style={{ padding: "10px 14px", textAlign: "right", minWidth: "160px" }}>
-                운영 액션 / 발송 일시
+                발송 상태 / 작업
               </th>
             </tr>
           </thead>

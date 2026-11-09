@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useFetcher, useLoaderData, useSearchParams } from "react-router";
-import { Page, Layout, Card, TextField, BlockStack, InlineStack, Text, DataTable, Badge, Thumbnail, Button, Banner, Box, Icon, Checkbox, Grid, Modal } from "@shopify/polaris";
+import { Page, Layout, Card, TextField, BlockStack, InlineStack, InlineGrid, Text, DataTable, Badge, Thumbnail, Button, Banner, Box, Icon, Checkbox, Modal } from "@shopify/polaris";
 import {
   SearchIcon,
   PrintIcon,
@@ -22,6 +22,8 @@ import { changeContainerStatus } from "../services/containerStatus.server.js";
 import { MissingSkuManagerCard } from "../components/MissingSkuManagerCard.jsx";
 import StatusBadge from "../components/common/StatusBadge";
 import AppEmptyState from "../components/common/AppEmptyState";
+import MetricCard from "../components/common/MetricCard";
+import { COMPANY } from "../constants/company.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -596,7 +598,7 @@ export default function ContainerCatalog() {
 
     <div class="catalog-footer">
       <div>
-        <strong>POPEYE GmbH / Dawayo</strong> | Im Taubengrund 31, 65451 Kelsterbach, Germany
+        <strong>${COMPANY.legalName} / Dawayo</strong> | ${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}, ${COMPANY.country}
         <br />본 문서는 B2B 수주 거래처 전용 대외비 문서이며 무단 배포 및 복제를 금합니다.
       </div>
       <div style="text-align: right;">
@@ -713,56 +715,28 @@ export default function ContainerCatalog() {
           <>
             {/* KPI 요약 보드 */}
             <Layout.Section>
-              <Grid>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
-                  <Card padding="400">
-                    <BlockStack gap="100" align="center">
-                      <Text variant="bodySm" tone="subdued" fontWeight="bold">
-                        총 상품 종류
-                      </Text>
-                      <Text variant="headingLg" as="p">
-                        {totalSKUs} SKUs
-                      </Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
-                  <Card padding="400">
-                    <BlockStack gap="100" align="center">
-                      <Text variant="bodySm" tone="subdued" fontWeight="bold">
-                        총 입고 수량
-                      </Text>
-                      <Text variant="headingLg" as="p">
-                        {totalQty.toLocaleString()} 개
-                      </Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
-                  <Card padding="400">
-                    <BlockStack gap="100" align="center">
-                      <Text variant="bodySm" tone="subdued" fontWeight="bold">
-                        도매 원가 총액
-                      </Text>
-                      <Text variant="headingLg" as="p" style={{ fontFamily: "monospace" }}>
-                        €{totalWholesaleValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3 }}>
-                  <Card padding="400">
-                    <BlockStack gap="100" align="center">
-                      <Text variant="bodySm" tone="subdued" fontWeight="bold">
-                        총 박스 수량
-                      </Text>
-                      <Text variant="headingLg" as="p" tone="success">
-                        {totalBoxes} 박스
-                      </Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-              </Grid>
+              <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="300">
+                <MetricCard
+                  title="총 상품 종류"
+                  value={totalSKUs}
+                  subtitle="종"
+                />
+                <MetricCard
+                  title="총 입고 수량"
+                  value={totalQty}
+                  subtitle="개"
+                />
+                <MetricCard
+                  title="도매 원가 총액"
+                  value={`€${totalWholesaleValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                />
+                <MetricCard
+                  title="총 박스 수량"
+                  value={totalBoxes}
+                  subtitle="박스"
+                  variant="primary"
+                />
+              </InlineGrid>
             </Layout.Section>
 
             {/* 입고 상태 변경 바 */}

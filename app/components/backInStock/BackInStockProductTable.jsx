@@ -105,18 +105,18 @@ export default function BackInStockProductTable({
                 />
               </th>
               <th style={{ padding: "10px 12px", minWidth: "260px" }}>
-                상품 정보 (Product &amp; Variant)
+                상품 정보
               </th>
               <th style={{ padding: "10px 12px", width: "140px" }}>SKU</th>
               <th style={{ padding: "10px 12px", width: "130px" }}>
-                대기 수요 (Waiting)
+                대기 인원
               </th>
               <th style={{ padding: "10px 12px", width: "170px" }}>
-                입고 예정일 (ETA)
+                입고 예정일
               </th>
               <th style={{ padding: "10px 12px", width: "100px" }}>상태</th>
               <th style={{ padding: "10px 14px", textAlign: "right", minWidth: "220px" }}>
-                운영 액션
+                작업
               </th>
             </tr>
           </thead>

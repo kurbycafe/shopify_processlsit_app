@@ -3,7 +3,6 @@ import {
   BlockStack,
   Text,
   Button,
-  Badge,
 } from "@shopify/polaris";
 import {
   RefreshIcon,
@@ -24,12 +23,9 @@ export default function BackInStockHeader({
     <BlockStack gap="300">
       <InlineStack align="space-between" blockAlign="center" wrap>
         <BlockStack gap="100">
-          <InlineStack gap="200" blockAlign="center">
-            <Text variant="headingXl" as="h1">
-              재입고 수요 및 알림 운영 대시보드
-            </Text>
-            <Badge tone="info">DAWAYO Operations</Badge>
-          </InlineStack>
+          <Text variant="headingXl" as="h1">
+            재입고 수요 관리
+          </Text>
           <InlineStack gap="200" blockAlign="center">
             <Text variant="bodySm" tone="subdued">
               상점 도메인: {shop || "dawayo.de"}
@@ -55,7 +51,7 @@ export default function BackInStockHeader({
             loading={isScanning}
             onClick={onScanAndNotify}
           >
-            실시간 재고 스캔 & 입고 상품 자동 발송
+            입고 상품 스캔 및 알림 발송
           </Button>
         </InlineStack>
       </InlineStack>

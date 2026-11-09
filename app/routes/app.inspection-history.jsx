@@ -285,7 +285,7 @@ export default function InspectionHistory() {
       unit: `(${successCount}건)`,
       tone: "success",
       icon: CheckCircleIcon,
-      subtext: "이상 없는 무결점 출고",
+      subtext: "정상 검수 완료",
     },
     {
       id: "ISSUE_REPORTED",
@@ -302,7 +302,7 @@ export default function InspectionHistory() {
       count: totalCount > 0 ? `${Math.round((printedCount / totalCount) * 100)}%` : "0%",
       unit: `(${printedCount}건)`,
       icon: PrintIcon,
-      subtext: "Lieferschein 인쇄 완료",
+      subtext: "납품서 인쇄 완료",
     },
   ];
 
@@ -342,7 +342,7 @@ export default function InspectionHistory() {
 
   return (
     <Page
-      title="검수 이력 및 감사 로그 (Inspection Audit)"
+      title="검수 내역"
       subtitle="작업자별 검수 결과, 결품 및 대체 상품 처리 내역을 조회하고 추적합니다."
       backAction={{ content: "대시보드", url: "/app" }}
       primaryAction={{
@@ -392,10 +392,10 @@ export default function InspectionHistory() {
                   label="검수 상태"
                   options={[
                     { label: "전체 상태 (대기 제외)", value: "ALL" },
-                    { label: "검수 성공 (SUCCESS)", value: "SUCCESS" },
-                    { label: "일부 완료 (PARTIAL)", value: "PARTIAL" },
-                    { label: "문제 보고됨 (ISSUE)", value: "ISSUE_REPORTED" },
-                    { label: "검수 실패 (FAILED)", value: "FAILED" },
+                    { label: "검수 성공", value: "SUCCESS" },
+                    { label: "일부 완료", value: "PARTIAL" },
+                    { label: "문제 보고됨", value: "ISSUE_REPORTED" },
+                    { label: "검수 실패", value: "FAILED" },
                   ]}
                   value={selectedStatus}
                   onChange={handleStatusChange}

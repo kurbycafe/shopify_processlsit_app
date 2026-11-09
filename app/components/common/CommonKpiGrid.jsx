@@ -1,13 +1,12 @@
-import {
-  Card,
-  BlockStack,
-  InlineStack,
-  Text,
-  InlineGrid,
-  Box,
-  Icon,
-} from "@shopify/polaris";
-import { pressable } from "../../utils/a11y.js";
+import { InlineGrid } from "@shopify/polaris";
+import MetricCard from "./MetricCard.jsx";
+
+function mapToneToVariant(tone) {
+  if (tone === "critical") return "critical";
+  if (tone === "warning" || tone === "attention") return "warning";
+  if (tone === "success") return "primary";
+  return "secondary";
+}
 
 export default function CommonKpiGrid({
   items = [],
@@ -23,65 +22,18 @@ export default function CommonKpiGrid({
         const isSelected = activeKey === item.id;
 
         return (
-          <div
+          <MetricCard
             key={item.id}
-            {...pressable(onSelectKey && (() => onSelectKey(item.id)))}
-            aria-pressed={onSelectKey ? isSelected : undefined}
-            style={{
-              cursor: onSelectKey ? "pointer" : "default",
-              transition: "transform 0.15s ease, box-shadow 0.15s ease",
-            }}
-          >
-            <Card padding="300">
-              <BlockStack gap="150">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text
-                    variant="bodySm"
-                    fontWeight="semibold"
-                    tone={item.tone === "critical" ? "critical" : undefined}
-                    truncate
-                  >
-                    {item.title}
-                  </Text>
-                  {item.icon && <Icon source={item.icon} tone={item.tone} />}
-                </InlineStack>
-
-                <InlineStack align="start" blockAlign="baseline" gap="100">
-                  <Text
-                    variant="headingXl"
-                    as="p"
-                    fontWeight="bold"
-                    tone={item.tone}
-                  >
-                    {typeof item.count === "number"
-                      ? item.count.toLocaleString()
-                      : item.count || "0"}
-                  </Text>
-                  {item.unit && (
-                    <Text variant="bodyXs" tone="subdued">
-                      {item.unit}
-                    </Text>
-                  )}
-                </InlineStack>
-
-                {item.subtext && (
-                  <Text variant="bodyXs" tone="subdued" truncate>
-                    {item.subtext}
-                  </Text>
-                )}
-
-                {isSelected && (
-                  <Box
-                    padding="050"
-                    style={{
-                      borderBottom: "3px solid #008060",
-                      marginTop: "4px",
-                    }}
-                  />
-                )}
-              </BlockStack>
-            </Card>
-          </div>
+            title={item.title}
+            value={item.count ?? 0}
+            subtitle={item.unit}
+            subtext={item.subtext}
+            icon={item.icon}
+            iconTone={item.tone}
+            variant={mapToneToVariant(item.tone)}
+            active={isSelected}
+            onClick={onSelectKey ? () => onSelectKey(item.id) : undefined}
+          />
         );
       })}
     </InlineGrid>

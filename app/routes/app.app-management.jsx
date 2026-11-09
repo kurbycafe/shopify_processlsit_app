@@ -597,7 +597,7 @@ export default function AppManagementPage() {
 
   return (
     <Page
-      title="모바일 앱 관리 (Storefront CMS)"
+      title="앱 관리"
       subtitle="각 항목을 저장하면 앱 설정에 반영됩니다. 앱에서 확인하는 시점에 따라 적용이 지연될 수 있습니다."
       primaryAction={{
         content: isSubmitting ? "동기화 중..." : "저장된 설정 반영 요청",

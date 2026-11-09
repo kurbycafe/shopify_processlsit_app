@@ -7,7 +7,7 @@ export function ProductivityChartCard({ chartData }) {
     <Card>
       <BlockStack gap="400">
         <Text variant="headingMd" as="h2">
-          최근 7일간 검수 생산성 및 일별 처리 현황
+          최근 7일 검수 현황
         </Text>
 
         <div className="productivity-chart-container">

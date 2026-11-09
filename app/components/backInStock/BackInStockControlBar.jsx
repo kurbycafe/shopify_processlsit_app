@@ -45,8 +45,8 @@ export default function BackInStockControlBar({
 
   const presets = [
     { id: "ALL", label: "전체 목록" },
-    { id: "PENDING", label: "전송 대기 (미전송)" },
-    { id: "NOTIFIED", label: "전송 완료" },
+    { id: "PENDING", label: "발송 대기" },
+    { id: "NOTIFIED", label: "발송 완료" },
     { id: "HIGH_DEMAND", label: "고수요 품목 (20+)" },
     { id: "ARRIVING_SOON", label: "입고 임박 (7일 이내)" },
     { id: "NEEDS_ATTENTION", label: "조치 필요" },
@@ -135,13 +135,13 @@ export default function BackInStockControlBar({
               pressed={viewMode === "products"}
               onClick={() => onChangeViewMode("products")}
             >
-              상품/수요 중심 뷰 (Products)
+              상품별 보기
             </Button>
             <Button
               pressed={viewMode === "subscribers"}
               onClick={() => onChangeViewMode("subscribers")}
             >
-              신청자 상세 뷰 (Subscribers)
+              신청자별 보기
             </Button>
           </ButtonGroup>
 
@@ -159,14 +159,14 @@ export default function BackInStockControlBar({
                 onClick={() => onChangeStatusFilter("PENDING")}
                 size="micro"
               >
-                전송 대기 (미전송)
+                발송 대기
               </Button>
               <Button
                 pressed={statusFilter === "NOTIFIED" || statusFilter === "SENT"}
                 onClick={() => onChangeStatusFilter("NOTIFIED")}
                 size="micro"
               >
-                전송 완료
+                발송 완료
               </Button>
             </ButtonGroup>
 
@@ -191,12 +191,12 @@ export default function BackInStockControlBar({
             >
               <FormLayout>
                 <Select
-                  label="전송 상태 (Delivery Status)"
+                  label="발송 상태"
                   options={[
                     { label: "전체 상태", value: "ALL" },
-                    { label: "전송 대기 / 미전송 (PENDING)", value: "PENDING" },
-                    { label: "전송 완료 (NOTIFIED)", value: "NOTIFIED" },
-                    { label: "신청 취소 (CANCELLED)", value: "CANCELLED" },
+                    { label: "대기 중", value: "PENDING" },
+                    { label: "발송 완료", value: "NOTIFIED" },
+                    { label: "취소됨", value: "CANCELLED" },
                     { label: "발송됨 · 기록 확인 필요", value: "DELIVERED_UNCONFIRMED" },
                     { label: "발송 중", value: "PROCESSING" },
                     { label: "발송 실패", value: "FAILED" },
@@ -206,21 +206,21 @@ export default function BackInStockControlBar({
                 />
 
                 <Select
-                  label="입고 예정일 단계 (ETA Stage)"
+                  label="입고 예정 상태"
                   options={[
                     { label: "전체 ETA", value: "ALL" },
-                    { label: "오늘 도착 (Today)", value: "TODAY" },
+                    { label: "오늘 입고", value: "TODAY" },
                     { label: "입고 임박 (7일 이내)", value: "ARRIVING_SOON" },
-                    { label: "입고 예정 (Upcoming)", value: "UPCOMING" },
-                    { label: "입고 지연 (Overdue)", value: "OVERDUE" },
-                    { label: "일정 미확정 (No ETA)", value: "UNKNOWN" },
+                    { label: "입고 예정", value: "UPCOMING" },
+                    { label: "입고 지연", value: "OVERDUE" },
+                    { label: "예정일 미정", value: "UNKNOWN" },
                   ]}
                   value={etaFilter}
                   onChange={onChangeEtaFilter}
                 />
 
                 <Select
-                  label="수요 등급 (Demand Level)"
+                  label="수요 규모"
                   options={[
                     { label: "전체 수요", value: "ALL" },
                     { label: "초고수요 (50명 이상)", value: "VERY_HIGH" },
@@ -233,11 +233,11 @@ export default function BackInStockControlBar({
                 />
 
                 <Select
-                  label="신청 채널 (Channel)"
+                  label="신청 채널"
                   options={[
                     { label: "전체 채널", value: "ALL" },
-                    { label: "이메일 (Email)", value: "EMAIL" },
-                    { label: "웹 푸시 (Web Push)", value: "PUSH" },
+                    { label: "이메일", value: "EMAIL" },
+                    { label: "웹 푸시", value: "PUSH" },
                     { label: "SMS", value: "SMS" },
                   ]}
                   value={channelFilter}
@@ -245,12 +245,12 @@ export default function BackInStockControlBar({
                 />
 
                 <Select
-                  label="신청 일자 (Date Range)"
+                  label="신청 기간"
                   options={[
                     { label: "전체 기간", value: "ALL" },
-                    { label: "오늘 (Today)", value: "TODAY" },
-                    { label: "최근 7일 (Last 7 Days)", value: "LAST_7D" },
-                    { label: "최근 30일 (Last 30 Days)", value: "LAST_30D" },
+                    { label: "오늘", value: "TODAY" },
+                    { label: "최근 7일", value: "LAST_7D" },
+                    { label: "최근 30일", value: "LAST_30D" },
                   ]}
                   value={dateRangeFilter}
                   onChange={onChangeDateRangeFilter}

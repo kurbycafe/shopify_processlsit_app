@@ -401,7 +401,7 @@ export const loader = async ({ request }) => {
       };
     });
 
-    // 🔍 합포장(Combined Shipping) 감지 및 주문번호 수집
+    // 합포장(Combined Shipping) 감지 및 주문번호 수집
     const emailOrders = {};
     orders.forEach((o) => {
       if (o.email && o.email !== "-") {
@@ -745,7 +745,7 @@ export default function AdditionalPage() {
         <Box paddingBlockEnd="400">
           <Card background="bg-surface-secondary">
             <BlockStack gap="400">
-              <Text variant="headingSm" as="h3">스마트 주문 필터링</Text>
+              <Text variant="headingSm" as="h3">주문 필터</Text>
 
               <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", width: "100%" }}>
                 <div style={{ flex: 1, minWidth: "260px" }}>
@@ -766,8 +766,8 @@ export default function AdditionalPage() {
                   <Select
                     label="주문 구분"
                     options={[
-                      { label: '일반 주문 (Orders)', value: 'ORDERS' },
-                      { label: '주문 초안 (Draft Orders)', value: 'DRAFT_ORDERS' },
+                      { label: '일반 주문', value: 'ORDERS' },
+                      { label: '주문 초안', value: 'DRAFT_ORDERS' },
                     ]}
                     value={currentOrderType}
                     onChange={handleOrderTypeChange}
@@ -778,9 +778,9 @@ export default function AdditionalPage() {
                   <Select
                     label="결제 상태"
                     options={[
-                      { label: '전체 (Paid + Pending)', value: 'ALL' },
-                      { label: '결제 완료 (Paid)', value: 'PAID' },
-                      { label: '결제 대기 (Pending)', value: 'PENDING' },
+                      { label: '전체', value: 'ALL' },
+                      { label: '결제 완료', value: 'PAID' },
+                      { label: '결제 대기', value: 'PENDING' },
                     ]}
                     value={paymentFilter}
                     onChange={(val) => { setPaymentFilter(val); updateUrlFilter("payment", val, "ALL"); }}
@@ -791,8 +791,8 @@ export default function AdditionalPage() {
                     label="국가 및 지역"
                     options={[
                       { label: '모든 배송지', value: 'ALL' },
-                      { label: '독일 국내만 (Domestic)', value: 'DOMESTIC' },
-                      { label: '해외 배송만 (International)', value: 'INTERNATIONAL' },
+                      { label: '독일 국내', value: 'DOMESTIC' },
+                      { label: '해외 배송', value: 'INTERNATIONAL' },
                     ]}
                     value={regionFilter}
                     onChange={(val) => { setRegionFilter(val); updateUrlFilter("region", val, "ALL"); }}
@@ -800,11 +800,11 @@ export default function AdditionalPage() {
                 </Box>
                 <Box minWidth="160px">
                   <Select
-                    label="상품 종류 및 복잡도"
+                    label="품목 구성"
                     options={[
                       { label: '모든 주문', value: 'ALL' },
-                      { label: '단일 상품 (초스피드)', value: 'SINGLE' },
-                      { label: '다품종 대량 (15종↑)', value: 'COMPLEX' },
+                      { label: '단품 주문 (1종 1개)', value: 'SINGLE' },
+                      { label: '다품종 주문 (15종 이상)', value: 'COMPLEX' },
                     ]}
                     value={complexityFilter}
                     onChange={(val) => { setComplexityFilter(val); updateUrlFilter("complexity", val, "ALL"); }}
@@ -815,9 +815,9 @@ export default function AdditionalPage() {
                     label="온도대 구분"
                     options={[
                       { label: '전체 온도대', value: 'ALL' },
-                      { label: '상온 전용 (Dry Only)', value: 'DRY_ONLY' },
-                      { label: '냉장 포함 (Chilled)', value: 'CHILLED' },
-                      { label: '냉동 포함 (Frozen)', value: 'FROZEN' },
+                      { label: '상온 전용', value: 'DRY_ONLY' },
+                      { label: '냉장 포함', value: 'CHILLED' },
+                      { label: '냉동 포함', value: 'FROZEN' },
                     ]}
                     value={tempFilter}
                     onChange={(val) => { setTempFilter(val); updateUrlFilter("temp", val, "ALL"); }}
@@ -852,9 +852,9 @@ export default function AdditionalPage() {
                   <Select
                     label="표시 개수"
                     options={[
-                      { label: '100개씩 (기본 - 당일 전체)', value: '100' },
-                      { label: '50개씩 (안정 분할 인쇄)', value: '50' },
-                      { label: '30개씩 (초고속)', value: '30' },
+                      { label: '100개씩', value: '100' },
+                      { label: '50개씩', value: '50' },
+                      { label: '30개씩', value: '30' },
                     ]}
                     value={pageSize}
                     onChange={handlePageSizeChange}
