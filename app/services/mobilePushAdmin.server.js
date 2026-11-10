@@ -41,9 +41,76 @@ export async function retryPushDelivery({ db, shop, id, acknowledgeUnknown = fal
   return { accepted: true };
 }
 
-export async function listPushAdmin({ db, shop, cursor }) {
+export async function batchRetryPushDelivery({ db, shop }) {
+  const failedJobs = await db.customerRequest.findMany({
+    where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] }, status: { in: ["FAILED", "UNKNOWN"] } },
+    take: 50,
+  });
+  let count = 0;
+  for (const job of failedJobs) {
+    const updated = await db.customerRequest.updateMany({
+      where: { id: job.id, shop, status: job.status, updatedAt: job.updatedAt },
+      data: { status: "RETRY", payload: { ...job.payload, attempts: 0, availableAt: new Date(0).toISOString() } },
+    });
+    if (updated.count === 1) count++;
+  }
+  return { accepted: true, count };
+}
+
+export async function listPushAdmin({ db, shop, cursor, status = "ALL" }) {
   if (cursor && !/^[a-zA-Z0-9_-]{1,100}$/.test(cursor)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid cursor.");
-  const records = await db.customerRequest.findMany({ where: { shop, type: { in: ["PUSH_CAMPAIGN", "PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] }, ...(cursor ? { id: { lt: cursor } } : {}) }, orderBy: { id: "desc" }, take: 51 });
-  return { records: records.slice(0, 50).map(row => ({ id: row.id, type: row.type, status: row.status, createdAt: row.createdAt,
-    title: row.payload.title || null, customerId: row.customerId, attempts: row.payload.attempts || 0, errorCode: row.payload.errorCode || null, scheduledAt: row.payload.scheduledAt || null })), nextCursor: records.length > 50 ? records[49].id : null };
+
+  let statusFilter = {};
+  if (status === "FAILED") {
+    statusFilter = { status: { in: ["FAILED", "UNKNOWN"] } };
+  } else if (status === "SENT") {
+    statusFilter = { status: { in: ["SENT", "EXPANDED"] } };
+  } else if (status === "QUEUED") {
+    statusFilter = { status: { in: ["QUEUED", "RETRY", "SENDING"] } };
+  } else if (status !== "ALL" && status) {
+    statusFilter = { status };
+  }
+
+  const [records, totalSent, totalFailed, totalQueued] = await Promise.all([
+    db.customerRequest.findMany({
+      where: {
+        shop,
+        type: { in: ["PUSH_CAMPAIGN", "PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] },
+        ...statusFilter,
+        ...(cursor ? { id: { lt: cursor } } : {}),
+      },
+      orderBy: { id: "desc" },
+      take: 51,
+    }),
+    db.customerRequest.count({
+      where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY", "PUSH_CAMPAIGN"] }, status: { in: ["SENT", "EXPANDED"] } },
+    }).catch(() => 0),
+    db.customerRequest.count({
+      where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] }, status: { in: ["FAILED", "UNKNOWN"] } },
+    }).catch(() => 0),
+    db.customerRequest.count({
+      where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY", "PUSH_CAMPAIGN"] }, status: { in: ["QUEUED", "RETRY", "SENDING"] } },
+    }).catch(() => 0),
+  ]);
+
+  return {
+    records: records.slice(0, 50).map(row => ({
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      createdAt: row.createdAt,
+      title: row.payload.title || null,
+      customerId: row.customerId,
+      attempts: row.payload.attempts || 0,
+      errorCode: row.payload.errorCode || null,
+      scheduledAt: row.payload.scheduledAt || null,
+    })),
+    nextCursor: records.length > 50 ? records[49].id : null,
+    stats: {
+      totalSent,
+      totalFailed,
+      totalQueued,
+      totalAttempts: totalSent + totalFailed + totalQueued,
+    },
+  };
 }

@@ -56,6 +56,17 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     },
   });
 
+  // 5.5. Pending customer inquiries & return requests
+  const pendingCustomerInquiryCountTask = typeof db.customerRequest?.count === "function"
+    ? db.customerRequest.count({
+        where: {
+          shop,
+          type: { in: ["SUPPORT", "CLAIM", "RETURN"] },
+          status: "REQUESTED",
+        },
+      }).catch(() => 0)
+    : Promise.resolve(0);
+
   // 6. Recent QC & Inspection logs
   // InspectionRecord also holds rows created by printing, invoices and alerts (status PENDING, never inspected);
   // only rows a completed inspection wrote carry completedAt.
@@ -100,8 +111,24 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     },
   });
 
-  const [unfulfilledCount, upcomingContainers, todayPrintedCount, thisWeekFulfilledCount, pendingBackInStockCount, recentLogs, past7DayRecords] = await Promise.all([
-    ordersTask, containersTask, todayPrintedCountTask, thisWeekFulfilledCountTask, pendingBackInStockCountTask, recentLogsTask, past7DayRecordsTask,
+  const [
+    unfulfilledCount,
+    upcomingContainers,
+    todayPrintedCount,
+    thisWeekFulfilledCount,
+    pendingBackInStockCount,
+    pendingCustomerInquiryCount,
+    recentLogs,
+    past7DayRecords,
+  ] = await Promise.all([
+    ordersTask,
+    containersTask,
+    todayPrintedCountTask,
+    thisWeekFulfilledCountTask,
+    pendingBackInStockCountTask,
+    pendingCustomerInquiryCountTask,
+    recentLogsTask,
+    past7DayRecordsTask,
   ]);
 
   const chartData = chartDays.map((dayObj) => {
@@ -135,6 +162,7 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     todayPrintedCount,
     thisWeekFulfilledCount,
     pendingBackInStockCount,
+    pendingCustomerInquiryCount: pendingCustomerInquiryCount || 0,
     recentLogs,
     upcomingContainers,
     calendarMonths,

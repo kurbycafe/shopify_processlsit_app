@@ -6,7 +6,7 @@ import { registerMobileDevice } from "../app/services/mobilePushDevices.server.j
 import { readPushPreferences, savePushPreferences, inQuietHours } from "../app/services/mobilePushPolicy.server.js";
 import { queueCustomerNotification, customerNotificationInbox, dispatchMobileNotifications } from "../app/services/mobileNotificationQueue.server.js";
 import { queueOrderPush, queueSupportReplyPush, saveMobileRestockInterest, queueRestockPush } from "../app/services/mobileNotificationEvents.server.js";
-import { createPushCampaign, expandPushCampaigns, retryPushDelivery } from "../app/services/mobilePushAdmin.server.js";
+import { createPushCampaign, expandPushCampaigns, retryPushDelivery, batchRetryPushDelivery, listPushAdmin } from "../app/services/mobilePushAdmin.server.js";
 import { authorizePushWorker } from "../app/services/mobilePushWorkerAuth.server.js";
 import { customerCartReminder, checkCartReminders } from '../app/services/cartReminders.server.js';
 
@@ -338,4 +338,45 @@ test('public notices reject private targets and expand to guests only for a publ
   await createPushCampaign({db,shop,now,input:{category:'NOTICE',title:'Public',body:'Text',requestId:'notice-request-1234567891',target:{type:'home'}}});
   await expandPushCampaigns({db,shop,now});
   assert.equal(rows.filter(row=>row.type==='PUSH_GUEST_DELIVERY').length,2);
+});
+
+test('listPushAdmin filters by status, computes stats, and batchRetryPushDelivery requeues failed pushes', async () => {
+  const { db, rows } = memory();
+  rows.push(
+    { id: "deliv-1", shop, type: "PUSH_DELIVERY", status: "SENT", createdAt: now, updatedAt: now, customerId: owner, payload: { title: "Sent 1", attempts: 1 } },
+    { id: "deliv-2", shop, type: "PUSH_DELIVERY", status: "FAILED", createdAt: now, updatedAt: now, customerId: owner, payload: { title: "Failed 1", attempts: 3, errorCode: "TOKEN_INVALID" } },
+    { id: "deliv-3", shop, type: "PUSH_GUEST_DELIVERY", status: "UNKNOWN", createdAt: now, updatedAt: now, customerId: null, payload: { title: "Unknown 1", attempts: 1 } },
+    { id: "deliv-4", shop, type: "PUSH_DELIVERY", status: "QUEUED", createdAt: now, updatedAt: now, customerId: owner, payload: { title: "Queued 1", attempts: 0 } },
+  );
+
+  const allResult = await listPushAdmin({ db, shop, status: "ALL" });
+  assert.equal(allResult.records.length, 4);
+  assert.equal(allResult.stats.totalSent, 1);
+  assert.equal(allResult.stats.totalFailed, 2);
+  assert.equal(allResult.stats.totalQueued, 1);
+  assert.equal(allResult.stats.totalAttempts, 4);
+
+  const failedResult = await listPushAdmin({ db, shop, status: "FAILED" });
+  assert.equal(failedResult.records.length, 2);
+  assert.ok(failedResult.records.every(r => ["FAILED", "UNKNOWN"].includes(r.status)));
+
+  const sentResult = await listPushAdmin({ db, shop, status: "SENT" });
+  assert.equal(sentResult.records.length, 1);
+  assert.equal(sentResult.records[0].status, "SENT");
+
+  const queuedResult = await listPushAdmin({ db, shop, status: "QUEUED" });
+  assert.equal(queuedResult.records.length, 1);
+  assert.equal(queuedResult.records[0].status, "QUEUED");
+
+  // Batch retry
+  const retryResult = await batchRetryPushDelivery({ db, shop });
+  assert.equal(retryResult.accepted, true);
+  assert.equal(retryResult.count, 2);
+
+  const retried1 = rows.find(r => r.id === "deliv-2");
+  const retried2 = rows.find(r => r.id === "deliv-3");
+  assert.equal(retried1.status, "RETRY");
+  assert.equal(retried1.payload.attempts, 0);
+  assert.equal(retried2.status, "RETRY");
+  assert.equal(retried2.payload.attempts, 0);
 });

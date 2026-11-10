@@ -25,6 +25,7 @@ export const loader = async ({ request }) => {
       })),
       status,
       type,
+      shop: session.shop,
       error: null,
     };
   } catch (error) {

@@ -2,7 +2,7 @@ import { getDashboardData } from "../services/dashboardData.server.js";
 import { createAppFeatureRequest } from "../services/appFeatureRequests.server.js";
 import { useState } from "react";
 import { useLoaderData, useNavigate, useFetcher } from "react-router";
-import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button } from "@shopify/polaris";
+import { Page, Layout, Modal, DataTable, Badge, Text, BlockStack, InlineStack, Card, Button, Banner } from "@shopify/polaris";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { authenticate } from "../shopify.server";
@@ -76,6 +76,7 @@ export default function Dashboard() {
     todayPrintedCount,
     thisWeekFulfilledCount,
     pendingBackInStockCount,
+    pendingCustomerInquiryCount = 0,
     recentLogs,
     upcomingContainers,
     calendarMonths,
@@ -112,6 +113,19 @@ export default function Dashboard() {
           pendingBackInStockCount={pendingBackInStockCount}
         />
 
+        {pendingCustomerInquiryCount > 0 && (
+          <Banner
+            tone="warning"
+            title={`미답변 고객 문의 및 반품 접수가 ${pendingCustomerInquiryCount}건 대기 중입니다.`}
+            action={{
+              content: "상담함에서 확인하기",
+              onAction: () => navigate("/app/customer-requests"),
+            }}
+          >
+            <p>모바일 앱을 통해 접수된 1:1 문의, 배송 문제, 반품 요청을 신속하게 확인하고 답변해 주세요.</p>
+          </Banner>
+        )}
+
         <Card>
           <InlineStack align="space-between" blockAlign="center" wrap gap="400">
             <BlockStack gap="100">
@@ -122,6 +136,12 @@ export default function Dashboard() {
               <Button onClick={() => navigate("/app/pick-list")}>처리중 리스트</Button>
               <Button variant="primary" onClick={() => navigate("/app/inspect")}>주문 검수 시작</Button>
               <Button onClick={() => navigate("/app/inspection-history")}>검수 내역 확인</Button>
+              <Button
+                onClick={() => navigate("/app/customer-requests")}
+                tone={pendingCustomerInquiryCount > 0 ? "critical" : undefined}
+              >
+                고객 상담함{pendingCustomerInquiryCount > 0 ? ` (${pendingCustomerInquiryCount}건 답변 대기)` : ""}
+              </Button>
             </InlineStack>
           </InlineStack>
         </Card>

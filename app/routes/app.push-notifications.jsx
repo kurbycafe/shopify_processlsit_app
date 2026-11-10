@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLoaderData, useActionData, useNavigation, useSubmit, useFetcher, Link } from "react-router";
-import { Page, Card, BlockStack, Text, TextField, Select, Button, InlineStack, Banner, Modal, Checkbox, DataTable, Badge } from "@shopify/polaris";
+import { useLoaderData, useActionData, useNavigation, useSubmit, useFetcher, Link, useSearchParams } from "react-router";
+import { Page, Card, BlockStack, Text, TextField, Select, Button, ButtonGroup, InlineStack, Banner, Modal, Checkbox, DataTable, Badge } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
 import db from "../db.server.js";
-import { createPushCampaign, expandPushCampaigns, listPushAdmin, retryPushDelivery } from "../services/mobilePushAdmin.server.js";
+import { createPushCampaign, expandPushCampaigns, listPushAdmin, retryPushDelivery, batchRetryPushDelivery } from "../services/mobilePushAdmin.server.js";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { firebasePushConfigured } from "../services/firebaseMessaging.server.js";
 
@@ -26,8 +26,27 @@ const statusBadge = (row) => {
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
-  try { return { ...(await listPushAdmin({ db, shop: session.shop, cursor: new URL(request.url).searchParams.get("cursor") })), configured: firebasePushConfigured(), requestId: randomUUID() }; }
-  catch { return { records: [], nextCursor: null, configured: firebasePushConfigured(), requestId: randomUUID(), error: "알림 발송 기록을 불러오지 못했습니다." }; }
+  const url = new URL(request.url);
+  const cursor = url.searchParams.get("cursor");
+  const status = url.searchParams.get("status") || "ALL";
+  try {
+    return {
+      ...(await listPushAdmin({ db, shop: session.shop, cursor, status })),
+      status,
+      configured: firebasePushConfigured(),
+      requestId: randomUUID(),
+    };
+  } catch {
+    return {
+      records: [],
+      nextCursor: null,
+      status,
+      stats: { totalSent: 0, totalFailed: 0, totalQueued: 0, totalAttempts: 0 },
+      configured: firebasePushConfigured(),
+      requestId: randomUUID(),
+      error: "알림 발송 기록을 불러오지 못했습니다.",
+    };
+  }
 };
 
 export const action = async ({ request }) => {
@@ -46,6 +65,13 @@ export const action = async ({ request }) => {
         await dispatchMobileNotifications({ db, shop: session.shop, limit: 20 }).catch(() => {});
       }
       return { message: "재시도 대기열에 등록하고 즉시 발송을 시도했습니다." };
+    }
+    if (form.get("intent") === "batch_retry") {
+      const result = await batchRetryPushDelivery({ db, shop: session.shop });
+      if (firebasePushConfigured()) {
+        await dispatchMobileNotifications({ db, shop: session.shop, limit: 50 }).catch(() => {});
+      }
+      return { message: `실패/확인 필요 ${result.count}건을 재시도 대기열에 등록하고 즉시 발송을 시도했습니다.` };
     }
     if (form.get("intent") !== "campaign") throw Error();
     const customerIds = String(form.get("customerIds") || "").split(/[\s,]+/).filter(Boolean);
@@ -69,30 +95,35 @@ export function PushNotificationsManager({ active = true }) {
   const listFetcher = useFetcher();
   const actionFetcher = useFetcher();
   const [cursor, setCursor] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("ALL");
   const [title, setTitle] = useState(""), [body, setBody] = useState(""), [category, setCategory] = useState("EVENT");
   const [customerIds, setCustomerIds] = useState(""), [productId, setProductId] = useState(""), [schedule, setSchedule] = useState("");
   const [test, setTest] = useState(false), [confirm, setConfirm] = useState(null), [acknowledge, setAcknowledge] = useState(false);
 
   const { load } = listFetcher;
-  const loadList = useCallback((nextCursor) => {
-    const qs = nextCursor ? `?cursor=${encodeURIComponent(nextCursor)}` : "";
+  const loadList = useCallback((nextCursor, nextStatus = statusFilter) => {
+    const params = new URLSearchParams();
+    if (nextCursor) params.set("cursor", nextCursor);
+    if (nextStatus && nextStatus !== "ALL") params.set("status", nextStatus);
+    const qs = params.toString() ? `?${params.toString()}` : "";
     load(`/app/push-notifications${qs}`);
-  }, [load]);
+  }, [load, statusFilter]);
+
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
 
   useEffect(() => {
-    if (active) loadList(cursor);
-  }, [active, cursor, loadList]);
+    if (active) loadList(cursor, statusFilter);
+  }, [active, cursor, statusFilter, loadList]);
 
   // Refresh the current page after a send, without reacting to cursor changes here.
   useEffect(() => {
     if (actionFetcher.state === "idle" && actionFetcher.data) {
-      loadList(cursorRef.current);
+      loadList(cursorRef.current, statusFilter);
     }
-  }, [actionFetcher.state, actionFetcher.data, loadList]);
+  }, [actionFetcher.state, actionFetcher.data, loadList, statusFilter]);
 
-  const data = listFetcher.data || { records: [], nextCursor: null, configured: true, requestId: "", error: null };
+  const data = listFetcher.data || { records: [], nextCursor: null, configured: true, requestId: "", stats: { totalSent: 0, totalFailed: 0, totalQueued: 0, totalAttempts: 0 }, error: null };
   const result = actionFetcher.data;
   const busy = actionFetcher.state !== "idle" || listFetcher.state !== "idle";
 
@@ -100,9 +131,16 @@ export function PushNotificationsManager({ active = true }) {
     const opts = { method: "post", action: "/app/push-notifications" };
     const reqId = data.requestId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
     if (confirm.type === "process") actionFetcher.submit({ intent: "process" }, opts);
+    else if (confirm.type === "batch_retry") actionFetcher.submit({ intent: "batch_retry" }, opts);
     else if (confirm.type === "retry") actionFetcher.submit({ intent: "retry", id: confirm.id, acknowledgeUnknown: String(acknowledge) }, opts);
     else actionFetcher.submit({ intent: "campaign", title, body, category, customerIds, productId, scheduledAt: schedule ? new Date(schedule).toISOString() : "", requestId: reqId, test: String(test) }, opts);
     setConfirm(null); setAcknowledge(false);
+  };
+
+  const changeStatus = (newStatus) => {
+    setCursor(null);
+    setStatusFilter(newStatus);
+    loadList(null, newStatus);
   };
 
   return (
@@ -113,9 +151,31 @@ export function PushNotificationsManager({ active = true }) {
           <Text as="p" tone="subdued" variant="bodySm">모바일 앱 푸시 알림 캠페인 발송 및 FCM 대기열 상태를 관리합니다.</Text>
         </BlockStack>
       </Card>
+
+      {/* 4대 KPI 요약 통계 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+          <Text variant="bodySm" tone="subdued">총 발송 시도</Text>
+          <Text variant="headingLg" fontWeight="bold">{(data.stats?.totalAttempts ?? 0).toLocaleString()}건</Text>
+        </div>
+        <div style={{ background: "#f0fdf4", padding: "14px", borderRadius: "10px", border: "1px solid #bbf7d0" }}>
+          <Text variant="bodySm" tone="subdued">발송 성공 (FCM 접수)</Text>
+          <Text variant="headingLg" fontWeight="bold" tone="success">{(data.stats?.totalSent ?? 0).toLocaleString()}건</Text>
+        </div>
+        <div style={{ background: (data.stats?.totalFailed ?? 0) > 0 ? "#fef2f2" : "#f8fafc", padding: "14px", borderRadius: "10px", border: `1px solid ${(data.stats?.totalFailed ?? 0) > 0 ? "#fca5a5" : "#e2e8f0"}` }}>
+          <Text variant="bodySm" tone="subdued">실패 / 확인 필요</Text>
+          <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalFailed ?? 0) > 0 ? "critical" : "subdued"}>{(data.stats?.totalFailed ?? 0).toLocaleString()}건</Text>
+        </div>
+        <div style={{ background: (data.stats?.totalQueued ?? 0) > 0 ? "#eff6ff" : "#f8fafc", padding: "14px", borderRadius: "10px", border: `1px solid ${(data.stats?.totalQueued ?? 0) > 0 ? "#bfdbfe" : "#e2e8f0"}` }}>
+          <Text variant="bodySm" tone="subdued">대기열 잔여</Text>
+          <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalQueued ?? 0) > 0 ? "highlight" : "subdued"}>{(data.stats?.totalQueued ?? 0).toLocaleString()}건</Text>
+        </div>
+      </div>
+
       {!data.configured && <Banner tone="warning" title="발송 서버 연결이 필요합니다"><p>기기 등록과 별도로 Firebase 발송 인증 및 예약 대기열 실행 설정이 필요합니다. 현재 요청은 저장되며 발송되지 않습니다.</p></Banner>}
       {(data.error || result?.error) && <Banner tone="critical"><p>{result?.error || data.error}</p></Banner>}
       {result?.message && <Banner tone="success"><p>{result.message}</p></Banner>}
+
       <Card><BlockStack gap="300"><Text as="h2" variant="headingMd">새 알림</Text>
         <TextField label="제목" value={title} onChange={setTitle} maxLength={120} autoComplete="off" />
         <TextField label="내용" value={body} onChange={setBody} multiline={3} maxLength={1000} autoComplete="off" />
@@ -126,14 +186,46 @@ export function PushNotificationsManager({ active = true }) {
         <Checkbox label="테스트 발송 (대상 고객 한 명 지정)" checked={test} onChange={setTest} />
         <Button variant="primary" disabled={busy || !title.trim() || !body.trim()} onClick={() => setConfirm({ type: "campaign" })}>발송 내용 확인</Button>
       </BlockStack></Card>
-      <Card><BlockStack gap="300"><InlineStack align="space-between"><Text as="h2" variant="headingMd">발송 대기열·기록</Text><Button disabled={busy || !data.configured} onClick={() => setConfirm({ type: "process" })}>대기열 처리</Button></InlineStack>
+
+      <Card><BlockStack gap="300">
+        <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+          <InlineStack gap="200" blockAlign="center" wrap>
+            <Text as="h2" variant="headingMd">발송 대기열·기록</Text>
+            <ButtonGroup variant="segmented">
+              <Button pressed={statusFilter === "ALL"} onClick={() => changeStatus("ALL")}>전체</Button>
+              <Button pressed={statusFilter === "FAILED"} onClick={() => changeStatus("FAILED")}>실패/확인필요</Button>
+              <Button pressed={statusFilter === "SENT"} onClick={() => changeStatus("SENT")}>발송완료</Button>
+              <Button pressed={statusFilter === "QUEUED"} onClick={() => changeStatus("QUEUED")}>대기중</Button>
+            </ButtonGroup>
+          </InlineStack>
+          <InlineStack gap="200">
+            {(data.stats?.totalFailed ?? 0) > 0 && (
+              <Button
+                tone="critical"
+                disabled={busy}
+                onClick={() => setConfirm({ type: "batch_retry" })}
+              >
+                실패 건 일괄 재시도
+              </Button>
+            )}
+            <Button disabled={busy || !data.configured} onClick={() => setConfirm({ type: "process" })}>대기열 처리</Button>
+          </InlineStack>
+        </InlineStack>
         <Text as="p">SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다.</Text>
         {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, statusBadge(row), row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
         {data.nextCursor && <Button variant="plain" onClick={() => setCursor(data.nextCursor)}>이전 기록 보기</Button>}
       </BlockStack></Card>
-      <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirm?.type === "process" ? "대기 중인 알림을 발송하시겠습니까?" : confirm?.type === "retry" ? "다시 발송하시겠습니까?" : "이 내용으로 발송 요청을 저장하시겠습니까?"}
-        primaryAction={{ content: "확인 후 저장", onAction: sendConfirmed, disabled: busy || (confirm?.unknown && !acknowledge) }} secondaryActions={[{ content: "취소", onAction: () => setConfirm(null) }]}>
-        <Modal.Section>{confirm?.type === "campaign" ? <BlockStack gap="200"><Text as="h3" variant="headingMd">{title}</Text><Text as="p">{body}</Text><Text as="p">대상: {customerIds || "해당 유형 수신 동의 고객 전체"} / {schedule || "다음 대기열 실행 시"}</Text></BlockStack> : <Text as="p">발송 직전에 고객의 현재 수신 설정과 기기 연결을 다시 확인합니다.</Text>}
+
+      <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirm?.type === "batch_retry" ? "실패/미확정 알림을 일괄 재발송하시겠습니까?" : confirm?.type === "process" ? "대기 중인 알림을 발송하시겠습니까?" : confirm?.type === "retry" ? "다시 발송하시겠습니까?" : "이 내용으로 발송 요청을 저장하시겠습니까?"}
+        primaryAction={{ content: "확인 후 처리", onAction: sendConfirmed, disabled: busy || (confirm?.unknown && !acknowledge) }} secondaryActions={[{ content: "취소", onAction: () => setConfirm(null) }]}>
+        <Modal.Section>
+          {confirm?.type === "batch_retry" ? (
+            <Text as="p">실패 및 확인 필요 상태의 알림(최대 50건)을 재시도 대기열에 등록하고 즉시 발송을 시도합니다.</Text>
+          ) : confirm?.type === "campaign" ? (
+            <BlockStack gap="200"><Text as="h3" variant="headingMd">{title}</Text><Text as="p">{body}</Text><Text as="p">대상: {customerIds || "해당 유형 수신 동의 고객 전체"} / {schedule || "다음 대기열 실행 시"}</Text></BlockStack>
+          ) : (
+            <Text as="p">발송 직전에 고객의 현재 수신 설정과 기기 연결을 다시 확인합니다.</Text>
+          )}
           {confirm?.unknown && <Checkbox label="기존 발송이 도착했을 수 있으며 중복 수신 가능성을 확인했습니다." checked={acknowledge} onChange={setAcknowledge} />}
         </Modal.Section>
       </Modal>
@@ -143,20 +235,54 @@ export function PushNotificationsManager({ active = true }) {
 
 export default function PushNotificationsPage() {
   const data = useLoaderData(), result = useActionData(), navigation = useNavigation(), submit = useSubmit();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get("status") || "ALL";
   const busy = navigation.state !== "idle";
   const [title, setTitle] = useState(""), [body, setBody] = useState(""), [category, setCategory] = useState("EVENT");
   const [customerIds, setCustomerIds] = useState(""), [productId, setProductId] = useState(""), [schedule, setSchedule] = useState("");
   const [test, setTest] = useState(false), [confirm, setConfirm] = useState(null), [acknowledge, setAcknowledge] = useState(false);
+
   const sendConfirmed = () => {
     if (confirm.type === "process") submit({ intent: "process" }, { method: "post" });
+    else if (confirm.type === "batch_retry") submit({ intent: "batch_retry" }, { method: "post" });
     else if (confirm.type === "retry") submit({ intent: "retry", id: confirm.id, acknowledgeUnknown: String(acknowledge) }, { method: "post" });
     else submit({ intent: "campaign", title, body, category, customerIds, productId, scheduledAt: schedule ? new Date(schedule).toISOString() : "", requestId: data.requestId, test: String(test) }, { method: "post" });
     setConfirm(null); setAcknowledge(false);
   };
+
+  const changeStatus = (newStatus) => {
+    const params = new URLSearchParams(searchParams);
+    if (newStatus === "ALL") params.delete("status");
+    else params.set("status", newStatus);
+    params.delete("cursor");
+    setSearchParams(params);
+  };
+
   return <Page title="앱 알림 발송 및 기록" fullWidth><BlockStack gap="400">
     {!data.configured && <Banner tone="warning" title="발송 서버 연결이 필요합니다"><p>기기 등록과 별도로 Firebase 발송 인증 및 예약 대기열 실행 설정이 필요합니다. 현재 요청은 저장되며 발송되지 않습니다.</p></Banner>}
     {(data.error || result?.error) && <Banner tone="critical"><p>{result?.error || data.error}</p></Banner>}
     {result?.message && <Banner tone="success"><p>{result.message}</p></Banner>}
+
+    {/* 4대 KPI 요약 통계 */}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+      <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+        <Text variant="bodySm" tone="subdued">총 발송 시도</Text>
+        <Text variant="headingLg" fontWeight="bold">{(data.stats?.totalAttempts ?? 0).toLocaleString()}건</Text>
+      </div>
+      <div style={{ background: "#f0fdf4", padding: "14px", borderRadius: "10px", border: "1px solid #bbf7d0" }}>
+        <Text variant="bodySm" tone="subdued">발송 성공 (FCM 접수)</Text>
+        <Text variant="headingLg" fontWeight="bold" tone="success">{(data.stats?.totalSent ?? 0).toLocaleString()}건</Text>
+      </div>
+      <div style={{ background: (data.stats?.totalFailed ?? 0) > 0 ? "#fef2f2" : "#f8fafc", padding: "14px", borderRadius: "10px", border: `1px solid ${(data.stats?.totalFailed ?? 0) > 0 ? "#fca5a5" : "#e2e8f0"}` }}>
+        <Text variant="bodySm" tone="subdued">실패 / 확인 필요</Text>
+        <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalFailed ?? 0) > 0 ? "critical" : "subdued"}>{(data.stats?.totalFailed ?? 0).toLocaleString()}건</Text>
+      </div>
+      <div style={{ background: (data.stats?.totalQueued ?? 0) > 0 ? "#eff6ff" : "#f8fafc", padding: "14px", borderRadius: "10px", border: `1px solid ${(data.stats?.totalQueued ?? 0) > 0 ? "#bfdbfe" : "#e2e8f0"}` }}>
+        <Text variant="bodySm" tone="subdued">대기열 잔여</Text>
+        <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalQueued ?? 0) > 0 ? "highlight" : "subdued"}>{(data.stats?.totalQueued ?? 0).toLocaleString()}건</Text>
+      </div>
+    </div>
+
     <Card><BlockStack gap="300"><Text as="h2" variant="headingMd">새 알림</Text>
       <TextField label="제목" value={title} onChange={setTitle} maxLength={120} autoComplete="off" />
       <TextField label="내용" value={body} onChange={setBody} multiline={3} maxLength={1000} autoComplete="off" />
@@ -167,14 +293,46 @@ export default function PushNotificationsPage() {
       <Checkbox label="테스트 발송 (대상 고객 한 명 지정)" checked={test} onChange={setTest} />
       <Button variant="primary" disabled={busy || !title.trim() || !body.trim()} onClick={() => setConfirm({ type: "campaign" })}>발송 내용 확인</Button>
     </BlockStack></Card>
-    <Card><BlockStack gap="300"><InlineStack align="space-between"><Text as="h2" variant="headingMd">발송 대기열·기록</Text><Button disabled={busy || !data.configured} onClick={() => setConfirm({ type: "process" })}>대기열 처리</Button></InlineStack>
+
+    <Card><BlockStack gap="300">
+      <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+        <InlineStack gap="200" blockAlign="center" wrap>
+          <Text as="h2" variant="headingMd">발송 대기열·기록</Text>
+          <ButtonGroup variant="segmented">
+            <Button pressed={statusFilter === "ALL"} onClick={() => changeStatus("ALL")}>전체</Button>
+            <Button pressed={statusFilter === "FAILED"} onClick={() => changeStatus("FAILED")}>실패/확인필요</Button>
+            <Button pressed={statusFilter === "SENT"} onClick={() => changeStatus("SENT")}>발송완료</Button>
+            <Button pressed={statusFilter === "QUEUED"} onClick={() => changeStatus("QUEUED")}>대기중</Button>
+          </ButtonGroup>
+        </InlineStack>
+        <InlineStack gap="200">
+          {(data.stats?.totalFailed ?? 0) > 0 && (
+            <Button
+              tone="critical"
+              disabled={busy}
+              onClick={() => setConfirm({ type: "batch_retry" })}
+            >
+              실패 건 일괄 재시도
+            </Button>
+          )}
+          <Button disabled={busy || !data.configured} onClick={() => setConfirm({ type: "process" })}>대기열 처리</Button>
+        </InlineStack>
+      </InlineStack>
       <Text as="p">SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다.</Text>
       {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, statusBadge(row), row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
-      {data.nextCursor && <Link to={`?cursor=${encodeURIComponent(data.nextCursor)}`}>이전 기록 보기</Link>}
+      {data.nextCursor && <Link to={`?cursor=${encodeURIComponent(data.nextCursor)}${statusFilter !== "ALL" ? `&status=${encodeURIComponent(statusFilter)}` : ""}`}>이전 기록 보기</Link>}
     </BlockStack></Card>
-    <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirm?.type === "process" ? "대기 중인 알림을 발송하시겠습니까?" : confirm?.type === "retry" ? "다시 발송하시겠습니까?" : "이 내용으로 발송 요청을 저장하시겠습니까?"}
-      primaryAction={{ content: "확인 후 저장", onAction: sendConfirmed, disabled: busy || (confirm?.unknown && !acknowledge) }} secondaryActions={[{ content: "취소", onAction: () => setConfirm(null) }]}>
-      <Modal.Section>{confirm?.type === "campaign" ? <BlockStack gap="200"><Text as="h3" variant="headingMd">{title}</Text><Text as="p">{body}</Text><Text as="p">대상: {customerIds || "해당 유형 수신 동의 고객 전체"} / {schedule || "다음 대기열 실행 시"}</Text></BlockStack> : <Text as="p">발송 직전에 고객의 현재 수신 설정과 기기 연결을 다시 확인합니다.</Text>}
+
+    <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirm?.type === "batch_retry" ? "실패/미확정 알림을 일괄 재발송하시겠습니까?" : confirm?.type === "process" ? "대기 중인 알림을 발송하시겠습니까?" : confirm?.type === "retry" ? "다시 발송하시겠습니까?" : "이 내용으로 발송 요청을 저장하시겠습니까?"}
+      primaryAction={{ content: "확인 후 처리", onAction: sendConfirmed, disabled: busy || (confirm?.unknown && !acknowledge) }} secondaryActions={[{ content: "취소", onAction: () => setConfirm(null) }]}>
+      <Modal.Section>
+        {confirm?.type === "batch_retry" ? (
+          <Text as="p">실패 및 확인 필요 상태의 알림(최대 50건)을 재시도 대기열에 등록하고 즉시 발송을 시도합니다.</Text>
+        ) : confirm?.type === "campaign" ? (
+          <BlockStack gap="200"><Text as="h3" variant="headingMd">{title}</Text><Text as="p">{body}</Text><Text as="p">대상: {customerIds || "해당 유형 수신 동의 고객 전체"} / {schedule || "다음 대기열 실행 시"}</Text></BlockStack>
+        ) : (
+          <Text as="p">발송 직전에 고객의 현재 수신 설정과 기기 연결을 다시 확인합니다.</Text>
+        )}
         {confirm?.unknown && <Checkbox label="기존 발송이 도착했을 수 있으며 중복 수신 가능성을 확인했습니다." checked={acknowledge} onChange={setAcknowledge} />}
       </Modal.Section>
     </Modal>
