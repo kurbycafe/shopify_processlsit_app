@@ -422,7 +422,7 @@ export const action = async ({ request }) => {
       }
 
       return (
-        <AppFeatureRequestsPage
+        <AppFeatureRequestsContent
           loaderData={loaderFetcher.data}
           actionUrl="/app/app-requests"
           embedded={true}
@@ -432,6 +432,10 @@ export const action = async ({ request }) => {
     }
 
     export default function AppFeatureRequestsPage(props = {}) {
+      return AppFeatureRequestsContent(props);
+    }
+
+    function AppFeatureRequestsContent(props = {}) {
       const routeData = useLoaderData();
       const rawData = props.loaderData || routeData || {};
       const {

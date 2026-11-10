@@ -296,7 +296,7 @@ export function RecipeCommerceManager({ active = true }) {
   }
 
   return (
-    <RecipeBlogs
+    <RecipeBlogsContent
       loaderData={{
         recipes: loaderFetcher.data?.recipes || [],
         blogs: loaderFetcher.data?.blogs || [],
@@ -312,6 +312,10 @@ export function RecipeCommerceManager({ active = true }) {
 }
 
 export default function RecipeBlogs(props = {}) {
+  return RecipeBlogsContent(props);
+}
+
+function RecipeBlogsContent(props = {}) {
   // Called on every render (hooks must not be conditional); embedded callers pass their own data.
   const routeData = useLoaderData();
   const rawData = props.loaderData || routeData || {};
