@@ -3,11 +3,12 @@ import prisma from "../db.server.js";
 import { offlineAdmin, forgetOfflineAdmin } from "./offlineAdmin.server.js";
 import { executeGraphQLWithRetry } from "../utils/shopifyApi.js";
 import { verifyCustomer, queryCustomerAccount } from "./customerApi.server.js";
-import { getRestockDetailsBySku } from "./odooClient.server.js";
+import { getRestockDetailsBySku, getOdooRpc, isOdooConfigured } from "./odooClient.server.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { createCustomerResolver } from "./customerResources.server.js";
 import { createSubscription } from "./subscriptionService.server.js";
 import { autoIssueInvoiceOnFulfillment } from "./invoiceService.server.js";
+import { syncOdooArrivals } from "./arrivalsSync.server.js";
 
 async function graphql(shop, query, variables) {
   let phase = "offline-session";
@@ -49,4 +50,44 @@ async function issueInvoice({ shop, orderGid }) {
   return autoIssueInvoiceOnFulfillment({ shop, orderGid, orderName: order.name, adminClient: admin });
 }
 
-export const resolveCustomerResource = createCustomerResolver({ db: prisma, verify: verifyCustomer, graphql, customerQuery: queryCustomerAccount, restock, subscribe: createSubscription, loyalty: createJoyLoyalty(), issueInvoice });
+const baseResolveCustomerResource = createCustomerResolver({
+  db: prisma,
+  verify: verifyCustomer,
+  graphql,
+  customerQuery: queryCustomerAccount,
+  restock,
+  subscribe: createSubscription,
+  loyalty: createJoyLoyalty(),
+  issueInvoice,
+});
+
+const ARRIVALS_AUTO_SYNC_TTL_MS = 5 * 60 * 1000;
+let lastArrivalsAutoSyncAt = 0;
+
+export async function resolveCustomerResource(context) {
+  if (context?.resource === "arrivals" && isOdooConfigured()) {
+    const nowMs = Date.now();
+    if (nowMs - lastArrivalsAutoSyncAt > ARRIVALS_AUTO_SYNC_TTL_MS) {
+      lastArrivalsAutoSyncAt = nowMs;
+      try {
+        const recentCutoff = new Date(nowMs - 7 * 86400000).toISOString().slice(0, 10);
+        const recent = await prisma.container.findFirst({
+          where: {
+            shop: context.shop,
+            status: { in: ["SCHEDULED", "IN_TRANSIT"] },
+            scheduledDate: { gte: recentCutoff },
+          },
+          select: { id: true, syncedAt: true },
+          orderBy: { syncedAt: "desc" },
+        });
+        const isStale = !recent?.syncedAt || nowMs - new Date(recent.syncedAt).getTime() > ARRIVALS_AUTO_SYNC_TTL_MS;
+        if (!recent || isStale) {
+          await syncOdooArrivals({ db: prisma, shop: context.shop, rpc: await getOdooRpc() });
+        }
+      } catch {
+        // Serve cached database arrivals if Odoo is temporarily unreachable
+      }
+    }
+  }
+  return baseResolveCustomerResource(context);
+}

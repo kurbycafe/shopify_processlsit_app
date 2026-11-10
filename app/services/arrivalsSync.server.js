@@ -94,7 +94,19 @@ export async function syncOdooArrivals({ db, shop, rpc, now = new Date() }) {
         // Receiving in progress: keep the warehouse's rows as they are.
         // Also if PO enrichment was unavailable, never let a smaller backorder wipe out a PO-synced container.
         const keepUnmatched = !poData?.items?.length && Boolean(existing?.supplier);
-        if (!received) await mergeContainerItems(tx, container.id, mergedItems, { fromOdoo: true, keepUnmatched });
+        if (!received) {
+          try {
+            await mergeContainerItems(tx, container.id, mergedItems, { fromOdoo: true, keepUnmatched });
+          } catch (mergeErr) {
+            // Self-heal legacy duplicate unreceived rows created before PO line deduplication
+            if (/여러 개|서로 다른 입고 행/.test(String(mergeErr?.message || ""))) {
+              await tx.containerItem.deleteMany({ where: { containerId: container.id, receivedQty: 0 } });
+              await mergeContainerItems(tx, container.id, mergedItems, { fromOdoo: true, keepUnmatched });
+            } else {
+              throw mergeErr;
+            }
+          }
+        }
       });
       synced++;
     } catch {

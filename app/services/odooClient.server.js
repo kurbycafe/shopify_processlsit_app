@@ -477,21 +477,33 @@ export async function fetchOdooContainerProducts(containerRef, { exact = false }
       });
     }
 
-    // 4. 아이템 매핑
-    const items = lines.map((l) => {
+    // 4. 아이템 매핑 (동일 SKU/바코드 중복 발주 라인 합산)
+    const itemsMap = new Map();
+    lines.forEach((l) => {
       const prodId = Array.isArray(l.product_id) ? l.product_id[0] : l.product_id;
       const prod = productMap[prodId];
-      return {
-        odooProductId: prodId || null,
-        sku: prod?.default_code || "",
-        barcode: prod?.barcode || "",
-        odooName: l.name ? l.name.split("\n")[0] : prod?.name || "품목",
-        qty: Number(l.product_qty) || 0,
-        wholesalePrice: Number(l.price_unit) || 0,
-        unitPerBox: Number(l.unit_per_box) || 0,
-        boxQty: Number(l.box_qty) || 0,
-      };
+      const sku = prod?.default_code ? String(prod.default_code).trim() : "";
+      const barcode = prod?.barcode ? String(prod.barcode).trim() : "";
+      const odooName = l.name ? String(l.name).split("\n")[0].trim() : prod?.name || "품목";
+      const key = sku || barcode || (prodId ? `odoo-${prodId}` : `line-${l.id}`);
+      const existing = itemsMap.get(key);
+      if (existing) {
+        existing.qty += Math.max(0, Math.round(Number(l.product_qty) || 0));
+        existing.boxQty += Math.max(0, Math.round(Number(l.box_qty) || 0));
+      } else {
+        itemsMap.set(key, {
+          odooProductId: prodId || null,
+          sku,
+          barcode,
+          odooName,
+          qty: Math.max(0, Math.round(Number(l.product_qty) || 0)),
+          wholesalePrice: Number(l.price_unit) || 0,
+          unitPerBox: Math.max(0, Math.round(Number(l.unit_per_box) || 0)),
+          boxQty: Math.max(0, Math.round(Number(l.box_qty) || 0)),
+        });
+      }
     });
+    const items = [...itemsMap.values()];
 
     return {
       poName: po.name,
