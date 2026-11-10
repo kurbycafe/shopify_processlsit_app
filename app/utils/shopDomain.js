@@ -30,3 +30,4 @@ export function resolveCanonicalShop(rawShop) {
   }
   return clean || "dawayo.de";
 }
+
