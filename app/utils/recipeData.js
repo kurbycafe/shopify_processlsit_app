@@ -4,7 +4,11 @@ export function unpackRecipe(raw) {
   let metadata = {};
   try { metadata = JSON.parse(raw.steps); } catch { /* Legacy plain-text steps. */ }
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) metadata = {};
-  const { productsMetadata = {}, ...fields } = metadata;
+  const rawProductsMetadata = metadata.productsMetadata;
+  const productsMetadata = (rawProductsMetadata && typeof rawProductsMetadata === "object" && !Array.isArray(rawProductsMetadata))
+    ? rawProductsMetadata
+    : {};
+  const { productsMetadata: _ignored, ...fields } = metadata;
   const steps = metadata.stepsText ?? raw.steps ?? "";
   return {
     ...raw,

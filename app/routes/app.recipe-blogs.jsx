@@ -266,7 +266,7 @@ export function RecipeCommerceManager({ active = true }) {
     }
   }, [active, load, loaderFetcher.data, loaderFetcher.state]);
 
-  if (loaderFetcher.state === "loading" && !loaderFetcher.data) {
+  if (loaderFetcher.state === "loading" || (!loaderFetcher.data && !loaderFetcher.error)) {
     return (
       <Card>
         <Box padding="400">
@@ -276,14 +276,14 @@ export function RecipeCommerceManager({ active = true }) {
     );
   }
 
-  if (loaderFetcher.error && !loaderFetcher.data) {
+  if (loaderFetcher.error || loaderFetcher.data?.error) {
     return (
       <Card>
         <Box padding="400">
           <BlockStack gap="300">
             <Banner tone="critical">
               <Text as="p">
-                {loaderFetcher.error?.message || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
+                {loaderFetcher.error?.message || loaderFetcher.data?.error || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
               </Text>
             </Banner>
             <InlineStack align="end">
