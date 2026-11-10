@@ -103,15 +103,8 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
       status: { not: "PENDING" },
       OR: [
         { completedAt: { gte: chartRangeStart, lte: chartRangeEnd } },
-        {
-          completedAt: null,
-          updatedAt: { gte: chartRangeStart, lte: chartRangeEnd },
-        },
-        {
-          completedAt: null,
-          updatedAt: null,
-          createdAt: { gte: chartRangeStart, lte: chartRangeEnd },
-        },
+        { updatedAt: { gte: chartRangeStart, lte: chartRangeEnd } },
+        { createdAt: { gte: chartRangeStart, lte: chartRangeEnd } },
       ],
     },
     select: {
