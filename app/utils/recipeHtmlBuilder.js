@@ -36,7 +36,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
       if (!cleanStep) return "";
       return `
         <li style="margin-bottom: 16px; font-size: 1.05rem; color: #2d3748; line-height: 1.65; padding-left: 8px;">
-          <strong style="color: #008060; font-weight: 700; margin-right: 6px;">Schritt ${idx + 1}.</strong>
+          <strong style="color: #202223; font-weight: 700; margin-right: 6px;">Schritt ${idx + 1}.</strong>
           <span>${escapeHtml(cleanStep)}</span>
         </li>
       `;
@@ -95,13 +95,13 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
       : "";
 
     const stockBadge = isAvailable
-      ? `<span style="font-size: 0.75rem; color: #008060; font-weight: 600;">Auf Lager</span>`
-      : `<span style="font-size: 0.75rem; color: #e53e3e; font-weight: 600;">Ausverkauft</span>`;
+      ? `<span style="font-size: 0.75rem; color: #616161; font-weight: 500;">Auf Lager</span>`
+      : `<span style="font-size: 0.75rem; color: #b91c1c; font-weight: 600;">Ausverkauft</span>`;
 
     productsCardsHtml += `
       <div class="recipe-prod-card" data-variant-id="${numericVariantId}" data-price="${formattedPrice}" data-base-qty="${reqQty}" data-essential="${isEssential ? 'true' : 'false'}" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; margin-bottom: 12px; transition: border-color 0.2s;">
         <div style="display: flex; align-items: center; gap: 14px; flex-grow: 1; min-width: 0;">
-          <input type="checkbox" class="recipe-prod-checkbox" ${isAvailable ? 'checked' : 'disabled'} data-variant-id="${numericVariantId}" style="width: 20px; height: 20px; cursor: ${isAvailable ? 'pointer' : 'not-allowed'}; accent-color: #008060; flex-shrink: 0;" />
+          <input type="checkbox" class="recipe-prod-checkbox" ${isAvailable ? 'checked' : 'disabled'} data-variant-id="${numericVariantId}" style="width: 20px; height: 20px; cursor: ${isAvailable ? 'pointer' : 'not-allowed'}; accent-color: #202223; flex-shrink: 0;" />
           ${imgHtml}
           <div style="flex-grow: 1; min-width: 0; padding-right: 12px;">
             <div style="font-weight: 600; color: #1a202c; font-size: 0.95rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(p.title)}</div>
@@ -109,7 +109,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
               ${variantLabel}
               ${stockBadge}
             </div>
-            <div style="font-weight: 700; color: #008060; font-size: 0.95rem; margin-top: 4px;">${escapeHtml(currencySymbol)}${formattedPrice}</div>
+            <div style="font-weight: 700; color: #202223; font-size: 0.95rem; margin-top: 4px;">${escapeHtml(currencySymbol)}${formattedPrice}</div>
           </div>
         </div>
         <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
@@ -141,7 +141,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
   };
 
   return `
-<div class="recipe-commerce-wrapper" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 760px; margin: 24px auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-align: left;">
+<div class="recipe-commerce-wrapper" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 760px; margin: 24px auto; background: #ffffff; border-radius: 12px; border: 1px solid #e1e3e5; overflow: hidden; text-align: left;">
   
   ${recipe.imageUrl ? `
   <div style="width: 100%; max-height: 420px; overflow: hidden; background: #f7fafc; position: relative;">
@@ -157,17 +157,17 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
 
     <!-- Metadata Tags Bar -->
     <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #edf2f7;">
-      <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #ebf8fa; color: #008060; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">
+      <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f6f6f7; color: #303030; border: 1px solid #e1e3e5; border-radius: 6px; font-size: 0.85rem; font-weight: 500;">
         Zubereitung: ${prepTime} Min. | Kochen: ${cookTime} Min.
       </span>
-      <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #fef3f2; color: #b42318; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">
+      <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f6f6f7; color: #303030; border: 1px solid #e1e3e5; border-radius: 6px; font-size: 0.85rem; font-weight: 500;">
         Schärfegrad: ${spiceText}
       </span>
-      <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f0fdf4; color: #166534; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">
+      <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f6f6f7; color: #303030; border: 1px solid #e1e3e5; border-radius: 6px; font-size: 0.85rem; font-weight: 500;">
         Portionen: ${baseServings} Personen
       </span>
       ${dietaryFlags.map(flag => `
-        <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; border-radius: 20px; font-size: 0.85rem; font-weight: 500;">
+        <span style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f6f6f7; color: #303030; border: 1px solid #e1e3e5; border-radius: 6px; font-size: 0.85rem; font-weight: 500;">
           ${escapeHtml(flag)}
         </span>
       `).join("")}
@@ -180,7 +180,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
     </div>
 
     <!-- Cooking Steps Section -->
-    <div style="margin-bottom: 36px; padding: 24px; background: #fcfdfd; border: 1px solid #e2e8f0; border-radius: 12px;">
+    <div style="margin-bottom: 36px; padding: 24px; background: #fafafa; border: 1px solid #e1e3e5; border-radius: 10px;">
       <h2 style="font-size: 1.25rem; font-weight: 700; color: #1a202c; margin-top: 0; margin-bottom: 18px;">Schritt-für-Schritt Zubereitung</h2>
       <ol style="margin: 0; padding-left: 20px;">
         ${stepsListHtml}
@@ -188,12 +188,12 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
     </div>
 
     <!-- COMMERCE BUNDLE WIDGET -->
-    <div id="recipe-bundle-widget" style="border: 2px solid #008060; border-radius: 14px; padding: 24px; background: #fbfdfc; box-shadow: 0 8px 24px rgba(0, 128, 96, 0.08);">
+    <div id="recipe-bundle-widget" style="border: 1px solid #d1d5db; border-radius: 12px; padding: 24px; background: #fafafa;">
       
       <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
         <div>
-          <h3 style="font-size: 1.3rem; font-weight: 800; color: #008060; margin: 0 0 4px 0;">Zutaten für dieses Rezept bestellen</h3>
-          <p style="font-size: 0.88rem; color: #5c6f84; margin: 0;">Wähle die gewünschten Zutaten und lege alle Produkte mit einem Klick in den Warenkorb.</p>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: #202223; margin: 0 0 4px 0;">Zutaten für dieses Rezept bestellen</h3>
+          <p style="font-size: 0.88rem; color: #616161; margin: 0;">Wähle die gewünschten Zutaten und lege alle Produkte mit einem Klick in den Warenkorb.</p>
         </div>
         
         <!-- Servings Scaler -->
@@ -207,7 +207,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
 
       <!-- Bundle Tiers Selector -->
       <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-        <button type="button" id="bundle-tab-complete" class="recipe-bundle-tab active" style="flex: 1; padding: 10px 14px; border: 1px solid #008060; background: #008060; color: #ffffff; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">
+        <button type="button" id="bundle-tab-complete" class="recipe-bundle-tab active" style="flex: 1; padding: 10px 14px; border: 1px solid #202223; background: #202223; color: #ffffff; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">
           Komplett-Paket (Alle Zutaten)
         </button>
         <button type="button" id="bundle-tab-essential" class="recipe-bundle-tab" style="flex: 1; padding: 10px 14px; border: 1px solid #cbd5e0; background: #ffffff; color: #4a5568; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">
@@ -229,11 +229,11 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
           </span>
           <div style="text-align: right;">
             <span style="font-size: 0.85rem; color: #718096; display: block;">Gesamtpreis (inkl. MwSt.)</span>
-            <span id="recipe-total-price" style="font-size: 1.4rem; font-weight: 800; color: #008060;">${escapeHtml(currencySymbol)}0.00</span>
+            <span id="recipe-total-price" style="font-size: 1.4rem; font-weight: 800; color: #202223;">${escapeHtml(currencySymbol)}0.00</span>
           </div>
         </div>
 
-        <button type="button" id="recipe-add-to-cart-btn" style="width: 100%; padding: 16px; background-color: #008060; color: #ffffff; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0, 128, 96, 0.25);">
+        <button type="button" id="recipe-add-to-cart-btn" style="width: 100%; padding: 16px; background-color: #202223; color: #ffffff; border: none; border-radius: 8px; font-size: 1.05rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;">
           <span>Ausgewählte Zutaten in den Warenkorb</span>
         </button>
       </div>
@@ -345,9 +345,9 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
 
       if (tabComplete && tabEssential) {
         tabComplete.addEventListener('click', () => {
-          tabComplete.style.background = '#008060';
+          tabComplete.style.background = '#202223';
           tabComplete.style.color = '#ffffff';
-          tabComplete.style.borderColor = '#008060';
+          tabComplete.style.borderColor = '#202223';
 
           tabEssential.style.background = '#ffffff';
           tabEssential.style.color = '#4a5568';
@@ -361,9 +361,9 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
         });
 
         tabEssential.addEventListener('click', () => {
-          tabEssential.style.background = '#008060';
+          tabEssential.style.background = '#202223';
           tabEssential.style.color = '#ffffff';
-          tabEssential.style.borderColor = '#008060';
+          tabEssential.style.borderColor = '#202223';
 
           tabComplete.style.background = '#ffffff';
           tabComplete.style.color = '#4a5568';
@@ -423,7 +423,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
           })
           .then(() => {
             addBtn.innerHTML = '<span>Erfolgreich hinzugefügt! Weiterleitung zum Warenkorb...</span>';
-            addBtn.style.backgroundColor = '#2f855a';
+            addBtn.style.backgroundColor = '#202223';
             setTimeout(() => {
               window.location.href = '/cart';
             }, 800);
@@ -432,7 +432,7 @@ export function buildAdvancedArticleHtml(recipe = {}, options = {}) {
             console.error('Add to cart error:', err);
             alert('Fehler beim Hinzufügen zum Warenkorb. Bitte versuchen Sie es erneut.');
             addBtn.disabled = false;
-            addBtn.style.backgroundColor = '#008060';
+            addBtn.style.backgroundColor = '#202223';
             addBtn.innerHTML = originalText;
           });
         });

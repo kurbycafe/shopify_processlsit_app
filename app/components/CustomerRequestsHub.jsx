@@ -125,7 +125,7 @@ function SupportInbox({ active = true }) {
       <Card><BlockStack gap="200"><InlineStack align="space-between"><Text as="h3" variant="headingMd">문의 목록</Text><Button onClick={() => load(url())} loading={list.state !== "idle"}>새로고침</Button></InlineStack>
         {list.state !== "idle" && rows.length === 0 && <Text as="p" tone="subdued">문의 내역을 불러오는 중입니다…</Text>}
         {list.state === "idle" && !rows.length && !list.data?.error && <Text as="p" tone="subdued">조건에 맞는 문의가 없습니다.</Text>}
-        {rows.map(row => <button key={row.id} type="button" onClick={() => choose(row)} aria-pressed={selectedId === row.id} style={{ width: "100%", textAlign: "left", border: selectedId === row.id ? "1px solid #2c6ecb" : "1px solid #e1e3e5", background: selectedId === row.id ? "#f1f7ff" : "#fff", borderRadius: 12, padding: 12, cursor: "pointer" }}>
+        {rows.map(row => <button key={row.id} type="button" onClick={() => choose(row)} aria-pressed={selectedId === row.id} style={{ width: "100%", textAlign: "left", border: selectedId === row.id ? "1.5px solid #303030" : "1px solid #e1e3e5", background: selectedId === row.id ? "#f6f6f7" : "#fff", borderRadius: 8, padding: 12, cursor: "pointer" }}>
           <strong>{labels[row.type] || row.type}</strong> · {states[row.status] || row.status}<br/><span style={{ color: "#616161", fontSize: 12 }}>{String(row.payload?.message || row.payload?.reason || "내용 없음").slice(0, 80)}</span><br/><span style={{ color: "#777", fontSize: 11 }}>{formatDate(row.updatedAt || row.createdAt)}</span>
         </button>)}
         <InlineStack gap="200">{cursor && <Button onClick={() => { setSelectedId(null); setCursor(null); }}>첫 페이지</Button>}{list.data?.nextCursor && <Button onClick={() => { setSelectedId(null); setCursor(list.data.nextCursor); }}>다음 페이지</Button>}</InlineStack>
@@ -134,7 +134,7 @@ function SupportInbox({ active = true }) {
         <InlineStack align="space-between" blockAlign="center" wrap gap="200">
           <InlineStack gap="200" blockAlign="center">
             <Text as="h3" variant="headingMd">{labels[selected.type]} 대화</Text>
-            <Badge tone={selected.status === "REQUESTED" ? "critical" : selected.status === "REVIEWING" ? "attention" : "success"}>
+            <Badge tone={selected.status === "REQUESTED" ? "critical" : undefined}>
               {states[selected.status] || selected.status}
             </Badge>
           </InlineStack>
@@ -162,7 +162,7 @@ function SupportInbox({ active = true }) {
           <Text as="span" variant="bodySm" tone="subdued">·</Text>
           <Text as="span" variant="bodySm" tone="subdued">
             고객: {selected.payload?.email ? (
-              <a href={`mailto:${selected.payload.email}`} style={{ color: "#2c6ecb", textDecoration: "none" }}>
+              <a href={`mailto:${selected.payload.email}`} style={{ color: "#303030", textDecoration: "underline" }}>
                 {selected.payload.email}
               </a>
             ) : (
@@ -170,8 +170,8 @@ function SupportInbox({ active = true }) {
             )}
           </Text>
         </InlineStack>
-        <div style={{ background: "#f6f7f8", borderRadius: 12, padding: 14, display: "grid", gap: 10, maxHeight: 420, overflowY: "auto" }}>
-          {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#dcecff" : "#fff", padding: "10px 12px", borderRadius: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={src} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
+        <div style={{ background: "#f6f7f8", borderRadius: 10, padding: 14, display: "grid", gap: 10, maxHeight: 420, overflowY: "auto", border: "1px solid #e1e3e5" }}>
+          {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#303030" : "#fff", color: item.sender === "admin" ? "#fff" : "#303030", border: item.sender === "admin" ? "none" : "1px solid #e1e3e5", padding: "10px 12px", borderRadius: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={src} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
         </div>
         {!selected.customerId && <Banner tone="warning">로그인 계정이 연결되지 않은 문의입니다. 앱 대화와 푸시로 답변을 전달할 수 없으므로, 등록된 이메일 등으로 별도 안내해 주세요.</Banner>}
         <TextField label="고객에게 답변" value={reply} onChange={setReply} multiline={3} maxLength={4000} autoComplete="off" placeholder="고객에게 안내할 내용을 입력하세요" />

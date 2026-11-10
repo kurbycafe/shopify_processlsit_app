@@ -18,7 +18,7 @@ export function ContainerScheduleCard({
             컨테이너 입고 일정
           </Text>
           <Link to="/app/container-catalog" style={{ textDecoration: "none" }}>
-            <Text variant="bodySm" tone="success" fontWeight="bold">
+            <Text variant="bodySm" tone="subdued">
               카탈로그 전체보기 &rarr;
             </Text>
           </Link>
@@ -30,17 +30,17 @@ export function ContainerScheduleCard({
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
-                    <tr style={{ borderBottom: "2px solid #e2e8f0", backgroundColor: "#f8fafc", textAlign: "left" }}>
-                      <th style={{ padding: "10px 10px", color: "#64748b", fontWeight: "600" }}>
+                    <tr style={{ borderBottom: "1px solid #e1e3e5", backgroundColor: "#fafafa", textAlign: "left" }}>
+                      <th style={{ padding: "10px 10px", color: "#616161", fontWeight: "600" }}>
                         입고 번호
                       </th>
-                      <th style={{ padding: "10px 10px", color: "#64748b", fontWeight: "600" }}>
+                      <th style={{ padding: "10px 10px", color: "#616161", fontWeight: "600" }}>
                         컨테이너 / PO
                       </th>
-                      <th style={{ padding: "10px 10px", color: "#64748b", fontWeight: "600" }}>
+                      <th style={{ padding: "10px 10px", color: "#616161", fontWeight: "600" }}>
                         입고 예정일
                       </th>
-                      <th style={{ padding: "10px 10px", color: "#64748b", fontWeight: "600", textAlign: "right" }}>
+                      <th style={{ padding: "10px 10px", color: "#616161", fontWeight: "600", textAlign: "right" }}>
                         상태
                       </th>
                     </tr>
@@ -49,17 +49,17 @@ export function ContainerScheduleCard({
                     {upcomingContainers.map((container) => {
                       let stateBadge = <Badge>대기</Badge>;
                       if (container.state === "done") {
-                        stateBadge = <Badge tone="success">입고 완료</Badge>;
+                        stateBadge = <Badge>입고 완료</Badge>;
                       } else if (container.state === "assigned") {
-                        stateBadge = <Badge tone="attention">입고 준비</Badge>;
+                        stateBadge = <Badge>입고 준비</Badge>;
                       } else if (container.state === "confirmed" || container.state === "waiting") {
-                        stateBadge = <Badge tone="warning">입고 대기</Badge>;
+                        stateBadge = <Badge>입고 대기</Badge>;
                       }
 
                       const relativeTimeStr = dayjs(container.eta).fromNow();
 
                       return (
-                        <tr key={container.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <tr key={container.id} style={{ borderBottom: "1px solid #f1f2f4" }}>
                           <td style={{ padding: "12px 10px", fontWeight: "600", fontFamily: "monospace" }}>
                             {container.name}
                           </td>
@@ -74,7 +74,7 @@ export function ContainerScheduleCard({
                                   )
                                 }
                                 style={{
-                                  color: "#006fbb",
+                                  color: "#303030",
                                   textDecoration: "underline",
                                   cursor: "pointer",
                                   fontWeight: "600",
@@ -83,7 +83,7 @@ export function ContainerScheduleCard({
                                 {container.containerRef}
                               </span>
                             ) : (
-                              <span style={{ color: "#64748b" }}>N/A</span>
+                              <span style={{ color: "#616161" }}>N/A</span>
                             )}
                           </td>
                           <td style={{ padding: "12px 10px" }}>

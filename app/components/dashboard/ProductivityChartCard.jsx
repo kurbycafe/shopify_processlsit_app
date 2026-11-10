@@ -64,7 +64,7 @@ export function ProductivityChartCard({ chartData }) {
                             y={successY}
                             width="36"
                             height={successHeight}
-                            fill="#10b981"
+                            fill="#303030"
                             rx="2"
                             className="chart-rect"
                           />
@@ -75,7 +75,7 @@ export function ProductivityChartCard({ chartData }) {
                             y={partialY}
                             width="36"
                             height={partialHeight}
-                            fill="#f59e0b"
+                            fill="#8c9196"
                             rx="2"
                             className="chart-rect"
                           />
@@ -86,7 +86,7 @@ export function ProductivityChartCard({ chartData }) {
                             y={issueY}
                             width="36"
                             height={issueHeight}
-                            fill="#ef4444"
+                            fill="#b91c1c"
                             rx="2"
                             className="chart-rect"
                           />
@@ -98,9 +98,9 @@ export function ProductivityChartCard({ chartData }) {
                             y={Math.max(10, successY - 60)}
                             width="116"
                             height="52"
-                            fill="#0f172a"
-                            rx="6"
-                            opacity="0.95"
+                            fill="#202223"
+                            rx="4"
+                            opacity="0.96"
                           />
                           <text
                             x={x + 18}
@@ -115,7 +115,7 @@ export function ProductivityChartCard({ chartData }) {
                           <text
                             x={x + 18}
                             y={Math.max(10, successY - 60) + 30}
-                            fill="#34d399"
+                            fill="#e1e3e5"
                             fontSize="9"
                             textAnchor="middle"
                           >
@@ -124,7 +124,7 @@ export function ProductivityChartCard({ chartData }) {
                           <text
                             x={x + 18}
                             y={Math.max(10, successY - 60) + 44}
-                            fill="#f87171"
+                            fill="#e1e3e5"
                             fontSize="9"
                             textAnchor="middle"
                           >
@@ -178,19 +178,19 @@ export function ProductivityChartCard({ chartData }) {
                 style={{
                   width: "12px",
                   height: "12px",
-                  backgroundColor: "#10b981",
+                  backgroundColor: "#303030",
                   borderRadius: "2px",
                   display: "inline-block",
                 }}
               />
-              <span>완료 (성공)</span>
+              <span>완료</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <span
                 style={{
                   width: "12px",
                   height: "12px",
-                  backgroundColor: "#f59e0b",
+                  backgroundColor: "#8c9196",
                   borderRadius: "2px",
                   display: "inline-block",
                 }}
@@ -202,7 +202,7 @@ export function ProductivityChartCard({ chartData }) {
                 style={{
                   width: "12px",
                   height: "12px",
-                  backgroundColor: "#ef4444",
+                  backgroundColor: "#b91c1c",
                   borderRadius: "2px",
                   display: "inline-block",
                 }}
@@ -225,10 +225,10 @@ export function ProductivityChartCard({ chartData }) {
         >
           <div
             style={{
-              background: "#f8fafc",
+              background: "#fafafa",
               padding: "10px 8px",
-              borderRadius: "8px",
-              border: "1px solid #e2e8f0",
+              borderRadius: "6px",
+              border: "1px solid #e1e3e5",
             }}
           >
             <Text variant="bodySm" tone="subdued">
@@ -240,25 +240,25 @@ export function ProductivityChartCard({ chartData }) {
           </div>
           <div
             style={{
-              background: "#f0fdf4",
+              background: "#fafafa",
               padding: "10px 8px",
-              borderRadius: "8px",
-              border: "1px solid #bbf7d0",
+              borderRadius: "6px",
+              border: "1px solid #e1e3e5",
             }}
           >
             <Text variant="bodySm" tone="subdued">
-              성공률
+              완료율
             </Text>
-            <Text variant="headingSm" fontWeight="bold" tone="success">
+            <Text variant="headingSm" fontWeight="bold">
               {successRate}%
             </Text>
           </div>
           <div
             style={{
-              background: totalIssues > 0 ? "#fef2f2" : "#f8fafc",
+              background: "#fafafa",
               padding: "10px 8px",
-              borderRadius: "8px",
-              border: `1px solid ${totalIssues > 0 ? "#fca5a5" : "#e2e8f0"}`,
+              borderRadius: "6px",
+              border: "1px solid #e1e3e5",
             }}
           >
             <Text variant="bodySm" tone="subdued">
@@ -267,7 +267,7 @@ export function ProductivityChartCard({ chartData }) {
             <Text
               variant="headingSm"
               fontWeight="bold"
-              tone={totalIssues > 0 ? "critical" : "subdued"}
+              tone={totalIssues > 0 ? "critical" : undefined}
             >
               {totalIssues.toLocaleString()}건
             </Text>
@@ -276,7 +276,7 @@ export function ProductivityChartCard({ chartData }) {
 
         <Divider />
         <Link to="/app/inspection-history" style={{ textDecoration: "none" }}>
-          <Text variant="bodyMd" tone="success">
+          <Text variant="bodySm" tone="subdued">
             검수 내역 전체 보기 &rarr;
           </Text>
         </Link>

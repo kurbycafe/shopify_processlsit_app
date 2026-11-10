@@ -25,7 +25,7 @@ export default function RecipeStorefrontPreviewModal({ open, onClose, recipe }) 
     <Modal
       open={open}
       onClose={onClose}
-      title="스토어프론트 실시간 라이브 프리뷰 (Live Storefront Preview)"
+      title="스토어프론트 미리보기"
       size="large"
     >
       <Modal.Section>
@@ -39,41 +39,41 @@ export default function RecipeStorefrontPreviewModal({ open, onClose, recipe }) 
                   onClick={() => setPreviewLocale("de")}
                   size="slim"
                 >
-                  독일어 (DE)
+                  독일어
                 </Button>
                 <Button
                   pressed={previewLocale === "en"}
                   onClick={() => setPreviewLocale("en")}
                   size="slim"
                 >
-                  영어 (EN)
+                  영어
                 </Button>
                 <Button
                   pressed={previewLocale === "ko"}
                   onClick={() => setPreviewLocale("ko")}
                   size="slim"
                 >
-                  한국어 (KO)
+                  한국어
                 </Button>
               </ButtonGroup>
             </InlineStack>
 
             <InlineStack gap="200" blockAlign="center">
-              <Text as="span" variant="bodySm" fontWeight="bold">화면 모드:</Text>
+              <Text as="span" variant="bodySm" fontWeight="bold">화면 크기:</Text>
               <ButtonGroup segmented>
                 <Button
                   pressed={deviceMode === "desktop"}
                   onClick={() => setDeviceMode("desktop")}
                   size="slim"
                 >
-                  데스크톱 (PC)
+                  데스크톱
                 </Button>
                 <Button
                   pressed={deviceMode === "mobile"}
                   onClick={() => setDeviceMode("mobile")}
                   size="slim"
                 >
-                  모바일 (Mobile)
+                  모바일
                 </Button>
               </ButtonGroup>
             </InlineStack>

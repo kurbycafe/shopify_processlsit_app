@@ -665,11 +665,11 @@ function RecipeBlogsContent(props = {}) {
           <Card>
             <InlineStack align="space-between" blockAlign="center" wrap gap="200">
               <BlockStack gap="050">
-                <Text as="h2" variant="headingMd">K-Food 레시피 커머스 플랫폼</Text>
-                <Text as="p" tone="subdued" variant="bodySm">유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화</Text>
+                <Text as="h2" variant="headingMd">레시피 관리</Text>
+                <Text as="p" tone="subdued" variant="bodySm">블로그 레시피 본문과 연결 상품을 관리합니다.</Text>
               </BlockStack>
               <Button variant="primary" onClick={() => setPresetModalOpen(true)}>
-                K-Food 프리셋 라이브러리 열기
+                기본 템플릿 불러오기
               </Button>
             </InlineStack>
           </Card>
@@ -700,8 +700,8 @@ function RecipeBlogsContent(props = {}) {
             <Card padding="400">
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">나의 레시피 목록</Text>
-                  <Button size="slim" variant="primary" onClick={handleNewRecipe}>+ 새 레시피</Button>
+                  <Text as="h2" variant="headingMd">레시피 목록</Text>
+                  <Button size="slim" variant="primary" onClick={handleNewRecipe}>새 레시피</Button>
                 </InlineStack>
 
                 <TextField
@@ -720,7 +720,7 @@ function RecipeBlogsContent(props = {}) {
                 {filteredRecipes.length === 0 ? (
                   <Box padding="400" textAlign="center">
                     <Text as="p" tone="subdued">
-                      작성된 레시피가 없습니다.<br />새 글을 작성하거나 상단 프리셋을 적용해 보세요!
+                      등록된 레시피가 없습니다.<br />새 레시피를 작성하거나 기본 템플릿을 불러오세요.
                     </Text>
                   </Box>
                 ) : (
@@ -735,11 +735,11 @@ function RecipeBlogsContent(props = {}) {
                           <Box
                             key={recipe.id}
                             padding="300"
-                            background={isSelected ? "bg-surface-secondary-active" : "bg-surface-secondary"}
+                            background={isSelected ? "bg-surface-secondary" : "bg-surface"}
                             borderRadius="200"
                             style={{
                               cursor: "pointer",
-                              border: isSelected ? "2px solid #008060" : "1px solid #e1e3e5",
+                              border: isSelected ? "1.5px solid #303030" : "1px solid #e1e3e5",
                             }}
                             onClick={() => handleEditRecipe(recipe)}
                           >
@@ -749,14 +749,14 @@ function RecipeBlogsContent(props = {}) {
                                   {recipe.title}
                                 </Text>
                                 {recipe.published ? (
-                                  <Badge tone="success">게시됨</Badge>
+                                  <Badge>게시됨</Badge>
                                 ) : (
-                                  <Badge tone="warning">임시 저장</Badge>
+                                  <Badge>임시 저장</Badge>
                                 )}
                               </InlineStack>
 
                               <InlineStack gap="200" blockAlign="center">
-                                <Badge tone="info">{recipe.category || "STREET_FOOD"}</Badge>
+                                <Badge>{recipe.category || "STREET_FOOD"}</Badge>
                                 <Text as="span" variant="bodyXs" tone="subdued">
                                   재료 {prodCount}개
                                 </Text>
@@ -807,17 +807,17 @@ function RecipeBlogsContent(props = {}) {
                 <InlineStack align="space-between" blockAlign="center">
                   <InlineStack gap="200" blockAlign="center">
                     <Text as="h2" variant="headingMd">
-                      {selectedRecipe ? `편집 중: ${selectedRecipe.title}` : "새 레시피 작성"}
+                      {selectedRecipe ? `편집: ${selectedRecipe.title}` : "새 레시피 작성"}
                     </Text>
-                    {selectedRecipe?.published && <Badge tone="success">Shopify 라이브 연동</Badge>}
+                    {selectedRecipe?.published && <Badge>게시됨</Badge>}
                   </InlineStack>
 
                   <InlineStack gap="200">
                     <Button onClick={() => setPreviewModalOpen(true)}>
-                      스토어프론트 실시간 프리뷰
+                      화면 미리보기
                     </Button>
                     <Button onClick={() => setPresetModalOpen(true)}>
-                      프리셋 불러오기
+                      템플릿 불러오기
                     </Button>
                   </InlineStack>
                 </InlineStack>
@@ -865,22 +865,22 @@ function RecipeBlogsContent(props = {}) {
               {/* 4. Publishing & Save Bar */}
               <Card padding="400">
                 <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">쇼피파이 상점 출시 & 동기화 설정</Text>
+                  <Text as="h3" variant="headingMd">블로그 게시 설정</Text>
 
                   {blogs.length === 0 ? (
                     <Banner
                       tone="warning"
                       action={{
-                        content: "K-Food Recipes 블로그 채널 자동 생성",
+                        content: "블로그 채널 생성",
                         onAction: handleCreateDefaultBlog,
                         loading: isCreatingBlog,
                       }}
                     >
-                      상점에 블로그 채널(예: News / Recipes)이 등록되어 있지 않습니다. 위 버튼을 누르면 &apos;K-Food Recipes&apos; 블로그 채널이 상점에 자동 생성됩니다.
+                      상점에 블로그 채널이 등록되어 있지 않습니다. 위 버튼을 누르면 레시피 블로그 채널이 생성됩니다.
                     </Banner>
                   ) : (
                     <Select
-                      label="게시할 상점 블로그 채널 선택"
+                      label="게시할 블로그 채널"
                       options={blogs.map((b) => ({ label: b.title, value: b.id }))}
                       value={shopifyBlogId}
                       onChange={setShopifyBlogId}
@@ -888,11 +888,11 @@ function RecipeBlogsContent(props = {}) {
                   )}
 
                   <InlineStack align="space-between" blockAlign="center">
-                    <Button onClick={handleNewRecipe}>입력 필드 초기화</Button>
+                    <Button onClick={handleNewRecipe}>초기화</Button>
 
                     <InlineStack gap="200">
                       <Button onClick={() => handleSubmitForm("save")} loading={isSaving} disabled={actionFetcher.state !== "idle"}>
-                        초안 임시저장 (App DB)
+                        초안 임시저장
                       </Button>
                       <Button
                         variant="primary"
@@ -900,7 +900,7 @@ function RecipeBlogsContent(props = {}) {
                         loading={isPublishing}
                         disabled={actionFetcher.state !== "idle" || (!shopifyBlogId && blogs.length === 0)}
                       >
-                        쇼피파이 블로그 게시 / 동기화
+                        블로그 게시
                       </Button>
                     </InlineStack>
                   </InlineStack>
@@ -932,10 +932,10 @@ function RecipeBlogsContent(props = {}) {
 
     return (
       <Page
-        title="K-Food 레시피 커머스 플랫폼 (Recipe Commerce Platform)"
-        subtitle="유럽/독일 고객을 위한 레시피 콘텐츠 및 원클릭 식재료 번들 쇼핑 자동화"
+        title="레시피 관리"
+        subtitle="블로그 레시피 본문과 연결 상품을 관리합니다."
         primaryAction={{
-          content: "K-Food 프리셋 라이브러리 열기",
+          content: "기본 템플릿 불러오기",
           onAction: () => setPresetModalOpen(true),
         }}
       >

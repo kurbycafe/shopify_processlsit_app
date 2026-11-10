@@ -11,7 +11,6 @@ import {
   Divider,
   Banner,
 } from "@shopify/polaris";
-import { getConfidenceBadgeTone } from "../../utils/recipeMatchingEngine";
 
 export default function RecipeIngredientsCommerce({
   ingredients = [],
@@ -110,22 +109,22 @@ export default function RecipeIngredientsCommerce({
       <BlockStack gap="400">
         <InlineStack align="space-between" blockAlign="center">
           <div>
-            <Text as="h2" variant="headingMd">식재료 & Shopify 상품 커머스 매칭</Text>
+            <Text as="h2" variant="headingMd">재료 및 연결 상품</Text>
             <Text as="p" variant="bodySm" tone="subdued">
-              레시피 요리 재료(Recipe Requirement)와 상점 판매 단위(Commerce Package)를 연결합니다.
+              조리 재료와 판매 상품을 연결합니다.
             </Text>
           </div>
           <Button onClick={handleAddIngredient} size="slim">
-            + 식재료 항목 추가
+            재료 추가
           </Button>
         </InlineStack>
 
         <BlockStack gap="200">
-          <Text as="h3" variant="headingSm" fontWeight="bold">1. 레시피 조리 재료 목록 (필요량)</Text>
+          <Text as="h3" variant="headingSm" fontWeight="bold">1. 조리 재료 목록</Text>
           
           {ingredients.length === 0 ? (
             <Box padding="300" background="bg-surface-secondary" borderRadius="200" textAlign="center">
-              <Text as="p" tone="subdued">등록된 조리 재료가 없습니다. 프리셋을 적용하거나 항목을 추가하세요.</Text>
+              <Text as="p" tone="subdued">등록된 조리 재료가 없습니다. 템플릿을 불러오거나 항목을 추가하세요.</Text>
             </Box>
           ) : (
             <div style={{ maxHeight: "260px", overflowY: "auto" }}>
@@ -210,19 +209,17 @@ export default function RecipeIngredientsCommerce({
         <BlockStack gap="200">
           <InlineStack align="space-between" blockAlign="center">
             <Text as="h3" variant="headingSm" fontWeight="bold">
-              2. 연결된 Shopify 상점 상품 (총 {selectedProducts.length}개)
+              2. 연결 상품 ({selectedProducts.length}개)
             </Text>
-            <Badge tone="success">위젯에 자동 번들링</Badge>
           </InlineStack>
 
           {selectedProducts.length === 0 ? (
             <Banner tone="warning">
-              연결된 상점 상품이 없습니다. 아래 검색창을 통해 판매 중인 제품을 매칭해 주세요.
+              연결된 상품이 없습니다. 아래 검색창에서 판매 중인 상품을 추가하세요.
             </Banner>
           ) : (
             <BlockStack gap="200">
               {selectedProducts.map((p) => {
-                const conf = getConfidenceBadgeTone(p.confidenceScore || 1.0);
                 return (
                   <Box key={p.variantId} padding="300" background="bg-surface-secondary" borderRadius="200">
                     <InlineStack align="space-between" blockAlign="center" gap="300">
@@ -247,10 +244,9 @@ export default function RecipeIngredientsCommerce({
                                 옵션: {p.variantTitle}
                               </Text>
                             )}
-                            <Text as="span" variant="bodySm" tone="critical" fontWeight="bold">
+                            <Text as="span" variant="bodySm" fontWeight="semibold">
                               €{parseFloat(p.price || 0).toFixed(2)}
                             </Text>
-                            <Badge tone={conf.tone}>{conf.label}</Badge>
                             {p.isAvailable === false && <Badge tone="critical">품절</Badge>}
                           </InlineStack>
                         </div>
@@ -274,7 +270,7 @@ export default function RecipeIngredientsCommerce({
                           variant={p.matchTier === "PRIMARY" ? "primary" : "secondary"}
                           onClick={() => handleToggleTier(p.variantId)}
                         >
-                          {p.matchTier === "PRIMARY" ? "Essential (필수)" : "Complete (옵션)"}
+                          {p.matchTier === "PRIMARY" ? "필수 재료" : "선택 재료"}
                         </Button>
 
                         <Button size="slim" tone="critical" onClick={() => handleRemoveProduct(p.variantId)}>
@@ -292,7 +288,7 @@ export default function RecipeIngredientsCommerce({
         <Divider />
 
         <BlockStack gap="200">
-          <Text as="h3" variant="headingSm" fontWeight="bold">3. 상점 인벤토리 검색 및 수동 매칭</Text>
+          <Text as="h3" variant="headingSm" fontWeight="bold">3. 상품 검색 및 추가</Text>
           <InlineStack gap="200">
             <div style={{ flexGrow: 1 }}>
               <TextField

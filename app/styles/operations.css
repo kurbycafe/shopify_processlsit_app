@@ -1,24 +1,21 @@
 /* Shared operational surfaces. Keep colors aligned with Shopify Polaris. */
-.ops-metric { height: 100%; border: 1px solid var(--p-color-border); border-radius: var(--p-border-radius-300); background: var(--p-color-bg-surface); padding: 20px; }
+.ops-metric { height: 100%; border: 1px solid var(--p-color-border); border-radius: var(--p-border-radius-300); background: var(--p-color-bg-surface); padding: 16px 18px; }
 .ops-metric[role="button"] { cursor: pointer; }
 .ops-metric[role="button"]:hover { border-color: var(--p-color-border-hover); background: var(--p-color-bg-surface-hover); }
-.ops-metric:focus-visible { outline: 3px solid var(--p-color-border-focus); outline-offset: 3px; }
-.ops-metric[data-tone="warning"] { border-inline-start: 4px solid var(--p-color-border-warning); }
-.ops-metric[data-tone="critical"] { border-inline-start: 4px solid var(--p-color-border-critical); }
-.ops-metric[data-tone="primary"] { border-inline-start: 4px solid var(--p-color-border-success); }
-.ops-metric[data-active="true"] { outline: 2px solid var(--p-color-border-focus); }
+.ops-metric:focus-visible { outline: 2px solid var(--p-color-border-focus); outline-offset: 2px; }
+.ops-metric[data-active="true"] { border-color: #303030; }
 .ops-filter-search { width: min(300px, 100%); min-width: 0; }
 .ops-work-input { flex: 1 1 260px; min-width: 0; }
 .ops-action-footer { position: sticky; bottom: 16px; z-index: 10; margin-top: 8px; }
 .ops-scan-zone { padding: 16px; border-radius: var(--p-border-radius-200); background: var(--p-color-bg-surface-secondary); }
 .ops-work-summary { display: flex; gap: 24px; flex-wrap: wrap; }
-.ops-update-details > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
+.ops-update-details > summary { cursor: pointer; padding: 4px 0; font-weight: 600; color: #303030; }
 .ops-update-details > summary:focus-visible { outline: 2px solid var(--p-color-border-focus); }
-.recent-log-item { padding: 10px 12px; border: 1px solid var(--p-color-border); border-radius: var(--p-border-radius-200); background: var(--p-color-bg-surface); cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; }
+.recent-log-item { padding: 10px 12px; border: 1px solid var(--p-color-border); border-radius: var(--p-border-radius-200); background: var(--p-color-bg-surface); cursor: pointer; transition: background-color 0.12s ease, border-color 0.12s ease; }
 .recent-log-item:hover { background: var(--p-color-bg-surface-hover); border-color: var(--p-color-border-hover); }
 .recent-log-item:focus-visible { outline: 2px solid var(--p-color-border-focus); outline-offset: 2px; }
-.continue-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; color: #0f172a; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; transition: background-color 0.15s ease; }
-.continue-btn:hover { background: #e2e8f0; }
+.continue-btn { padding: 4px 10px; font-size: 12px; font-weight: 500; color: #303030; background: #ffffff; border: 1px solid #c9cccf; border-radius: 6px; cursor: pointer; }
+.continue-btn:hover { background: #f6f6f7; }
 .chart-bar-group { cursor: pointer; }
 .chart-bar-group .chart-rect { transition: opacity 0.15s ease; }
 .chart-bar-group:hover .chart-rect { opacity: 0.85; }

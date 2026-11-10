@@ -47,9 +47,9 @@ export default function RecipeMetadataSettings({
   }));
 
   const difficultyOptions = [
-    { label: "쉬움 (Easy - 15분 이내)", value: "EASY" },
-    { label: "보통 (Medium - 일반 조리)", value: "MEDIUM" },
-    { label: "어려움 (Hard - 정통/손 많이 감)", value: "HARD" },
+    { label: "쉬움", value: "EASY" },
+    { label: "보통", value: "MEDIUM" },
+    { label: "어려움", value: "HARD" },
   ];
 
   const spiceOptions = SPICE_LEVELS.map((s) => ({
@@ -69,18 +69,18 @@ export default function RecipeMetadataSettings({
   return (
     <Card padding="400">
       <BlockStack gap="400">
-        <Text as="h2" variant="headingMd">레시피 메타데이터 & 특성 설정 (Recipe Attributes)</Text>
+        <Text as="h2" variant="headingMd">기본 정보 및 조리 시간</Text>
 
         <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
           <Select
-            label="음식 카테고리 (Category)"
+            label="카테고리"
             options={categoryOptions}
             value={category}
             onChange={onChangeCategory}
           />
 
           <Select
-            label="목적 / 상황별 템플릿 (Occasion)"
+            label="분류"
             options={occasionOptions}
             value={occasion || "QUICK_MEAL"}
             onChange={onChangeOccasion}
@@ -89,7 +89,7 @@ export default function RecipeMetadataSettings({
 
         <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
           <Select
-            label="난이도 (Difficulty)"
+            label="난이도"
             options={difficultyOptions}
             value={difficulty}
             onChange={onChangeDifficulty}
@@ -122,14 +122,14 @@ export default function RecipeMetadataSettings({
 
         <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
           <Select
-            label="매운맛 단계 (Spice Level)"
+            label="매운맛 단계"
             options={spiceOptions}
             value={String(spiceLevel ?? 2)}
             onChange={(val) => onChangeSpiceLevel(parseInt(val) || 0)}
           />
 
           <TextField
-            label="대표 이미지 URL (Unsplash / CDN)"
+            label="대표 이미지 URL"
             value={imageUrl || ""}
             onChange={onChangeImageUrl}
             placeholder="https://images.unsplash.com/photo-..."
@@ -144,7 +144,7 @@ export default function RecipeMetadataSettings({
         )}
 
         <BlockStack gap="200">
-          <Text as="h4" variant="headingXs">식이요법 & 알레르기 배지 (Dietary Flags)</Text>
+          <Text as="h4" variant="headingXs">식이 표시</Text>
           <InlineStack gap="200" wrap>
             {DIETARY_OPTIONS.map((opt) => {
               const isSelected = (dietaryFlags || []).includes(opt.id);
@@ -156,15 +156,15 @@ export default function RecipeMetadataSettings({
                   style={{
                     cursor: "pointer",
                     padding: "4px 10px",
-                    borderRadius: "16px",
-                    border: isSelected ? "2px solid #008060" : "1px solid #c9cccf",
-                    background: isSelected ? "#f0fdf4" : "#ffffff",
-                    color: isSelected ? "#166534" : "#4a5568",
+                    borderRadius: "6px",
+                    border: isSelected ? "1.5px solid #303030" : "1px solid #c9cccf",
+                    background: isSelected ? "#303030" : "#ffffff",
+                    color: isSelected ? "#ffffff" : "#303030",
                     fontSize: "13px",
-                    fontWeight: isSelected ? 700 : 500,
+                    fontWeight: isSelected ? 600 : 500,
                   }}
                 >
-                  {isSelected ? `✓ ${opt.label}` : `+ ${opt.label}`}
+                  {opt.label}
                 </div>
               );
             })}

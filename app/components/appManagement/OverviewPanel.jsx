@@ -1,13 +1,4 @@
 import { Badge, BlockStack, Button, InlineStack, Text } from "@shopify/polaris";
-import {
-  BannerWireframeSvg,
-  CampaignsWireframeSvg,
-  CategoryWireframeSvg,
-  HotDealsWireframeSvg,
-  PagesWireframeSvg,
-  ProductRulesWireframeSvg,
-  ShippingWireframeSvg,
-} from "./shared.jsx";
 
 // "overview" tab of the app management screen (moved out of app.app-management.jsx).
 export function OverviewPanel({
@@ -33,7 +24,6 @@ export function OverviewPanel({
           <Text variant="headingMd" as="h2">
             모바일 앱 구성요소 관리
           </Text>
-          <Badge tone="success">트렌드 A 디자인 적용중</Badge>
         </div>
         <Button onClick={() => setActiveTab("preview")}>
           모바일 화면 미리보기 열기
@@ -45,23 +35,22 @@ export function OverviewPanel({
           display: "grid",
           gridTemplateColumns:
             "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
-          gap: "20px",
+          gap: "16px",
         }}
       >
         {/* Card 1: Hero Banner */}
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <BannerWireframeSvg />
           <div>
             <div
               style={{
@@ -74,11 +63,11 @@ export function OverviewPanel({
               <Text variant="headingMd" as="h3">
                 홈 메인 롤링 배너
               </Text>
-              <Badge tone="success">{`활성 ${activeBannerCount}건`}</Badge>
+              <Badge>{`활성 ${activeBannerCount}건`}</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
-              앱 최상단 프로모션 슬라이드 배너의 이미지, 3개국어 카피 문구, 배경
-              그라디언트 및 이동 경로를 설정합니다.
+              앱 최상단 프로모션 슬라이드 배너의 이미지, 3개국어 문구, 배경 색상
+              및 이동 경로를 설정합니다.
             </Text>
           </div>
           <div>
@@ -90,16 +79,15 @@ export function OverviewPanel({
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <HotDealsWireframeSvg />
           <div>
             <div
               style={{
@@ -112,11 +100,11 @@ export function OverviewPanel({
               <Text variant="headingMd" as="h3">
                 오늘의 특가 및 타임세일
               </Text>
-              <Badge tone="success">{`진행중 ${activeDealCount}건`}</Badge>
+              <Badge>{`진행중 ${activeDealCount}건`}</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
-              24시간 카운트다운 타이머와 함께 노출되는 주력 할인 상품 큐레이션
-              및 할인율 강조 뱃지를 설정합니다.
+              카운트다운 타이머와 함께 노출되는 주력 할인 상품 및 할인율 표시를
+              설정합니다.
             </Text>
           </div>
           <div>
@@ -128,16 +116,15 @@ export function OverviewPanel({
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <CategoryWireframeSvg />
           <div>
             <div
               style={{
@@ -148,13 +135,13 @@ export function OverviewPanel({
               }}
             >
               <Text variant="headingMd" as="h3">
-                카테고리 및 상단 고정 탭 (GNB)
+                카테고리 및 상단 메뉴
               </Text>
-              <Badge tone="info">{`노출 ${activeCategoryCount}개`}</Badge>
+              <Badge>{`노출 ${activeCategoryCount}개`}</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
-              상단 고정 GNB 탭의 순서와 메인 화면 원형 카테고리 벡터 아이콘 및
-              다국어 명칭을 제어합니다.
+              상단 고정 탭 순서와 메인 화면 카테고리 아이콘 및 다국어 명칭을
+              관리합니다.
             </Text>
           </div>
           <div>
@@ -166,16 +153,15 @@ export function OverviewPanel({
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <ShippingWireframeSvg />
           <div>
             <div
               style={{
@@ -186,13 +172,13 @@ export function OverviewPanel({
               }}
             >
               <Text variant="headingMd" as="h3">
-                무료배송 게이지 및 상단 공지 티커
+                무료배송 기준 및 상단 공지
               </Text>
-              <Badge tone="success">{`기준 €${config.store?.freeShippingThreshold}`}</Badge>
+              <Badge>{`기준 €${config.store?.freeShippingThreshold}`}</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
-              독일 전역 무료배송 달성 기준 금액(€)과 상단 롤링 물류 안내 티커
-              문구를 관리합니다.
+              독일 전역 무료배송 달성 기준 금액(€)과 상단 물류 안내 문구를
+              관리합니다.
             </Text>
           </div>
           <div>
@@ -213,22 +199,21 @@ export function OverviewPanel({
           display: "grid",
           gridTemplateColumns:
             "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
-          gap: "20px",
+          gap: "16px",
         }}
       >
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <ProductRulesWireframeSvg />
           <div>
             <div
               style={{
@@ -241,7 +226,7 @@ export function OverviewPanel({
               <Text variant="headingMd" as="h3">
                 상품 온도 · MHD 관리
               </Text>
-              <Badge tone="info">{`설정됨 ${productOverrideCount}건`}</Badge>
+              <Badge>{`설정됨 ${productOverrideCount}건`}</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
               상품 온도는 사진·재고 목록에서 일괄 관리하고, MHD 날짜와 상품
@@ -263,16 +248,15 @@ export function OverviewPanel({
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <CampaignsWireframeSvg />
           <div>
             <div
               style={{
@@ -285,10 +269,10 @@ export function OverviewPanel({
               <Text variant="headingMd" as="h3">
                 공동구매 · 정기구독
               </Text>
-              <Badge tone="success">{`캠페인 ${groupBuying.length}건`}</Badge>
+              <Badge>{`캠페인 ${groupBuying.length}건`}</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
-              특가 탭 공동구매 캠페인 및 정기배송 박스 플랜을 통합 제어합니다.
+              특가 탭 공동구매 캠페인 및 정기배송 박스 플랜을 관리합니다.
             </Text>
           </div>
           <div>
@@ -299,16 +283,15 @@ export function OverviewPanel({
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <PagesWireframeSvg />
           <div>
             <div
               style={{
@@ -321,7 +304,7 @@ export function OverviewPanel({
               <Text variant="headingMd" as="h3">
                 상품 상세 · 장바구니 · 마이페이지
               </Text>
-              <Badge tone="success">활성</Badge>
+              <Badge>활성</Badge>
             </div>
             <Text variant="bodyMd" tone="subdued" as="p">
               상품 상세 신선 출고 안내 배너, 품절 재입고 알림, 장바구니 아이스팩
@@ -336,40 +319,15 @@ export function OverviewPanel({
         <div
           style={{
             background: "#FFFFFF",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
+            borderRadius: "8px",
+            border: "1px solid #E1E3E5",
+            padding: "18px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "14px",
           }}
         >
-          <div
-            style={{
-              height: "120px",
-              borderRadius: "8px",
-              background: "#F8FAFC",
-              border: "1px solid #E2E8F0",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#64748B"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="2" y="4" width="20" height="16" rx="2" />
-              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-            </svg>
-          </div>
           <div>
             <div
               style={{

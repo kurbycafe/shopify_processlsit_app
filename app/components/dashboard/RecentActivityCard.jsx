@@ -4,14 +4,14 @@ import dayjs from "dayjs";
 import { pressable } from "../../utils/a11y.js";
 
 const INSPECTION_STATUS = {
-  SUCCESS: { tone: "success", label: "검수 성공" },
-  PARTIAL: { tone: "warning", label: "일부 완료" },
+  SUCCESS: { tone: undefined, label: "검수 완료" },
+  PARTIAL: { tone: undefined, label: "일부 완료" },
   ISSUE_REPORTED: { tone: "critical", label: "문제 보고됨" },
   FAILED: { tone: "critical", label: "검수 실패" },
 };
 
 export function inspectionStatusBadge(status) {
-  return INSPECTION_STATUS[status] || { tone: "warning", label: status };
+  return INSPECTION_STATUS[status] || { tone: undefined, label: status };
 }
 
 export function RecentActivityCard({ recentLogs, onSelectLog }) {
@@ -47,12 +47,12 @@ export function RecentActivityCard({ recentLogs, onSelectLog }) {
                           {log.inspectorName || "알 수 없음"}
                         </Text>
                         {log.isLieferscheinPrinted && (
-                          <Badge tone="info" size="small">
+                          <Badge size="small">
                             납품서
                           </Badge>
                         )}
                         {log.isPickListPrinted && (
-                          <Badge tone="info" size="small">
+                          <Badge size="small">
                             피킹리스트
                           </Badge>
                         )}
@@ -87,7 +87,7 @@ export function RecentActivityCard({ recentLogs, onSelectLog }) {
 
         <Divider />
         <Link to="/app/inspect" style={{ textDecoration: "none" }}>
-          <Text variant="bodyMd" tone="success">
+          <Text variant="bodySm" tone="subdued">
             새로운 검수 시작하기 &rarr;
           </Text>
         </Link>

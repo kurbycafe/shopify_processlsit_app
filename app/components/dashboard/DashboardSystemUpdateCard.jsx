@@ -8,7 +8,7 @@ export function DashboardSystemUpdateCard() {
           <Text variant="headingMd" as="h2">
             시스템 업데이트 내역
           </Text>
-          <Badge tone="success">v1.6.0 최신버전</Badge>
+          <Badge>v1.6.0</Badge>
         </InlineStack>
 
         <Divider />
@@ -16,7 +16,7 @@ export function DashboardSystemUpdateCard() {
         <BlockStack gap="300">
           <InlineStack align="space-between" blockAlign="center">
             <Text variant="headingSm" as="h3">
-              11월 10일 모바일 고객 CS 상담함 및 푸시 알림 모니터링 업데이트
+              모바일 고객 상담함 및 푸시 알림 관리 개선
             </Text>
             <Text variant="bodySm" tone="subdued">
               2026-11-10
@@ -27,26 +27,16 @@ export function DashboardSystemUpdateCard() {
             style={{
               paddingLeft: "20px",
               margin: 0,
-              fontSize: "13.5px",
-              lineHeight: "1.8",
-              color: "#334155",
+              fontSize: "13px",
+              lineHeight: "1.75",
+              color: "#303030",
             }}
           >
-            <li>
-              <strong>모바일 고객 CS 상담함 개편:</strong> 상태별 원클릭 필터(답변 필요/확인 중/처리 완료), Shopify 주문 바로가기, 고객 이메일 연결 및 실무 답변 템플릿 6종을 추가했습니다.
-            </li>
-            <li>
-              <strong>모바일 푸시 알림 모니터링:</strong> 발송 시도·성공·실패·대기열 4대 KPI 현황 카드와 전송 실패 건 일괄 재시도 기능을 구축했습니다.
-            </li>
-            <li>
-              <strong>대시보드 실시간 CS 및 푸시 연동:</strong> 답변 대기 고객 문의 및 푸시 발송 실패 건을 실시간 감지하여 대시보드 메트릭 카드, 상단 배너, 작업 바로가기에 즉시 반영했습니다.
-            </li>
-            <li>
-              <strong>검수 생산성 지표 및 차트 정밀화:</strong> 7일간 실제 검수 완료/보고 기준 건수 집계, 성공률·문제 보고율 요약 블록을 추가했습니다.
-            </li>
-            <li>
-              <strong>재입고 수요 관리 및 모바일 연동:</strong> 품절 상품 재입고 신청 건에 대한 모바일 푸시 알림 발송과 운영 UI를 개선했습니다.
-            </li>
+            <li>고객 상담함에 상태별 필터(답변 필요·확인 중·처리 완료), Shopify 주문 바로가기, 기본 답변 템플릿 6종을 추가했습니다.</li>
+            <li>푸시 알림 관리에 발송 현황 요약(시도·성공·실패·대기열)과 실패 건 일괄 재시도 기능을 추가했습니다.</li>
+            <li>대시보드에서 미답변 고객 문의 및 푸시 전송 실패 건수를 바로 확인하고 이동할 수 있습니다.</li>
+            <li>최근 7일 검수 현황 차트에 전체 검수 건수와 완료율 요약을 표시합니다.</li>
+            <li>품절 상품 재입고 시 모바일 푸시 알림 연동 및 레시피 관리 화면 로딩 오류를 수정했습니다.</li>
           </ul>
         </BlockStack>
 

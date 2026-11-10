@@ -51,14 +51,13 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
     <Modal
       open={open}
       onClose={onClose}
-      title="K-Food 레시피 프리셋 라이브러리 (Commerce Template Library)"
+      title="기본 레시피 템플릿"
       size="large"
     >
       <Modal.Section>
         <BlockStack gap="400">
           <Text as="p" tone="subdued" variant="bodyMd">
-            독일/유럽 소비자가 선호하는 K-Food 대표 레시피 템플릿을 선택하세요. 
-            한국어/독일어/영어 3개 국어 설명과 필수 식재료 키워드가 자동으로 완성됩니다.
+            대표 레시피 템플릿을 선택하면 한국어·독일어·영어 본문과 기본 재료 목록이 채워집니다.
           </Text>
 
           <InlineGrid columns={{ xs: 1, md: "2fr 1fr" }} gap="300">
@@ -73,7 +72,7 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
             />
 
             <div>
-              <Text as="span" variant="bodySm" tone="subdued">목적 / 상황별 필터</Text>
+              <Text as="span" variant="bodySm" tone="subdued">분류 필터</Text>
               <div style={{ marginTop: "4px" }}>
                 <select
                   value={selectedOccasion}
@@ -104,7 +103,7 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
 
           {filteredPresets.length === 0 ? (
             <Box padding="600" textAlign="center">
-              <Text as="p" tone="subdued">일치하는 프리셋이 없습니다. 다른 카테고리나 검색어를 선택해 보세요.</Text>
+              <Text as="p" tone="subdued">일치하는 템플릿이 없습니다.</Text>
             </Box>
           ) : (
             <div style={{ maxHeight: "420px", overflowY: "auto", paddingRight: "4px" }}>
@@ -131,8 +130,8 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
                               <Text as="h3" variant="headingSm" fontWeight="bold">
                                 {ko.title}
                               </Text>
-                              <Badge tone="info">{preset.category}</Badge>
-                              <Badge tone="success">난이도: {preset.difficulty}</Badge>
+                              <Badge>{preset.category}</Badge>
+                              <Badge>난이도: {preset.difficulty}</Badge>
                             </InlineStack>
 
                             <Text as="p" variant="bodyXs" tone="subdued">
@@ -144,7 +143,7 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
                                 조리: {preset.prepTimeMinutes + preset.cookTimeMinutes}분 | {preset.baseServings}인분 기준 | 매운맛 {preset.spiceLevel}단계
                               </Text>
                               <Text as="span" variant="bodyXs" tone="subdued">
-                                식재료: {preset.defaultIngredients.length}종 내장
+                                식재료: {preset.defaultIngredients.length}종
                               </Text>
                             </InlineStack>
                           </BlockStack>
@@ -157,7 +156,7 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
                             onClose();
                           }}
                         >
-                          이 프리셋 적용하기
+                          적용
                         </Button>
                       </InlineStack>
                     </Card>

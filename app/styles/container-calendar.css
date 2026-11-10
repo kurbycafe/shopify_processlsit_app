@@ -112,32 +112,31 @@
 }
 
 .calendar-day.has-events:hover {
-  transform: scale(1.15);
   z-index: 20;
 }
 
 .calendar-day.state-done {
-  background-color: #f0fdf4;
-  color: #16a34a;
-  border: 1.5px solid #86efac;
+  background-color: #f1f2f4;
+  color: #303030;
+  border: 1px solid #c9cccf;
 }
 
 .calendar-day.state-assigned {
-  background-color: #eff6ff;
-  color: #2563eb;
-  border: 1.5px solid #93c5fd;
+  background-color: #303030;
+  color: #ffffff;
+  border: 1px solid #303030;
 }
 
 .calendar-day.state-waiting {
-  background-color: #fffbeb;
-  color: #d97706;
-  border: 1.5px solid #fde68a;
+  background-color: #ffffff;
+  color: #303030;
+  border: 1.5px solid #303030;
 }
 
 .calendar-day.state-other {
-  background-color: #f1f5f9;
-  color: #475569;
-  border: 1.5px solid #cbd5e1;
+  background-color: #f1f2f4;
+  color: #616161;
+  border: 1px solid #d2d5d8;
 }
 
 .calendar-day .tooltip {

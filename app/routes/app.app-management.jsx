@@ -738,16 +738,16 @@ export default function AppManagementPage() {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "6px",
-                  background: "#F1F8F5",
-                  color: "#0F5B38",
+                  background: "#F6F6F7",
+                  color: "#5C5F62",
                   padding: "4px 8px",
                   borderRadius: "4px",
                   fontWeight: 500,
                   fontSize: "11px",
-                  border: "1px solid #AEE9D1",
+                  border: "1px solid #E1E3E5",
                 }}
               >
-                <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#108043" }} />
+                <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#6D7175" }} />
                 실시간 앱 반영 완료
               </span>
             </div>

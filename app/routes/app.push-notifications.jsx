@@ -154,21 +154,21 @@ export function PushNotificationsManager({ active = true }) {
 
       {/* 4대 KPI 요약 통계 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-        <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+        <div style={{ background: "#fafafa", padding: "14px", borderRadius: "8px", border: "1px solid #e1e3e5" }}>
           <Text variant="bodySm" tone="subdued">총 발송 시도</Text>
           <Text variant="headingLg" fontWeight="bold">{(data.stats?.totalAttempts ?? 0).toLocaleString()}건</Text>
         </div>
-        <div style={{ background: "#f0fdf4", padding: "14px", borderRadius: "10px", border: "1px solid #bbf7d0" }}>
+        <div style={{ background: "#fafafa", padding: "14px", borderRadius: "8px", border: "1px solid #e1e3e5" }}>
           <Text variant="bodySm" tone="subdued">발송 성공 (FCM 접수)</Text>
-          <Text variant="headingLg" fontWeight="bold" tone="success">{(data.stats?.totalSent ?? 0).toLocaleString()}건</Text>
+          <Text variant="headingLg" fontWeight="bold">{(data.stats?.totalSent ?? 0).toLocaleString()}건</Text>
         </div>
-        <div style={{ background: (data.stats?.totalFailed ?? 0) > 0 ? "#fef2f2" : "#f8fafc", padding: "14px", borderRadius: "10px", border: `1px solid ${(data.stats?.totalFailed ?? 0) > 0 ? "#fca5a5" : "#e2e8f0"}` }}>
+        <div style={{ background: "#fafafa", padding: "14px", borderRadius: "8px", border: "1px solid #e1e3e5" }}>
           <Text variant="bodySm" tone="subdued">실패 / 확인 필요</Text>
-          <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalFailed ?? 0) > 0 ? "critical" : "subdued"}>{(data.stats?.totalFailed ?? 0).toLocaleString()}건</Text>
+          <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalFailed ?? 0) > 0 ? "critical" : undefined}>{(data.stats?.totalFailed ?? 0).toLocaleString()}건</Text>
         </div>
-        <div style={{ background: (data.stats?.totalQueued ?? 0) > 0 ? "#eff6ff" : "#f8fafc", padding: "14px", borderRadius: "10px", border: `1px solid ${(data.stats?.totalQueued ?? 0) > 0 ? "#bfdbfe" : "#e2e8f0"}` }}>
+        <div style={{ background: "#fafafa", padding: "14px", borderRadius: "8px", border: "1px solid #e1e3e5" }}>
           <Text variant="bodySm" tone="subdued">대기열 잔여</Text>
-          <Text variant="headingLg" fontWeight="bold" tone={(data.stats?.totalQueued ?? 0) > 0 ? "highlight" : "subdued"}>{(data.stats?.totalQueued ?? 0).toLocaleString()}건</Text>
+          <Text variant="headingLg" fontWeight="bold">{(data.stats?.totalQueued ?? 0).toLocaleString()}건</Text>
         </div>
       </div>
 

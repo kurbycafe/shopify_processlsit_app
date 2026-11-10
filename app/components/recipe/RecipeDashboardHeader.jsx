@@ -1,4 +1,4 @@
-import { Card, InlineGrid, InlineStack, BlockStack, Text, Badge, Box } from "@shopify/polaris";
+import { Card, InlineGrid, BlockStack, Text, Box } from "@shopify/polaris";
 
 export default function RecipeDashboardHeader({ recipes = [] }) {
   const totalCount = recipes.length;
@@ -16,44 +16,31 @@ export default function RecipeDashboardHeader({ recipes = [] }) {
       <InlineGrid columns={{ xs: 2, sm: 4 }} gap="400">
         <Box padding="300" background="bg-surface-secondary" borderRadius="200">
           <BlockStack gap="100">
-            <Text as="span" variant="bodySm" tone="subdued">전체 레시피 (Total)</Text>
+            <Text as="span" variant="bodySm" tone="subdued">전체 레시피</Text>
             <Text as="p" variant="headingLg" fontWeight="bold">{totalCount}</Text>
           </BlockStack>
         </Box>
 
         <Box padding="300" background="bg-surface-secondary" borderRadius="200">
           <BlockStack gap="100">
-            <Text as="span" variant="bodySm" tone="subdued">게시 완료 (Published)</Text>
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="p" variant="headingLg" fontWeight="bold" tone="success">{publishedCount}</Text>
-              <Badge tone="success">Shopify 라이브</Badge>
-            </InlineStack>
+            <Text as="span" variant="bodySm" tone="subdued">게시됨</Text>
+            <Text as="p" variant="headingLg" fontWeight="bold">{publishedCount}</Text>
           </BlockStack>
         </Box>
 
         <Box padding="300" background="bg-surface-secondary" borderRadius="200">
           <BlockStack gap="100">
-            <Text as="span" variant="bodySm" tone="subdued">임시 초안 (Draft)</Text>
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="p" variant="headingLg" fontWeight="bold">{draftCount}</Text>
-              <Badge tone="warning">DB 저장됨</Badge>
-            </InlineStack>
+            <Text as="span" variant="bodySm" tone="subdued">임시 저장</Text>
+            <Text as="p" variant="headingLg" fontWeight="bold">{draftCount}</Text>
           </BlockStack>
         </Box>
 
         <Box padding="300" background="bg-surface-secondary" borderRadius="200">
           <BlockStack gap="100">
-            <Text as="span" variant="bodySm" tone="subdued">관리 주의 (Needs Attention)</Text>
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="p" variant="headingLg" fontWeight="bold" tone={attentionCount > 0 ? "critical" : "subdued"}>
-                {attentionCount}
-              </Text>
-              {attentionCount > 0 ? (
-                <Badge tone="critical">품절/미매칭</Badge>
-              ) : (
-                <Badge tone="success">정상</Badge>
-              )}
-            </InlineStack>
+            <Text as="span" variant="bodySm" tone="subdued">품절 · 미연결</Text>
+            <Text as="p" variant="headingLg" fontWeight="bold" tone={attentionCount > 0 ? "critical" : undefined}>
+              {attentionCount}
+            </Text>
           </BlockStack>
         </Box>
       </InlineGrid>
