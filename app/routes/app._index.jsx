@@ -77,6 +77,7 @@ export default function Dashboard() {
     thisWeekFulfilledCount,
     pendingBackInStockCount,
     pendingCustomerInquiryCount = 0,
+    failedPushCount = 0,
     recentLogs,
     upcomingContainers,
     calendarMonths,
@@ -105,12 +106,14 @@ export default function Dashboard() {
         {/* 0. 모바일 앱 기능 추가/수정 요청 입력란 */}
         <AppFeatureRequestCard />
 
-        {/* 1. 최상단: 4대 핵심 운영 메트릭 카드 */}
+        {/* 1. 최상단: 핵심 운영 메트릭 카드 */}
         <DashboardMetricCards
           todayPrintedCount={todayPrintedCount}
           thisWeekFulfilledCount={thisWeekFulfilledCount}
           unfulfilledCount={unfulfilledCount}
           pendingBackInStockCount={pendingBackInStockCount}
+          pendingCustomerInquiryCount={pendingCustomerInquiryCount}
+          failedPushCount={failedPushCount}
         />
 
         {pendingCustomerInquiryCount > 0 && (
@@ -123,6 +126,19 @@ export default function Dashboard() {
             }}
           >
             <p>모바일 앱을 통해 접수된 1:1 문의, 배송 문제, 반품 요청을 신속하게 확인하고 답변해 주세요.</p>
+          </Banner>
+        )}
+
+        {failedPushCount > 0 && (
+          <Banner
+            tone="critical"
+            title={`모바일 푸시 알림 ${failedPushCount}건이 전송 실패 상태입니다.`}
+            action={{
+              content: "푸시 관리에서 확인 및 재시도",
+              onAction: () => navigate("/app/push-notifications?status=FAILED"),
+            }}
+          >
+            <p>일시적인 네트워크 지연이나 토큰 오류로 전송되지 못한 알림입니다. 일괄 재시도를 실행해 주세요.</p>
           </Banner>
         )}
 
@@ -142,6 +158,13 @@ export default function Dashboard() {
               >
                 고객 상담함{pendingCustomerInquiryCount > 0 ? ` (${pendingCustomerInquiryCount}건 답변 대기)` : ""}
               </Button>
+              <Button
+                onClick={() => navigate("/app/push-notifications")}
+                tone={failedPushCount > 0 ? "critical" : undefined}
+              >
+                푸시 알림 관리{failedPushCount > 0 ? ` (${failedPushCount}건 실패)` : ""}
+              </Button>
+              <Button onClick={() => navigate("/app/back-in-stock")}>재입고 알림 관리</Button>
             </InlineStack>
           </InlineStack>
         </Card>

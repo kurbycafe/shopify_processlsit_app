@@ -67,6 +67,17 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
       }).catch(() => 0)
     : Promise.resolve(0);
 
+  // 5.6. Failed push notification deliveries
+  const failedPushCountTask = typeof db.customerRequest?.count === "function"
+    ? db.customerRequest.count({
+        where: {
+          shop,
+          type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] },
+          status: { in: ["FAILED", "UNKNOWN"] },
+        },
+      }).catch(() => 0)
+    : Promise.resolve(0);
+
   // 6. Recent QC & Inspection logs
   // InspectionRecord also holds rows created by printing, invoices and alerts (status PENDING, never inspected);
   // only rows a completed inspection wrote carry completedAt.
@@ -118,6 +129,7 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     thisWeekFulfilledCount,
     pendingBackInStockCount,
     pendingCustomerInquiryCount,
+    failedPushCount,
     recentLogs,
     past7DayRecords,
   ] = await Promise.all([
@@ -127,6 +139,7 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     thisWeekFulfilledCountTask,
     pendingBackInStockCountTask,
     pendingCustomerInquiryCountTask,
+    failedPushCountTask,
     recentLogsTask,
     past7DayRecordsTask,
   ]);
@@ -163,6 +176,7 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     thisWeekFulfilledCount,
     pendingBackInStockCount,
     pendingCustomerInquiryCount: pendingCustomerInquiryCount || 0,
+    failedPushCount: failedPushCount || 0,
     recentLogs,
     upcomingContainers,
     calendarMonths,

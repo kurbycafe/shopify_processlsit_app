@@ -8,6 +8,8 @@ export function DashboardMetricCards({
   thisWeekFulfilledCount = 0,
   unfulfilledCount = 0,
   pendingBackInStockCount = 0,
+  pendingCustomerInquiryCount = 0,
+  failedPushCount = 0,
 }) {
   const navigate = useNavigate();
 
@@ -46,6 +48,26 @@ export function DashboardMetricCards({
         badgeTone="success"
         variant="primary"
         onClick={() => navigate("/app/inspection-history?datePreset=THIS_WEEK")}
+      />
+
+      <MetricCard
+        title="답변 대기 문의"
+        value={`${pendingCustomerInquiryCount.toLocaleString()} 건`}
+        subtitle="모바일 CS 및 반품"
+        badgeText="고객 상담함"
+        badgeTone={pendingCustomerInquiryCount > 0 ? "critical" : "info"}
+        variant={pendingCustomerInquiryCount > 0 ? "warning" : "secondary"}
+        onClick={() => navigate("/app/customer-requests")}
+      />
+
+      <MetricCard
+        title="푸시 발송 실패"
+        value={`${failedPushCount.toLocaleString()} 건`}
+        subtitle={failedPushCount > 0 ? "재시도 필요" : "정상 전송 중"}
+        badgeText="푸시 관리"
+        badgeTone={failedPushCount > 0 ? "critical" : "success"}
+        variant={failedPushCount > 0 ? "warning" : "secondary"}
+        onClick={() => navigate("/app/push-notifications?status=FAILED")}
       />
 
       <MetricCard
