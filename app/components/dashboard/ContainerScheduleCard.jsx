@@ -2,13 +2,22 @@ import { Card, BlockStack, Text, InlineStack, Badge, Box } from "@shopify/polari
 import { Link, useNavigate } from "react-router";
 import dayjs from "dayjs";
 
+const MAX_CONTAINER_SCHEDULE_ITEMS = 5;
+
 export function ContainerScheduleCard({
   upcomingContainers = [],
   calendarMonths = [],
   onSelectContainer,
 }) {
   const navigate = useNavigate();
-  const hasContainers = upcomingContainers && upcomingContainers.length > 0;
+  const recentContainers = [...(upcomingContainers || [])]
+    .sort(
+      (a, b) =>
+        String(b.eta || "").localeCompare(String(a.eta || "")) ||
+        (Number(b.id) || 0) - (Number(a.id) || 0)
+    )
+    .slice(0, MAX_CONTAINER_SCHEDULE_ITEMS);
+  const hasContainers = recentContainers.length > 0;
 
   return (
     <Card>
@@ -46,7 +55,7 @@ export function ContainerScheduleCard({
                     </tr>
                   </thead>
                   <tbody>
-                    {upcomingContainers.map((container) => {
+                    {recentContainers.map((container) => {
                       let stateBadge = <Badge>대기</Badge>;
                       if (container.state === "done") {
                         stateBadge = <Badge>입고 완료</Badge>;

@@ -280,8 +280,12 @@ async function readUpcomingContainers() {
 
     return [...byOrigin.values()]
       .map(({ isBackorder: _ignored, ...item }) => item)
-      .sort((a, b) => String(b.eta).localeCompare(String(a.eta)))
-      .slice(0, 25);
+      .sort(
+        (a, b) =>
+          String(b.eta).localeCompare(String(a.eta)) ||
+          (Number(b.id) || 0) - (Number(a.id) || 0)
+      )
+      .slice(0, 5);
   } catch (error) {
     console.warn("Odoo container fetch warning:", error.message);
     return [];
