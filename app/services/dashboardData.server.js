@@ -69,6 +69,8 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
   });
 
   // 7. Optimized single query for 7-day productivity metrics (N+1 eliminated)
+  // Only actual completed or reported inspections belong in productivity metrics;
+  // uninspected PENDING rows (created by order syncing, printing, or invoice alerts) are excluded.
   const chartDays = getPastDaysRange(7);
   const chartRangeStart = chartDays[0].start;
   const chartRangeEnd = chartDays[chartDays.length - 1].end;
@@ -76,13 +78,24 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
   const past7DayRecordsTask = db.inspectionRecord.findMany({
     where: {
       shop,
-      createdAt: {
-        gte: chartRangeStart,
-        lte: chartRangeEnd,
-      },
+      status: { not: "PENDING" },
+      OR: [
+        { completedAt: { gte: chartRangeStart, lte: chartRangeEnd } },
+        {
+          completedAt: null,
+          updatedAt: { gte: chartRangeStart, lte: chartRangeEnd },
+        },
+        {
+          completedAt: null,
+          updatedAt: null,
+          createdAt: { gte: chartRangeStart, lte: chartRangeEnd },
+        },
+      ],
     },
     select: {
       status: true,
+      completedAt: true,
+      updatedAt: true,
       createdAt: true,
     },
   });
@@ -92,18 +105,25 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
   ]);
 
   const chartData = chartDays.map((dayObj) => {
-    const dayRecords = past7DayRecords.filter(
-      (r) => r.createdAt >= dayObj.start && r.createdAt <= dayObj.end
-    );
+    const dayRecords = past7DayRecords.filter((r) => {
+      if (r.status === "PENDING") return false;
+      const recordDate = r.completedAt || r.updatedAt || r.createdAt;
+      return recordDate >= dayObj.start && recordDate <= dayObj.end;
+    });
+
+    const successCount = dayRecords.filter((r) => r.status === "SUCCESS").length;
+    const partialCount = dayRecords.filter((r) => r.status === "PARTIAL").length;
+    const issueCount = dayRecords.filter(
+      (r) => r.status === "ISSUE_REPORTED" || r.status === "FAILED"
+    ).length;
+    const totalCount = successCount + partialCount + issueCount;
 
     return {
       dateLabel: dayObj.dateLabel,
-      totalCount: dayRecords.length,
-      successCount: dayRecords.filter((r) => r.status === "SUCCESS").length,
-      partialCount: dayRecords.filter((r) => r.status === "PARTIAL").length,
-      issueCount: dayRecords.filter(
-        (r) => r.status === "ISSUE_REPORTED" || r.status === "FAILED"
-      ).length,
+      totalCount,
+      successCount,
+      partialCount,
+      issueCount,
     };
   });
 

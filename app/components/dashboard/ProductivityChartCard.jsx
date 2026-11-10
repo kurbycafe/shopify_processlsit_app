@@ -1,7 +1,12 @@
-import { Card, BlockStack, Text } from "@shopify/polaris";
+import { Card, BlockStack, Text, Divider } from "@shopify/polaris";
+import { Link } from "react-router";
 
 export function ProductivityChartCard({ chartData }) {
   const maxTotal = Math.max(5, ...chartData.map((d) => d.totalCount || 0));
+  const totalInspected = chartData.reduce((sum, d) => sum + (d.totalCount || 0), 0);
+  const totalSuccess = chartData.reduce((sum, d) => sum + (d.successCount || 0), 0);
+  const totalIssues = chartData.reduce((sum, d) => sum + (d.issueCount || 0), 0);
+  const successRate = totalInspected > 0 ? Math.round((totalSuccess / totalInspected) * 100) : 0;
 
   return (
     <Card>
@@ -40,9 +45,9 @@ export function ProductivityChartCard({ chartData }) {
                 let issueHeight = 0;
 
                 if (total > 0 && maxTotal > 0) {
-                  successHeight = (day.successCount / maxTotal) * 170;
-                  partialHeight = (day.partialCount / maxTotal) * 170;
-                  issueHeight = (day.issueCount / maxTotal) * 170;
+                  successHeight = day.successCount > 0 ? Math.max(4, (day.successCount / maxTotal) * 170) : 0;
+                  partialHeight = day.partialCount > 0 ? Math.max(4, (day.partialCount / maxTotal) * 170) : 0;
+                  issueHeight = day.issueCount > 0 ? Math.max(4, (day.issueCount / maxTotal) * 170) : 0;
                 }
 
                 const issueY = 190 - issueHeight;
@@ -206,6 +211,75 @@ export function ProductivityChartCard({ chartData }) {
             </div>
           </div>
         </div>
+
+        <Divider />
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "10px",
+            textAlign: "center",
+            paddingTop: "2px",
+          }}
+        >
+          <div
+            style={{
+              background: "#f8fafc",
+              padding: "10px 8px",
+              borderRadius: "8px",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <Text variant="bodySm" tone="subdued">
+              7일 총 검수
+            </Text>
+            <Text variant="headingSm" fontWeight="bold">
+              {totalInspected.toLocaleString()}건
+            </Text>
+          </div>
+          <div
+            style={{
+              background: "#f0fdf4",
+              padding: "10px 8px",
+              borderRadius: "8px",
+              border: "1px solid #bbf7d0",
+            }}
+          >
+            <Text variant="bodySm" tone="subdued">
+              성공률
+            </Text>
+            <Text variant="headingSm" fontWeight="bold" tone="success">
+              {successRate}%
+            </Text>
+          </div>
+          <div
+            style={{
+              background: totalIssues > 0 ? "#fef2f2" : "#f8fafc",
+              padding: "10px 8px",
+              borderRadius: "8px",
+              border: `1px solid ${totalIssues > 0 ? "#fca5a5" : "#e2e8f0"}`,
+            }}
+          >
+            <Text variant="bodySm" tone="subdued">
+              문제 보고
+            </Text>
+            <Text
+              variant="headingSm"
+              fontWeight="bold"
+              tone={totalIssues > 0 ? "critical" : "subdued"}
+            >
+              {totalIssues.toLocaleString()}건
+            </Text>
+          </div>
+        </div>
+
+        <Divider />
+        <Link to="/app/inspection-history" style={{ textDecoration: "none" }}>
+          <Text variant="bodyMd" tone="success">
+            검수 내역 전체 보기 &rarr;
+          </Text>
+        </Link>
       </BlockStack>
     </Card>
   );

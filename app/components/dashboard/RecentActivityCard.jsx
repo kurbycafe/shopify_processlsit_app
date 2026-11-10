@@ -38,12 +38,12 @@ export function RecentActivityCard({ recentLogs, onSelectLog }) {
                 >
                   <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="100">
-                      <Text variant="bodyMd" fontWeight="bold">
+                      <Text variant="headingSm" as="h3">
                         {log.orderName}
                       </Text>
                       <InlineStack gap="200" blockAlign="center">
                         <Text variant="bodySm" tone="subdued">
-                          {dayjs(log.createdAt).format("YYYY-MM-DD HH:mm:ss")} -{" "}
+                          {dayjs(log.completedAt || log.updatedAt || log.createdAt).format("YYYY-MM-DD HH:mm:ss")} -{" "}
                           {log.inspectorName || "알 수 없음"}
                         </Text>
                         {log.isLieferscheinPrinted && (

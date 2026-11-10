@@ -56,3 +56,39 @@ test('schema readiness requires every existing repair column and index', async (
  }
  assert.equal(schemaIsReady(rows.filter(row => row.name !== 'CustomerNotificationPreference_shop_customerId_key')), false);
 });
+
+test('dashboard excludes uninspected PENDING rows from productivity chart and correctly sums actual inspections', async () => {
+  const range = { start: new Date('2026-11-05T00:00:00Z'), end: new Date('2026-11-05T23:59:59Z') };
+  const mockRecords = [
+    { status: 'SUCCESS', completedAt: new Date('2026-11-05T10:00:00Z') },
+    { status: 'ISSUE_REPORTED', completedAt: new Date('2026-11-05T12:00:00Z') },
+    { status: 'PENDING', createdAt: new Date('2026-11-05T08:00:00Z') }, // Must be excluded
+  ];
+
+  const data = await getDashboardData({
+    shop: 'test.myshopify.com',
+    admin: { graphql: () => Promise.resolve({ json: async () => ({ data: { ordersCount: { count: 0 } } }) }) },
+    db: {
+      inspectionRecord: {
+        count: () => Promise.resolve(0),
+        findMany: (args) => {
+          if (args.select) {
+            return Promise.resolve(mockRecords);
+          }
+          return Promise.resolve([]);
+        },
+      },
+      backInStockSubscription: { count: () => Promise.resolve(0) },
+    },
+    getUpcomingContainers: () => Promise.resolve([]),
+    getTodayRange: () => range,
+    getThisWeekRange: () => range,
+    getPastDaysRange: () => [{ ...range, dateLabel: '11/05' }],
+    getCalendarMonths: () => [],
+  });
+
+  assert.equal(data.chartData[0].successCount, 1);
+  assert.equal(data.chartData[0].issueCount, 1);
+  assert.equal(data.chartData[0].partialCount, 0);
+  assert.equal(data.chartData[0].totalCount, 2); // Only 2 inspected, PENDING omitted
+});

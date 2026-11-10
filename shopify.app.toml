@@ -60,3 +60,6 @@ redirect_urls = [ "https://process-list-beryl.vercel.app" ]
 url = "https://process-list-beryl.vercel.app/proxy"
 subpath = "dawayo-reviews"
 prefix = "apps"
+
+[build]
+automatically_update_urls_on_dev = true
