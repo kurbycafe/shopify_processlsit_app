@@ -26,6 +26,7 @@ import RecipeIngredientsCommerce from "../components/recipe/RecipeIngredientsCom
 import RecipeStorefrontPreviewModal from "../components/recipe/RecipeStorefrontPreviewModal";
 import { unpackRecipe } from "../utils/recipeData.js";
 import { handleRecipeAction } from "../utils/recipePersistence.server.js";
+import { getShopAliases } from "../utils/shopDomain.js";
 export { unpackRecipe } from "../utils/recipeData.js";
 
 const BLOGS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -41,39 +42,44 @@ export async function loader({ request }) {
 
   // Endpoint: Product search for the interactive selector
   if (searchProducts) {
-    const response = await admin.graphql(
-      `#graphql
-      query searchProducts($query: String!) {
-        products(first: 12, query: $query) {
-          nodes {
-            id
-            title
-            vendor
-            productType
-            tags
-            featuredImage {
-              url
-            }
-            variants(first: 10) {
-              nodes {
-                id
-                title
-                price
-                availableForSale
-                sku
-                image {
-                  url
+    try {
+      const response = await admin.graphql(
+        `#graphql
+        query searchProducts($query: String!) {
+          products(first: 12, query: $query) {
+            nodes {
+              id
+              title
+              vendor
+              productType
+              tags
+              featuredImage {
+                url
+              }
+              variants(first: 10) {
+                nodes {
+                  id
+                  title
+                  price
+                  availableForSale
+                  sku
+                  image {
+                    url
+                  }
                 }
               }
             }
           }
-        }
-      }`,
-      { variables: { query: `title:*${searchProducts}* OR tag:*${searchProducts}*` } }
-    );
-    const json = await response.json();
-    const products = json.data?.products?.nodes || [];
-    return Response.json({ products });
+        }`,
+        { variables: { query: `title:*${searchProducts}* OR tag:*${searchProducts}*` } }
+      );
+      const json = await response.json();
+      const products = json.data?.products?.nodes || [];
+      return Response.json({ products });
+    } catch (err) {
+      console.error("[Recipe Loader] Product search error:", err);
+      return Response.json({ products: [] });
+    }
   }
 
   try {
@@ -83,9 +89,10 @@ export async function loader({ request }) {
   }
 
   try {
+    const shopAliases = getShopAliases(shop);
     // Fetch local recipes with products
     const rawRecipesTask = prisma.recipe.findMany({
-      where: { shop },
+      where: { shop: { in: shopAliases } },
       include: { products: true },
       orderBy: { createdAt: "desc" },
     }).catch((dbErr) => {
@@ -93,7 +100,7 @@ export async function loader({ request }) {
       return [];
     });
 
-    // Fetch store blogs and shop URL with in-memory caching; one Shopify request covers both, alongside the DB read.
+    // Fetch store blogs and shop URL with in-memory caching
     const now = Date.now();
     const cached = blogCache.get(shop);
     let blogs = cached && (now - cached.timestamp < BLOGS_CACHE_TTL_MS) ? cached.blogs : null;
@@ -104,51 +111,149 @@ export async function loader({ request }) {
         const res = await admin.graphql(
           `#graphql
           query getBlogsAndShop {
-          blogs(first: 30) {
+            blogs(first: 30) {
               nodes {
-              id
-              title
-              handle
+                id
+                title
+                handle
+              }
             }
-          }
             shop {
-          primaryDomain {
-          url
-        }
+              primaryDomain {
+                url
+              }
             }
           }`
         );
-  return (await res.json()).data || null;
-} catch (err) {
-  console.error("Error loading Shopify blogs and shop url:", err);
-  return null;
-}
-    }) ();
+        const json = await res.json();
+        return json.data || null;
+      } catch (err) {
+        console.error("Error loading Shopify blogs and shop url:", err);
+        return null;
+      }
+    })();
 
-const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
-const recipes = (rawRecipes || []).map(unpackRecipe);
+    const [rawRecipes, storeInfo] = await Promise.all([rawRecipesTask, storeInfoTask]);
+    const recipes = (rawRecipes || []).map(unpackRecipe).filter(Boolean);
 
-if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
-if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
+    if (!blogs) blogs = storeInfo?.blogs?.nodes || [];
+    if (!shopUrl) shopUrl = storeInfo?.shop?.primaryDomain?.url || `https://${shop}`;
 
-blogCache.set(shop, { blogs, shopUrl, timestamp: now });
+    // Auto-create default "K-Food Recipes" blog if store has no blogs configured
+    if (blogs.length === 0) {
+      try {
+        const createRes = await admin.graphql(
+          `#graphql
+          mutation CreateDefaultBlog($blog: BlogCreateInput!) {
+            blogCreate(blog: $blog) {
+              blog {
+                id
+                title
+                handle
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+          {
+            variables: {
+              blog: {
+                title: "K-Food Recipes",
+                handle: "recipes",
+                commentPolicy: "MODERATE",
+              },
+            },
+          }
+        );
+        const createJson = await createRes.json();
+        const createdBlog = createJson?.data?.blogCreate?.blog;
+        if (createdBlog?.id) {
+          blogs = [createdBlog];
+        }
+      } catch (createErr) {
+        console.warn("[Recipe Loader] Auto-create default blog notice:", createErr?.message);
+      }
+    }
 
-return { recipes, blogs, shopUrl, error: null };
+    blogCache.set(shop, { blogs, shopUrl, timestamp: now });
+
+    return { recipes, blogs, shopUrl, error: null };
   } catch (err) {
-  console.error("Recipe loader unexpected error:", err);
-  return {
-    recipes: [],
-    blogs: [],
-    shopUrl: `https://${shop}`,
-    error: "레시피 데이터를 불러오는 중 오류가 발생했습니다: " + (err.message || String(err)),
-  };
-}
+    console.error("Recipe loader unexpected error:", err);
+    return {
+      recipes: [],
+      blogs: [],
+      shopUrl: `https://${shop}`,
+      error: "레시피 데이터를 불러오는 중 오류가 발생했습니다: " + (err.message || String(err)),
+    };
+  }
 }
 
 // --- ACTION ---
 export async function action({ request }) {
   const { admin, session } = await authenticate.admin(request);
-  return handleRecipeAction({ form: await request.formData(), shop: session.shop, admin, db: prisma });
+  const form = await request.formData();
+  const intent = form.get("intent");
+
+  try {
+    await ensureDatabaseSchema();
+  } catch (schemaErr) {
+    console.warn("[Recipe Action] DB schema check blip:", schemaErr?.message);
+  }
+
+  if (intent === "create_blog") {
+    try {
+      const createRes = await admin.graphql(
+        `#graphql
+        mutation CreateBlog($blog: BlogCreateInput!) {
+          blogCreate(blog: $blog) {
+            blog {
+              id
+              title
+              handle
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+        {
+          variables: {
+            blog: {
+              title: String(form.get("title") || "K-Food Recipes"),
+              handle: String(form.get("handle") || "recipes"),
+              commentPolicy: "MODERATE",
+            },
+          },
+        }
+      );
+      const json = await createRes.json();
+      const created = json?.data?.blogCreate?.blog;
+      const userErrors = json?.data?.blogCreate?.userErrors;
+      if (created?.id) {
+        blogCache.delete(session.shop);
+        return Response.json({
+          success: true,
+          blog: created,
+          message: "K-Food Recipes 블로그 채널이 생성되었습니다.",
+        });
+      }
+      return Response.json({
+        success: false,
+        error: userErrors?.map((e) => e.message).join(", ") || "블로그 채널 생성에 실패했습니다.",
+      });
+    } catch (err) {
+      return Response.json({
+        success: false,
+        error: err.message || "블로그 채널 생성 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  return handleRecipeAction({ form, shop: session.shop, admin, db: prisma });
 }
 
 // --- MAIN FRONTEND COMPONENT ---
@@ -161,66 +266,70 @@ export function RecipeCommerceManager({ active = true }) {
     }
   }, [active, load, loaderFetcher.data, loaderFetcher.state]);
 
-    if (loaderFetcher.state === "loading" || (!loaderFetcher.data && !loaderFetcher.error)) {
-      return (
-        <Card>
-          <Box padding="400">
-            <Text as="p" tone="subdued">레시피 커머스 데이터를 불러오는 중입니다...</Text>
-          </Box>
-        </Card>
-      );
-    }
-
-    if (loaderFetcher.error || loaderFetcher.data?.error) {
-      return (
-        <Card>
-          <Box padding="400">
-            <BlockStack gap="300">
-              <Banner tone="critical">
-                <Text as="p">
-                  {loaderFetcher.error?.message || loaderFetcher.data?.error || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
-                </Text>
-              </Banner>
-              <InlineStack align="end">
-                <Button onClick={() => load("/app/recipe-blogs")}>다시 시도</Button>
-              </InlineStack>
-            </BlockStack>
-          </Box>
-        </Card>
-      );
-    }
-
+  if (loaderFetcher.state === "loading" && !loaderFetcher.data) {
     return (
-      <RecipeBlogs
-        loaderData={{
-          recipes: loaderFetcher.data?.recipes || [],
-          blogs: loaderFetcher.data?.blogs || [],
-          shopUrl: loaderFetcher.data?.shopUrl || "",
-        }}
-        actionUrl="/app/recipe-blogs"
-        embedded={true}
-        onReload={() => loaderFetcher.load("/app/recipe-blogs")}
-      />
+      <Card>
+        <Box padding="400">
+          <Text as="p" tone="subdued">레시피 커머스 데이터를 불러오는 중입니다...</Text>
+        </Box>
+      </Card>
     );
   }
 
-  export default function RecipeBlogs(props = {}) {
-    // Called on every render (hooks must not be conditional); embedded callers pass their own data.
-    const routeData = useLoaderData();
-    const rawData = props.loaderData || routeData || {};
-    const recipes = Array.isArray(rawData.recipes) ? rawData.recipes : [];
-    const blogs = Array.isArray(rawData.blogs) ? rawData.blogs : [];
-    const shopUrl = rawData.shopUrl || "";
-    const { actionUrl, embedded = false, onReload } = props;
-    const onReloadRef = useRef(onReload);
-    onReloadRef.current = onReload;
-    const fetcher = useFetcher();
-    const actionFetcher = useFetcher();
-    const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
-    const submissionLock = useRef(false);
-    const draftId = useRef(null);
-    const handledActionResult = useRef(null);
-    const submittedProducts = useRef(null);
+  if (loaderFetcher.error && !loaderFetcher.data) {
+    return (
+      <Card>
+        <Box padding="400">
+          <BlockStack gap="300">
+            <Banner tone="critical">
+              <Text as="p">
+                {loaderFetcher.error?.message || "레시피 데이터를 불러오는 중 오류가 발생했습니다."}
+              </Text>
+            </Banner>
+            <InlineStack align="end">
+              <Button onClick={() => load("/app/recipe-blogs")}>다시 시도</Button>
+            </InlineStack>
+          </BlockStack>
+        </Box>
+      </Card>
+    );
+  }
+
+  return (
+    <RecipeBlogs
+      loaderData={{
+        recipes: loaderFetcher.data?.recipes || [],
+        blogs: loaderFetcher.data?.blogs || [],
+        shopUrl: loaderFetcher.data?.shopUrl || "",
+        error: loaderFetcher.data?.error || null,
+      }}
+      loadError={loaderFetcher.data?.error || null}
+      actionUrl="/app/recipe-blogs"
+      embedded={true}
+      onReload={() => loaderFetcher.load("/app/recipe-blogs")}
+    />
+  );
+}
+
+export default function RecipeBlogs(props = {}) {
+  // Called on every render (hooks must not be conditional); embedded callers pass their own data.
+  const routeData = useLoaderData();
+  const rawData = props.loaderData || routeData || {};
+  const recipes = Array.isArray(rawData.recipes) ? rawData.recipes : [];
+  const blogs = Array.isArray(rawData.blogs) ? rawData.blogs : [];
+  const shopUrl = rawData.shopUrl || "";
+  const loadError = props.loadError || rawData.error || null;
+  const { actionUrl, embedded = false, onReload } = props;
+  const onReloadRef = useRef(onReload);
+  onReloadRef.current = onReload;
+  const fetcher = useFetcher();
+  const actionFetcher = useFetcher();
+  const blogActionFetcher = useFetcher();
+  const submitOpts = actionUrl ? { method: "post", action: actionUrl } : { method: "post" };
+  const submissionLock = useRef(false);
+  const draftId = useRef(null);
+  const handledActionResult = useRef(null);
+  const submittedProducts = useRef(null);
 
     // Modals state
     const [presetModalOpen, setPresetModalOpen] = useState(false);
@@ -263,6 +372,45 @@ export function RecipeCommerceManager({ active = true }) {
 
     const isSaving = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "save";
     const isPublishing = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "publish";
+    const isCreatingBlog = blogActionFetcher.state !== "idle";
+
+    const firstBlogId = blogs[0]?.id;
+    // Auto-sync blog ID if blogs are loaded asynchronously
+    useEffect(() => {
+      if (!shopifyBlogId && firstBlogId) {
+        setShopifyBlogId(firstBlogId);
+      }
+    }, [firstBlogId, shopifyBlogId]);
+
+    const handleCreateDefaultBlog = () => {
+      const fd = new FormData();
+      fd.append("intent", "create_blog");
+      fd.append("title", "K-Food Recipes");
+      fd.append("handle", "recipes");
+      blogActionFetcher.submit(fd, submitOpts);
+    };
+
+    useEffect(() => {
+      if (blogActionFetcher.state === "idle" && blogActionFetcher.data) {
+        if (blogActionFetcher.data.success) {
+          setToastMessage({
+            type: "success",
+            title: "블로그 채널 생성 완료",
+            content: blogActionFetcher.data.message || "K-Food Recipes 블로그 채널이 생성되었습니다.",
+          });
+          if (blogActionFetcher.data.blog?.id) {
+            setShopifyBlogId(blogActionFetcher.data.blog.id);
+          }
+          if (onReloadRef.current) onReloadRef.current();
+        } else if (blogActionFetcher.data.error) {
+          setToastMessage({
+            type: "critical",
+            title: "블로그 생성 실패",
+            content: blogActionFetcher.data.error,
+          });
+        }
+      }
+    }, [blogActionFetcher.state, blogActionFetcher.data]);
 
     // Watch product search fetcher results
     useEffect(() => {
@@ -526,6 +674,12 @@ export function RecipeCommerceManager({ active = true }) {
         {/* KPI Metrics Dashboard Header */}
         <RecipeDashboardHeader recipes={recipes} />
 
+        {loadError && (
+          <Banner tone="critical">
+            <p>{loadError}</p>
+          </Banner>
+        )}
+
         {toastMessage && (
           <Banner
             title={toastMessage.title}
@@ -710,8 +864,15 @@ export function RecipeCommerceManager({ active = true }) {
                   <Text as="h3" variant="headingMd">쇼피파이 상점 출시 & 동기화 설정</Text>
 
                   {blogs.length === 0 ? (
-                    <Banner tone="critical">
-                      상점에 블로그 채널(예: News / Recipes)이 없습니다. 쇼피파이 어드민에서 블로그를 먼저 생성해 주세요.
+                    <Banner
+                      tone="warning"
+                      action={{
+                        content: "K-Food Recipes 블로그 채널 자동 생성",
+                        onAction: handleCreateDefaultBlog,
+                        loading: isCreatingBlog,
+                      }}
+                    >
+                      상점에 블로그 채널(예: News / Recipes)이 등록되어 있지 않습니다. 위 버튼을 누르면 &apos;K-Food Recipes&apos; 블로그 채널이 상점에 자동 생성됩니다.
                     </Banner>
                   ) : (
                     <Select
@@ -733,7 +894,7 @@ export function RecipeCommerceManager({ active = true }) {
                         variant="primary"
                         onClick={() => handleSubmitForm("publish")}
                         loading={isPublishing}
-                        disabled={actionFetcher.state !== "idle" || blogs.length === 0}
+                        disabled={actionFetcher.state !== "idle" || (!shopifyBlogId && blogs.length === 0)}
                       >
                         쇼피파이 블로그 게시 / 동기화
                       </Button>
