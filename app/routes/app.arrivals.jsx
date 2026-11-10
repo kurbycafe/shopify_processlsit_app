@@ -7,7 +7,7 @@ import { resolveCanonicalShop, parseExtendedSettings } from "../services/mobileS
 import { saveStorefrontConfig } from "../services/productTemperatures.server.js";
 import { getShopAliases } from "../services/subscriptionService.server.js";
 import { arrivalItemCode, resolveArrivalSkus } from "../services/customerResources.server.js";
-import { getOdooRpc } from "../services/odooClient.server.js";
+import { getOdooRpc, isOdooConfigured } from "../services/odooClient.server.js";
 import { syncOdooArrivals } from "../services/arrivalsSync.server.js";
 import { collectExistingSkus, suggestAvailableSkus, applySkusToOdooAndShopify } from "../services/skuSync.server.js";
 import { ODOO_SKU_CATEGORIES, computeNextAvailableSku } from "../utils/odooSkuCategories.js";
@@ -20,21 +20,59 @@ import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverri
 const MAX_PICKS = 5;
 // Items read per receipt; the confirm window lists them all.
 const ITEM_LIMIT = 300;
+const AUTO_SYNC_TTL_MS = 5 * 60 * 1000;
+
+async function queryOpenContainers(shopAliases) {
+  return prisma.container.findMany({
+    // Every open Odoo receipt, also overdue or undated ones, so any can be chosen.
+    where: { shop: { in: shopAliases }, status: { in: ["SCHEDULED", "IN_TRANSIT"] } },
+    orderBy: [{ scheduledDate: { sort: "desc", nulls: "last" } }, { id: "desc" }],
+    take: 50,
+    select: {
+      id: true,
+      containerRef: true,
+      supplier: true,
+      status: true,
+      arrivalKind: true,
+      scheduledDate: true,
+      syncedAt: true,
+      _count: { select: { items: true } },
+      items: {
+        orderBy: { id: "asc" },
+        take: ITEM_LIMIT,
+        select: { id: true, sku: true, barcode: true, productName: true, expectedQty: true },
+      },
+    },
+  });
+}
 
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
-  const [config, containers] = await Promise.all([
+  const shopAliases = getShopAliases(session.shop);
+  let [config, containers] = await Promise.all([
     prisma.mobileStorefrontConfig.findUnique({ where: { shop } }),
-    prisma.container.findMany({
-      // Every open Odoo receipt, also overdue or undated ones, so any can be chosen.
-      where: { shop: { in: getShopAliases(session.shop) }, status: { in: ["SCHEDULED", "IN_TRANSIT"] } },
-      orderBy: [{ scheduledDate: { sort: "desc", nulls: "last" } }, { id: "desc" }], take: 50,
-      select: { id: true, containerRef: true, supplier: true, status: true, arrivalKind: true, scheduledDate: true, syncedAt: true,
-        _count: { select: { items: true } },
-        items: { orderBy: { id: "asc" }, take: ITEM_LIMIT, select: { id: true, sku: true, barcode: true, productName: true, expectedQty: true } } },
-    }),
+    queryOpenContainers(shopAliases),
   ]);
+
+  if (isOdooConfigured()) {
+    const latestSync = containers.reduce(
+      (latest, c) => (!latest || (c.syncedAt && c.syncedAt > latest) ? c.syncedAt : latest),
+      null
+    );
+    const recentDateCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const hasRecentArrival = containers.some((c) => c.scheduledDate && c.scheduledDate >= recentDateCutoff);
+    const isSyncStale = !latestSync || Date.now() - new Date(latestSync).getTime() > AUTO_SYNC_TTL_MS;
+
+    if (isSyncStale || !hasRecentArrival) {
+      try {
+        await syncOdooArrivals({ db: prisma, shop: session.shop, rpc: await getOdooRpc() });
+        containers = await queryOpenContainers(shopAliases);
+      } catch {
+        // Keep existing cached containers when Odoo is unreachable
+      }
+    }
+  }
   const missingTargets = containers.flatMap((c) =>
     c.items
       .filter((item) => !item.sku)

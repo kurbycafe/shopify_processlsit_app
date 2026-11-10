@@ -216,16 +216,16 @@ async function readUpcomingContainers() {
             "stock.picking",
             "search_read",
             [[
-              ["state", "in", ["assigned", "confirmed", "waiting"]],
+              ["state", "in", ["assigned", "confirmed", "waiting", "done"]],
               "|",
               ["picking_type_id.code", "=", "incoming"],
               ["name", "like", "/IN/"],
               ["origin", "!=", false],
             ]],
             {
-              fields: ["id", "name", "origin", "scheduled_date", "state", "partner_id"],
-              order: "scheduled_date asc, id asc",
-              limit: 50,
+              fields: ["id", "name", "origin", "scheduled_date", "date_done", "state", "partner_id", "backorder_id"],
+              order: "id desc",
+              limit: 60,
             },
           ])
         ),
@@ -235,15 +235,53 @@ async function readUpcomingContainers() {
 
     const pickingsJson = await pickingsResponse.json();
     const records = pickingsJson?.result || [];
+    const staleBackorderCutoff = dayjs().subtract(14, "day").format("YYYY-MM-DD");
+    const recentDoneCutoff = dayjs().subtract(45, "day").format("YYYY-MM-DD");
+    const maxDoneFutureDate = dayjs().add(14, "day").format("YYYY-MM-DD");
 
-    return records.map((r) => ({
-      id: r.id,
-      name: r.name,
-      containerRef: r.origin || "N/A",
-      eta: r.scheduled_date ? dayjs(r.scheduled_date).format("YYYY-MM-DD") : "미정",
-      state: r.state,
-      supplier: r.partner_id ? r.partner_id[1] : "알 수 없음",
-    }));
+    const byOrigin = new Map();
+    for (const r of records) {
+      const origin = String(r.origin || "").trim();
+      if (!origin) continue;
+      let rawDate = r.scheduled_date || r.date_done;
+      // Guard against year typos on completed receipts (e.g. scheduled_date in 2027 when date_done was months ago)
+      if (r.state === "done" && r.date_done && r.scheduled_date) {
+        const schedStr = dayjs(r.scheduled_date).format("YYYY-MM-DD");
+        if (schedStr > maxDoneFutureDate) {
+          rawDate = r.date_done;
+        }
+      }
+      const eta = rawDate ? dayjs(rawDate).format("YYYY-MM-DD") : "미정";
+      const isBackorder = Array.isArray(r.backorder_id) && r.backorder_id.length > 0;
+
+      // Skip ancient residual backorders (e.g. 1-2 unreceived items from months ago)
+      if (isBackorder && r.state !== "done" && eta !== "미정" && eta < staleBackorderCutoff) {
+        continue;
+      }
+      // Skip very old completed receipts outside the 45-day dashboard window
+      if (r.state === "done" && eta !== "미정" && eta < recentDoneCutoff) {
+        continue;
+      }
+
+      const existing = byOrigin.get(origin);
+      // Prefer the primary receipt (!isBackorder) over a residual backorder for the same PO
+      if (!existing || (existing.isBackorder && !isBackorder)) {
+        byOrigin.set(origin, {
+          id: r.id,
+          name: r.name,
+          containerRef: origin,
+          eta,
+          state: r.state,
+          supplier: r.partner_id ? r.partner_id[1] : "알 수 없음",
+          isBackorder,
+        });
+      }
+    }
+
+    return [...byOrigin.values()]
+      .map(({ isBackorder: _ignored, ...item }) => item)
+      .sort((a, b) => String(b.eta).localeCompare(String(a.eta)))
+      .slice(0, 25);
   } catch (error) {
     console.warn("Odoo container fetch warning:", error.message);
     return [];

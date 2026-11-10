@@ -957,20 +957,67 @@ export default function ContainerCatalog() {
 
         {items.length === 0 && !loading && (
           <Layout.Section>
-            <Card>
-              <AppEmptyState
-                title="조회된 컨테이너 데이터가 없습니다"
-                description="상단 검색창에 Odoo 발주번호(PO)를 입력하여 컨테이너 입고 내역을 조회해 주세요."
-                actionText={upcomingOdoo.length > 0 ? `최근 일정 확인 (${upcomingOdoo[0]?.containerRef || "PO"})` : undefined}
-                onAction={() => {
-                  if (upcomingOdoo.length > 0) {
-                    const ref = upcomingOdoo[0].containerRef;
-                    setContainerRef(ref);
-                    fetcher.submit({ intent: "fetch_container", containerRef: ref }, { method: "POST" });
-                  }
-                }}
-              />
-            </Card>
+            {upcomingOdoo.length > 0 ? (
+              <Card padding="0">
+                <Box padding="400">
+                  <BlockStack gap="100">
+                    <Text variant="headingMd" as="h2">
+                      최근 Odoo 입고 전표 및 발주(PO) 목록
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      목록에서 발주서(PO)를 선택하면 상품 매칭, 미등록 SKU 번호 부여 및 B2B 카탈로그 인쇄를 바로 진행할 수 있습니다.
+                    </Text>
+                  </BlockStack>
+                </Box>
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  headings={["입고 전표", "발주번호 (PO)", "공급처", "입고 예정/처리일", "Odoo 상태", "조회"]}
+                  rows={upcomingOdoo.map((entry) => [
+                    <Text key={`name-${entry.id}`} variant="bodySm" as="span">
+                      {entry.name}
+                    </Text>,
+                    <Text key={`po-${entry.id}`} variant="bodyMd" fontWeight="semibold" as="span">
+                      {entry.containerRef}
+                    </Text>,
+                    <Text key={`sup-${entry.id}`} variant="bodySm" as="span">
+                      {entry.supplier}
+                    </Text>,
+                    <Text key={`eta-${entry.id}`} variant="bodySm" as="span">
+                      {entry.eta}
+                    </Text>,
+                    <Badge key={`st-${entry.id}`}>
+                      {entry.state === "done"
+                        ? "입고 완료"
+                        : entry.state === "assigned"
+                        ? "입고 준비"
+                        : entry.state === "confirmed" || entry.state === "waiting"
+                        ? "입고 대기"
+                        : entry.state}
+                    </Badge>,
+                    <Button
+                      key={`btn-${entry.id}`}
+                      size="slim"
+                      onClick={() => {
+                        setContainerRef(entry.containerRef);
+                        fetcher.submit(
+                          { intent: "fetch_container", containerRef: entry.containerRef },
+                          { method: "POST" }
+                        );
+                      }}
+                    >
+                      불러오기
+                    </Button>,
+                  ])}
+                />
+              </Card>
+            ) : (
+              <Card>
+                <AppEmptyState
+                  title="조회된 컨테이너 데이터가 없습니다"
+                  description="상단 검색창에 Odoo 발주번호(PO)를 입력하여 컨테이너 입고 내역을 조회해 주세요."
+                />
+              </Card>
+            )}
           </Layout.Section>
         )}
       </Layout>

@@ -1,4 +1,9 @@
-import { readOdooIncoming, readOdooReceiptStates, readOdooPurchaseOrders } from "./odooArrivals.js";
+import {
+  readOdooIncoming,
+  readOdooReceiptStates,
+  readOdooPurchaseOrders,
+  readOdooRecentPurchaseOrders,
+} from "./odooArrivals.js";
 import { lockContainer, mergeContainerItems } from "./containerSync.js";
 
 function itemIdentityKey(item) {
@@ -23,24 +28,44 @@ function mergePoAndReceiptItems(poItems = [], receiptItems = []) {
 }
 
 /**
- * Copies Odoo's open incoming receipts into Container rows so the public arrival
- * board never queries the ERP per request. Containers the warehouse already
- * received or cancelled here are left alone; ones Odoo has finished are closed.
+ * Copies Odoo's open incoming receipts and recent purchase orders into Container
+ * rows so the public arrival board never queries the ERP per request. Containers
+ * the warehouse already received or cancelled here are left alone; older ones
+ * Odoo has finished are closed.
  */
 export async function syncOdooArrivals({ db, shop, rpc, now = new Date() }) {
   const incoming = await readOdooIncoming({ rpc });
+  const sinceDate = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
   let poByRef = new Map();
   try {
-    poByRef = await readOdooPurchaseOrders({ rpc, refs: incoming.map(entry => entry.ref) });
+    const [openPos, recentPos] = await Promise.all([
+      readOdooPurchaseOrders({ rpc, refs: incoming.map(entry => entry.ref) }),
+      readOdooRecentPurchaseOrders({ rpc, sinceDate }),
+    ]);
+    poByRef = new Map([...recentPos, ...openPos]);
   } catch {
     // Fallback to stock.picking items when purchase.order model is not available or mocked.
   }
 
+  const incomingRefs = new Set(incoming.map(entry => entry.ref));
+  const activeEntries = [
+    ...incoming,
+    ...[...poByRef.values()]
+      .filter(po => !incomingRefs.has(po.ref) && po.items?.length > 0)
+      .map(po => ({
+        ref: po.ref,
+        scheduledDate: po.scheduledDate,
+        arrivalKind: po.arrivalKind || null,
+        items: po.items,
+      })),
+  ];
+
   let synced = 0, failed = 0, closed = 0;
-  for (const entry of incoming) {
+  for (const entry of activeEntries) {
     try {
       const poData = poByRef.get(entry.ref);
       const mergedItems = mergePoAndReceiptItems(poData?.items || [], entry.items);
+      const arrivalKind = entry.arrivalKind || poData?.arrivalKind || null;
       await db.$transaction(async (tx) => {
         await lockContainer(tx, shop, entry.ref);
         const existing = await tx.container.findUnique({ where: { shop_containerRef: { shop, containerRef: entry.ref } }, select: { id: true, status: true, supplier: true } });
@@ -51,15 +76,16 @@ export async function syncOdooArrivals({ db, shop, rpc, now = new Date() }) {
           where: { shop_containerRef: { shop, containerRef: entry.ref } },
           update: {
             scheduledDate: entry.scheduledDate || poData?.scheduledDate || null,
-            ...(entry.arrivalKind ? { arrivalKind: entry.arrivalKind } : {}),
+            ...(arrivalKind ? { arrivalKind } : {}),
             ...(supplier ? { supplier } : {}),
+            ...(existing?.status === "ARRIVED" ? { status: "SCHEDULED" } : {}),
             syncedAt: now,
           },
           create: {
             shop,
             containerRef: entry.ref,
             scheduledDate: entry.scheduledDate || poData?.scheduledDate || null,
-            arrivalKind: entry.arrivalKind,
+            arrivalKind,
             ...(supplier ? { supplier } : {}),
             status: "SCHEDULED",
             syncedAt: now,
@@ -76,7 +102,7 @@ export async function syncOdooArrivals({ db, shop, rpc, now = new Date() }) {
     }
   }
 
-  const openRefs = incoming.map(entry => entry.ref);
+  const openRefs = activeEntries.map(entry => entry.ref);
   const stale = await db.container.findMany({
     where: { shop, status: { in: ["SCHEDULED", "IN_TRANSIT"] }, ...(openRefs.length ? { containerRef: { notIn: openRefs } } : {}) },
     select: { id: true, containerRef: true }, take: 50,

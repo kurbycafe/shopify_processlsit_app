@@ -316,3 +316,66 @@ test("syncOdooArrivals preserves all PO lines when a container has only a partia
   assert.ok(items.some((i) => i.productName === "왕고추가루 PET,양념용(유럽전용) 200g"));
 });
 
+test("syncOdooArrivals syncs recent POs even when their Odoo receipt is already marked done", async () => {
+  const containers = [
+    { id: "id-2026-00478", containerRef: "2026-00478", status: "ARRIVED", supplier: "SAMJIN GLOBALNET CO., LTD." },
+  ];
+  const items = [];
+  const tx = {
+    $executeRaw: async () => {},
+    container: {
+      findUnique: async ({ where }) => containers.find((c) => c.containerRef === where.shop_containerRef.containerRef) || null,
+      upsert: async ({ where, update, create }) => {
+        let row = containers.find((c) => c.containerRef === where.shop_containerRef.containerRef);
+        if (row) Object.assign(row, update);
+        else containers.push((row = { id: `id-${create.containerRef}`, ...create }));
+        return row;
+      },
+      findMany: async () => [],
+      update: async () => {},
+    },
+    containerItem: {
+      count: async () => 0,
+      findMany: async ({ where }) => items.filter((i) => i.containerId === where.containerId),
+      create: async ({ data }) => items.push({ id: `item-${items.length}`, ...data }),
+      update: async ({ where, data }) => Object.assign(items.find((i) => i.id === where.id), data),
+      deleteMany: async () => {},
+    },
+  };
+  const db = { ...tx, $transaction: (fn) => fn(tx) };
+
+  const rpc = async (model, method) => {
+    if (model === "res.partner") return [{ id: 28, country_code: "KR" }];
+    if (model === "stock.picking" && method === "search_read") {
+      return [];
+    }
+    if (model === "purchase.order" && method === "search_read") {
+      return [
+        { id: 478, name: "2026-00478", order_line: [901], partner_id: [28, "SAMJIN GLOBALNET CO., LTD."], date_planned: "2026-11-10 08:00:00", state: "done" },
+      ];
+    }
+    if (model === "purchase.order.line" && method === "read") {
+      return [
+        { id: 901, order_id: [478], product_id: [701], product_qty: 50, price_unit: 1.8, name: "[C10100] 신라면 120g", unit_per_box: 20, box_qty: 2 },
+      ];
+    }
+    if (model === "product.product" && method === "read") {
+      return [{ id: 701, default_code: "C10100", barcode: "8801043014809", name: "신라면 120g" }];
+    }
+    return [];
+  };
+
+  const res = await syncOdooArrivals({
+    db,
+    shop: "s.myshopify.com",
+    rpc,
+    now: new Date("2026-11-10T12:00:00Z"),
+  });
+  assert.equal(res.synced, 1);
+  const syncedContainer = containers.find((c) => c.containerRef === "2026-00478");
+  assert.equal(syncedContainer.status, "SCHEDULED", "Recent PO previously closed to ARRIVED is restored to SCHEDULED");
+  assert.equal(syncedContainer.arrivalKind, "CONTAINER");
+  assert.equal(syncedContainer.scheduledDate, "2026-11-10");
+  assert.equal(items.length, 1);
+});
+

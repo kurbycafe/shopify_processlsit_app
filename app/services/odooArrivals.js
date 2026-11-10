@@ -86,19 +86,7 @@ export async function readOdooReceiptStates({ rpc, refs }) {
   return states;
 }
 
-/**
- * Reads full purchase order lines for open arrival references so backorder splits
- * in stock.picking never drop the rest of the container's products from the arrival board.
- */
-export async function readOdooPurchaseOrders({ rpc, refs }) {
-  if (!Array.isArray(refs) || !refs.length) return new Map();
-  const cleanRefs = [...new Set(refs.map(r => String(r || "").trim()).filter(Boolean))];
-  if (!cleanRefs.length) return new Map();
-
-  const orders = ensureArray(await rpc("purchase.order", "search_read", [[["name", "in", cleanRefs]]], {
-    fields: ["id", "name", "order_line", "partner_id", "date_planned"],
-    limit: 100,
-  }));
+async function hydratePurchaseOrders(rpc, orders, { includeCountry = false } = {}) {
   const lineIds = orders.flatMap(po => po.order_line || []);
   if (!lineIds.length) return new Map();
 
@@ -109,6 +97,9 @@ export async function readOdooPurchaseOrders({ rpc, refs }) {
   const products = productIds.length
     ? ensureArray(await rpc("product.product", "read", [productIds], { fields: ["id", "default_code", "barcode", "name"] }))
     : [];
+  const countries = includeCountry
+    ? await readPartnerCountries(rpc, orders.map(po => (Array.isArray(po.partner_id) ? po.partner_id[0] : po.partner_id)))
+    : new Map();
   const productById = new Map(products.map(p => [p.id, p]));
   const linesByOrderId = new Map();
   for (const line of lines) {
@@ -143,12 +134,50 @@ export async function readOdooPurchaseOrders({ rpc, refs }) {
       existing.qty += Math.max(0, Math.round(Number(line.product_qty) || 0));
       itemsMap.set(key, existing);
     }
+    const partnerId = Array.isArray(po.partner_id) ? po.partner_id[0] : po.partner_id;
+    const country = countries.get(partnerId);
     byRef.set(ref, {
       ref,
       supplier: Array.isArray(po.partner_id) ? po.partner_id[1] : null,
       scheduledDate: berlinDate(po.date_planned),
+      arrivalKind: country ? (country === "KR" ? "CONTAINER" : "DOMESTIC") : null,
       items: [...itemsMap.values()],
     });
   }
   return byRef;
+}
+
+/**
+ * Reads full purchase order lines for open arrival references so backorder splits
+ * in stock.picking never drop the rest of the container's products from the arrival board.
+ */
+export async function readOdooPurchaseOrders({ rpc, refs }) {
+  if (!Array.isArray(refs) || !refs.length) return new Map();
+  const cleanRefs = [...new Set(refs.map(r => String(r || "").trim()).filter(Boolean))];
+  if (!cleanRefs.length) return new Map();
+
+  const orders = ensureArray(await rpc("purchase.order", "search_read", [[["name", "in", cleanRefs]]], {
+    fields: ["id", "name", "order_line", "partner_id", "date_planned"],
+    limit: 100,
+  }));
+  return hydratePurchaseOrders(rpc, orders, { includeCountry: false });
+}
+
+/**
+ * Reads recent purchase orders within the active arrival window (e.g. last 30 days)
+ * so receipts already marked "done" in Odoo remain selectable on the arrival board.
+ */
+export async function readOdooRecentPurchaseOrders({ rpc, sinceDate, limit = 25 }) {
+  if (!sinceDate) return new Map();
+  const maxDate = new Date(new Date(`${sinceDate}T00:00:00Z`).getTime() + 60 * 86400000).toISOString().slice(0, 10);
+  const orders = ensureArray(await rpc("purchase.order", "search_read", [[
+    ["state", "in", ["purchase", "done"]],
+    ["date_planned", ">=", `${sinceDate} 00:00:00`],
+    ["date_planned", "<=", `${maxDate} 23:59:59`],
+  ]], {
+    fields: ["id", "name", "order_line", "partner_id", "date_planned", "state"],
+    order: "id desc",
+    limit,
+  }));
+  return hydratePurchaseOrders(rpc, orders, { includeCountry: true });
 }
