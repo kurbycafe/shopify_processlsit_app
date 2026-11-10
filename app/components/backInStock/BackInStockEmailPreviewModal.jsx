@@ -24,7 +24,7 @@ export default function BackInStockEmailPreviewModal({
   const htmlContent = buildBackInStockEmailHtml({
     productTitle: productItem.productTitle || "DAWAYO K-Food Item",
     variantTitle: productItem.variantTitle || "",
-    productUrl: `https://${shopDomain || "dawayo.de"}`,
+    productUrl: productItem.productUrl || `https://${shopDomain || "dawayo.de"}`,
     shopDomain: shopDomain || "dawayo.de",
     poNumber: displayPo,
     dispatchDate: displayDate,
@@ -34,7 +34,7 @@ export default function BackInStockEmailPreviewModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="재입고 알림 이메일 템플릿 실시간 미리보기 (Email Preview)"
+      title="재입고 알림 이메일 미리보기"
       size="large"
       secondaryActions={[
         {
@@ -49,7 +49,7 @@ export default function BackInStockEmailPreviewModal({
             <BlockStack gap="150">
               <InlineStack gap="200">
                 <Text variant="bodySm" fontWeight="bold">발신자:</Text>
-                <Text variant="bodySm">Dawayo K-Food &lt;popeye.gmbh@gmail.com&gt;</Text>
+                <Text variant="bodySm">Dawayo K-Food &lt;service@dawayo.de&gt;</Text>
               </InlineStack>
               <InlineStack gap="200">
                 <Text variant="bodySm" fontWeight="bold">제목:</Text>

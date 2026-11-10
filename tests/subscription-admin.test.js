@@ -92,3 +92,81 @@ test("accepted but unrecorded delivery renders an explicit warning with no direc
   assert.match(html, /발송됨 · 기록 확인 필요/); assert.match(html, /자동 재발송하지 않습니다/);
   assert.doesNotMatch(html, /신청 취소됨/); assert.doesNotMatch(html, />발송</);
 });
+
+test("product bulk cancel expands variant IDs to both numeric and GID forms", async () => {
+  let updatedWhere = null;
+  const run = action({
+    prisma: {
+      backInStockSubscription: {
+        updateMany: async ({ where, data }) => {
+          updatedWhere = where;
+          assert.equal(data.status, "CANCELLED");
+          return { count: 3 };
+        },
+      },
+    },
+  });
+
+  const res = await run({
+    request: request("batch_cancel", {
+      mode: "products",
+      ids: JSON.stringify(["12345", "gid://shopify/ProductVariant/67890"]),
+    }),
+  });
+  const body = await res.json();
+  assert.equal(body.success, true);
+  assert.equal(body.message, "총 3건의 알림 신청이 일괄 취소 처리되었습니다.");
+  assert.ok(updatedWhere.variantId.in.includes("12345"));
+  assert.ok(updatedWhere.variantId.in.includes("gid://shopify/ProductVariant/12345"));
+  assert.ok(updatedWhere.variantId.in.includes("67890"));
+  assert.ok(updatedWhere.variantId.in.includes("gid://shopify/ProductVariant/67890"));
+});
+
+test("failed subscription renders retry and cancel action buttons with failure reason", () => {
+  const source = readFileSync(new URL("../app/components/backInStock/BackInStockSubscriberTable.jsx", import.meta.url), "utf8");
+  const component = source.slice(source.indexOf("export default function")).replace("export default function", "function");
+  const compiled = ts.transpileModule(`${component}\nglobalThis.table=BackInStockSubscriberTable;`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const block = ({ children }) => React.createElement("div", null, children);
+  const context = { React, useState: React.useState, dayjs, maskEmail, maskPhone, getSubscriptionStatusInfo };
+  for (const name of ["Card", "BlockStack", "InlineStack", "Text", "Badge", "Button", "Box", "SkeletonBodyText", "Tooltip"]) context[name] = block;
+  for (const name of ["SendIcon", "XCircleIcon", "ClipboardIcon"]) context[name] = block;
+  vm.createContext(context); vm.runInContext(compiled, context);
+  const html = renderToStaticMarkup(React.createElement(context.table, {
+    subscribers: [{
+      id: "failed-sub",
+      status: "FAILED",
+      email: "failed@example.com",
+      productTitle: "Product",
+      lastNotificationError: "SMTP Timeout",
+      createdAt: new Date(),
+    }],
+    selectedSubscriberIds: [],
+    onToggleSelectAll() {},
+  }));
+  assert.match(html, /발송 실패/);
+  assert.match(html, /사유: SMTP Timeout/);
+  assert.match(html, />발송</);
+  assert.match(html, />취소</);
+});
+
+test("admin notify_variant triggers mobile restock push for variant", async () => {
+  const queuedVariantIds = [];
+  let dispatched = false;
+  const run = action({
+    notifyPendingSubscribersForVariant: async () => ({ success: true, total: 1, sent: 1, failed: 0, warnings: [] }),
+    queueRestockPush: async ({ variantId }) => { queuedVariantIds.push(variantId); },
+    dispatchMobileNotifications: async () => { dispatched = true; },
+  });
+
+  const res = await run({
+    request: request("notify_variant", {
+      variantId: "gid://shopify/ProductVariant/999",
+      productTitle: "Test Food",
+    }),
+  });
+  const body = await res.json();
+  assert.equal(body.success, true);
+  assert.ok(queuedVariantIds.includes("gid://shopify/ProductVariant/999"));
+  assert.ok(queuedVariantIds.includes("999"));
+  assert.equal(dispatched, true);
+});

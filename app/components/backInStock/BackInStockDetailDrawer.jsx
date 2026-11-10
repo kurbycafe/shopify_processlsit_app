@@ -31,11 +31,13 @@ export default function BackInStockDetailDrawer({
   onOpenEmailPreview,
   isSyncing,
   isNotifying,
+  notifyingSubId,
+  cancellingSubId,
   isLoadingSubscribers = false,
 }) {
   if (!productItem) return null;
 
-  const demand = getDemandLevel(productItem.subscriberCount);
+  const demand = getDemandLevel(productItem.pendingCount);
   const etaStage = getEtaStageInfo(productItem.etaDate);
 
   const subscriberRows = subscribers.map((sub) => [
@@ -54,14 +56,26 @@ export default function BackInStockDetailDrawer({
     <BlockStack gap="050" key={`st-${sub.id}`}>
       <Badge tone={getSubscriptionStatusInfo(sub.status).tone}>{getSubscriptionStatusInfo(sub.status).label}</Badge>
       {getSubscriptionStatusInfo(sub.status).explanation && <Text variant="bodyXs" tone="subdued">{getSubscriptionStatusInfo(sub.status).explanation}</Text>}
+      {sub.status === "FAILED" && sub.lastNotificationError && (
+        <Text variant="bodyXs" tone="critical">사유: {sub.lastNotificationError}</Text>
+      )}
       {sub.notifiedAt && <Text variant="bodyXs" tone="subdued">{dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm")}</Text>}
     </BlockStack>,
-    sub.status === "PENDING" ? (
+    sub.status === "PENDING" || sub.status === "FAILED" ? (
       <InlineStack gap="100" key={`act-${sub.id}`}>
-        <Button size="micro" onClick={() => onNotifySingle(sub.id)}>
+        <Button
+          size="micro"
+          loading={notifyingSubId === sub.id}
+          onClick={() => onNotifySingle(sub.id)}
+        >
           발송
         </Button>
-        <Button size="micro" tone="critical" onClick={() => onCancelSingle(sub.id)}>
+        <Button
+          size="micro"
+          tone="critical"
+          loading={cancellingSubId === sub.id}
+          onClick={() => onCancelSingle(sub.id)}
+        >
           취소
         </Button>
       </InlineStack>
@@ -76,14 +90,21 @@ export default function BackInStockDetailDrawer({
     <Modal
       open={open}
       onClose={onClose}
-      title="품목별 재입고 수요 및 운영 상세 (Operations Detail)"
+      title="품목별 재입고 수요 상세"
       size="large"
       primaryAction={{
         content: "이 품목 대기자 전체 알림 발송",
         icon: SendIcon,
         loading: isNotifying,
         disabled: productItem.pendingCount === 0,
-        onAction: () => onNotifyVariant(productItem.variantId, productItem.sku, productItem.productTitle),
+        onAction: () =>
+          onNotifyVariant(
+            productItem.variantId,
+            productItem.sku,
+            productItem.productTitle,
+            productItem.variantTitle,
+            productItem.productUrl
+          ),
       }}
       secondaryActions={[
         {
@@ -149,11 +170,11 @@ export default function BackInStockDetailDrawer({
               </InlineStack>
 
               <BlockStack gap="100" inlineAlign="end">
-                <Badge tone={demand.tone} size="large">
-                  {demand.badge}
+                <Badge tone={productItem.pendingCount > 0 ? demand.tone : "subdued"} size="large">
+                  {productItem.pendingCount > 0 ? demand.badge : "대기 없음"}
                 </Badge>
                 <Text variant="bodySm" tone="subdued">
-                  {`총 ${productItem.subscriberCount}명 신청 (${productItem.pendingCount}명 대기)`}
+                  {`대기 ${productItem.pendingCount}명 · 총 ${productItem.subscriberCount}명 신청`}
                 </Text>
               </BlockStack>
             </InlineStack>
@@ -163,7 +184,7 @@ export default function BackInStockDetailDrawer({
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
                 <Text variant="headingSm" as="h4">
-                  Odoo ERP 컨테이너 입고 및 발주 정보 (PO & ETA)
+                  컨테이너 입고 및 발주 정보
                 </Text>
                 <Button
                   size="slim"

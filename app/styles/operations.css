@@ -14,6 +14,16 @@
 .ops-work-summary { display: flex; gap: 24px; flex-wrap: wrap; }
 .ops-update-details > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
 .ops-update-details > summary:focus-visible { outline: 2px solid var(--p-color-border-focus); }
+.recent-log-item { padding: 10px 12px; border: 1px solid var(--p-color-border); border-radius: var(--p-border-radius-200); background: var(--p-color-bg-surface); cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; }
+.recent-log-item:hover { background: var(--p-color-bg-surface-hover); border-color: var(--p-color-border-hover); }
+.recent-log-item:focus-visible { outline: 2px solid var(--p-color-border-focus); outline-offset: 2px; }
+.continue-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; color: #0f172a; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; transition: background-color 0.15s ease; }
+.continue-btn:hover { background: #e2e8f0; }
+.chart-bar-group { cursor: pointer; }
+.chart-bar-group .chart-rect { transition: opacity 0.15s ease; }
+.chart-bar-group:hover .chart-rect { opacity: 0.85; }
+.chart-bar-group .chart-tooltip { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; }
+.chart-bar-group:hover .chart-tooltip { opacity: 1; visibility: visible; }
 @media (max-width: 600px) {
   .ops-action-footer { position: static; }
   .ops-metric { padding: 16px; }

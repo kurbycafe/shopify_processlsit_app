@@ -167,6 +167,25 @@
   transform: translateX(-50%) translateY(-3px);
 }
 
+.calendar-days-grid > :nth-child(7n + 1).calendar-day .tooltip {
+  left: 0;
+  transform: translateX(0);
+}
+
+.calendar-days-grid > :nth-child(7n + 1).calendar-day.has-events:hover .tooltip {
+  transform: translateX(0) translateY(-3px);
+}
+
+.calendar-days-grid > :nth-child(7n).calendar-day .tooltip {
+  left: auto;
+  right: 0;
+  transform: translateX(0);
+}
+
+.calendar-days-grid > :nth-child(7n).calendar-day.has-events:hover .tooltip {
+  transform: translateX(0) translateY(-3px);
+}
+
 .calendar-legend-bar {
   display: flex;
   align-items: center;

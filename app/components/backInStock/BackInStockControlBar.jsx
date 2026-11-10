@@ -33,6 +33,8 @@ export default function BackInStockControlBar({
   onChangeDemandFilter,
   dateRangeFilter,
   onChangeDateRangeFilter,
+  kpiFilter,
+  onClearKpiFilter,
   onClearAllFilters,
   activePresets,
   onSelectPreset,
@@ -54,6 +56,22 @@ export default function BackInStockControlBar({
   ];
 
   const activeTags = [];
+  if (kpiFilter && kpiFilter !== "ALL") {
+    const kpiLabels = {
+      PENDING: "지표: 알림 대기",
+      NOTIFIED: "지표: 알림 발송 완료",
+      NEEDS_ATTENTION: "지표: 조치 필요",
+      HIGH_DEMAND: "지표: 고수요 품목",
+      ARRIVING_SOON: "지표: 입고 임박",
+      ETA_OVERDUE: "지표: 입고 지연 / 미확정",
+      ETA_UNKNOWN: "지표: 일정 미확정",
+    };
+    activeTags.push({
+      key: "kpiFilter",
+      label: kpiLabels[kpiFilter] || `지표: ${kpiFilter}`,
+      onRemove: onClearKpiFilter || (() => {}),
+    });
+  }
   if (statusFilter && statusFilter !== "ALL") {
     activeTags.push({
       key: "status",

@@ -102,7 +102,7 @@ export default function Dashboard() {
     <Page title="물류 운영 대시보드">
       <BlockStack gap="500">
         {/* 0. 모바일 앱 기능 추가/수정 요청 입력란 */}
-            <AppFeatureRequestCard />
+        <AppFeatureRequestCard />
 
         {/* 1. 최상단: 4대 핵심 운영 메트릭 카드 */}
         <DashboardMetricCards

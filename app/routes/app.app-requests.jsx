@@ -254,14 +254,33 @@ export const action = async ({ request }) => {
                 cursor: "pointer",
                 color: "#111827",
                 fontSize: "13px",
-                display: "block",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
               }}
               title="클릭하여 전체 내용 열기/닫기"
             >
-              {item.content}
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                }}
+              >
+                {item.content}
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "#2563eb",
+                  fontWeight: 600,
+                  flexShrink: 0,
+                }}
+              >
+                {expanded ? "접기" : "더보기"}
+              </span>
             </button>
           </td>
           <td style={{ padding: "12px 14px", whiteSpace: "nowrap", minWidth: "160px" }}>

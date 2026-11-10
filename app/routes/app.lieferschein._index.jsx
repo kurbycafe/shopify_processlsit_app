@@ -7,7 +7,7 @@ import prisma from "../db.server";
 
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 import styles from "../styles/app.lieferschein.css?url";
-import { Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination, Button, Badge, Banner } from "@shopify/polaris";
+import { Page, Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination, Button, Badge, Banner } from "@shopify/polaris";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
@@ -734,13 +734,20 @@ export default function AdditionalPage() {
   };
 
   return (
-    <div>
-      <div className="page-header">DAWAYO 패킹 시스템</div>
-
+    <Page
+      title="납품서 출력 (Lieferschein)"
+      subtitle="출력할 주문을 선택하여 납품서 및 영수증(Rechnung)을 인쇄합니다."
+      primaryAction={
+        selectedOrderIds.length > 0
+          ? {
+              content: `선택한 주문 인쇄 (${selectedOrderIds.length}건)`,
+              onAction: handleBulkPrint,
+              disabled: selectedOrderIds.length > 100,
+            }
+          : undefined
+      }
+    >
       <div className="admin-panel">
-        <p className="admin-help-text">
-          출력할 주문을 선택한 뒤 버튼을 클릭하면 인쇄 팝업이 활성화됩니다. 이미 출력된 내역은 체크박스가 비활성화됩니다.
-        </p>
 
         <Box paddingBlockEnd="400">
           <Card background="bg-surface-secondary">
@@ -930,7 +937,16 @@ export default function AdditionalPage() {
                 const isPaid = order.financialStatus === "PAID" || order.financialStatus === "PARTIALLY_PAID";
 
                 return (
-                  <tr key={order.id} className={order.isPrinted ? "row-printed" : ""}>
+                  <tr
+                    key={order.id}
+                    className={
+                      order.isCustomerHold
+                        ? "row-hold"
+                        : order.isPrinted
+                        ? "row-printed"
+                        : ""
+                    }
+                  >
                     <td style={{ textAlign: "center" }}>
                       <input
                         type="checkbox"
@@ -1067,6 +1083,6 @@ export default function AdditionalPage() {
           </div>
         )}
       </div>
-    </div>
+    </Page>
   );
 }

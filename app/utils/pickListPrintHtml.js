@@ -41,6 +41,7 @@ export function generatePickListPrintHtml({
         const ordersText = (item.orderNumbers || []).slice(0, 4).join(", ") + ((item.orderNumbers || []).length > 4 ? ` 외 ${item.orderNumbers.length - 4}건` : "");
 
         const rowBg = idx % 2 === 1 ? "background-color: #f8fafc;" : "";
+        const orderedQty = item.orderedQty || 0;
 
         return `
           <tr style="${rowBg}">
@@ -58,9 +59,10 @@ export function generatePickListPrintHtml({
               <div class="sku">${item.sku || '-'}</div>
               <div class="barcode">${item.barcode || ''}</div>
             </td>
-            <td class="qty-cell">${item.orderedQty || 0} 개</td>
+            <td class="qty-cell">${orderedQty > 1 ? `<span class="qty-multi">${orderedQty} 개</span>` : `${orderedQty} 개`}</td>
             <td class="stock-cell">${item.inventoryQty !== null ? `${item.inventoryQty} 개` : '-'}</td>
             <td class="orders-cell">${ordersText}</td>
+            <td class="check-cell">□</td>
           </tr>
         `;
       })
@@ -74,17 +76,18 @@ export function generatePickListPrintHtml({
             <span>${title}</span>
             <span class="count-tag">(${itemList.length}종 품목)</span>
           </div>
-          <div class="section-total">피킹 수량: <strong>${sectionQty.toLocaleString()}</strong> 개</div>
+          <div class="section-total">총 피킹 수량 <strong>${sectionQty.toLocaleString()}</strong>개</div>
         </div>
         <table class="pick-table">
           <thead>
             <tr>
-              <th style="width: 22%;">창고 위치 (레갈 번호)</th>
-              <th style="width: 33%;">상품명</th>
-              <th style="width: 17%;">SKU / 바코드</th>
+              <th style="width: 21%;">창고 위치 (레갈 번호)</th>
+              <th style="width: 31%;">상품명</th>
+              <th style="width: 16%;">SKU / 바코드</th>
               <th style="width: 9%; text-align: right;">피킹 수량</th>
-              <th style="width: 9%; text-align: right;">현재 재고</th>
+              <th style="width: 8%; text-align: right;">현재 재고</th>
               <th style="width: 10%;">관련 주문</th>
+              <th style="width: 5%; text-align: center;">확인</th>
             </tr>
           </thead>
           <tbody>
@@ -98,7 +101,7 @@ export function generatePickListPrintHtml({
   let sectionsHtml = "";
   if (warehouseTab === "ALL" || warehouseTab === "STORE") {
     sectionsHtml += renderSectionHtml(
-      "1. 매장창고 처리중 리스트 (STORE WAREHOUSE)",
+      "1. 매장창고 피킹 목록",
       "매장창고",
       "#dbeafe",
       "#1d4ed8",
@@ -108,7 +111,7 @@ export function generatePickListPrintHtml({
   }
   if (warehouseTab === "ALL" || warehouseTab === "NEW_ONLY") {
     sectionsHtml += renderSectionHtml(
-      "2. 신창고 전용 처리중 리스트 (NEW / MAIN WAREHOUSE)",
+      "2. 신창고 전용 피킹 목록",
       "신창고 전용",
       "#cffafe",
       "#0e7490",
@@ -118,7 +121,7 @@ export function generatePickListPrintHtml({
   }
   if (warehouseTab === "ALL" || warehouseTab === "NO_BIN") {
     sectionsHtml += renderSectionHtml(
-      "3. 위치 미지정 처리중 리스트 (UNASSIGNED LOCATION)",
+      "3. 위치 미지정 품목",
       "위치 미지정",
       "#fef3c7",
       "#b45309",
@@ -293,6 +296,15 @@ export function generatePickListPrintHtml({
       font-size: 13px;
       color: #0f172a;
     }
+    .qty-multi {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1.5px solid #0f172a;
+      border-radius: 3px;
+      background: #fef9c3;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
     .stock-cell {
       text-align: right;
       font-size: 11px;
@@ -300,6 +312,11 @@ export function generatePickListPrintHtml({
     }
     .orders-cell {
       font-size: 10px;
+      color: #64748b;
+    }
+    .check-cell {
+      text-align: center;
+      font-size: 14px;
       color: #64748b;
     }
     @media print {
@@ -315,8 +332,8 @@ export function generatePickListPrintHtml({
 <body>
   <div class="header-bar">
     <div class="header-left">
-      <h1>피킹 및 처리중 리스트 (Process &amp; Pick List)</h1>
-      <p>매장창고 &amp; 신창고 구역별 레갈번호 오름차순 정렬</p>
+      <h1>처리중 피킹 리스트</h1>
+      <p>창고 구역 및 레갈 번호 오름차순 정렬</p>
     </div>
     <div class="header-right">
       <div class="summary-tag">미처리 주문: ${totalOrdersCount}건 / 총 ${items.length}종 (${totalQty.toLocaleString()}개)</div>

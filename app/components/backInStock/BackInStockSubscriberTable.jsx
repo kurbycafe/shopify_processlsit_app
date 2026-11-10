@@ -210,10 +210,13 @@ export default function BackInStockSubscriberTable({
                   <td style={{ padding: "10px 12px" }}>
                     <Badge tone={status.tone}>{status.label}</Badge>
                     {status.explanation && <Text variant="bodyXs" tone="subdued">{status.explanation}</Text>}
+                    {sub.status === "FAILED" && sub.lastNotificationError && (
+                      <Text variant="bodyXs" tone="critical">사유: {sub.lastNotificationError}</Text>
+                    )}
                   </td>
 
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                    {sub.status === "PENDING" ? (
+                    {sub.status === "PENDING" || sub.status === "FAILED" ? (
                       <InlineStack align="end" gap="150">
                         <Button
                           size="micro"

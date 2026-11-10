@@ -100,10 +100,19 @@ const PickListTableRow = memo(function PickListTableRow({ item }) {
     ? "#fffbeb"
     : "#eff6ff";
 
+  const cellBorderLeft = itemWh.isNewOnly
+    ? "4px solid #0891b2"
+    : itemWh.category === "NO_BIN"
+    ? "4px solid #d97706"
+    : "4px solid #2563eb";
+
+  const orderedQty = item.orderedQty ?? 0;
+  const isMultiQty = orderedQty > 1;
+
   return (
     <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
       {/* 창고 위치 및 레갈 번호 셀 (오름차순) */}
-      <td style={{ padding: "10px 12px", backgroundColor: cellBg }}>
+      <td style={{ padding: "10px 12px", backgroundColor: cellBg, borderLeft: cellBorderLeft }}>
         <BlockStack gap="050">
           <InlineStack gap="100" blockAlign="center">
             {itemWh.isNewOnly ? (
@@ -137,7 +146,21 @@ const PickListTableRow = memo(function PickListTableRow({ item }) {
       </td>
 
       <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: "bold", fontSize: "15px" }}>
-        {`${item.orderedQty ?? 0} 개`}
+        <span
+          style={
+            isMultiQty
+              ? {
+                  backgroundColor: "#fef9c3",
+                  color: "#b91c1c",
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  border: "1px solid #fde047",
+                }
+              : undefined
+          }
+        >
+          {`${orderedQty} 개`}
+        </span>
       </td>
 
       <td style={{ padding: "10px 12px", textAlign: "right" }}>
@@ -150,7 +173,10 @@ const PickListTableRow = memo(function PickListTableRow({ item }) {
         )}
       </td>
 
-      <td style={{ padding: "10px 12px", fontSize: "11px", color: "#64748b" }}>
+      <td
+        style={{ padding: "10px 12px", fontSize: "11px", color: "#64748b" }}
+        title={orderCount > 3 ? orderNums.join(", ") : undefined}
+      >
         {orderSummary}
       </td>
     </tr>

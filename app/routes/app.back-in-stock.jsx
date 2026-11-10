@@ -14,6 +14,8 @@ import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema, safeFindSubscribers } from "../db.server";
 import { getEtaBySku } from "../services/odooClient.server";
 import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server";
+import { queueRestockPush } from "../services/mobileNotificationEvents.server";
+import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server";
 import {
   getDemandLevel,
   getEtaStageInfo,
@@ -107,12 +109,12 @@ export const loader = async ({ request }) => {
   let needsAttentionCount = 0;
 
   // Fetch latest subscription metadata per variant (SKU, poNumber, notifiedAt, restockedAt)
+  // Merge non-null fields across rows so a newer row with null fields does not overwrite existing metadata
   let metaMap = new Map();
   try {
     const latestSubscriptions = await prisma.backInStockSubscription.findMany({
       where: { shop },
       orderBy: { createdAt: "desc" },
-      distinct: ["variantId"],
       select: {
         variantId: true,
         productId: true,
@@ -126,14 +128,53 @@ export const loader = async ({ request }) => {
       },
     });
     latestSubscriptions.forEach((s) => {
+      if (!s.variantId) return;
       const rawId = s.variantId.replace("gid://shopify/ProductVariant/", "");
-      if (!metaMap.has(rawId)) {
-        metaMap.set(rawId, s);
-      }
-      metaMap.set(s.variantId, s);
+      const prev = metaMap.get(rawId) || {};
+      const merged = {
+        variantId: prev.variantId || s.variantId,
+        productId: prev.productId || s.productId || "",
+        productTitle:
+          prev.productTitle && prev.productTitle !== "상품"
+            ? prev.productTitle
+            : s.productTitle || prev.productTitle || "상품",
+        variantTitle: prev.variantTitle || s.variantTitle || "",
+        sku: prev.sku || s.sku || "",
+        poNumber: prev.poNumber || s.poNumber || null,
+        etaDate: prev.etaDate || s.etaDate || null,
+        notifiedAt: prev.notifiedAt || s.notifiedAt || null,
+        restockedAt: prev.restockedAt || s.restockedAt || null,
+      };
+      metaMap.set(rawId, merged);
+      metaMap.set(s.variantId, merged);
     });
   } catch (e) {
     console.warn("Subscription metadata fetch warning:", e.message);
+  }
+
+  // Optional channel / dateRange scoping for Products view
+  let scopedVariantRawIds = null;
+  if (viewMode === "products" && (channelFilter !== "ALL" || dateRangeFilter !== "ALL")) {
+    const scopedWhere = { shop };
+    if (channelFilter !== "ALL") {
+      scopedWhere.channel = channelFilter;
+    }
+    if (dateRangeFilter === "TODAY") {
+      scopedWhere.createdAt = { gte: dayjs().startOf("day").toDate() };
+    } else if (dateRangeFilter === "LAST_7D") {
+      scopedWhere.createdAt = { gte: dayjs().subtract(7, "day").toDate() };
+    } else if (dateRangeFilter === "LAST_30D") {
+      scopedWhere.createdAt = { gte: dayjs().subtract(30, "day").toDate() };
+    }
+    const scopedGroups = await prisma.backInStockSubscription.groupBy({
+      by: ["variantId"],
+      where: scopedWhere,
+    });
+    scopedVariantRawIds = new Set(
+      scopedGroups
+        .map((g) => (g.variantId ? g.variantId.replace("gid://shopify/ProductVariant/", "") : ""))
+        .filter(Boolean)
+    );
   }
 
   // Consolidate variant groups by canonical raw variant ID
@@ -206,6 +247,46 @@ export const loader = async ({ request }) => {
     };
   });
 
+  // Helper to evaluate product-level filters (ETA, Demand, KPI drilldowns)
+  const matchesProductLevelFilters = (p) => {
+    if (etaFilter !== "ALL" && p.etaStage !== etaFilter) return false;
+
+    if (demandFilter === "VERY_HIGH") {
+      if (p.demandLevel !== "VERY_HIGH") return false;
+    } else if (demandFilter === "HIGH") {
+      if (p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH") return false;
+    } else if (demandFilter !== "ALL") {
+      if (p.demandLevel !== demandFilter) return false;
+    }
+
+    if (kpiFilter === "PENDING") {
+      if (p.pendingCount === 0) return false;
+    }
+    if (kpiFilter === "NOTIFIED") {
+      if (p.notifiedCount === 0) return false;
+    }
+    if (kpiFilter === "NEEDS_ATTENTION") {
+      if (p.pendingCount === 0) return false;
+      const isAttn =
+        ((p.demandLevel === "HIGH" || p.demandLevel === "VERY_HIGH") && p.etaStage === "UNKNOWN") ||
+        p.etaStage === "OVERDUE";
+      if (!isAttn) return false;
+    }
+    if (kpiFilter === "HIGH_DEMAND") {
+      if (p.pendingCount === 0 || (p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH")) return false;
+    }
+    if (kpiFilter === "ARRIVING_SOON") {
+      if (p.pendingCount === 0 || (p.etaStage !== "ARRIVING_SOON" && p.etaStage !== "TODAY")) return false;
+    }
+    if (kpiFilter === "ETA_OVERDUE") {
+      if (p.pendingCount === 0 || (p.etaStage !== "OVERDUE" && p.etaStage !== "UNKNOWN")) return false;
+    }
+    if (kpiFilter === "ETA_UNKNOWN") {
+      if (p.pendingCount === 0 || p.etaStage !== "UNKNOWN") return false;
+    }
+    return true;
+  };
+
   // --- 2. CSV Export Mode ---
   if (exportCsv) {
     const allRows = await prisma.backInStockSubscription.findMany({
@@ -229,6 +310,11 @@ export const loader = async ({ request }) => {
   if (viewMode === "products") {
     // Filter product aggregates
     let filtered = productAggregates.filter((p) => {
+      if (scopedVariantRawIds) {
+        const rawId = p.variantId.replace("gid://shopify/ProductVariant/", "");
+        if (!scopedVariantRawIds.has(rawId)) return false;
+      }
+
       // Search: checks productTitle, variantTitle, sku, poNumber
       if (search) {
         const q = search.toLowerCase();
@@ -249,35 +335,7 @@ export const loader = async ({ request }) => {
         return false;
       }
 
-      // ETA Filter
-      if (etaFilter !== "ALL" && p.etaStage !== etaFilter) return false;
-
-      // Demand Filter (HIGH matches >= 20, VERY_HIGH matches >= 50)
-      if (demandFilter === "VERY_HIGH") {
-        if (p.demandLevel !== "VERY_HIGH") return false;
-      } else if (demandFilter === "HIGH") {
-        if (p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH") return false;
-      } else if (demandFilter !== "ALL") {
-        if (p.demandLevel !== demandFilter) return false;
-      }
-
-      // KPI Filter Drilldowns
-      if (kpiFilter === "PENDING") {
-        if (p.pendingCount === 0) return false;
-      }
-      if (kpiFilter === "NOTIFIED") {
-        if (p.notifiedCount === 0) return false;
-      }
-      if (kpiFilter === "NEEDS_ATTENTION") {
-        const isAttn =
-          ((p.demandLevel === "HIGH" || p.demandLevel === "VERY_HIGH") && p.etaStage === "UNKNOWN") ||
-          p.etaStage === "OVERDUE";
-        if (!isAttn) return false;
-      }
-      if (kpiFilter === "HIGH_DEMAND" && p.demandLevel !== "HIGH" && p.demandLevel !== "VERY_HIGH") return false;
-      if (kpiFilter === "ARRIVING_SOON" && p.etaStage !== "ARRIVING_SOON" && p.etaStage !== "TODAY") return false;
-      if (kpiFilter === "ETA_OVERDUE" && p.etaStage !== "OVERDUE" && p.etaStage !== "UNKNOWN") return false;
-      if (kpiFilter === "ETA_UNKNOWN" && p.etaStage !== "UNKNOWN") return false;
+      if (!matchesProductLevelFilters(p)) return false;
 
       return true;
     });
@@ -309,6 +367,33 @@ export const loader = async ({ request }) => {
         whereClause.status = "NOTIFIED";
       } else {
         whereClause.status = statusFilter;
+      }
+    } else if (kpiFilter === "PENDING") {
+      whereClause.status = "PENDING";
+    } else if (kpiFilter === "NOTIFIED") {
+      whereClause.status = "NOTIFIED";
+    }
+
+    // Apply product-level filters (ETA, Demand, or product KPI cards) to Subscribers view
+    const hasProductLevelFilter =
+      etaFilter !== "ALL" ||
+      demandFilter !== "ALL" ||
+      ["NEEDS_ATTENTION", "HIGH_DEMAND", "ARRIVING_SOON", "ETA_OVERDUE", "ETA_UNKNOWN"].includes(kpiFilter);
+
+    if (hasProductLevelFilter) {
+      const matchingVariantIds = [];
+      productAggregates.forEach((p) => {
+        if (matchesProductLevelFilters(p)) {
+          const rawId = p.variantId.replace("gid://shopify/ProductVariant/", "");
+          matchingVariantIds.push(rawId, `gid://shopify/ProductVariant/${rawId}`);
+        }
+      });
+      whereClause.variantId = { in: matchingVariantIds };
+      if (
+        statusFilter === "ALL" &&
+        ["NEEDS_ATTENTION", "HIGH_DEMAND", "ARRIVING_SOON", "ETA_OVERDUE", "ETA_UNKNOWN"].includes(kpiFilter)
+      ) {
+        whereClause.status = "PENDING";
       }
     }
 
@@ -348,12 +433,14 @@ export const loader = async ({ request }) => {
           nodes(ids: $ids) {
             ... on ProductVariant {
               id
+              title
               sku
               image {
                 url
               }
               product {
                 title
+                handle
                 featuredImage {
                   url
                 }
@@ -372,8 +459,10 @@ export const loader = async ({ request }) => {
             const rawId = node.id.split("/").pop();
             const details = {
               sku: node.sku,
+              variantTitle: node.title && node.title !== "Default Title" ? node.title : null,
               imageUrl: node.image?.url || node.product?.featuredImage?.url || null,
               productTitle: node.product?.title || null,
+              productHandle: node.product?.handle || null,
             };
             detailsMap.set(node.id, details);
             detailsMap.set(rawId, details);
@@ -381,6 +470,7 @@ export const loader = async ({ request }) => {
         });
 
         const missingSkuVariantUpdates = [];
+        const storefrontDomain = shop.includes("dawayo") ? "dawayo.de" : shop;
 
         paginatedProducts = paginatedProducts.map((p) => {
           const rawId = p.variantId.replace("gid://shopify/ProductVariant/", "");
@@ -394,6 +484,12 @@ export const loader = async ({ request }) => {
             }
             if ((!p.productTitle || p.productTitle === "상품") && details.productTitle) {
               p.productTitle = details.productTitle;
+            }
+            if (!p.variantTitle && details.variantTitle) {
+              p.variantTitle = details.variantTitle;
+            }
+            if (details.productHandle) {
+              p.productUrl = `https://${storefrontDomain}/products/${details.productHandle}`;
             }
           }
           if (p.sku && !metaMap.get(rawId)?.sku) {
@@ -549,15 +645,62 @@ export const action = async ({ request }) => {
     const variantId = String(formData.get("variantId") || "");
     const sku = formData.get("sku") || null;
     const productTitle = formData.get("productTitle") || null;
+    const variantTitle = formData.get("variantTitle") || null;
+    let productUrl = formData.get("productUrl") || null;
     const now = new Date();
+
+    if (!productUrl && admin?.graphql) {
+      try {
+        const gid = variantId.startsWith("gid://") ? variantId : `gid://shopify/ProductVariant/${variantId}`;
+        const queryRes = await admin.graphql(
+          `#graphql
+          query getVariantUrl($id: ID!) {
+            node(id: $id) {
+              ... on ProductVariant {
+                product { handle }
+              }
+            }
+          }`,
+          { variables: { id: gid } }
+        );
+        const json = await queryRes.json();
+        const handle = json?.data?.node?.product?.handle;
+        if (handle) {
+          const domain = shop.includes("dawayo") ? "dawayo.de" : shop;
+          productUrl = `https://${domain}/products/${handle}`;
+        }
+      } catch (err) {
+        console.warn("Product handle lookup warning:", err.message);
+      }
+    }
 
     const result = await notifyPendingSubscribersForVariant({
       shop,
       variantId,
       sku,
       productTitle,
+      ...(variantTitle ? { variantTitle } : {}),
+      ...(productUrl ? { productUrl } : {}),
       dispatchDate: now,
     });
+
+    try {
+      if (typeof queueRestockPush === "function") {
+        const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+        const gid = variantId.startsWith("gid://") ? variantId : `gid://shopify/ProductVariant/${variantId}`;
+        const raw = variantId.replace("gid://shopify/ProductVariant/", "");
+        await queueRestockPush({ db: dbClient, shop, variantId: gid, productId: null, productTitle });
+        if (raw !== gid) {
+          await queueRestockPush({ db: dbClient, shop, variantId: raw, productId: null, productTitle });
+        }
+      }
+      if (typeof dispatchMobileNotifications === "function") {
+        const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+        dispatchMobileNotifications({ db: dbClient, shop, limit: 50 }).catch(() => {});
+      }
+    } catch (pushErr) {
+      console.warn("Mobile restock push trigger warning:", pushErr.message);
+    }
 
     if (result.total === 0) {
       return Response.json({ success: true, message: "발송 대기 중인 신청자가 없습니다." });
@@ -597,7 +740,25 @@ export const action = async ({ request }) => {
         sentCount += res.sent;
         failedCount += res.failed;
         warningCount += res.warnings?.length || 0;
+
+        try {
+          if (typeof queueRestockPush === "function") {
+            const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+            const gid = vId.startsWith("gid://") ? vId : `gid://shopify/ProductVariant/${vId}`;
+            const raw = vId.replace("gid://shopify/ProductVariant/", "");
+            await queueRestockPush({ db: dbClient, shop, variantId: gid, productId: null, productTitle: null });
+            if (raw !== gid) {
+              await queueRestockPush({ db: dbClient, shop, variantId: raw, productId: null, productTitle: null });
+            }
+          }
+        } catch (_) {}
       }
+      try {
+        if (typeof dispatchMobileNotifications === "function") {
+          const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+          dispatchMobileNotifications({ db: dbClient, shop, limit: 100 }).catch(() => {});
+        }
+      } catch (_) {}
     } else {
       const pendingList = await prisma.backInStockSubscription.findMany({
         where: { shop, id: { in: ids }, status: { in: ["PENDING", "FAILED"] } },
@@ -631,8 +792,17 @@ export const action = async ({ request }) => {
 
     let count = 0;
     if (mode === "products") {
+      const expandedVariantIds = Array.from(
+        new Set(
+          ids.flatMap((id) => {
+            const clean = String(id || "").trim();
+            const raw = clean.replace("gid://shopify/ProductVariant/", "");
+            return raw ? [clean, raw, `gid://shopify/ProductVariant/${raw}`] : [clean];
+          })
+        )
+      );
       const res = await prisma.backInStockSubscription.updateMany({
-        where: { shop, variantId: { in: ids }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
+        where: { shop, variantId: { in: expandedVariantIds }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
         data: { status: "CANCELLED" },
       });
       count = res.count;
@@ -781,9 +951,29 @@ export const action = async ({ request }) => {
             });
 
             totalNotified += res.sent;
+
+            try {
+              if (typeof queueRestockPush === "function") {
+                const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+                await queueRestockPush({
+                  db: dbClient,
+                  shop,
+                  variantId: variant.id,
+                  productId: variant.product?.id,
+                  productTitle: variant.product?.title,
+                });
+              }
+            } catch (_) {}
           }
         }
       }
+
+      try {
+        if (typeof dispatchMobileNotifications === "function") {
+          const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+          dispatchMobileNotifications({ db: dbClient, shop, limit: 100 }).catch(() => {});
+        }
+      } catch (_) {}
 
       if (inStockCount === 0) {
         return Response.json({
@@ -911,12 +1101,13 @@ export default function BackInStockDashboard() {
   // Preset filter click
   const handleSelectPreset = (presetId) => {
     setActivePreset(presetId);
+    setStatusFilter("ALL");
+    setEtaFilter("ALL");
+    setDemandFilter("ALL");
+    setDateRangeFilter("ALL");
+    setKpiFilter("ALL");
+
     if (presetId === "ALL") {
-      setStatusFilter("ALL");
-      setEtaFilter("ALL");
-      setDemandFilter("ALL");
-      setDateRangeFilter("ALL");
-      setKpiFilter("ALL");
       updateUrlParams({
         status: "ALL",
         eta: "ALL",
@@ -927,22 +1118,22 @@ export default function BackInStockDashboard() {
       });
     } else if (presetId === "PENDING") {
       setStatusFilter("PENDING");
-      updateUrlParams({ status: "PENDING", page: 1 });
+      updateUrlParams({ status: "PENDING", eta: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "NOTIFIED") {
       setStatusFilter("NOTIFIED");
-      updateUrlParams({ status: "NOTIFIED", page: 1 });
+      updateUrlParams({ status: "NOTIFIED", eta: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "HIGH_DEMAND") {
       setDemandFilter("HIGH");
-      updateUrlParams({ demand: "HIGH", page: 1 });
+      updateUrlParams({ demand: "HIGH", status: "ALL", eta: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "ARRIVING_SOON") {
       setEtaFilter("ARRIVING_SOON");
-      updateUrlParams({ eta: "ARRIVING_SOON", page: 1 });
+      updateUrlParams({ eta: "ARRIVING_SOON", status: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "NEEDS_ATTENTION") {
       setKpiFilter("NEEDS_ATTENTION");
-      updateUrlParams({ kpiFilter: "NEEDS_ATTENTION", page: 1 });
+      updateUrlParams({ kpiFilter: "NEEDS_ATTENTION", status: "ALL", eta: "ALL", demand: "ALL", dateRange: "ALL", page: 1 });
     } else if (presetId === "RECENT_7D") {
       setDateRangeFilter("LAST_7D");
-      updateUrlParams({ dateRange: "LAST_7D", page: 1 });
+      updateUrlParams({ dateRange: "LAST_7D", status: "ALL", eta: "ALL", demand: "ALL", kpiFilter: "ALL", page: 1 });
     }
   };
 
@@ -959,49 +1150,72 @@ export default function BackInStockDashboard() {
     setSearchParams(new URLSearchParams());
   };
 
+  const handleViewModeChange = (mode) => {
+    setSelectedVariantIds([]);
+    setSelectedSubscriberIds([]);
+    updateUrlParams({ view: mode, page: 1 });
+  };
+
   // Export CSV (Direct blob download to prevent iframe popup blocks)
   const handleExportCsv = async (selectedIds = null) => {
     try {
-      if (viewMode === "products" && selectedIds && selectedIds.length > 0) {
-        const target = products.filter((p) => selectedIds.includes(p.variantId));
-        const csvContent =
-          "\uFEFF" +
-          [
+      if (selectedIds && selectedIds.length > 0) {
+        if (viewMode === "products") {
+          const target = products.filter((p) => selectedIds.includes(p.variantId));
+          const csvContent =
+            "\uFEFF" +
             [
-              "Variant ID",
-              "Product Title",
-              "Variant Title",
-              "SKU",
-              "Waiting Subscribers",
-              "ETA Date",
-              "Odoo PO",
-              "Status",
-            ].join(","),
-            ...target.map((p) =>
               [
-                `"${p.variantId}"`,
-                `"${(p.productTitle || "").replace(/"/g, '""')}"`,
-                `"${(p.variantTitle || "").replace(/"/g, '""')}"`,
-                `"${p.sku || ""}"`,
-                p.subscriberCount,
-                `"${p.etaDate || ""}"`,
-                `"${p.poNumber || ""}"`,
-                `"${p.pendingCount > 0 ? "대기중" : "발송완료"}"`,
-              ].join(",")
-            ),
-          ].join("\n");
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute(
-          "download",
-          `back_in_stock_selected_${dayjs().format("YYYYMMDD_HHmm")}.csv`
-        );
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
+                "Variant ID",
+                "Product Title",
+                "Variant Title",
+                "SKU",
+                "Waiting Subscribers",
+                "ETA Date",
+                "Odoo PO",
+                "Status",
+              ].join(","),
+              ...target.map((p) =>
+                [
+                  `"${p.variantId}"`,
+                  `"${(p.productTitle || "").replace(/"/g, '""')}"`,
+                  `"${(p.variantTitle || "").replace(/"/g, '""')}"`,
+                  `"${p.sku || ""}"`,
+                  p.pendingCount,
+                  `"${p.etaDate || ""}"`,
+                  `"${p.poNumber || ""}"`,
+                  `"${p.pendingCount > 0 ? "대기중" : "발송완료"}"`,
+                ].join(",")
+              ),
+            ].join("\n");
+          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          link.setAttribute(
+            "download",
+            `back_in_stock_products_${dayjs().format("YYYYMMDD_HHmm")}.csv`
+          );
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          return;
+        } else if (viewMode === "subscribers") {
+          const target = subscribers.filter((s) => selectedIds.includes(s.id));
+          const csvContent = exportSubscriptionsToCsv(target);
+          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          link.setAttribute(
+            "download",
+            `back_in_stock_subscribers_${dayjs().format("YYYYMMDD_HHmm")}.csv`
+          );
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          return;
+        }
       }
 
       const res = await fetch(`/app/back-in-stock?exportCsv=true`);
@@ -1034,13 +1248,15 @@ export default function BackInStockDashboard() {
   };
 
   // Notify Variant action
-  const handleNotifyVariant = (variantId, sku = null, productTitle = null) => {
+  const handleNotifyVariant = (variantId, sku = null, productTitle = null, variantTitle = null, productUrl = null) => {
     setNotifyingVariantId(variantId);
     const fd = new FormData();
     fd.append("intent", "notify_variant");
     fd.append("variantId", variantId);
     if (sku) fd.append("sku", sku);
     if (productTitle) fd.append("productTitle", productTitle);
+    if (variantTitle) fd.append("variantTitle", variantTitle);
+    if (productUrl) fd.append("productUrl", productUrl);
     fetcher.submit(fd, { method: "post" });
   };
 
@@ -1109,6 +1325,16 @@ export default function BackInStockDashboard() {
     setPreviewModalOpen(true);
   };
 
+  // Keep activeDrawerProduct synced with updated products
+  useEffect(() => {
+    if (drawerOpen && activeDrawerProduct?.variantId && products?.length) {
+      const updated = products.find((p) => p.variantId === activeDrawerProduct.variantId);
+      if (updated) {
+        setActiveDrawerProduct(updated);
+      }
+    }
+  }, [products, drawerOpen, activeDrawerProduct?.variantId]);
+
   // Reset spinners on fetcher completion and reload drawer if open
   useEffect(() => {
     if (fetcher.state === "idle") {
@@ -1165,7 +1391,7 @@ export default function BackInStockDashboard() {
         {/* Operations Control Bar */}
         <BackInStockControlBar
           viewMode={viewMode}
-          onChangeViewMode={(v) => updateUrlParams({ view: v, page: 1 })}
+          onChangeViewMode={handleViewModeChange}
           searchQuery={searchQuery}
           onChangeSearch={setSearchQuery}
           statusFilter={statusFilter}
@@ -1192,6 +1418,11 @@ export default function BackInStockDashboard() {
           onChangeDateRangeFilter={(r) => {
             setDateRangeFilter(r);
             updateUrlParams({ dateRange: r, page: 1 });
+          }}
+          kpiFilter={kpiFilter}
+          onClearKpiFilter={() => {
+            setKpiFilter("ALL");
+            updateUrlParams({ kpiFilter: "ALL", page: 1 });
           }}
           onClearAllFilters={handleClearAllFilters}
           activePresets={activePreset}
@@ -1276,6 +1507,8 @@ export default function BackInStockDashboard() {
           onOpenEmailPreview={handleOpenEmailPreview}
           isSyncing={syncingVariantId === activeDrawerProduct?.variantId}
           isNotifying={notifyingVariantId === activeDrawerProduct?.variantId}
+          notifyingSubId={notifyingSubId}
+          cancellingSubId={cancellingSubId}
           isLoadingSubscribers={drawerFetcher.state === "loading"}
         />
 

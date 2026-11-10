@@ -224,15 +224,26 @@ export default function BackInStockProductTable({
                     <BlockStack gap="050">
                       <InlineStack gap="100" blockAlign="baseline">
                         <Text variant="bodyMd" fontWeight="bold">
-                          {item.subscriberCount}
+                          {item.pendingCount}
                         </Text>
                         <Text variant="bodyXs" tone="subdued">
                           명 대기
                         </Text>
                       </InlineStack>
-                      <Badge tone={demand.tone} size="small">
-                        {demand.badge}
-                      </Badge>
+                      {item.subscriberCount > item.pendingCount && (
+                        <Text variant="bodyXs" tone="subdued">
+                          누적 {item.subscriberCount}명 · 완료 {item.notifiedCount}명
+                        </Text>
+                      )}
+                      {item.pendingCount > 0 ? (
+                        <Badge tone={demand.tone} size="small">
+                          {demand.badge}
+                        </Badge>
+                      ) : (
+                        <Badge tone="subdued" size="small">
+                          대기 없음
+                        </Badge>
+                      )}
                     </BlockStack>
                   </td>
 
@@ -283,6 +294,9 @@ export default function BackInStockProductTable({
 
                   <td style={{ padding: "10px 12px" }}>
                     {item.reconciliationCount > 0 && <Badge tone="warning">발송됨 · 기록 확인 필요 ({item.reconciliationCount}명)</Badge>}
+                    {item.statusCounts?.FAILED > 0 && (
+                      <Badge tone="critical">발송 실패 ({item.statusCounts.FAILED}명)</Badge>
+                    )}
                     {item.pendingCount > 0 && item.notifiedCount === 0 && (
                       <Badge tone="warning">전송 대기 ({item.pendingCount}명)</Badge>
                     )}
@@ -292,7 +306,7 @@ export default function BackInStockProductTable({
                     {item.pendingCount === 0 && item.notifiedCount > 0 && (
                       <Badge tone="success">전송 완료 ({item.notifiedCount}명)</Badge>
                     )}
-                    {item.pendingCount === 0 && item.notifiedCount === 0 && !item.reconciliationCount && (
+                    {item.pendingCount === 0 && item.notifiedCount === 0 && !item.reconciliationCount && !item.statusCounts?.FAILED && (
                       <Badge tone="subdued">신청 없음</Badge>
                     )}
                   </td>
@@ -320,7 +334,7 @@ export default function BackInStockProductTable({
                         icon={SendIcon}
                         loading={isNotifying}
                         disabled={item.pendingCount === 0}
-                        onClick={() => onNotifyVariant(item.variantId, item.sku, item.productTitle)}
+                        onClick={() => onNotifyVariant(item.variantId, item.sku, item.productTitle, item.variantTitle, item.productUrl)}
                       >
                         일괄 발송
                       </Button>

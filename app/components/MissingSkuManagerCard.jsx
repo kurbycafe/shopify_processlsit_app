@@ -286,12 +286,12 @@ export function MissingSkuManagerCard({
             <BlockStack gap="050">
               <InlineStack gap="200" blockAlign="center">
                 <Text as="h2" variant="headingSm">
-                  SKU 미등록 상품 자동 설정 (Odoo 기준 채번 · Odoo & Shopify 동시 적용)
+                  SKU 미등록 상품 설정
                 </Text>
                 <Badge tone="warning">{`미등록 ${rows.length}개`}</Badge>
               </InlineStack>
               <Text as="p" tone="subdued" variant="bodySm">
-                상품명을 분석해 다와요 Odoo 카테고리 규칙(예: C40 즉석국·탕, B20 양념·고춧가루)에 맞는 다음 번호를 자동 추천합니다. 적용 시 Odoo와 Shopify 양쪽 중복 여부를 검증한 뒤 동시 반영됩니다.
+                상품명 기반 추천 SKU를 확인하고 Odoo와 Shopify에 동시 반영합니다.
               </Text>
             </BlockStack>
             <Button
