@@ -8,7 +8,7 @@ import { PushNotificationsManager } from "./app.push-notifications.jsx";
 import { AppRequestsManager } from "./app.app-requests.jsx";
 import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
 import MobileLiveSimulator from "../components/MobileLiveSimulator.jsx";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLoaderData, useFetcher, useRevalidator, useSearchParams } from "react-router";
 import {
   Page,
@@ -36,6 +36,10 @@ import { ProductAttributesPanel } from "../components/appManagement/ProductAttri
 import { ShippingPanel } from "../components/appManagement/ShippingPanel.jsx";
 import { appManagementAction, loadLiveVariantPrices } from "../services/appManagementAction.server.js";
 import { reconcileDraft } from "../utils/reconcileDraft.js";
+
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+import { useAppFeedback, UnsavedChangesGuard } from "../components/common/AppFeedback.jsx";
 
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
@@ -75,6 +79,7 @@ export default function AppManagementPage() {
   const revalidator = useRevalidator();
   const productRules = config.productRules || config.productOverrides || [];
   const fetcher = useFetcher();
+  const { confirm } = useAppFeedback();
   const searchFetcher = useFetcher();
   const campaignSearchFetcher = useFetcher();
 
@@ -406,6 +411,34 @@ export default function AppManagementPage() {
     if (force) resetRequested.current = false;
   }, [config, fetcher.state, fetcher.data]);
 
+  // True while any settings draft differs from the saved configuration.
+  const hasUnsavedSettings = useMemo(() => {
+    const store = config.store || {};
+    const drafts = [
+      [freeShippingThreshold, String(store.freeShippingThreshold ?? 60)],
+      [shippingNoticeKo, store.shippingNotice?.ko || ""],
+      [shippingNoticeDe, store.shippingNotice?.de || ""],
+      [shippingNoticeEn, store.shippingNotice?.en || ""],
+      [tickers, store.tickers || []],
+      [androidVersionCode, String(config.appUpdate?.androidVersionCode || "")],
+      [storeAddress, config.storeInfo?.address || ""],
+      [storeHours, config.storeInfo?.hours || ""],
+      // Sections the saved config does not carry yet start from built-in defaults, which are not edits.
+      ...(store.hotDealSettings ? [[hotDealSettings, store.hotDealSettings]] : []),
+      ...(store.coldChain ? [[coldChain, store.coldChain]] : []),
+      ...(config.searchKeywords ? [[searchKeywordsText, config.searchKeywords.join(", ")]] : []),
+      ...(config.groupBuying ? [[groupBuying, config.groupBuying]] : []),
+      ...(config.prospekt ? [[prospekt, config.prospekt]] : []),
+      ...(config.subscriptionPlans ? [[subscriptionPlans, config.subscriptionPlans]] : []),
+      ...(store.productPage ? [[productPage, store.productPage]] : []),
+      ...(store.cartPage ? [[cartPage, store.cartPage]] : []),
+      ...(store.myPage ? [[myPage, store.myPage]] : []),
+    ];
+    return drafts.some(([draft, saved]) => JSON.stringify(draft) !== JSON.stringify(saved));
+  }, [config, freeShippingThreshold, shippingNoticeKo, shippingNoticeDe, shippingNoticeEn, tickers, androidVersionCode, storeAddress, storeHours,
+    hotDealSettings, coldChain, searchKeywordsText, groupBuying, prospekt, subscriptionPlans, productPage, cartPage, myPage]);
+  const [recipeHasUnsavedEdits, setRecipeHasUnsavedEdits] = useState(false);
+
   const isSubmitting = fetcher.state !== "idle";
   const activeBannerCount = (config.banners || []).filter((b) => b.isActive).length;
   const activeDealCount = (config.hotDeals || []).filter((d) => d.isActive).length;
@@ -581,14 +614,14 @@ export default function AppManagementPage() {
     fetcher.submit(fd, { method: "post" });
   };
 
-  const handleResetDefaults = () => {
-    if (
-      !window.confirm(
-        "배송 안내 문구, 상단 띠 공지, 특가 타이머·콜드체인·상품/장바구니/마이페이지 표시 옵션을 기본값으로 되돌립니다.\n배너, 특가 상품, 카테고리, 브랜드, 공동구매, 유통기한 규칙 등 운영 데이터는 그대로 유지됩니다.\n계속하시겠습니까?"
-      )
-    ) {
-      return;
-    }
+  const handleResetDefaults = async () => {
+    const confirmed = await confirm({
+      title: "표시 옵션 기본값 복원",
+      message: "배송 안내 문구, 상단 띠 공지, 특가 타이머·콜드체인·상품/장바구니/마이페이지 표시 옵션을 기본값으로 되돌립니다.\n배너, 특가 상품, 카테고리, 브랜드, 공동구매, 유통기한 규칙 등 운영 데이터는 그대로 유지됩니다.\n계속하시겠습니까?",
+      confirmLabel: "기본값으로 복원",
+      destructive: true,
+    });
+    if (!confirmed) return;
     const fd = new FormData();
     resetRequested.current = true;
     fd.append("intent", "reset_defaults");
@@ -596,7 +629,7 @@ export default function AppManagementPage() {
   };
 
   return (
-    <Page
+    <Page backAction={{ content: "대시보드", url: "/app" }}
       title="앱 관리"
       subtitle="각 항목을 저장하면 앱 설정에 반영됩니다. 앱에서 확인하는 시점에 따라 적용이 지연될 수 있습니다."
       primaryAction={{
@@ -615,6 +648,7 @@ export default function AppManagementPage() {
         },
       ]}
     >
+      <UnsavedChangesGuard when={hasUnsavedSettings || recipeHasUnsavedEdits} />
       <BlockStack gap="500">
         {/* TOP HIERARCHICAL NAVIGATION (Polaris Standard) */}
         <div
@@ -1051,7 +1085,7 @@ export default function AppManagementPage() {
 
         {visitedTabs.has("recipes") && (
           <div style={{ display: activeTab === "recipes" ? "block" : "none" }}>
-            <RecipeCommerceManager active={activeTab === "recipes"} />
+            <RecipeCommerceManager active={activeTab === "recipes"} onDirtyChange={setRecipeHasUnsavedEdits} />
           </div>
         )}
 

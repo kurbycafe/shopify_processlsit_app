@@ -1,4 +1,5 @@
 import { Badge, Button, InlineStack, Text } from "@shopify/polaris";
+import { useAppFeedback } from "../common/AppFeedback.jsx";
 
 // Helpers, constants and preview drawings shared by the app management tabs.
 export const pad2 = (n) => String(n).padStart(2, "0");
@@ -32,6 +33,7 @@ export function AdminListRow({
   onMove,
   actions = [],
 }) {
+  const { confirm } = useAppFeedback();
   return (
     <div
       style={{
@@ -134,8 +136,8 @@ export function AdminListRow({
               size="slim"
               tone={a.tone}
               variant={a.variant}
-              onClick={() => {
-                if (a.confirm && !window.confirm(a.confirm)) return;
+              onClick={async () => {
+                if (a.confirm && !(await confirm({ title: a.label, message: a.confirm, confirmLabel: a.label, destructive: a.tone === "critical" }))) return;
                 a.onClick();
               }}
             >

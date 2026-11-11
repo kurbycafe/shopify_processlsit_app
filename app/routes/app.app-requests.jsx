@@ -33,6 +33,9 @@ import {
   STATUS_MANAGER_EMAIL,
 } from "../constants/appFeatureRequests.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 const KIND_LABELS = {
   FEATURE: "기능 추가",
   CHANGE: "기능 수정",
@@ -653,7 +656,7 @@ export const action = async ({ request }) => {
   }
 
           return (
-          <Page
+          <Page backAction={{ content: "대시보드", url: "/app" }}
             title="앱 개선 요청"
             subtitle="대시보드에서 접수된 모바일 앱 기능 추가, 수정 및 오류 요청 내역을 관리합니다."
           >

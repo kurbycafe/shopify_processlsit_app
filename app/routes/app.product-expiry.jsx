@@ -1,6 +1,9 @@
 import { authenticate } from "../shopify.server.js";
 import { listExpiryProducts, saveProductExpiry, ExpiryError } from "../services/productExpiry.server.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 function failure(error) {
   const status = error instanceof ExpiryError ? error.status : 503;
   return Response.json({ success: false, message: error instanceof ExpiryError ? error.message : "상품 유통기한 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.", ...(error instanceof ExpiryError ? { details: error.details } : {}) },

@@ -172,7 +172,7 @@ export default function InventoryReportPage() {
   }, [filteredItems, fetchedAt, shopName, currencyCode]);
 
   return (
-    <Page
+    <Page backAction={{ content: "대시보드", url: "/app" }}
       title="현재 재고 보고서"
       subtitle="조회 시점의 Shopify 재고와 판매 가격을 기준으로 출력합니다. 과거 월말 재고 자료는 제공하지 않습니다."
     >

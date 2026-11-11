@@ -2,6 +2,9 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { resolveCanonicalShop } from "../services/mobileStorefront.server.js";
 import { listAttributeProducts, saveProductAttributes, AttributeError } from "../services/productAttributes.server.js";
+
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
 const headers = { "Cache-Control": "no-store" };
 function failure(error) {
  return Response.json({ success: false, message: error instanceof AttributeError ? error.message : "상품 속성 저장 결과를 확인하지 못했습니다. 목록을 새로고침하여 실제 값을 확인해주세요." },

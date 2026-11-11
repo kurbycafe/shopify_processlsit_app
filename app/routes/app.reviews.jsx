@@ -6,6 +6,9 @@ import prisma from "../db.server.js";
 import { MobileApiError } from "../services/mobileApi.server.js";
 import { adminDeleteReview, adminListReviews, adminSetReviewHidden } from "../services/productReviews.server.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 // Product reviews from the mobile app and dawayo.de in one list, with the
 // source shown on each. Hidden reviews disappear from the app and the shop.
 export const loader = async ({ request }) => {
@@ -182,7 +185,7 @@ export default function ReviewsPage() {
   );
 
   return (
-    <Page title="리뷰 관리" subtitle="앱과 dawayo.de에서 작성된 상품 리뷰를 한곳에서 관리합니다. 숨긴 리뷰는 앱과 웹 모두에서 보이지 않습니다.">
+    <Page backAction={{ content: "대시보드", url: "/app" }} title="리뷰 관리" subtitle="앱과 dawayo.de에서 작성된 상품 리뷰를 한곳에서 관리합니다. 숨긴 리뷰는 앱과 웹 모두에서 보이지 않습니다.">
       <BlockStack gap="400">
         {data.error && <Banner tone="critical">{data.error}</Banner>}
         <Card>

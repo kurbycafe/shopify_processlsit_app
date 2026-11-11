@@ -25,6 +25,9 @@ import AppEmptyState from "../components/common/AppEmptyState";
 import MetricCard from "../components/common/MetricCard";
 import { COMPANY } from "../constants/company.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;

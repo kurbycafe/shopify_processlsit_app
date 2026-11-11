@@ -23,9 +23,6 @@ export default function BackInStockHeader({
     <BlockStack gap="300">
       <InlineStack align="space-between" blockAlign="center" wrap>
         <BlockStack gap="100">
-          <Text variant="headingXl" as="h1">
-            재입고 수요 관리
-          </Text>
           <InlineStack gap="200" blockAlign="center">
             <Text variant="bodySm" tone="subdued">
               상점 도메인: {shop || "dawayo.de"}

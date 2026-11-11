@@ -32,6 +32,10 @@ import BackInStockPagination from "../components/backInStock/BackInStockPaginati
 import BackInStockDetailDrawer from "../components/backInStock/BackInStockDetailDrawer";
 import BackInStockEmailPreviewModal from "../components/backInStock/BackInStockEmailPreviewModal";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+import { useAppFeedback } from "../components/common/AppFeedback.jsx";
+
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
@@ -1011,6 +1015,7 @@ export default function BackInStockDashboard() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const fetcher = useFetcher();
+  const { confirm } = useAppFeedback();
   const drawerFetcher = useFetcher();
 
   // Local filter states synced with URL
@@ -1292,10 +1297,18 @@ export default function BackInStockDashboard() {
   };
 
   // Batch cancel action
-  const handleBatchCancel = () => {
+  const handleBatchCancel = async () => {
     const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
     if (ids.length === 0) return;
-    if (confirm(`선택한 ${ids.length}개 항목의 알림 신청을 일괄 취소하시겠습니까?`)) {
+    const confirmed = await confirm({
+      title: "알림 신청 일괄 취소",
+      message: `선택한 ${ids.length}개 항목의 알림 신청을 일괄 취소하시겠습니까?`,
+      impactSummary: "취소한 신청은 되돌릴 수 없으며, 해당 고객에게 재입고 알림이 발송되지 않습니다.",
+      confirmLabel: "신청 취소",
+      cancelLabel: "닫기",
+      destructive: true,
+    });
+    if (confirmed) {
       const fd = new FormData();
       fd.append("intent", "batch_cancel");
       fd.append("mode", viewMode);
@@ -1355,7 +1368,7 @@ export default function BackInStockDashboard() {
     viewMode === "products" ? selectedVariantIds.length : selectedSubscriberIds.length;
 
   return (
-    <Page fullWidth>
+    <Page title="재입고 수요 관리" backAction={{ content: "대시보드", url: "/app" }} fullWidth>
       <BlockStack gap="400">
         {/* Header Section */}
         <BackInStockHeader

@@ -5,6 +5,9 @@ import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 const DEFAULT_ITEMS = [
   { title: "실시간 ERP 입고 시스템", desc: "입고 예정 상품 관리 및 재고 반영 속도가 향상되었습니다." },
   { title: "품절 상품 재입고 알림", desc: "품절 상품 상세 페이지에서 입고 예정일(ETA) 확인 및 재입고 알림 신청이 가능합니다." },
@@ -127,7 +130,7 @@ export default function StorefrontNoticeSettings() {
   };
 
   return (
-    <Page
+    <Page backAction={{ content: "대시보드", url: "/app" }}
       title="스토어프론트 팝업 공지 관리"
       subtitle="dawayo.de 샵 프론트 메인 화면에 1회만 표시되는 홍보/안내 팝업 텍스트 및 버전을 설정합니다."
       primaryAction={{

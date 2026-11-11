@@ -7,6 +7,9 @@ import { dispatchMobileNotifications } from "../services/mobileNotificationQueue
 import { MobileApiError } from "../services/mobileApi.server.js";
 import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const search = new URL(request.url).searchParams;
@@ -92,7 +95,7 @@ export const action = async ({ request }) => {
 
 export default function CustomerRequestsPage() {
   return (
-    <Page fullWidth>
+    <Page title="고객 상담함" backAction={{ content: "대시보드", url: "/app" }} fullWidth>
       <CustomerRequestsHub />
     </Page>
   );

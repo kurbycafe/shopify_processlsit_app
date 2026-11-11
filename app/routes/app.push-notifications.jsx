@@ -8,6 +8,9 @@ import { createPushCampaign, expandPushCampaigns, listPushAdmin, retryPushDelive
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { firebasePushConfigured } from "../services/firebaseMessaging.server.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 const DELIVERY_STATUS = {
   QUEUED: { tone: "info", label: "대기" },
   SENDING: { tone: "attention", label: "발송 중" },
@@ -258,7 +261,7 @@ export default function PushNotificationsPage() {
     setSearchParams(params);
   };
 
-  return <Page title="앱 알림 발송 및 기록" fullWidth><BlockStack gap="400">
+  return <Page backAction={{ content: "대시보드", url: "/app" }} title="앱 알림 발송 및 기록" fullWidth><BlockStack gap="400">
     {!data.configured && <Banner tone="warning" title="발송 서버 연결이 필요합니다"><p>기기 등록과 별도로 Firebase 발송 인증 및 예약 대기열 실행 설정이 필요합니다. 현재 요청은 저장되며 발송되지 않습니다.</p></Banner>}
     {(data.error || result?.error) && <Banner tone="critical"><p>{result?.error || data.error}</p></Banner>}
     {result?.message && <Banner tone="success"><p>{result.message}</p></Banner>}

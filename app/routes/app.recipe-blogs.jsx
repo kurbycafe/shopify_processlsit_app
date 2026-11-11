@@ -27,6 +27,10 @@ import RecipeStorefrontPreviewModal from "../components/recipe/RecipeStorefrontP
 import { unpackRecipe } from "../utils/recipeData.js";
 import { handleRecipeAction } from "../utils/recipePersistence.server.js";
 import { getShopAliases } from "../utils/shopDomain.js";
+
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+import { UnsavedChangesGuard } from "../components/common/AppFeedback.jsx";
 export { unpackRecipe } from "../utils/recipeData.js";
 
 const BLOGS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -257,7 +261,7 @@ export async function action({ request }) {
 }
 
 // --- MAIN FRONTEND COMPONENT ---
-export function RecipeCommerceManager({ active = true }) {
+export function RecipeCommerceManager({ active = true, onDirtyChange }) {
   const loaderFetcher = useFetcher();
   const { load } = loaderFetcher;
   useEffect(() => {
@@ -307,6 +311,7 @@ export function RecipeCommerceManager({ active = true }) {
       actionUrl="/app/recipe-blogs"
       embedded={true}
       onReload={() => loaderFetcher.load("/app/recipe-blogs")}
+      onDirtyChange={onDirtyChange}
     />
   );
 }
@@ -323,7 +328,7 @@ function RecipeBlogsContent(props = {}) {
   const blogs = Array.isArray(rawData.blogs) ? rawData.blogs : [];
   const shopUrl = rawData.shopUrl || "";
   const loadError = props.loadError || rawData.error || null;
-  const { actionUrl, embedded = false, onReload } = props;
+  const { actionUrl, embedded = false, onReload, onDirtyChange } = props;
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
   const fetcher = useFetcher();
@@ -373,6 +378,24 @@ function RecipeBlogsContent(props = {}) {
 
     // Feedback banner
     const [toastMessage, setToastMessage] = useState(null);
+
+    // Unsaved-edit tracking: the editor is clean right after a recipe is loaded,
+    // reset or saved, and dirty once any field differs from that point.
+    const editorSnapshot = JSON.stringify({ category, occasion, difficulty, prepTimeMinutes, cookTimeMinutes, servings, spiceLevel, dietaryFlags, imageUrl, translations, ingredients, selectedProducts });
+    const editorSnapshotRef = useRef(editorSnapshot);
+    editorSnapshotRef.current = editorSnapshot;
+    const [cleanSnapshot, setCleanSnapshot] = useState(editorSnapshot);
+    const [cleanMark, setCleanMark] = useState(0);
+    const markEditorClean = () => setCleanMark(mark => mark + 1);
+    // Runs after the state updates batched with markEditorClean() have rendered.
+    useEffect(() => { setCleanSnapshot(editorSnapshotRef.current); }, [cleanMark]);
+    const hasUnsavedEdits = editorSnapshot !== cleanSnapshot;
+    const onDirtyChangeRef = useRef(onDirtyChange);
+    onDirtyChangeRef.current = onDirtyChange;
+    useEffect(() => {
+      onDirtyChangeRef.current?.(hasUnsavedEdits);
+      return () => onDirtyChangeRef.current?.(false);
+    }, [hasUnsavedEdits]);
 
     const isSaving = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "save";
     const isPublishing = actionFetcher.state !== "idle" && actionFetcher.formData?.get("intent") === "publish";
@@ -444,6 +467,7 @@ function RecipeBlogsContent(props = {}) {
         setIngredients([]);
       }
       setToastMessage({ type: result.success ? "success" : "critical", title: result.success ? "처리 완료" : "처리 실패", content: result.error || result.message || "레시피가 저장되었습니다." });
+      if (result.success) markEditorClean();
       if (result.success && onReloadRef.current) onReloadRef.current();
     }, [actionFetcher.state, actionFetcher.data, selectedRecipe?.id]);
 
@@ -508,6 +532,7 @@ function RecipeBlogsContent(props = {}) {
       setDietaryFlags(Array.isArray(parsedFlags) ? parsedFlags : []);
 
       setSelectedProducts(Array.isArray(recipe.products) ? recipe.products : []);
+      markEditorClean();
     };
 
     // Reset editor for new recipe
@@ -533,6 +558,7 @@ function RecipeBlogsContent(props = {}) {
       setIngredients([]);
       setSelectedProducts([]);
       setSearchResults([]);
+      markEditorClean();
     };
 
     // Apply Preset
@@ -931,7 +957,7 @@ function RecipeBlogsContent(props = {}) {
     if (embedded) return contentBody;
 
     return (
-      <Page
+      <Page backAction={{ content: "대시보드", url: "/app" }}
         title="레시피 관리"
         subtitle="블로그 레시피 본문과 연결 상품을 관리합니다."
         primaryAction={{
@@ -939,6 +965,7 @@ function RecipeBlogsContent(props = {}) {
           onAction: () => setPresetModalOpen(true),
         }}
       >
+        <UnsavedChangesGuard when={hasUnsavedEdits} />
         {contentBody}
       </Page>
     );

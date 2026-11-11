@@ -32,6 +32,10 @@ import {
   Modal,
 } from "@shopify/polaris";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+import { useAppFeedback } from "../components/common/AppFeedback.jsx";
+
 export const links = () => [
   { rel: "stylesheet", href: styles },
 ];
@@ -830,6 +834,7 @@ export default function OrderPrintDetailPage() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
   const emailFetcher = useFetcher();
+  const { confirm, notify } = useAppFeedback();
 
   const [orders, setOrders] = useState(loaderData?.orders || []);
   const requestedCount = loaderData?.requestedCount || orders.length;
@@ -837,8 +842,12 @@ export default function OrderPrintDetailPage() {
   const [isMissingModalOpen, setIsMissingModalOpen] = useState(false);
   const [emailSentMap, setEmailSentMap] = useState({});
 
-  const handleSendCancellationEmail = (targetOrder) => {
-    const confirmed = window.confirm(`[이메일 발송] ${targetOrder.name} 주문의 취소/철회 알림 메일을 담당자(service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de)에게 발송하시겠습니까?`);
+  const handleSendCancellationEmail = async (targetOrder) => {
+    const confirmed = await confirm({
+      title: "취소/철회 알림 메일 발송",
+      message: `${targetOrder.name} 주문의 취소/철회 알림 메일을 담당자(service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de)에게 발송하시겠습니까?`,
+      confirmLabel: "메일 발송",
+    });
     if (!confirmed) return;
 
     emailFetcher.submit(
@@ -1027,9 +1036,9 @@ export default function OrderPrintDetailPage() {
   useEffect(() => {
     if (pendingPrint && fetcher.state === "idle" && fetcher.data && !fetcher.data?.success) {
       setPendingPrint(false);
-      alert("영수증(Rechnung) 번호 발급 중 오류가 발생했습니다: " + (fetcher.data.error || "알 수 없는 오류"));
+      notify("영수증(Rechnung) 번호 발급 중 오류가 발생했습니다: " + (fetcher.data.error || "알 수 없는 오류"), { isError: true });
     }
-  }, [pendingPrint, fetcher.state, fetcher.data]);
+  }, [pendingPrint, fetcher.state, fetcher.data, notify]);
 
   const handleIssueInvoices = (targetOrders) => {
     const targets = (targetOrders || []).filter(Boolean);

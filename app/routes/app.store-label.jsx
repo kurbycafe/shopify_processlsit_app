@@ -4,6 +4,9 @@ import { Page, Layout, Card, BlockStack, InlineStack, Text, Button, Modal, Resou
 import { authenticate } from "../shopify.server";
 import styles from "../styles/app.store-label.css?url";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 export const links = () => [
   { rel: "stylesheet", href: styles },
 ];

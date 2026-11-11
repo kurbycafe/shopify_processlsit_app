@@ -57,7 +57,7 @@ function editor() {
     useLoaderData: () => ({ recipes: [], blogs: [{ id: "gid://shopify/Blog/1" }], shopUrl: "https://shop.test" }),
     useFetcher: () => fetcherIndex++ === 0 ? search : action,
   };
-  for (const name of ["Page", "Layout", "Card", "Button", "Select", "BlockStack", "InlineStack", "Text", "Badge", "Banner", "Box", "Divider", "TextField", "Modal", "RecipeDashboardHeader", "RecipePresetModal", "RecipeLocalizationEditor", "RecipeMetadataSettings", "RecipeIngredientsCommerce", "RecipeStorefrontPreviewModal"]) context[name] = name;
+  for (const name of ["UnsavedChangesGuard", "Page", "Layout", "Card", "Button", "Select", "BlockStack", "InlineStack", "Text", "Badge", "Banner", "Box", "Divider", "TextField", "Modal", "RecipeDashboardHeader", "RecipePresetModal", "RecipeLocalizationEditor", "RecipeMetadataSettings", "RecipeIngredientsCommerce", "RecipeStorefrontPreviewModal"]) context[name] = name;
   vm.createContext(context);
   vm.runInContext(compiled, context);
   let tree;
@@ -137,6 +137,7 @@ test("RecipeBlogs renders safely with empty routeData or missing blogs", () => {
     useFetcher: () => ({ state: "idle", data: null, submit() {} }),
   };
   for (const name of [
+    "UnsavedChangesGuard",
     "Page",
     "Layout",
     "Card",

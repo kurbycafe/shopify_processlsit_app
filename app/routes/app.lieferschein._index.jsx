@@ -9,6 +9,10 @@ import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js"
 import styles from "../styles/app.lieferschein.css?url";
 import { Page, Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination, Button, Badge, Banner } from "@shopify/polaris";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+import { useAppFeedback } from "../components/common/AppFeedback.jsx";
+
 export const links = () => [
   { rel: "stylesheet", href: styles },
 ];
@@ -459,10 +463,16 @@ export const loader = async ({ request }) => {
   }
 };
 
+// The print window renders every slip in one document; more than this exhausts
+// the browser's PDF renderer and the Shopify request budget.
+const MAX_BULK_PRINT_ORDERS = 100;
+const RECOMMENDED_BULK_PRINT_ORDERS = 50;
+
 export default function AdditionalPage() {
   const loaderData = useLoaderData();
   const shop = loaderData?.shop || "";
   const fetcher = useFetcher();
+  const { confirm, notify } = useAppFeedback();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentOrderType = searchParams.get("orderType") || "ORDERS";
 
@@ -540,8 +550,8 @@ export default function AdditionalPage() {
     if (fetcher.state !== "idle" || fetcher.data?.success !== false || handledFetcherData.current === fetcher.data) return;
     handledFetcherData.current = fetcher.data;
     if (loaderData?.orders) setOrders(loaderData.orders);
-    alert("출력 상태 저장에 실패했습니다: " + (fetcher.data.error || "알 수 없는 오류") + "\n\n목록을 새로고침한 뒤 다시 확인해주세요.");
-  }, [fetcher.state, fetcher.data, loaderData]);
+    notify("출력 상태 저장에 실패했습니다: " + (fetcher.data.error || "알 수 없는 오류") + " 목록을 새로고침한 뒤 다시 확인해 주세요.", { isError: true });
+  }, [fetcher.state, fetcher.data, loaderData, notify]);
 
   // 주문 필터링 로직
   const filteredOrders = useMemo(() => {
@@ -650,18 +660,22 @@ export default function AdditionalPage() {
     );
   };
 
-  const handleBulkPrint = () => {
+  const handleBulkPrint = async () => {
     if (!selectedOrderIds || selectedOrderIds.length === 0) return;
 
-    if (selectedOrderIds.length > 100) {
-      alert(`[PDF 인쇄 한도 안내]\n브라우저의 PDF 렌더러 메모리 초과 및 쇼피파이 통신 타임아웃을 방지하기 위해 1회 최대 인쇄 수량은 100건(권장 50건)으로 제한됩니다.\n\n현재 선택: ${selectedOrderIds.length}건\n\n100건 이하로 나누어 선택 후 출력해주세요.`);
+    if (selectedOrderIds.length > MAX_BULK_PRINT_ORDERS) {
+      notify(`한 번에 ${MAX_BULK_PRINT_ORDERS}건까지 인쇄할 수 있습니다. 현재 ${selectedOrderIds.length}건이 선택되어 있습니다.`, { isError: true });
       return;
     }
 
     const holdOrders = orders.filter(o => selectedOrderIds.includes(o.id) && o.isCustomerHold);
     if (holdOrders.length > 0) {
       const names = holdOrders.map(o => o.name).join(", ");
-      const confirmed = window.confirm(`[주의] 선택한 주문 중 고객 취소/반품 요청건(${names})이 포함되어 있습니다.\n\n계속 인쇄하시겠습니까?`);
+      const confirmed = await confirm({
+        title: "취소/반품 요청 주문 포함",
+        message: `선택한 주문 중 고객 취소/반품 요청건(${names})이 포함되어 있습니다. 계속 인쇄하시겠습니까?`,
+        confirmLabel: "계속 인쇄",
+      });
       if (!confirmed) return;
     }
 
@@ -681,7 +695,7 @@ export default function AdditionalPage() {
     }
 
     if (idList.length === 0) {
-      alert("출력할 수 있는 유효한 주문이 없습니다.");
+      notify("출력할 수 있는 유효한 주문이 없습니다.", { isError: true });
       return;
     }
 
@@ -689,7 +703,7 @@ export default function AdditionalPage() {
     const printWindow = window.open(printUrl, "_blank");
 
     if (!printWindow || printWindow.closed || typeof printWindow.closed === "undefined") {
-      alert("브라우저 팝업이 차단되어 인쇄 창을 열지 못했습니다.\n주소창 우측에서 팝업 허용을 활성화한 후 다시 클릭해주세요.\n\n(인쇄 완료 처리는 취소되었습니다.)");
+      notify("브라우저 팝업이 차단되어 인쇄 창을 열지 못했습니다. 주소창에서 팝업을 허용한 뒤 다시 눌러 주세요. 인쇄 완료 처리는 하지 않았습니다.", { isError: true });
       return;
     }
 
@@ -734,15 +748,15 @@ export default function AdditionalPage() {
   };
 
   return (
-    <Page
+    <Page backAction={{ content: "대시보드", url: "/app" }}
       title="납품서 출력 (Lieferschein)"
       subtitle="출력할 주문을 선택하여 납품서 및 영수증(Rechnung)을 인쇄합니다."
       primaryAction={
         selectedOrderIds.length > 0
           ? {
-              content: `선택한 주문 인쇄 (${selectedOrderIds.length}건)`,
+              content: `선택한 주문 인쇄 (${selectedOrderIds.length}/${MAX_BULK_PRINT_ORDERS}건)`,
               onAction: handleBulkPrint,
-              disabled: selectedOrderIds.length > 100,
+              disabled: selectedOrderIds.length > MAX_BULK_PRINT_ORDERS,
             }
           : undefined
       }
@@ -880,15 +894,17 @@ export default function AdditionalPage() {
           </Text>
           {selectedOrderIds.length > 0 && (
             <InlineStack gap="200" blockAlign="center">
-              {selectedOrderIds.length > 100 && (
-                <Text as="span" tone="critical">한 번에 100건까지 인쇄할 수 있습니다 (권장 50건)</Text>
-              )}
+              <Text as="span" tone={selectedOrderIds.length > MAX_BULK_PRINT_ORDERS ? "critical" : "subdued"}>
+                {selectedOrderIds.length > MAX_BULK_PRINT_ORDERS
+                  ? `한 번에 ${MAX_BULK_PRINT_ORDERS}건까지 인쇄할 수 있습니다. 선택을 줄여 주세요.`
+                  : `1회 최대 ${MAX_BULK_PRINT_ORDERS}건 (권장 ${RECOMMENDED_BULK_PRINT_ORDERS}건)`}
+              </Text>
               <Button
                 variant="primary"
                 onClick={handleBulkPrint}
-                disabled={selectedOrderIds.length > 100}
+                disabled={selectedOrderIds.length > MAX_BULK_PRINT_ORDERS}
               >
-                선택한 주문 인쇄 ({selectedOrderIds.length}건)
+                선택한 주문 인쇄 ({selectedOrderIds.length}/{MAX_BULK_PRINT_ORDERS}건)
               </Button>
             </InlineStack>
           )}

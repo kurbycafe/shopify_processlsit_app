@@ -1,10 +1,13 @@
-import { useEffect, useRef } from "react";
-import { Outlet, useLoaderData, useFetcher, useRouteError, useLocation } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Outlet, useLoaderData, useFetcher, useRouteError, useLocation, useNavigation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { waitUntil } from "@vercel/functions";
 import shopify, { authenticate } from "../shopify.server";
 import { ensureRequiredWebhooksInBackground } from "../services/webhookRegistration.server.js";
+
+import { AppFeedbackProvider } from "../components/common/AppFeedback.jsx";
+import AppLoadingState from "../components/common/AppLoadingState.jsx";
 
 import operationsStyles from "../styles/operations.css?url";
 
@@ -13,6 +16,8 @@ export const links = () => [{ rel: "stylesheet", href: operationsStyles }];
 // Order webhooks deliver cancellation and return requests in real time; this
 // poll only catches what a missed webhook would otherwise lose.
 const CANCELLATION_POLL_INTERVAL_MS = 5 * 60 * 1000;
+// Shorter waits only get the loading bar, so quick screens do not flash a spinner.
+const SCREEN_LOADING_DELAY_MS = 300;
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -92,17 +97,54 @@ export default function App() {
         <s-link href="/app/pick-list">처리중 리스트</s-link>
         <s-link href="/app/lieferschein">납품서(Lieferschein)</s-link>
         <s-link href="/app/inspection-history">검수 내역</s-link>
+        <s-link href="/app/customer-requests">고객 상담함</s-link>
         <s-link href="/app/back-in-stock">재입고 수요 관리</s-link>
         <s-link href="/app/container-catalog">컨테이너 입고</s-link>
         {/* <s-link href="/app/inventory">월별 재고 보고서</s-link> */}
         {/* <s-link href="/app/store-label">매장 라벨 인쇄</s-link> */}
         <s-link href="/app/app-management">앱 관리</s-link>
+        <s-link href="/app/arrivals">앱 입고 일정</s-link>
+        <s-link href="/app/push-notifications">앱 알림 발송</s-link>
+        <s-link href="/app/recipe-blogs">레시피 커머스</s-link>
+        <s-link href="/app/reviews">리뷰 관리</s-link>
         <s-link href="/app/app-requests">앱 개선 요청</s-link>
         {/* <s-link href="/app/notice">스토어 공지</s-link> */}
         <s-link href="/app/settings">시스템 연동 설정</s-link>
       </s-app-nav>
-      <Outlet />
+      <AppFeedbackProvider>
+        <NavigationFeedback />
+        <Outlet />
+      </AppFeedbackProvider>
     </AppProvider>
+  );
+}
+
+// Moving between screens waits on Shopify and Odoo reads. Without a signal the
+// previous screen just sits there, so the admin loading bar runs for every
+// navigation and a spinner covers the old screen once the wait is noticeable.
+function NavigationFeedback() {
+  const navigation = useNavigation();
+  const location = useLocation();
+  const isNavigating = navigation.state !== "idle";
+  const isChangingScreen = navigation.state === "loading" && navigation.location?.pathname !== location.pathname;
+  const [showOverlay, setShowOverlay] = useState(false);
+
+  useEffect(() => {
+    window.shopify?.loading?.(isNavigating);
+    return () => { window.shopify?.loading?.(false); };
+  }, [isNavigating]);
+
+  useEffect(() => {
+    if (!isChangingScreen) { setShowOverlay(false); return undefined; }
+    const timer = setTimeout(() => setShowOverlay(true), SCREEN_LOADING_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isChangingScreen]);
+
+  if (!showOverlay) return null;
+  return (
+    <div className="app-screen-loading" role="status" aria-live="polite">
+      <AppLoadingState message="화면을 불러오는 중입니다..." />
+    </div>
   );
 }
 

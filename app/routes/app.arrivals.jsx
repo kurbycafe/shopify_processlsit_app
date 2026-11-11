@@ -14,6 +14,9 @@ import { ODOO_SKU_CATEGORIES, computeNextAvailableSku } from "../utils/odooSkuCa
 import { MissingSkuManagerCard } from "../components/MissingSkuManagerCard.jsx";
 import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides, arrivalItemKey } from "../utils/arrivalCopy.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 // The app's arrival board, in the order it is set up: pick the one Odoo
 // receipt the app home shows (after a confirmation), pick up to five of its
 // products for the home card preview, then optional details and wording.
@@ -684,7 +687,7 @@ function ArrivalsContent({ data, actionUrl, embedded = false, onReload }) {
   if (embedded) return inner;
 
   return (
-    <Page title="앱 입고 일정" subtitle="Odoo 입고 중 앱 홈에 보여줄 입고를 고릅니다."
+    <Page backAction={{ content: "대시보드", url: "/app" }} title="앱 입고 일정" subtitle="Odoo 입고 중 앱 홈에 보여줄 입고를 고릅니다."
       secondaryActions={[{ content: "Odoo에서 지금 가져오기", loading: syncer.state !== "idle", onAction: () => syncer.submit({ intent: "sync" }, submitOpts) }]}>
       {inner}
     </Page>

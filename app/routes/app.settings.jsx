@@ -26,6 +26,9 @@ import { isOdooConfigured } from "../services/odooClient.server.js";
 import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
 import { getRegisteredWebhooks, ensureRequiredWebhooks, webhooksAreRegistered } from "../services/webhookRegistration.server.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
 
@@ -310,7 +313,7 @@ function generatePrintToken(orderId, shop, expiresInHours = 48) {
 // ${appUrl}/print/lieferschein/12345?shop=${shop}&tokens=\${token}`;
 
   return (
-    <Page title="시스템 연동 및 환경 설정">
+    <Page backAction={{ content: "대시보드", url: "/app" }} title="시스템 연동 및 환경 설정">
       <BlockStack gap="500">
         {/* 시스템 안내 배너 */}
         <Banner tone="info">

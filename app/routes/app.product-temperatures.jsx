@@ -1,6 +1,9 @@
 import { authenticate } from "../shopify.server.js";
 import { listTemperatureProducts, saveProductTemperatures, TemperatureError } from "../services/productTemperatures.server.js";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 function failure(error) {
   const status = error instanceof TemperatureError ? error.status : 503;
   return Response.json({ success: false, message: error instanceof TemperatureError ? error.message : "상품 온도 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.", ...(error instanceof TemperatureError ? { details: error.details } : {}) },
