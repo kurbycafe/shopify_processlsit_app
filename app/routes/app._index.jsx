@@ -22,6 +22,9 @@ import { DashboardSystemUpdateCard } from "../components/dashboard/DashboardSyst
 import { AppFeatureRequestCard } from "../components/common/AppFeatureRequestCard.jsx";
 import calendarStyles from "../styles/container-calendar.css?url";
 
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
+
 dayjs.extend(relativeTime);
 
 export const links = () => [{ rel: "stylesheet", href: calendarStyles }];
@@ -103,9 +106,6 @@ export default function Dashboard() {
   return (
     <Page title="물류 운영 대시보드">
       <BlockStack gap="500">
-        {/* 0. 모바일 앱 기능 추가/수정 요청 입력란 */}
-        <AppFeatureRequestCard />
-
         {/* 1. 최상단: 핵심 운영 메트릭 카드 */}
         <DashboardMetricCards
           todayPrintedCount={todayPrintedCount}
@@ -189,7 +189,12 @@ export default function Dashboard() {
             />
           </Layout.Section>
 
-          {/* 6. 최하단: 시스템 및 연동 상태 내역 */}
+          {/* 6. 모바일 앱 기능 추가/수정 요청: 매일 보는 지표와 작업 영역 아래에 둔다 */}
+          <Layout.Section>
+            <AppFeatureRequestCard />
+          </Layout.Section>
+
+          {/* 7. 최하단: 시스템 및 연동 상태 내역 */}
           <Layout.Section>
             <DashboardSystemUpdateCard />
           </Layout.Section>
