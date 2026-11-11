@@ -14,6 +14,7 @@
     "start": "react-router-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
+    "schema:generate": "node scripts/generate-schema-sql.mjs",
     "lint": "eslint --ignore-path .gitignore app tests scripts api vite.config.js .eslintrc.cjs",
     "shopify": "shopify",
     "prisma": "prisma",
@@ -83,13 +84,21 @@
   "overrides": {
     "p-map": "^4.0.0",
     "deepmerge-ts": "^8.0.0",
-    "minimatch@>=7.0.0 <11.0.1": "^11.0.4",
-    "glob@>=9.0.0 <14.0.2": "^14.0.3",
     "@react-router/fs-routes": {
       "minimatch": "9.0.9"
     },
-    "lodash@<4.18.0": "^4.18.1",
-    "@graphql-tools/utils@<12.0.2": "^12.1.0"
+    "google-gax": {
+      "glob": "^14.0.3",
+      "minimatch": "^11.0.4"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.4"
+    },
+    "graphql-config": {
+      "minimatch": "^11.0.4"
+    },
+    "lodash": "^4.18.1",
+    "@graphql-tools/utils": "^12.1.0"
   },
   "author": "po043"
 }
