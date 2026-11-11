@@ -242,25 +242,63 @@ test("push success does not also send email, and push failure uses email fallbac
   }
 });
 
-test("concurrent cancellation paths share one claim and dispatch", async () => {
-  let row = null, sends = 0;
-  const db = lockedDatabase({ inspectionRecord: {
+function alertDatabase(initial = null) {
+  let row = initial;
+  const inspectionRecord = {
     findUnique: async () => row,
-    upsert: async ({ create }) => { row = create; return row; },
-  } });
+    upsert: async ({ create, update }) => { row = row ? { ...row, ...update } : create; return row; },
+    updateMany: async ({ where, data }) => {
+      if (!row || row.isCancelAlertSent !== where.isCancelAlertSent || row.cancelAlertSentAt !== where.cancelAlertSentAt) return { count: 0 };
+      row = { ...row, ...data }; return { count: 1 };
+    },
+  };
+  return { db: lockedDatabase({ inspectionRecord }), current: () => row };
+}
+
+test("concurrent cancellation paths share one claim and dispatch", async () => {
+  let sends = 0, release;
+  const sending = new Promise(resolve => { release = resolve; });
+  const { db, current } = alertDatabase();
   const input = { shop: "test.myshopify.com", orderId: "gid://shopify/Order/1", orderName: "#1" };
-  const dependencies = { db, sendEmail: async () => { sends++; } };
-  const results = await Promise.all([sendCancellationAlertOnce(input, dependencies), sendCancellationAlertOnce(input, dependencies)]);
-  assert.equal(sends, 1); assert.deepEqual(results, [true, false]);
+  const dependencies = { db, sendEmail: async () => { sends++; await sending; } };
+  const first = sendCancellationAlertOnce(input, dependencies);
+  // The second path arrives while the first is still talking to the mail provider.
+  const second = await sendCancellationAlertOnce(input, dependencies);
+  assert.equal(second, false); assert.equal(current().isCancelAlertSent, false);
+  release();
+  assert.equal(await first, true); assert.equal(sends, 1); assert.equal(current().isCancelAlertSent, true);
+  assert.equal(await sendCancellationAlertOnce(input, dependencies), false); assert.equal(sends, 1);
 });
 
-test("failed or skipped cancellation email never marks sent", async () => {
-  let writes = 0;
-  const db = lockedDatabase({ inspectionRecord: { findUnique: async () => null, upsert: async () => { writes++; } } });
-  for (const sendEmail of [async () => [], async () => { throw new Error("unconfigured"); }]) {
+test("cancellation email is sent with no transaction open", async () => {
+  let open = 0, openDuringSend = null;
+  const { db } = alertDatabase();
+  const transaction = db.$transaction;
+  db.$transaction = async callback => { open++; try { return await transaction(callback); } finally { open--; } };
+  await sendCancellationAlertOnce({ shop: "s", orderId: "1" }, { db, sendEmail: async () => { openDuringSend = open; } });
+  assert.equal(openDuringSend, 0);
+});
+
+test("failed or skipped cancellation email never marks sent and releases the claim", async () => {
+  const { db, current } = alertDatabase();
+  for (const sendEmail of [async () => [], async () => { throw new Error("provider down"); }]) {
     await assert.rejects(sendCancellationAlertOnce({ shop: "s", orderId: "1" }, { db, sendEmail }));
+    assert.equal(current().isCancelAlertSent, false); assert.equal(current().cancelAlertSentAt, null);
   }
-  assert.equal(writes, 0);
+  // Released, so the very next attempt may send.
+  assert.equal(await sendCancellationAlertOnce({ shop: "s", orderId: "1" }, { db, sendEmail: async () => ({ messageId: "ok" }) }), true);
+});
+
+test("an abandoned cancellation claim is retried only after it goes stale", async () => {
+  const claimed = new Date("2026-11-01T10:00:00Z");
+  const { db, current } = alertDatabase({ shop: "s", orderId: "1", isCancelAlertSent: false, cancelAlertSentAt: claimed });
+  let sends = 0;
+  const sendEmail = async () => { sends++; };
+  assert.equal(await sendCancellationAlertOnce({ shop: "s", orderId: "1" }, { db, sendEmail, now: () => new Date(claimed.getTime() + 60 * 1000) }), false);
+  assert.equal(sends, 0);
+  assert.equal(await sendCancellationAlertOnce({ shop: "s", orderId: "1" }, { db, sendEmail, now: () => new Date(claimed.getTime() + 3 * 60 * 1000) }), true);
+  assert.equal(sends, 1); assert.equal(current().isCancelAlertSent, true);
+  await assert.rejects(sendCancellationAlertOnce({ shop: "other", orderId: "1" }, { db, sendEmail }), /different shop/);
 });
 
 test("Odoo sync updates in place and preserves received quantity and orphaned receipts", async () => {

@@ -2,42 +2,67 @@ import prisma from "../db.server.js";
 import { sendCancellationAlertEmail } from "../utils/emailService.js";
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
 
-// All webhook and polling paths share this lock, so only its owner can dispatch.
+// How long a worker may hold an unfinished claim before another path may retry it.
+// Must stay above the email provider timeout (emailService REQUEST_TIMEOUT_MS).
+const CLAIM_STALE_MS = 2 * 60 * 1000;
+const CLAIM_TRANSACTION = { maxWait: 10000, timeout: 10000 };
+
+function isUnconfiguredEmailError(message) {
+  return message.includes("unauthorized") ||
+    message.includes("API Key is not enabled") ||
+    message.includes("설정되지 않았습니다") ||
+    message.includes("not configured");
+}
+
+// All webhook and polling paths share this claim, so only its owner can dispatch.
+// The claim is a short transaction (cancelAlertSentAt set while isCancelAlertSent is
+// still false); the email itself goes out with no transaction or lock held, so a slow
+// mail provider cannot pin a database connection. A worker that dies mid-send leaves
+// a claim that expires after CLAIM_STALE_MS, and the next webhook or poll retries.
 export async function sendCancellationAlertOnce({ orderId, shop, orderName, ...email }, {
-  db = prisma, sendEmail = sendCancellationAlertEmail,
+  db = prisma, sendEmail = sendCancellationAlertEmail, now = () => new Date(),
 } = {}) {
   if (!orderId || !shop) throw new Error("Order and shop are required for cancellation alerts");
-  return db.$transaction(async tx => {
+
+  const claimedAt = await db.$transaction(async tx => {
     const key = `cancellation-alert:${shop}:${orderId}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-    const existing = await tx.inspectionRecord.findUnique({ where: { orderId }, select: { shop: true, isCancelAlertSent: true } });
+    const existing = await tx.inspectionRecord.findUnique({ where: { orderId }, select: { shop: true, isCancelAlertSent: true, cancelAlertSentAt: true } });
     if (existing && existing.shop !== shop) throw new Error("Order belongs to a different shop");
-    if (existing?.isCancelAlertSent) return false;
+    if (existing?.isCancelAlertSent) return null;
+    const claimTime = now();
+    const heldSince = existing?.cancelAlertSentAt ? new Date(existing.cancelAlertSentAt).getTime() : null;
+    if (heldSince !== null && claimTime.getTime() - heldSince < CLAIM_STALE_MS) return null;
+    await tx.inspectionRecord.upsert({
+      where: { orderId },
+      update: { cancelAlertSentAt: claimTime },
+      create: { orderId, orderName, shop, status: "PENDING", isCancelAlertSent: false, cancelAlertSentAt: claimTime },
+    });
+    return claimTime;
+  }, CLAIM_TRANSACTION);
+  if (!claimedAt) return false;
+
+  // Only the worker that still owns this exact claim may release or complete it.
+  const ownClaim = { orderId, isCancelAlertSent: false, cancelAlertSentAt: claimedAt };
+  try {
     let delivery;
     try {
       delivery = await sendEmail({ ...email, orderName, shopDomain: shop });
     } catch (sendErr) {
       const msg = sendErr?.message || "";
-      if (
-        msg.includes("unauthorized") ||
-        msg.includes("API Key is not enabled") ||
-        msg.includes("설정되지 않았습니다") ||
-        msg.includes("not configured")
-      ) {
-        console.warn(`[CancellationAlert] Email credentials unauthorized or unconfigured (${msg}). Recording alert without email to prevent retry storm.`);
-        delivery = { skipped: true, reason: msg };
-      } else {
-        throw sendErr;
-      }
+      if (!isUnconfiguredEmailError(msg)) throw sendErr;
+      console.warn(`[CancellationAlert] Email credentials unauthorized or unconfigured (${msg}). Recording alert without email to prevent retry storm.`);
+      delivery = { skipped: true, reason: msg };
     }
     if (Array.isArray(delivery) && delivery.length === 0) throw new Error("Cancellation email was not dispatched");
-    await tx.inspectionRecord.upsert({
-      where: { orderId },
-      update: { isCancelAlertSent: true, cancelAlertSentAt: new Date() },
-      create: { orderId, orderName, shop, status: "PENDING", isCancelAlertSent: true, cancelAlertSentAt: new Date() },
-    });
-    return true;
-  }, { maxWait: 10000, timeout: 45000 });
+  } catch (error) {
+    await db.inspectionRecord.updateMany({ where: ownClaim, data: { cancelAlertSentAt: null } })
+      .catch((releaseErr) => console.warn("[CancellationAlert] Claim release failed; it expires on its own:", releaseErr?.message));
+    throw error;
+  }
+
+  await db.inspectionRecord.updateMany({ where: ownClaim, data: { isCancelAlertSent: true, cancelAlertSentAt: now() } });
+  return true;
 }
 
 /**

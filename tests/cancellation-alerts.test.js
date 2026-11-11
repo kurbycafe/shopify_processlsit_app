@@ -5,13 +5,17 @@ import { isEmailServiceConfigured } from "../app/utils/emailService.js";
 
 function alertDependencies(sendEmail = async () => ({ messageId: "test" })) {
   const rows = new Map();
-  const db = { $transaction: callback => callback({
-    $executeRaw: async () => {},
-    inspectionRecord: {
-      findUnique: async ({ where }) => rows.get(where.orderId),
-      upsert: async ({ where, create, update }) => { const row = { ...(rows.get(where.orderId) || create), ...update }; rows.set(where.orderId, row); return row; },
+  const inspectionRecord = {
+    findUnique: async ({ where }) => rows.get(where.orderId),
+    upsert: async ({ where, create, update }) => { const row = { ...(rows.get(where.orderId) || create), ...update }; rows.set(where.orderId, row); return row; },
+    updateMany: async ({ where, data }) => {
+      const row = rows.get(where.orderId);
+      if (!row || row.isCancelAlertSent !== where.isCancelAlertSent || row.cancelAlertSentAt !== where.cancelAlertSentAt) return { count: 0 };
+      rows.set(where.orderId, { ...row, ...data });
+      return { count: 1 };
     },
-  }) };
+  };
+  const db = { inspectionRecord, $transaction: callback => callback({ $executeRaw: async () => {}, inspectionRecord }) };
   return { db, sendEmail, rows };
 }
 
@@ -144,7 +148,8 @@ test("checkAndAlertCustomerRequests safely completes when email service is uncon
     const dependencies = alertDependencies(async () => { throw new Error("Not configured"); });
     const alerted = await checkAndAlertCustomerRequests(mockAdmin, "dawayo.myshopify.com", dependencies);
     assert.deepEqual(alerted, []);
-    assert.equal(dependencies.rows.size, 0);
+    // The claim is released, so the order is neither marked sent nor blocked from a retry.
+    assert.deepEqual([...dependencies.rows.values()].map(row => [row.isCancelAlertSent, row.cancelAlertSentAt]), [[false, null]]);
   } finally {
     if (origKey !== undefined) process.env.BREVO_API_KEY = origKey; else delete process.env.BREVO_API_KEY;
     if (origSmtp !== undefined) process.env.SMTP_PASSWORD = origSmtp; else delete process.env.SMTP_PASSWORD;

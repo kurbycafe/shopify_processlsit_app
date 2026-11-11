@@ -2,7 +2,19 @@ import prisma from "../db.server";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
 
 const NOTICE_CACHE_TTL_MS = 60 * 1000;
+// The shop comes from the request, so the cache is capped: callers cannot grow
+// it by sending made-up shop names.
+const NOTICE_CACHE_MAX_ENTRIES = 50;
+const MAX_SHOP_LENGTH = 255;
 const noticeMemoryCache = new Map();
+
+function rememberNotice(shop, payload, timestamp) {
+  noticeMemoryCache.delete(shop);
+  while (noticeMemoryCache.size >= NOTICE_CACHE_MAX_ENTRIES) {
+    noticeMemoryCache.delete(noticeMemoryCache.keys().next().value);
+  }
+  noticeMemoryCache.set(shop, { payload, timestamp });
+}
 
 function getCorsHeaders(request) {
   return jsonCorsHeaders(request, {
@@ -18,7 +30,7 @@ function resolveShop(request, explicitShop = null) {
     url.searchParams.get("shop") ||
     "dawayo.de";
 
-  return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim();
+  return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim().slice(0, MAX_SHOP_LENGTH);
 }
 
 export const loader = async ({ request }) => {
@@ -49,7 +61,7 @@ export const loader = async ({ request }) => {
 
     if (!notice || !notice.isActive) {
       const emptyPayload = { success: true, data: null };
-      noticeMemoryCache.set(shop, { payload: emptyPayload, timestamp: now });
+      rememberNotice(shop, emptyPayload, now);
       return Response.json(
         emptyPayload,
         { headers: corsHeaders }
@@ -79,7 +91,7 @@ export const loader = async ({ request }) => {
         items: Array.isArray(parsedItems) ? parsedItems : [],
       },
     };
-    noticeMemoryCache.set(shop, { payload, timestamp: now });
+    rememberNotice(shop, payload, now);
 
     return Response.json(
       payload,
