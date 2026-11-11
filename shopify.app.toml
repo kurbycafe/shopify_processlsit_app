@@ -16,13 +16,9 @@ api_version = "2026-10"
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/orders/cancelled"
-  topics = [ "orders/cancelled" ]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/orders/updated"
-  topics = [ "orders/updated", "orders/fulfilled" ]
+  # Order, fulfillment and inventory webhooks are registered per shop through the
+  # Admin API (app/services/webhookRegistration.server.js). Declaring a topic here
+  # as well makes Shopify deliver each event twice.
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"

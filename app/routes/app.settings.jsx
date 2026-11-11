@@ -24,7 +24,7 @@ import {
 import { authenticate, apiVersion } from "../shopify.server";
 import { isOdooConfigured } from "../services/odooClient.server.js";
 import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
-import { getRegisteredWebhooks, ensureRequiredWebhooks } from "../services/webhookRegistration.server.js";
+import { getRegisteredWebhooks, ensureRequiredWebhooks, webhooksAreRegistered } from "../services/webhookRegistration.server.js";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -93,7 +93,9 @@ export const action = async ({ request }) => {
         success: true,
         webhookResults: results,
         registeredWebhooks: webhooks,
-        message: "웹훅(ORDERS_CANCELLED, ORDERS_UPDATED)이 쇼피파이 스토어에 성공적으로 등록되었습니다.",
+        message: webhooksAreRegistered(results)
+          ? "주문·배송·재고 웹훅이 쇼피파이 스토어에 모두 등록되어 있습니다."
+          : "일부 웹훅을 등록하지 못했습니다. 아래 등록 목록을 확인해 주세요.",
       };
     } catch (err) {
       return { success: false, error: err.message };

@@ -2,14 +2,20 @@ import { useEffect, useRef } from "react";
 import { Outlet, useLoaderData, useFetcher, useRouteError, useLocation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
+import { waitUntil } from "@vercel/functions";
 import shopify, { authenticate } from "../shopify.server";
+import { ensureRequiredWebhooksInBackground } from "../services/webhookRegistration.server.js";
 
 import operationsStyles from "../styles/operations.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: operationsStyles }];
 
+// Order webhooks deliver cancellation and return requests in real time; this
+// poll only catches what a missed webhook would otherwise lose.
+const CANCELLATION_POLL_INTERVAL_MS = 5 * 60 * 1000;
+
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   if (session?.shop) {
     // Keep the offline session fresh for background webhooks, without making
@@ -17,6 +23,13 @@ export const loader = async ({ request }) => {
     shopify.unauthenticated.admin(session.shop).catch((offlineErr) => {
       console.warn("[App Root] Offline session health check blip:", offlineErr?.message);
     });
+
+    // Re-register any missing order/fulfillment/inventory webhook in the background.
+    const appUrl = process.env.SHOPIFY_APP_URL;
+    if (appUrl) {
+      const registering = ensureRequiredWebhooksInBackground(admin, session.shop, appUrl);
+      if (typeof waitUntil === "function") waitUntil(registering);
+    }
   }
 
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
@@ -55,13 +68,13 @@ export default function App() {
     let lastStarted = 0;
     const poll = () => {
       if (document.visibilityState === 'hidden' || !navigator.onLine || checkRef.current.state !== 'idle') return;
-      if (Date.now() - lastStarted < 25000) return;
+      if (Date.now() - lastStarted < CANCELLATION_POLL_INTERVAL_MS) return;
       lastStarted = Date.now();
       checkRef.current.load('/api/check-cancellations');
     };
     // Keep maintenance in a separate awaited HTTP request, not the page loader.
     poll();
-    const interval = setInterval(poll, 25000);
+    const interval = setInterval(poll, CANCELLATION_POLL_INTERVAL_MS);
     document.addEventListener('visibilitychange', poll);
     window.addEventListener('online', poll);
     return () => {

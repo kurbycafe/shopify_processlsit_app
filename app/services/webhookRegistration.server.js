@@ -2,6 +2,7 @@
  * Programmatic Webhook Registration Service
  * Automatically ensures necessary webhooks are registered in Shopify Admin
  */
+import { createRequestCoalescer } from "./requestCoalescer.js";
 
 export async function getRegisteredWebhooks(admin) {
   try {
@@ -36,29 +37,48 @@ export async function getRegisteredWebhooks(admin) {
   }
 }
 
+// Shop-level subscriptions this app registers through the Admin API. Only
+// app/uninstalled and app/scopes_update are declared in shopify.app.*.toml; a
+// topic must live in exactly one of the two places, otherwise Shopify delivers
+// every event twice.
+export const REQUIRED_WEBHOOKS = [
+  { topic: "ORDERS_CREATE", path: "/webhooks/orders/updated" },
+  { topic: "ORDERS_PAID", path: "/webhooks/orders/updated" },
+  { topic: "ORDERS_UPDATED", path: "/webhooks/orders/updated" },
+  { topic: "ORDERS_FULFILLED", path: "/webhooks/orders/updated" },
+  { topic: "ORDERS_CANCELLED", path: "/webhooks/orders/cancelled" },
+  { topic: "FULFILLMENTS_CREATE", path: "/webhooks/mobile-fulfillment" },
+  { topic: "FULFILLMENTS_UPDATE", path: "/webhooks/mobile-fulfillment" },
+  { topic: "FULFILLMENT_EVENTS_CREATE", path: "/webhooks/mobile-fulfillment" },
+  { topic: "INVENTORY_LEVELS_UPDATE", path: "/webhooks/inventory/update" },
+];
+
+const HEALTHY_STATUSES = new Set(["REGISTERED", "ALREADY_EXISTS"]);
+const HEALTHY_RECHECK_MS = 60 * 60 * 1000;
+
+/** True when a run of ensureRequiredWebhooks left every required topic registered. */
+export function webhooksAreRegistered(results) {
+  return REQUIRED_WEBHOOKS.every((needed) => results.some((result) => result.topic === needed.topic && HEALTHY_STATUSES.has(result.status)));
+}
+
+const backgroundChecks = createRequestCoalescer({ ttlMs: HEALTHY_RECHECK_MS });
+
+/**
+ * Self-healing registration for the admin shell: at most one run per shop and
+ * instance per hour once healthy, never awaited by a page load.
+ */
+export function ensureRequiredWebhooksInBackground(admin, shop, appUrl) {
+  return backgroundChecks(`${shop}:${appUrl}`, () => ensureRequiredWebhooks(admin, appUrl), webhooksAreRegistered)
+    .catch((err) => {
+      console.warn("[Webhook Auto-Register] Background check failed:", err?.message);
+      return [];
+    });
+}
+
 export async function ensureRequiredWebhooks(admin, appUrl) {
   if (!appUrl) return [];
 
-  const neededWebhooks = [
-    { topic: "ORDERS_CREATE", callbackUrl: `${appUrl}/webhooks/orders/updated` },
-    { topic: "ORDERS_PAID", callbackUrl: `${appUrl}/webhooks/orders/updated` },
-    { topic: "FULFILLMENTS_CREATE", callbackUrl: `${appUrl}/webhooks/mobile-fulfillment` },
-    { topic: "FULFILLMENTS_UPDATE", callbackUrl: `${appUrl}/webhooks/mobile-fulfillment` },
-    { topic: "FULFILLMENT_EVENTS_CREATE", callbackUrl: `${appUrl}/webhooks/mobile-fulfillment` },
-    { topic: "INVENTORY_LEVELS_UPDATE", callbackUrl: `${appUrl}/webhooks/inventory/update` },
-    {
-      topic: "ORDERS_CANCELLED",
-      callbackUrl: `${appUrl}/webhooks/orders/cancelled`,
-    },
-    {
-      topic: "ORDERS_UPDATED",
-      callbackUrl: `${appUrl}/webhooks/orders/updated`,
-    },
-    {
-      topic: "ORDERS_FULFILLED",
-      callbackUrl: `${appUrl}/webhooks/orders/updated`,
-    },
-  ];
+  const neededWebhooks = REQUIRED_WEBHOOKS.map(({ topic, path }) => ({ topic, callbackUrl: `${appUrl}${path}` }));
 
   const results = [];
 
