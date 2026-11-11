@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
+import { schemaStatements } from "./schemaReadiness.js";
 
 // Caps how often one client can write to the customer API, so bots cannot
 // flood inquiries, reviews, posts or support messages. Counts live in Postgres
@@ -23,11 +24,12 @@ export const WRITE_LIMITS = {
   "community-reactions": 60,
 };
 
+// The limiter must work before any other code has repaired the schema, so it
+// creates its own table from the shared definition on first use.
+const RATE_LIMIT_TABLE_SQL = schemaStatements.find((statement) => statement.kind === "table" && statement.table === "ApiRateLimit").sql;
 let tableReady = null;
 function ensureTable(db) {
-  tableReady ||= db.$executeRawUnsafe(
-    `CREATE TABLE IF NOT EXISTS "ApiRateLimit" ("key" TEXT PRIMARY KEY, "windowStart" TIMESTAMP(3) NOT NULL, "count" INTEGER NOT NULL)`,
-  ).catch((error) => { tableReady = null; throw error; });
+  tableReady ||= db.$executeRawUnsafe(RATE_LIMIT_TABLE_SQL).catch((error) => { tableReady = null; throw error; });
   return tableReady;
 }
 

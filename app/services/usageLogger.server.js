@@ -1,4 +1,4 @@
-import prisma from "../db.server.js";
+import prisma, { ensureDatabaseSchema } from "../db.server.js";
 
 export const TAB_NAMES = {
   "/app": "대시보드",
@@ -36,31 +36,24 @@ export function getTabName(path) {
   return cleanPath;
 }
 
-let schemaEnsured = false;
+// Tab visits are only useful as a recent picture of how the app is used, so
+// older rows are dropped instead of growing the table forever.
+export const USAGE_LOG_RETENTION_DAYS = 180;
+const PRUNE_PROBABILITY = 0.01;
 
+// The table itself is created by the shared additive schema repair.
 export async function ensureUsageLogSchema() {
-  if (schemaEnsured) return;
   try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "AppUsageLog" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "shop" TEXT NOT NULL,
-        "path" TEXT NOT NULL,
-        "tabName" TEXT NOT NULL,
-        "user" TEXT,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    await prisma.$executeRawUnsafe(
-      `CREATE INDEX IF NOT EXISTS "AppUsageLog_shop_path_idx" ON "AppUsageLog"("shop", "path");`
-    );
-    await prisma.$executeRawUnsafe(
-      `CREATE INDEX IF NOT EXISTS "AppUsageLog_shop_createdAt_idx" ON "AppUsageLog"("shop", "createdAt");`
-    );
-    schemaEnsured = true;
+    await ensureDatabaseSchema();
   } catch (err) {
     console.warn("[UsageLog Schema Notice]:", err?.message);
   }
+}
+
+/** Deletes visits older than the retention window. Returns the number removed. */
+export async function pruneUsageLogs({ db = prisma, now = new Date(), retentionDays = USAGE_LOG_RETENTION_DAYS } = {}) {
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
+  return db.$executeRaw`DELETE FROM "AppUsageLog" WHERE "createdAt" < ${cutoff}`;
 }
 
 export async function recordTabUsage({ shop, path, user }) {
@@ -80,6 +73,8 @@ export async function recordTabUsage({ shop, path, user }) {
       tabName,
       user ? String(user).slice(0, 100) : null
     );
+    // Occasional cleanup on the write path keeps the table bounded without a separate job.
+    if (Math.random() < PRUNE_PROBABILITY) void pruneUsageLogs().catch(() => {});
   } catch (err) {
     console.warn("[UsageLog Error]:", err?.message);
   }

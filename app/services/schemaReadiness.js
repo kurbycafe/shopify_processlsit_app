@@ -1,157 +1,53 @@
-// Keep aligned with the additive schema repair in db.server.js.
-const required = [
-  "column:CustomerReaction:id",
-  "column:CustomerReaction:shop",
-  "column:CustomerReaction:targetType",
-  "column:CustomerReaction:targetId",
-  "column:CustomerReaction:customerId",
-  "column:CustomerReaction:active",
-  "column:CustomerReaction:createdAt",
-  "column:CustomerReaction:updatedAt",
-  "index:CustomerReaction:CustomerReaction_shop_targetType_targetId_customerId_key",
-  "index:CustomerReaction:CustomerReaction_shop_targetType_targetId_active_idx",
-  "column:CustomerRequest:id",
-  "column:CustomerRequest:shop",
-  "column:CustomerRequest:type",
-  "column:CustomerRequest:customerId",
-  "column:CustomerRequest:orderId",
-  "column:CustomerRequest:requestKey",
-  "column:CustomerRequest:payload",
-  "column:CustomerRequest:status",
-  "column:CustomerRequest:createdAt",
-  "column:CustomerRequest:updatedAt",
-  "column:CustomerNotificationPreference:id",
-  "column:CustomerNotificationPreference:shop",
-  "column:CustomerNotificationPreference:customerId",
-  "column:CustomerNotificationPreference:pushEnabled",
-  "column:CustomerNotificationPreference:orderUpdates",
-  "column:CustomerNotificationPreference:events",
-  "column:CustomerNotificationPreference:marketing",
-  "column:CustomerNotificationPreference:createdAt",
-  "column:CustomerNotificationPreference:updatedAt",
-  "column:InspectionItem:orderLineId",
-  "index:CustomerRequest:CustomerRequest_requestKey_key",
-  "index:CustomerRequest:CustomerRequest_shop_status_id_idx",
-  "index:CustomerRequest:CustomerRequest_shop_customerId_createdAt_idx",
-  "index:CustomerNotificationPreference:CustomerNotificationPreference_shop_customerId_key",
-  "column:BackInStockSubscription:channel",
-  "column:BackInStockSubscription:createdAt",
-  "column:BackInStockSubscription:email",
-  "column:BackInStockSubscription:etaDate",
-  "column:BackInStockSubscription:id",
-  "column:BackInStockSubscription:lastNotificationAt",
-  "column:BackInStockSubscription:lastNotificationError",
-  "column:BackInStockSubscription:notificationAttempts",
-  "column:BackInStockSubscription:notifiedAt",
-  "column:BackInStockSubscription:phone",
-  "column:BackInStockSubscription:poNumber",
-  "column:BackInStockSubscription:processingAt",
-  "column:BackInStockSubscription:productId",
-  "column:BackInStockSubscription:productTitle",
-  "column:BackInStockSubscription:restockedAt",
-  "column:BackInStockSubscription:shop",
-  "column:BackInStockSubscription:sku",
-  "column:BackInStockSubscription:status",
-  "column:BackInStockSubscription:subscribedAt",
-  "column:BackInStockSubscription:updatedAt",
-  "column:BackInStockSubscription:variantId",
-  "column:BackInStockSubscription:variantTitle",
-  "column:InspectionItem:barcode",
-  "column:InspectionItem:id",
-  "column:InspectionItem:inspectedQuantity",
-  "column:InspectionItem:inspectionRecordId",
-  "column:InspectionItem:issueNote",
-  "column:InspectionItem:issueType",
-  "column:InspectionItem:orderedQuantity",
-  "column:InspectionItem:productTitle",
-  "column:InspectionItem:sku",
-  "column:InspectionItem:substitutedProductTitle",
-  "column:InspectionItem:substitutedVariantId",
-  "column:InspectionItem:variantId",
-  "column:InspectionItem:variantTitle",
-  "column:InspectionRecord:cancelAlertSentAt",
-  "column:InspectionRecord:completedAt",
-  "column:InspectionRecord:createdAt",
-  "column:InspectionRecord:customBillingAddress",
-  "column:Container:arrivalKind",
-  "column:InspectionRecord:customShippingAddress",
-  "column:InspectionRecord:customVat",
-  "column:InspectionRecord:id",
-  "column:InspectionRecord:inspectorName",
-  "column:InspectionRecord:invoiceIssuedAt",
-  "column:InspectionRecord:invoiceNumber",
-  "column:InspectionRecord:invoiceSequence",
-  "column:InspectionRecord:invoiceSnapshot",
-  "column:InspectionRecord:invoiceYear",
-  "column:InspectionRecord:isCancelAlertSent",
-  "column:InspectionRecord:isLieferscheinPrinted",
-  "column:InspectionRecord:isPickListPrinted",
-  "column:InspectionRecord:lieferscheinPrintedAt",
-  "column:InspectionRecord:orderId",
-  "column:InspectionRecord:orderName",
-  "column:InspectionRecord:shop",
-  "column:InspectionRecord:startedAt",
-  "column:InspectionRecord:status",
-  "column:InspectionRecord:updatedAt",
-  "index:BackInStockSubscription:BackInStockSubscription_poNumber_idx",
-  "index:BackInStockSubscription:BackInStockSubscription_shop_idx",
-  "index:BackInStockSubscription:BackInStockSubscription_status_idx",
-  "index:BackInStockSubscription:BackInStockSubscription_variantId_idx",
-  "index:InspectionItem:InspectionItem_inspectionRecordId_idx",
-  "index:InspectionItem:InspectionItem_sku_idx",
-  "index:InspectionItem:InspectionItem_variantId_idx",
-  "index:InspectionRecord:InspectionRecord_orderId_idx",
-  "index:InspectionRecord:InspectionRecord_shop_createdAt_idx",
-  "index:InspectionRecord:InspectionRecord_shop_idx",
-  "index:InspectionRecord:InspectionRecord_shop_status_idx",
-  "column:AppFeatureRequest:id",
-  "column:AppFeatureRequest:shop",
-  "column:AppFeatureRequest:kind",
-  "column:AppFeatureRequest:content",
-  "column:AppFeatureRequest:requester",
-  "column:AppFeatureRequest:status",
-  "column:AppFeatureRequest:note",
-  "column:AppFeatureRequest:processedAt",
-  "column:AppFeatureRequest:processedBy",
-  "column:AppFeatureRequest:createdAt",
-  "column:AppFeatureRequest:updatedAt",
-  "index:AppFeatureRequest:AppFeatureRequest_shop_createdAt_idx",
-  "index:AppFeatureRequest:AppFeatureRequest_shop_status_createdAt_idx",
-  "column:Recipe:id",
-  "column:Recipe:shop",
-  "column:Recipe:title",
-  "column:Recipe:introduction",
-  "column:Recipe:steps",
-  "column:Recipe:imageUrl",
-  "column:Recipe:shopifyArticleId",
-  "column:Recipe:shopifyBlogId",
-  "column:Recipe:published",
-  "column:Recipe:createdAt",
-  "column:Recipe:updatedAt",
-  "index:Recipe:Recipe_shop_idx",
-  "column:RecipeProduct:id",
-  "column:RecipeProduct:recipeId",
-  "column:RecipeProduct:productId",
-  "column:RecipeProduct:variantId",
-  "column:RecipeProduct:title",
-  "column:RecipeProduct:variantTitle",
-  "column:RecipeProduct:price",
-  "column:RecipeProduct:imageUrl",
-  "index:RecipeProduct:RecipeProduct_recipeId_idx"
-];
+import { schemaStatements } from "./schemaStatements.generated.js";
+
+// The additive schema repair shared by the running app (db.server.js) and the
+// deployment build (scripts/prepare-customer-schema.js). The statements come
+// from prisma/schema.prisma via `npm run schema:generate`, so a new column or
+// index is declared once, in the Prisma schema.
+export { schemaStatements };
+
+const catalogKey = (row) => `${row.kind}:${row.tableName}:${row.name}`;
+
+/** Statements whose table, column or index is missing from the catalog rows. */
+export function pendingSchemaStatements(rows, statements = schemaStatements) {
+  const present = new Set(rows.map(catalogKey));
+  const tables = new Set(rows.map((row) => row.tableName));
+  return statements.filter((statement) => (
+    statement.kind === "table" ? !tables.has(statement.table) : !present.has(catalogKey({ ...statement, tableName: statement.table }))
+  ));
+}
+
 export function schemaIsReady(rows) {
-  const actual = new Set(rows.map(row => `${row.kind}:${row.tableName}:${row.name}`));
-  return required.every(key => actual.has(key));
+  return pendingSchemaStatements(rows).length === 0;
 }
 
 export async function readSchemaCatalog(db) {
   return db.$queryRaw`
         SELECT 'column' AS kind, table_name AS "tableName", column_name AS name
         FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct', 'Container')
+        WHERE table_schema = current_schema()
         UNION ALL
         SELECT 'index' AS kind, tablename AS "tableName", indexname AS name
         FROM pg_indexes
-        WHERE schemaname = current_schema() AND tablename IN ('BackInStockSubscription', 'InspectionRecord', 'InspectionItem', 'CustomerRequest', 'CustomerNotificationPreference', 'CustomerReaction', 'AppFeatureRequest', 'Recipe', 'RecipeProduct', 'Container')
+        WHERE schemaname = current_schema()
       `;
+}
+
+/**
+ * Runs the statements still missing from the database, in declaration order.
+ * `onError` decides what a failed statement means: the build stops on it,
+ * the running app logs it and carries on with the rest.
+ */
+export async function applySchemaStatements(db, rows, { onError = (error) => { throw error; } } = {}) {
+  const pending = pendingSchemaStatements(rows);
+  const failed = [];
+  for (const statement of pending) {
+    try {
+      await db.$executeRawUnsafe(statement.sql);
+    } catch (error) {
+      failed.push(statement);
+      await onError(error, statement);
+    }
+  }
+  return { applied: pending.length - failed.length, failed };
 }

@@ -6,7 +6,7 @@
 ## DB 준비
 
 `CustomerReaction` 모델과 `prisma/migrations/20261021090000_customer_reactions/migration.sql`을 추가했다.
-`customerSchema.js`의 추가 DDL, `schemaReadiness.js`, 기존 runtime/Vercel 준비 절차에 포함한다.
+추가 DDL은 `prisma/schema.prisma`에서 `npm run schema:generate`로 생성되는 `schemaStatements.generated.js`에 포함되며, `schemaReadiness.js`를 통해 기존 runtime/Vercel 준비 절차가 실행한다.
 새 스키마는 테이블·고유 인덱스·조회 인덱스 추가만 수행한다. 기존 행은 삭제·초기화하지 않는다.
 운영 DB에는 이번 작업에서 적용하지 않았다. 이전 migration baseline을 확인하지 않은 migrate reset/deploy는 실행하지 않는다.
 

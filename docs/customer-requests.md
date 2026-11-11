@@ -38,8 +38,9 @@ New Prisma models: CustomerRequest and CustomerNotificationPreference.
 InspectionItem.orderLineId is nullable so existing inspection records remain compatible.
 
 Prepared additive SQL: prisma/migrations/20261016090000_customer_requests/migration.sql.
-Shared statements in app/services/customerSchema.js are used by the existing runtime schema
-repair and scripts/prepare-customer-schema.js deployment preparation.
+The runtime schema repair and scripts/prepare-customer-schema.js deployment preparation both run
+the statements in app/services/schemaStatements.generated.js, generated from prisma/schema.prisma
+by `npm run schema:generate` (never edit it by hand).
 No production database migration or deployment was performed during development.
 Regenerate Prisma Client and review/apply additive schema preparation in the target environment
 before enabling the new endpoints. Never reset or replace an existing production database.

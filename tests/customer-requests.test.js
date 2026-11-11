@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createCustomerHandler } from "../app/services/customerApi.server.js";
 import { createCustomerResolver } from "../app/services/customerResources.server.js";
 import { listCustomerRequests, updateCustomerRequest } from "../app/services/customerRequests.server.js";
-import { customerSchemaStatements } from "../app/services/customerSchema.js";
+import { schemaStatements } from "../app/services/schemaReadiness.js";
 
 const shop = "dawayo.myshopify.com";
 const customerId = "gid://shopify/Customer/5";
@@ -205,7 +205,8 @@ test("admin request lists and updates always constrain the authenticated shop", 
   await assert.rejects(updateCustomerRequest({ db, shop, id: "request1", status: "REFUNDED" }), { status: 400 });
 });
 test("schema preparation is additive and includes return records, preferences and order line identity", () => {
-  const sql = customerSchemaStatements.join(";\n");
+  // Foreign keys declare ON DELETE CASCADE; that is a constraint, not a destructive statement.
+  const sql = schemaStatements.map(statement => statement.sql.replaceAll("ON DELETE CASCADE ON UPDATE CASCADE", "")).join(";\n");
   assert.match(sql, /CREATE TABLE IF NOT EXISTS "CustomerRequest"/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS "CustomerNotificationPreference"/);
   assert.match(sql, /ADD COLUMN IF NOT EXISTS "orderLineId"/);
