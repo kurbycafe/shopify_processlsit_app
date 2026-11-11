@@ -40,6 +40,11 @@ import { getInspectorName } from "../services/inspectorService.server.js";
 
 import { readInspectionOrder, validateInspectionSubstitutes } from "../services/inspectionOrders.server.js";
 import { normalizeInspectionItems, restoreSavedInspections } from "../services/inspectionValidation.js";
+import { findNextInspectionOrder } from "../services/nextInspectionOrder.server.js";
+import { applyInspectionDraft, clearInspectionDraft, readInspectionDraft, saveInspectionDraft } from "../utils/inspectionDraft.js";
+
+// Keeps the admin menu on screen and offers a retry when this screen fails.
+export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
 
 export { isBarcodeOrSkuMatch };
 
@@ -112,6 +117,19 @@ export const action = async ({ request }) => {
     });
 
     return { order: { id: order.id, name: order.name, email: order.email || "", items } };
+  }
+
+  // Next order waiting for inspection (oldest open order nobody finished yet)
+  if (intent === "fetch_next_order") {
+    try {
+      const nextOrder = await findNextInspectionOrder({
+        admin, db: prisma, shop: session.shop,
+        excludeOrderId: String(formData.get("excludeOrderId") || "") || null,
+      });
+      return { nextOrder };
+    } catch (error) {
+      return { nextOrderError: error.message };
+    }
   }
 
   // Variant substitute search
@@ -273,9 +291,16 @@ export default function Inspect() {
   const fetcher = useFetcher();
   const searchFetcher = useFetcher();
   const saveFetcher = useFetcher();
+  const nextOrderFetcher = useFetcher();
 
   const [orderName, setOrderName] = useState("");
   const [currentOrder, setCurrentOrder] = useState(null);
+  // Unfinished inspection found in this browser, offered for resuming.
+  const [resumableDraft, setResumableDraft] = useState(null);
+  // Order whose result was just saved; drives the "next order" shortcut.
+  const [lastSavedOrder, setLastSavedOrder] = useState(null);
+  const savingOrderRef = useRef(null);
+  const handledNextOrderRef = useRef(null);
   const [barcode, setBarcode] = useState("");
   const [message, setMessage] = useState(null);
   const barcodeRef = useRef(null);
@@ -686,15 +711,32 @@ export default function Inspect() {
     }
   }, [searchParams, hasAutoFetched, fetcher]);
 
+  // Offer to resume an inspection this browser left unfinished (reload, closed tab).
+  useEffect(() => {
+    setResumableDraft(readInspectionDraft(window.localStorage));
+  }, []);
+
+  // Keep the in-progress scans in the browser until they are saved or abandoned.
+  useEffect(() => {
+    if (currentOrder) saveInspectionDraft(window.localStorage, currentOrder);
+  }, [currentOrder]);
+
   // Order load response
   useEffect(() => {
     if (fetcher.data?.order) {
-      const order = fetcher.data.order;
+      const { order, restored } = applyInspectionDraft(fetcher.data.order, readInspectionDraft(window.localStorage));
       setCurrentOrder(order);
+      setResumableDraft(null);
+      setLastSavedOrder(null);
       setLogs([]);
       setBarcode("");
       setItemTab("ALL");
-      setMessage({ type: "success", text: `${order.name} 주문 정보를 성공적으로 불러왔습니다.` });
+      setMessage({
+        type: "success",
+        text: restored
+          ? `${order.name} 주문을 불러오고, 저장하지 않았던 이전 검수 진행 내용을 복원했습니다.`
+          : `${order.name} 주문 정보를 성공적으로 불러왔습니다.`,
+      });
       playSuccessBeep();
       setTimeout(() => barcodeRef.current?.focus(), 150);
     } else if (fetcher.data?.error) {
@@ -708,6 +750,8 @@ export default function Inspect() {
     if (saveFetcher.data?.success) {
       setMessage({ type: "success", text: "검수 결과가 성공적으로 저장되었습니다." });
       playSuccessBeep();
+      clearInspectionDraft(window.localStorage);
+      setLastSavedOrder(savingOrderRef.current);
       setCurrentOrder(null);
       setLogs([]);
       setOrderName("");
@@ -725,7 +769,39 @@ export default function Inspect() {
     fetcher.submit({ intent: "fetch_order", orderName: query }, { method: "POST" });
   };
 
+  // Next order response
+  useEffect(() => {
+    const result = nextOrderFetcher.data;
+    if (nextOrderFetcher.state !== "idle" || !result || handledNextOrderRef.current === result) return;
+    handledNextOrderRef.current = result;
+    if (result.nextOrder?.name) {
+      setOrderName(result.nextOrder.name);
+      fetcher.submit({ intent: "fetch_order", orderName: result.nextOrder.name }, { method: "POST" });
+    } else if (result.nextOrderError) {
+      setMessage({ type: "error", text: result.nextOrderError });
+    } else {
+      setLastSavedOrder(null);
+      setMessage({ type: "info", text: "검수 대기 중인 주문이 없습니다." });
+    }
+  }, [nextOrderFetcher.state, nextOrderFetcher.data, fetcher]);
+
+  const handleLoadNextOrder = () => {
+    nextOrderFetcher.submit({ intent: "fetch_next_order", excludeOrderId: lastSavedOrder?.id || "" }, { method: "POST" });
+  };
+
+  const handleResumeDraft = () => {
+    if (!resumableDraft?.orderName) return;
+    setOrderName(resumableDraft.orderName);
+    fetcher.submit({ intent: "fetch_order", orderName: resumableDraft.orderName }, { method: "POST" });
+  };
+
+  const handleDiscardDraft = () => {
+    clearInspectionDraft(window.localStorage);
+    setResumableDraft(null);
+  };
+
   const handleCancelActiveOrder = () => {
+    clearInspectionDraft(window.localStorage);
     setCurrentOrder(null);
     setLogs([]);
     setOrderName("");
@@ -843,6 +919,7 @@ export default function Inspect() {
 
   const handleSave = () => {
     if (!currentOrder) return;
+    savingOrderRef.current = { id: currentOrder.id, name: currentOrder.name };
     saveFetcher.submit(
       {
         intent: "save_inspection",
@@ -1141,6 +1218,33 @@ export default function Inspect() {
             )}
           </BlockStack>
         </Card>
+
+        {/* 이전에 끝내지 못한 검수 이어하기 */}
+        {!currentOrder && resumableDraft && (
+          <Banner
+            tone="warning"
+            title={`${resumableDraft.orderName || "이전"} 주문의 검수가 저장되지 않은 채 남아 있습니다.`}
+            action={{ content: "이어서 검수", onAction: handleResumeDraft, loading: fetcher.state !== "idle" }}
+            secondaryAction={{ content: "진행 내용 버리기", onAction: handleDiscardDraft }}
+          >
+            <p>이 브라우저에서 스캔하던 수량과 예외 처리 내용을 복원합니다.</p>
+          </Banner>
+        )}
+
+        {/* 저장 직후: 다음 주문으로 바로 이동 */}
+        {!currentOrder && lastSavedOrder && (
+          <Card>
+            <InlineStack align="space-between" blockAlign="center" wrap gap="300">
+              <BlockStack gap="050">
+                <Text variant="headingSm" as="h2">{lastSavedOrder.name} 검수 저장 완료</Text>
+                <Text as="p" tone="subdued">검수 대기 중인 주문 가운데 가장 오래된 주문을 불러옵니다.</Text>
+              </BlockStack>
+              <Button variant="primary" onClick={handleLoadNextOrder} loading={nextOrderFetcher.state !== "idle"}>
+                다음 주문 검수
+              </Button>
+            </InlineStack>
+          </Card>
+        )}
 
         {/* 활성 주문 작업 영역 */}
         {currentOrder && (
