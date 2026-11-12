@@ -93,9 +93,9 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">대시보드</s-link>
-        <s-link href="/app/inspect">주문 검수</s-link>
-        <s-link href="/app/pick-list">처리중 리스트</s-link>
         <s-link href="/app/lieferschein">납품서(Lieferschein)</s-link>
+        <s-link href="/app/pick-list">처리중 리스트</s-link>
+        <s-link href="/app/inspect">주문 검수</s-link>
         <s-link href="/app/container-catalog">컨테이너 입고</s-link>
         <s-link href="/app/customer-requests">고객 상담함</s-link>
         <s-link href="/app/back-in-stock">재입고 수요 관리</s-link>

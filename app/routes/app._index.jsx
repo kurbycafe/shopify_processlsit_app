@@ -146,11 +146,12 @@ export default function Dashboard() {
           <InlineStack align="space-between" blockAlign="center" wrap gap="400">
             <BlockStack gap="100">
               <Text variant="headingMd" as="h2">작업 바로가기</Text>
-              <Text as="p" tone="subdued">처리중 리스트에서 상품을 준비한 뒤 주문별로 검수하세요.</Text>
+              <Text as="p" tone="subdued">1단계 납품서 출력 → 2단계 피킹 → 3단계 주문 검수 순서로 진행하세요.</Text>
             </BlockStack>
             <InlineStack gap="200" wrap>
-              <Button onClick={() => navigate("/app/pick-list")}>처리중 리스트</Button>
-              <Button variant="primary" onClick={() => navigate("/app/inspect")}>주문 검수 시작</Button>
+              <Button variant="primary" onClick={() => navigate("/app/lieferschein")}>납품서 출력 (1단계)</Button>
+              <Button onClick={() => navigate("/app/pick-list")}>처리중 리스트 (2단계)</Button>
+              <Button onClick={() => navigate("/app/inspect")}>주문 검수 시작 (3단계)</Button>
               <Button onClick={() => navigate("/app/inspection-history")}>검수 내역 확인</Button>
               <Button
                 onClick={() => navigate("/app/customer-requests")}
