@@ -1166,6 +1166,12 @@ export default function Inspect() {
           : undefined
       }
       backAction={{ content: "대시보드", url: "/app" }}
+      secondaryActions={[
+        {
+          content: "검수 내역",
+          url: "/app/inspection-history",
+        },
+      ]}
     >
       <BlockStack gap="400">
         {/* 주문 검색 바 */}

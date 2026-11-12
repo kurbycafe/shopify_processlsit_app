@@ -345,6 +345,12 @@ export default function InspectionHistory() {
       title="검수 내역"
       subtitle="작업자별 검수 결과, 결품 및 대체 상품 처리 내역을 조회하고 추적합니다."
       backAction={{ content: "대시보드", url: "/app" }}
+      secondaryActions={[
+        {
+          content: "주문 검수",
+          url: "/app/inspect",
+        },
+      ]}
       primaryAction={{
         content: "CSV 내보내기",
         icon: ExportIcon,
