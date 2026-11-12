@@ -527,8 +527,18 @@ export const loader = async ({ request, params }) => {
         ? (node.draftLineItems?.edges || node.lineItems?.edges || [])
         : (node.lineItems?.edges || []);
 
+      const isOrderFulfilled = !isDraft && (
+        node.displayFulfillmentStatus === "FULFILLED" ||
+        (lineItemsEdges.length > 0 && lineItemsEdges.every((edge) => {
+          const it = edge.node || edge;
+          const current = Number.isFinite(it.currentQuantity) ? it.currentQuantity : Number(it.quantity) || 0;
+          return Number(it.unfulfilledQuantity) === 0 && current > 0;
+        }))
+      );
+
       const rawItems = lineItemsEdges.map((itemEdge) => {
         const item = itemEdge.node;
+        if (isOrderFulfilled) item.isFulfilled = true;
         const variant = item.variant;
         const product = variant?.product;
 
@@ -1196,7 +1206,7 @@ export default function OrderPrintDetailPage() {
                   <tr><td className="info-label">Bestellzeit</td><td className="info-value">{order.createdTime} Uhr</td></tr>
                   <tr><td className="info-label">Versandart</td><td className="info-value">{order.shippingMethod}</td></tr>
                   <tr><td className="info-label">E-Mail</td><td className="info-value">{order.email}</td></tr>
-                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.shipWeightKg ?? order.totalWeightKg} kg</td></tr>
+                  <tr><td className="info-label">Gesamtgewicht</td><td className="info-value highlight-weight">{order.shipWeightKg && parseFloat(order.shipWeightKg) > 0 ? order.shipWeightKg : order.totalWeightKg} kg</td></tr>
                   <tr><td className="info-label">Zahlungsstatus</td><td className="info-value" style={{ fontWeight: "bold" }}>{translateFinancialStatus(order.financialStatus)}</td></tr>
                   <tr><td className="info-label">Zahlungsart</td><td className="info-value">{translatePaymentGateway(order.paymentGatewayNames)}</td></tr>
                 </tbody>
@@ -1292,11 +1302,11 @@ export default function OrderPrintDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {(order.shipItems || order.items).length === 0 && (
-                <tr><td colSpan={6} className="missing-value">출고할 품목이 없습니다 (전량 출고/삭제/환불됨)</td></tr>
+              {(order.shipItems?.length > 0 ? order.shipItems : (order.items || []).filter((i) => (i.shipQuantity > 0 || (i.currentQuantity ?? i.quantity ?? 0) > 0))).length === 0 && (
+                <tr><td colSpan={6} className="missing-value">출고할 품목이 없습니다 (전량 삭제/환불됨)</td></tr>
               )}
-              {(order.shipItems || order.items).map((item) => {
-                const shipQty = item.shipQuantity ?? item.quantity;
+              {(order.shipItems?.length > 0 ? order.shipItems : (order.items || []).filter((i) => (i.shipQuantity > 0 || (i.currentQuantity ?? i.quantity ?? 0) > 0))).map((item) => {
+                const shipQty = item.shipQuantity > 0 ? item.shipQuantity : (item.currentQuantity ?? item.quantity);
                 const isOriginalMultiQty = shipQty > 1;
                 return (
                   <tr key={item.id}>

@@ -325,8 +325,20 @@ export const loader = async ({ request }) => {
       let hasChilled = false;
       let hasFrozen = false;
 
-      // 이미 출고/삭제/환불된 품목은 패킹 대상에서 제외
-      const lineItemEdges = (node.lineItems?.edges || []).filter((e) => shippableQuantity(e.node, isDraftMode) > 0);
+      const isOrderFulfilled = !isDraftMode && (
+        node.displayFulfillmentStatus === "FULFILLED" ||
+        ((node.lineItems?.edges || []).length > 0 && (node.lineItems?.edges || []).every((e) => {
+          const it = e.node || e;
+          const current = Number.isFinite(it.currentQuantity) ? it.currentQuantity : Number(it.quantity) || 0;
+          return Number(it.unfulfilledQuantity) === 0 && current > 0;
+        }))
+      );
+
+      // 이미 출고/삭제/환불된 품목은 패킹 대상에서 제외 (단, 전량 출고 완료된 주문은 출고 품목 포함)
+      const lineItemEdges = (node.lineItems?.edges || []).filter((e) => {
+        if (isOrderFulfilled && e.node) e.node.isFulfilled = true;
+        return shippableQuantity(e.node, isDraftMode) > 0;
+      });
       const lineItemCount = lineItemEdges.length;
 
       if (lineItemCount === 0) {

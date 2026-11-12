@@ -91,6 +91,8 @@ test("delivery notes pack only units that are still to ship", async () => {
   assert.equal(shippableQuantity({ quantity: 2, currentQuantity: 0, unfulfilledQuantity: 0 }), 0);
   assert.equal(shippableQuantity({ quantity: 4 }), 4, "missing fields fall back to the ordered quantity");
   assert.equal(shippableQuantity({ quantity: 5, currentQuantity: 0 }, true), 5, "draft orders have no fulfillment yet");
+  assert.equal(shippableQuantity({ quantity: 3, currentQuantity: 3, unfulfilledQuantity: 0, isFulfilled: true }), 3, "fulfilled orders pack the fulfilled units");
+  assert.equal(shippableQuantity({ quantity: 3, currentQuantity: 0, unfulfilledQuantity: 0, isFulfilled: true }), 0, "refunded unit in fulfilled order is not packed");
 });
 
 test("the order list also loads partially fulfilled orders and invoice-sent drafts", () => {
