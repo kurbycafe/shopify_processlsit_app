@@ -16,6 +16,7 @@ import {
   Modal,
 } from "@shopify/polaris";
 import { pressable } from "../utils/a11y.js";
+import OrderInspectionSummary from "./common/OrderInspectionSummary.jsx";
 
 const STATUS_LABELS = {
   REQUESTED: "접수",
@@ -418,6 +419,14 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                         </div>
                       ))}
                   </div>
+
+                  {["SUPPORT", "CLAIM", "RETURN"].includes(record.type) && (
+                    <OrderInspectionSummary
+                      orderRef={detail.orderName || detail.orderId || record.orderId}
+                      inspection={record.inspection}
+                      compact
+                    />
+                  )}
 
                   {/* Photo attachments */}
                   {photos.length > 0 && (

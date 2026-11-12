@@ -7,6 +7,8 @@ import { createHash } from "node:crypto";
 import { MobileApiError } from "./mobileApi.server.js";
 import { listPublicReviews, createReview } from "./productReviews.server.js";
 import { ensureCustomerB2bCoupon } from "./b2bCoupon.server.js";
+import { notifyAdminOfCustomerRequest } from "./adminOperationAlerts.server.js";
+import { attachOrderInspections } from "./customerRequestInspections.server.js";
 
 export const CUSTOMER_RETURN_ORDER_QUERY = `query ProcesslistReturnOrder($search: String!) {
   customer { id orders(first: 5, query: $search) { nodes { id name } } }
@@ -71,7 +73,13 @@ export async function saveReturnRequest({ db, shop, request, customerQuery, inpu
     where: { requestKey: key },
     create: { shop, customerId, type: "RETURN", orderId: order.id, requestKey: key, payload },
     update: {},
-    select: { id: true, createdAt: true, status: true },
+    select: { id: true, createdAt: true, status: true, updatedAt: true, payload: true },
+  });
+  await notifyAdminOfCustomerRequest({
+    db,
+    shop,
+    record: { ...record, type: "RETURN", orderId: order.id, customerId },
+    payload,
   });
   return { accepted: true, returnId: record.id, orderId: order.id, status: record.status, submittedAt: record.createdAt };
 }
@@ -91,7 +99,18 @@ export async function saveOrderChangeRequest({ db, shop, request, customerQuery,
   const message = `${kind === 'cancel' ? '주문 취소 요청' : '배송 주소 변경 요청'}${details ? `: ${details}` : ''}`;
   const payload = {category:'order_change', kind, orderId:rawId, orderName:order.name || null, message};
   const key = requestKey([shop, 'ORDER_CHANGE', customerId, rawId, kind, details]);
-  const record = await requestModel(db).upsert({where:{requestKey:key},create:{shop,customerId,orderId:rawId,type:'SUPPORT',requestKey:key,payload},update:{},select:{id:true,status:true,createdAt:true}});
+  const record = await requestModel(db).upsert({
+    where: { requestKey: key },
+    create: { shop, customerId, orderId: rawId, type: "SUPPORT", requestKey: key, payload },
+    update: {},
+    select: { id: true, status: true, createdAt: true, updatedAt: true, payload: true },
+  });
+  await notifyAdminOfCustomerRequest({
+    db,
+    shop,
+    record: { ...record, type: "SUPPORT", orderId: rawId, customerId },
+    payload,
+  });
   return {accepted:true, requestId:record.id, status:record.status, submittedAt:record.createdAt};
 }
 
@@ -117,7 +136,8 @@ export async function listCustomerRequests({ db, shop, status = "REQUESTED", typ
     orderBy: { id: "desc" }, take: 26,
     select: { id: true, type: true, customerId: true, orderId: true, payload: true, status: true, createdAt: true, updatedAt: true },
   });
-  return { requests: records.slice(0, 25), nextCursor: records.length > 25 ? records[24].id : null };
+  const requests = await attachOrderInspections(db, shop, records.slice(0, 25));
+  return { requests, nextCursor: records.length > 25 ? records[24].id : null };
 }
 export async function updateCustomerRequest({ db, shop, id, status, reply = undefined, admin = null, applyTags = false }) {
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id || "") || !STATUSES.has(status)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request update.");
@@ -285,8 +305,16 @@ export async function saveSupportRequest({ db, shop, request, verify, input }) {
     where: { requestKey: key },
     create: { shop, customerId, orderId: orderId || null, type, requestKey: key, payload },
     update: {},
-    select: { id: true, createdAt: true, status: true },
+    select: { id: true, createdAt: true, status: true, updatedAt: true, payload: true },
   });
+  if (type === "CLAIM") {
+    await notifyAdminOfCustomerRequest({
+      db,
+      shop,
+      record: { ...record, type, orderId: orderId || null, customerId },
+      payload,
+    });
+  }
   return { accepted: true, requestId: record.id, type, status: record.status, submittedAt: record.createdAt };
 }
 

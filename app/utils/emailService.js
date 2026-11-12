@@ -15,11 +15,31 @@ function getEmailConfig() {
   };
 }
 
+export const DEFAULT_ADMIN_ALERT_RECIPIENTS = [
+  "service@dawayo.de",
+  "ceo@dawayo.de",
+  "kgt@dawayo.de",
+];
+
+/**
+ * Returns configured admin operational alert recipient emails with fallback to
+ * Dawayo operations addresses. Supports comma/whitespace separated ADMIN_ALERT_EMAILS.
+ */
+export function getAdminAlertRecipients() {
+  const raw = (process.env.ADMIN_ALERT_EMAILS || "").trim();
+  if (!raw) return DEFAULT_ADMIN_ALERT_RECIPIENTS;
+  const parsed = raw
+    .split(/[,\s;]+/)
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.includes("@"));
+  return parsed.length > 0 ? [...new Set(parsed)] : DEFAULT_ADMIN_ALERT_RECIPIENTS;
+}
+
 export function isEmailServiceConfigured() {
   return getEmailConfig().isConfigured;
 }
 
-function escapeHtml(str) {
+export function escapeHtml(str) {
   if (!str) return "";
   return String(str)
     .replace(/&/g, "&amp;")
@@ -333,6 +353,7 @@ export function buildCancellationAlertEmailHtml({
   currency = "EUR",
   items = [],
   shopDomain,
+  recipients = getAdminAlertRecipients(),
 }) {
   const adminOrderUrl = shopDomain
     ? `https://admin.shopify.com/store/${shopDomain.replace(".myshopify.com", "")}/orders`
@@ -502,7 +523,7 @@ export function buildCancellationAlertEmailHtml({
     </div>
 
     <div class="footer">
-      수신: service@dawayo.de, ceo@dawayo.de, kgt@dawayo.de<br>
+      수신: ${escapeHtml((recipients || getAdminAlertRecipients()).join(", "))}<br>
       Dawayo Operations
     </div>
   </div>
@@ -527,7 +548,7 @@ export async function sendCancellationAlertEmail({
     throw new Error("취소 알림 이메일 서비스가 설정되지 않았습니다.");
   }
 
-  const recipients = ["service@dawayo.de", "ceo@dawayo.de", "kgt@dawayo.de"];
+  const recipients = getAdminAlertRecipients();
 
   const htmlContent = buildCancellationAlertEmailHtml({
     orderName,
@@ -539,6 +560,7 @@ export async function sendCancellationAlertEmail({
     currency,
     items,
     shopDomain,
+    recipients,
   });
 
   const subject = `[Dawayo 긴급 알림] 주문 취소 / EU 청약철회 요청 - ${orderName}`;
@@ -548,6 +570,31 @@ export async function sendCancellationAlertEmail({
       to: recipients.map(email => ({ email })),
       subject: subject,
       htmlContent: htmlContent,
+  });
+}
+
+/**
+ * Sends a generic operational alert email (CS claims, returns, push failure alerts)
+ * to admin recipients via the shared Brevo mailer.
+ */
+export async function sendAdminOperationAlertEmail({
+  subject,
+  htmlContent,
+  recipients = getAdminAlertRecipients(),
+}) {
+  const config = getEmailConfig();
+  if (!config.isConfigured) {
+    throw new Error("관리자 알림 이메일 서비스가 설정되지 않았습니다.");
+  }
+  const cleanRecipients = Array.isArray(recipients) && recipients.length > 0
+    ? recipients
+    : getAdminAlertRecipients();
+
+  return await sendBrevoMail({
+    sender: { name: config.senderName || "Dawayo Operations", email: config.senderEmail },
+    to: cleanRecipients.map((email) => ({ email })),
+    subject,
+    htmlContent,
   });
 }
 

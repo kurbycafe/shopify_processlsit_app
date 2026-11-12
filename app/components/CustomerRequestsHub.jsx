@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge, Banner, BlockStack, Button, ButtonGroup, Card, InlineStack, Modal, Select, Text, TextField } from "@shopify/polaris";
 import { useFetcher } from "react-router";
 import CustomerRequestsManager from "./CustomerRequestsManager.jsx";
+import OrderInspectionSummary from "./common/OrderInspectionSummary.jsx";
 
 const labels = { SUPPORT: "1:1 문의", CLAIM: "배송 문제", RETURN: "반품 · 교환" };
 const states = { REQUESTED: "답변 필요", REVIEWING: "확인 중", CLOSED: "처리 완료" };
@@ -170,6 +171,10 @@ function SupportInbox({ active = true }) {
             )}
           </Text>
         </InlineStack>
+        <OrderInspectionSummary
+          orderRef={selected.payload?.orderName || selected.payload?.orderId || selected.orderId}
+          inspection={selected.inspection}
+        />
         <div style={{ background: "#f6f7f8", borderRadius: 10, padding: 14, display: "grid", gap: 10, maxHeight: 420, overflowY: "auto", border: "1px solid #e1e3e5" }}>
           {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#303030" : "#fff", color: item.sender === "admin" ? "#fff" : "#303030", border: item.sender === "admin" ? "none" : "1px solid #e1e3e5", padding: "10px 12px", borderRadius: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={src} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
         </div>

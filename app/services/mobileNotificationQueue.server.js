@@ -3,6 +3,7 @@ import { dispatchGuestNotices } from "./mobileGuestPush.server.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { CATEGORY_PREFERENCE, pushKey, validCustomerId, readPushPreferences, permitsPush, inQuietHours } from "./mobilePushPolicy.server.js";
 import { firebasePushConfigured, sendFirebaseNotification } from "./firebaseMessaging.server.js";
+import { notifyAdminOfPushFailures } from "./adminOperationAlerts.server.js";
 
 const MESSAGE_TYPE = "MOBILE_NOTIFICATION";
 const JOB_TYPE = "PUSH_DELIVERY";
@@ -65,7 +66,15 @@ async function expandNotification(db, message) {
   await db.customerRequest.updateMany({ where: { id: message.id, shop: message.shop, updatedAt: message.updatedAt }, data: { payload: { ...message.payload, expanded: true } } });
 }
 
-export async function dispatchMobileNotifications({ db, shop, limit = 20, now = new Date(), send = sendFirebaseNotification, configured = firebasePushConfigured() }) {
+export async function dispatchMobileNotifications({
+  db,
+  shop,
+  limit = 20,
+  now = new Date(),
+  send = sendFirebaseNotification,
+  configured = firebasePushConfigured(),
+  notifyFailures = send === sendFirebaseNotification,
+}) {
   if (!configured) return { configured: false, processed: 0 };
   const messagesWhere = { shop, type: MESSAGE_TYPE, payload: { path: ["expanded"], equals: false } };
   const urgent = [{ payload: { path: ["category"], equals: "ORDER" } }, { payload: { path: ["category"], equals: "SUPPORT" } }];
@@ -141,5 +150,8 @@ export async function dispatchMobileNotifications({ db, shop, limit = 20, now = 
   }));
 
   const guestProcessed = await dispatchGuestNotices({ db, shop, send, limit, now });
+  if (notifyFailures) {
+    await notifyAdminOfPushFailures({ db, shop, now: () => now }).catch(() => {});
+  }
   return { configured: true, processed: processed + guestProcessed };
 }
