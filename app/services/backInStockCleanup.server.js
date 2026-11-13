@@ -114,3 +114,4 @@ export async function deleteTerminalSubscriptions(
   const result = await db.backInStockSubscription.deleteMany({ where });
   return { count: result.count || 0, statuses };
 }
+

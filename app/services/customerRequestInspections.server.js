@@ -136,3 +136,4 @@ export async function attachOrderInspections(db, shop, records) {
     return records;
   }
 }
+

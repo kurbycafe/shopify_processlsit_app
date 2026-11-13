@@ -159,3 +159,4 @@ export default function OrderInspectionSummary({ orderRef, inspection, compact =
     </div>
   );
 }
+

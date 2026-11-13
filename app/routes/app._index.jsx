@@ -445,6 +445,6 @@ export default function Dashboard() {
         </Modal.Section>
       </Modal>
 
-      </Page>
+    </Page>
   );
 }

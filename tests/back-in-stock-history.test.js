@@ -41,7 +41,7 @@ function compileAction(dependencies) {
       Date,
       Map,
       Set,
-      console: { log() {}, warn() {}, error() {} },
+      console: { log() { }, warn() { }, error() { } },
       authenticate: { admin: async () => ({ session: { shop: "test.myshopify.com" }, admin: {} }) },
       ...dependencies,
     })
@@ -300,8 +300,8 @@ test("BackInStock UI components separate active waiters from history without emo
     React.createElement(ctx.ProductTable, {
       scope: "ACTIVE",
       selectedVariantIds: [],
-      onToggleSelectAll() {},
-      onToggleSelectVariant() {},
+      onToggleSelectAll() { },
+      onToggleSelectVariant() { },
       products: [{
         variantId: "gid://shopify/ProductVariant/1",
         productTitle: "Test Product",
@@ -322,7 +322,7 @@ test("BackInStock UI components separate active waiters from history without emo
   const drawerHtml = renderToStaticMarkup(
     React.createElement(ctx.Drawer, {
       open: true,
-      onClose() {},
+      onClose() { },
       scope: "ACTIVE",
       productItem: { variantId: "1", productTitle: "Test", pendingCount: 1, historyCount: 1 },
       subscribers: [
@@ -337,7 +337,7 @@ test("BackInStock UI components separate active waiters from history without emo
   const modalHtml = renderToStaticMarkup(
     React.createElement(ctx.CleanupModal, {
       open: true,
-      onClose() {},
+      onClose() { },
       cleanableHistoryCount: 12,
       activeSubscribersCount: 5,
     })
