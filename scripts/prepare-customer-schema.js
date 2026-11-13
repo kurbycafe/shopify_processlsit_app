@@ -1,17 +1,33 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 // Repair missing tables, columns and indexes defined in schema.prisma. This is
 // deliberately additive: never use db push/reset against the existing production database.
 import { applySchemaStatements, schemaIsReady, readSchemaCatalog } from "../app/services/schemaReadiness.js";
+import { schemaStatements } from "../app/services/schemaStatements.generated.js";
 import { PrismaClient } from "@prisma/client";
 
-// Guard against repeated execution within the same Vercel deployment build phase
+// Guard against repeated execution within the same Vercel deployment build phase,
+// while invalidating across cached deployments or whenever generated DDL changes.
 const CACHE_DIR = path.resolve(process.cwd(), "node_modules/.cache");
 const CACHE_MARKER = path.join(CACHE_DIR, ".schema-prepared");
+const EXPECTED_MARKER = crypto
+  .createHash("sha256")
+  .update(
+    JSON.stringify({
+      deploymentId: process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA || "local",
+      statements: schemaStatements,
+    })
+  )
+  .digest("hex");
 
 if (fs.existsSync(CACHE_MARKER)) {
-  console.log("Database schema already prepared during this build phase. Skipping.");
-  process.exit(0);
+  try {
+    if (fs.readFileSync(CACHE_MARKER, "utf8").trim() === EXPECTED_MARKER) {
+      console.log("Database schema already prepared during this build phase. Skipping.");
+      process.exit(0);
+    }
+  } catch {}
 }
 
 function sanitizeErrorMessage(msg) {
@@ -56,7 +72,7 @@ try {
 
   try {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(CACHE_MARKER, new Date().toISOString(), "utf8");
+    fs.writeFileSync(CACHE_MARKER, EXPECTED_MARKER, "utf8");
   } catch {}
 } catch (error) {
   const sanitized = {
