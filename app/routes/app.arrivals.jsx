@@ -9,8 +9,7 @@ import { getShopAliases } from "../services/subscriptionService.server.js";
 import { arrivalItemCode, resolveArrivalSkus } from "../services/customerResources.server.js";
 import { getOdooRpc, isOdooConfigured } from "../services/odooClient.server.js";
 import { syncOdooArrivals } from "../services/arrivalsSync.server.js";
-import { collectExistingSkus, suggestAvailableSkus, applySkusToOdooAndShopify } from "../services/skuSync.server.js";
-import { ODOO_SKU_CATEGORIES, computeNextAvailableSku } from "../utils/odooSkuCategories.js";
+import { suggestAvailableSkus, applySkusToOdooAndShopify } from "../services/skuSync.server.js";
 import { MissingSkuManagerCard } from "../components/MissingSkuManagerCard.jsx";
 import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides, arrivalItemKey } from "../utils/arrivalCopy.js";
 
@@ -63,11 +62,9 @@ export const loader = async ({ request }) => {
       (latest, c) => (!latest || (c.syncedAt && c.syncedAt > latest) ? c.syncedAt : latest),
       null
     );
-    const recentDateCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const hasRecentArrival = containers.some((c) => c.scheduledDate && c.scheduledDate >= recentDateCutoff);
     const isSyncStale = !latestSync || Date.now() - new Date(latestSync).getTime() > AUTO_SYNC_TTL_MS;
 
-    if (isSyncStale || !hasRecentArrival) {
+    if (isSyncStale) {
       try {
         await syncOdooArrivals({ db: prisma, shop: session.shop, rpc: await getOdooRpc() });
         containers = await queryOpenContainers(shopAliases);
@@ -100,13 +97,7 @@ export const loader = async ({ request }) => {
             })
           )
           .catch(() => null)
-      : collectExistingSkus({ db: prisma, prefixes: [] }).then((usedSkus) => {
-          const map = {};
-          for (const cat of ODOO_SKU_CATEGORIES) {
-            map[cat.prefix] = computeNextAvailableSku(cat.prefix, usedSkus);
-          }
-          return { suggestions: [], nextSkuByPrefix: map };
-        }),
+      : Promise.resolve({ suggestions: [], nextSkuByPrefix: {} }),
   ]);
   const nextSkuByPrefix = skuSuggestionResult?.nextSkuByPrefix || {};
   const suggestionByItemId = new Map(

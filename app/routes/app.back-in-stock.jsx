@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback } from "react";
 import {
   useLoaderData,
   useFetcher,
@@ -15,8 +15,10 @@ import prisma, { ensureDatabaseSchema, safeFindSubscribers } from "../db.server"
 import { getEtaBySku } from "../services/odooClient.server";
 import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server";
 import { getRestockDispatchPolicy, saveRestockDispatchPolicy } from "../services/restockDispatchPolicy.server";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import {
   normalizeHistoryScope,
+  fetchVariantMetaRows,
   buildProductWaveAggregates,
   matchesProductScopeAndStatus,
   buildSubscriberScopeWhere,
@@ -41,8 +43,11 @@ import BackInStockProductTable from "../components/backInStock/BackInStockProduc
 import BackInStockSubscriberTable from "../components/backInStock/BackInStockSubscriberTable";
 import BackInStockPagination from "../components/backInStock/BackInStockPagination";
 import BackInStockDetailDrawer from "../components/backInStock/BackInStockDetailDrawer";
-import BackInStockEmailPreviewModal from "../components/backInStock/BackInStockEmailPreviewModal";
 import BackInStockHistoryCleanupModal from "../components/backInStock/BackInStockHistoryCleanupModal";
+
+const BackInStockEmailPreviewModal = lazy(() =>
+  import("../components/backInStock/BackInStockEmailPreviewModal")
+);
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
@@ -91,7 +96,7 @@ export const loader = async ({ request }) => {
   }
 
   // --- 1. Global Wave & KPI Aggregations (Unarchived active vs past cycles, plus archive counts) ---
-  const [unarchivedGroups, archivedGroups] = await Promise.all([
+  const [unarchivedGroups, archivedGroups, unarchivedMetaRows, archivedMetaRows, dispatchPolicy] = await Promise.all([
     prisma.backInStockSubscription.groupBy({
       by: ["variantId", "status"],
       where: { shop, archivedAt: null },
@@ -104,40 +109,18 @@ export const loader = async ({ request }) => {
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
+    fetchVariantMetaRows({ db: prisma, shop, archived: false }).catch((e) => {
+      console.warn("Subscription metadata fetch warning:", e.message);
+      return [];
+    }),
+    scope === "ARCHIVED"
+      ? fetchVariantMetaRows({ db: prisma, shop, archived: true }).catch((e) => {
+          console.warn("Archived subscription metadata fetch warning:", e.message);
+          return [];
+        })
+      : Promise.resolve([]),
+    getRestockDispatchPolicy(shop, { db: prisma }),
   ]);
-
-  let unarchivedMetaRows = [];
-  let archivedMetaRows = [];
-  try {
-    const metaSelect = {
-      variantId: true,
-      productId: true,
-      productTitle: true,
-      variantTitle: true,
-      sku: true,
-      status: true,
-      poNumber: true,
-      etaDate: true,
-      notifiedAt: true,
-      restockedAt: true,
-    };
-    [unarchivedMetaRows, archivedMetaRows] = await Promise.all([
-      prisma.backInStockSubscription.findMany({
-        where: { shop, archivedAt: null },
-        orderBy: { createdAt: "desc" },
-        select: metaSelect,
-      }),
-      scope === "ARCHIVED"
-        ? prisma.backInStockSubscription.findMany({
-            where: { shop, archivedAt: { not: null } },
-            orderBy: { createdAt: "desc" },
-            select: metaSelect,
-          })
-        : Promise.resolve([]),
-    ]);
-  } catch (e) {
-    console.warn("Subscription metadata fetch warning:", e.message);
-  }
 
   const unarchivedWave = buildProductWaveAggregates({
     groupedRows: unarchivedGroups,
@@ -379,22 +362,20 @@ export const loader = async ({ request }) => {
           return p;
         });
 
-        // Background cache backfill to database for missing SKUs
+        // Background cache backfill to database for missing SKUs (bounded concurrency to protect DB pool)
         if (missingSkuVariantUpdates.length > 0) {
-          Promise.all(
-            missingSkuVariantUpdates.map(({ rawId, sku }) =>
-              prisma.backInStockSubscription.updateMany({
-                where: {
-                  shop,
-                  sku: null,
-                  OR: [
-                    { variantId: rawId },
-                    { variantId: `gid://shopify/ProductVariant/${rawId}` },
-                  ],
-                },
-                data: { sku },
-              })
-            )
+          mapWithConcurrency(missingSkuVariantUpdates, 5, ({ rawId, sku }) =>
+            prisma.backInStockSubscription.updateMany({
+              where: {
+                shop,
+                sku: null,
+                OR: [
+                  { variantId: rawId },
+                  { variantId: `gid://shopify/ProductVariant/${rawId}` },
+                ],
+              },
+              data: { sku },
+            })
           ).catch((e) => console.warn("Background SKU update error:", e.message));
         }
       }
@@ -451,7 +432,6 @@ export const loader = async ({ request }) => {
   }
 
   const totalPages = Math.ceil(totalCount / limit);
-  const dispatchPolicy = await getRestockDispatchPolicy(shop, { db: prisma });
 
   const activeSubscribersCount = unarchivedWave.products.reduce(
     (sum, item) => sum + (item.activeQueueCount || 0),
@@ -497,6 +477,23 @@ export const loader = async ({ request }) => {
 export const action = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
+
+  // Declared inside action so action-only vm.Script test harnesses require no extra globals.
+  const runConcurrent = async (list, concurrency, worker) => {
+    const items = Array.isArray(list) ? list : Array.from(list || []);
+    if (items.length === 0) return [];
+    const limit = Math.max(1, Math.min(concurrency, items.length));
+    const results = new Array(items.length);
+    let idx = 0;
+    const next = async () => {
+      while (idx < items.length) {
+        const current = idx++;
+        results[current] = await worker(items[current], current);
+      }
+    };
+    await Promise.all(Array.from({ length: limit }, () => next()));
+    return results;
+  };
 
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -661,16 +658,13 @@ export const action = async ({ request }) => {
     const now = new Date();
 
     if (mode === "products") {
-      for (const vId of ids) {
+      const results = await runConcurrent(ids, 4, async (vId) => {
         const res = await notifyPendingSubscribersForVariant({
           shop,
           variantId: vId,
           forceAll: true,
           dispatchDate: now,
         });
-        sentCount += res.sent;
-        failedCount += res.failed;
-        warningCount += res.warnings?.length || 0;
 
         try {
           if (typeof queueRestockPush === "function") {
@@ -683,6 +677,13 @@ export const action = async ({ request }) => {
             }
           }
         } catch (_) {}
+
+        return res;
+      });
+      for (const res of results) {
+        sentCount += res.sent;
+        failedCount += res.failed;
+        warningCount += res.warnings?.length || 0;
       }
       try {
         if (typeof dispatchMobileNotifications === "function") {
@@ -695,8 +696,10 @@ export const action = async ({ request }) => {
         where: { shop, id: { in: ids }, status: { in: ["PENDING", "FAILED"] } },
       });
       const variants = new Map(pendingList.map(sub => [sub.variantId.replace("gid://shopify/ProductVariant/", ""), sub.variantId]));
-      for (const variantId of variants.values()) {
-        const result = await notifyPendingSubscribersForVariant({ shop, variantId, subscriptionIds: ids, dispatchDate: now });
+      const results = await runConcurrent([...variants.values()], 4, (variantId) =>
+        notifyPendingSubscribersForVariant({ shop, variantId, subscriptionIds: ids, dispatchDate: now })
+      );
+      for (const result of results) {
         sentCount += result.sent;
         failedCount += result.failed;
         warningCount += result.warnings?.length || 0;
@@ -862,39 +865,33 @@ export const action = async ({ request }) => {
 
         const json = await queryRes.json();
         const nodes = json.data?.nodes || [];
-
-        for (const variant of nodes) {
-          if (!variant) continue;
+        const eligibleVariants = nodes.filter((variant) => {
+          if (!variant) return false;
           const hasNumericQty = typeof variant.inventoryQuantity === "number";
           const availableQty = hasNumericQty ? variant.inventoryQuantity : null;
           const isInStock = hasNumericQty ? availableQty > 0 : variant.availableForSale === true;
+          return isInStock || (forceAll && variant.availableForSale === true);
+        });
 
-          if (isInStock || (forceAll && variant.availableForSale === true)) {
-            const productHandle = variant.product?.handle || "";
-            const domain = shop.includes("dawayo") ? "dawayo.de" : shop;
-            const productUrl = productHandle ? `https://${domain}/products/${productHandle}` : `https://${domain}`;
+        const variantResults = await runConcurrent(eligibleVariants, 4, async (variant) => {
+          const hasNumericQty = typeof variant.inventoryQuantity === "number";
+          const availableQty = hasNumericQty ? variant.inventoryQuantity : null;
+          const productHandle = variant.product?.handle || "";
+          const domain = shop.includes("dawayo") ? "dawayo.de" : shop;
+          const productUrl = productHandle ? `https://${domain}/products/${productHandle}` : `https://${domain}`;
 
-            const res = await notifyPendingSubscribersForVariant({
-              shop,
-              variantId: variant.id,
-              productTitle: variant.product?.title || "상품",
-              variantTitle: variant.title,
-              productUrl,
-              sku: variant.sku || null,
-              dispatchDate: now,
-              ...(forceAll ? { forceAll: true } : { availableQuantity: availableQty }),
-            });
+          const res = await notifyPendingSubscribersForVariant({
+            shop,
+            variantId: variant.id,
+            productTitle: variant.product?.title || "상품",
+            variantTitle: variant.title,
+            productUrl,
+            sku: variant.sku || null,
+            dispatchDate: now,
+            ...(forceAll ? { forceAll: true } : { availableQuantity: availableQty }),
+          });
 
-            if (res.skippedByThreshold) {
-              skippedThresholdCount++;
-              totalRemainingPending += res.remainingPending || 0;
-              continue;
-            }
-
-            inStockCount++;
-            totalNotified += res.sent;
-            totalRemainingPending += res.remainingPending || 0;
-
+          if (!res.skippedByThreshold) {
             try {
               if (typeof queueRestockPush === "function") {
                 const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
@@ -908,6 +905,19 @@ export const action = async ({ request }) => {
               }
             } catch (_) {}
           }
+
+          return res;
+        });
+
+        for (const res of variantResults) {
+          if (res.skippedByThreshold) {
+            skippedThresholdCount++;
+            totalRemainingPending += res.remainingPending || 0;
+            continue;
+          }
+          inStockCount++;
+          totalNotified += res.sent;
+          totalRemainingPending += res.remainingPending || 0;
         }
       }
 
@@ -1788,12 +1798,16 @@ export default function BackInStockDashboard() {
         />
 
         {/* Bilingual Email Preview Modal */}
-        <BackInStockEmailPreviewModal
-          open={previewModalOpen}
-          onClose={() => setPreviewModalOpen(false)}
-          productItem={previewProduct}
-          shopDomain={shop}
-        />
+        {previewModalOpen && (
+          <Suspense fallback={null}>
+            <BackInStockEmailPreviewModal
+              open={previewModalOpen}
+              onClose={() => setPreviewModalOpen(false)}
+              productItem={previewProduct}
+              shopDomain={shop}
+            />
+          </Suspense>
+        )}
 
         {/* History Archive / Permanent Cleanup Modal */}
         <BackInStockHistoryCleanupModal

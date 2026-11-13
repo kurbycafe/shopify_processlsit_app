@@ -3,6 +3,7 @@ import { Badge, Banner, BlockStack, Button, ButtonGroup, Card, InlineStack, Moda
 import { useFetcher } from "react-router";
 import CustomerRequestsManager from "./CustomerRequestsManager.jsx";
 import OrderInspectionSummary from "./common/OrderInspectionSummary.jsx";
+import { optimizeShopifyImageUrl } from "../utils/shopifyImage.js";
 
 const labels = { SUPPORT: "1:1 문의", CLAIM: "배송 문제", RETURN: "반품 · 교환" };
 const states = { REQUESTED: "답변 필요", REVIEWING: "확인 중", CLOSED: "처리 완료" };
@@ -176,7 +177,7 @@ function SupportInbox({ active = true }) {
           inspection={selected.inspection}
         />
         <div style={{ background: "#f6f7f8", borderRadius: 10, padding: 14, display: "grid", gap: 10, maxHeight: 420, overflowY: "auto", border: "1px solid #e1e3e5" }}>
-          {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#303030" : "#fff", color: item.sender === "admin" ? "#fff" : "#303030", border: item.sender === "admin" ? "none" : "1px solid #e1e3e5", padding: "10px 12px", borderRadius: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={src} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
+          {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#303030" : "#fff", color: item.sender === "admin" ? "#fff" : "#303030", border: item.sender === "admin" ? "none" : "1px solid #e1e3e5", padding: "10px 12px", borderRadius: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={optimizeShopifyImageUrl(src, 160)} alt="" width={72} height={72} loading="lazy" decoding="async" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
         </div>
         {!selected.customerId && <Banner tone="warning">로그인 계정이 연결되지 않은 문의입니다. 앱 대화와 푸시로 답변을 전달할 수 없으므로, 등록된 이메일 등으로 별도 안내해 주세요.</Banner>}
         <TextField label="고객에게 답변" value={reply} onChange={setReply} multiline={3} maxLength={4000} autoComplete="off" placeholder="고객에게 안내할 내용을 입력하세요" />

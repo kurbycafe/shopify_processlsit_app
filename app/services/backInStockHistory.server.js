@@ -32,6 +32,83 @@ export function normalizeHistoryScope(scopeParam, { statusFilter = "ALL", kpiFil
   return "ACTIVE";
 }
 
+const VARIANT_META_SELECT = {
+  variantId: true,
+  productId: true,
+  productTitle: true,
+  variantTitle: true,
+  sku: true,
+  status: true,
+  poNumber: true,
+  etaDate: true,
+  notifiedAt: true,
+  restockedAt: true,
+};
+
+/**
+ * Fetches one pre-aggregated metadata row per variantId from PostgreSQL when available,
+ * falling back to Prisma findMany when running against mock test databases.
+ */
+export async function fetchVariantMetaRows({ db, shop, archived = false } = {}) {
+  if (!db || !shop) return [];
+
+  if (typeof db.$queryRaw === "function") {
+    if (archived) {
+      return db.$queryRaw`
+        SELECT
+          "variantId",
+          (ARRAY_AGG("productId" ORDER BY "createdAt" DESC) FILTER (WHERE "productId" IS NOT NULL AND "productId" <> ''))[1] AS "productId",
+          COALESCE(
+            (ARRAY_AGG("productTitle" ORDER BY "createdAt" DESC) FILTER (WHERE "productTitle" IS NOT NULL AND "productTitle" <> '' AND "productTitle" <> '상품'))[1],
+            (ARRAY_AGG("productTitle" ORDER BY "createdAt" DESC) FILTER (WHERE "productTitle" IS NOT NULL AND "productTitle" <> ''))[1],
+            ''
+          ) AS "productTitle",
+          (ARRAY_AGG("variantTitle" ORDER BY "createdAt" DESC) FILTER (WHERE "variantTitle" IS NOT NULL AND "variantTitle" <> ''))[1] AS "variantTitle",
+          (ARRAY_AGG("sku" ORDER BY "createdAt" DESC) FILTER (WHERE "sku" IS NOT NULL AND "sku" <> ''))[1] AS "sku",
+          (ARRAY_AGG("etaDate" ORDER BY "createdAt" DESC) FILTER (WHERE "status" IN ('PENDING', 'FAILED', 'PROCESSING') AND "etaDate" IS NOT NULL AND "etaDate" <> ''))[1] AS "activeEtaDate",
+          (ARRAY_AGG("poNumber" ORDER BY "createdAt" DESC) FILTER (WHERE "status" IN ('PENDING', 'FAILED', 'PROCESSING') AND "poNumber" IS NOT NULL AND "poNumber" <> ''))[1] AS "activePoNumber",
+          (ARRAY_AGG("etaDate" ORDER BY "createdAt" DESC) FILTER (WHERE "etaDate" IS NOT NULL AND "etaDate" <> ''))[1] AS "lastEtaDate",
+          (ARRAY_AGG("poNumber" ORDER BY "createdAt" DESC) FILTER (WHERE "status" NOT IN ('PENDING', 'FAILED', 'PROCESSING') AND "poNumber" IS NOT NULL AND "poNumber" <> ''))[1] AS "lastPoNumber",
+          (ARRAY_AGG("notifiedAt" ORDER BY "createdAt" DESC) FILTER (WHERE ("status" = 'NOTIFIED' OR "status" NOT IN ('PENDING', 'FAILED', 'PROCESSING')) AND "notifiedAt" IS NOT NULL))[1] AS "lastNotifiedAt",
+          (ARRAY_AGG("restockedAt" ORDER BY "createdAt" DESC) FILTER (WHERE "restockedAt" IS NOT NULL))[1] AS "lastRestockedAt"
+        FROM "BackInStockSubscription"
+        WHERE "shop" = ${shop} AND "archivedAt" IS NOT NULL
+        GROUP BY "variantId"
+        ORDER BY MAX("createdAt") DESC
+      `;
+    }
+
+    return db.$queryRaw`
+      SELECT
+        "variantId",
+        (ARRAY_AGG("productId" ORDER BY "createdAt" DESC) FILTER (WHERE "productId" IS NOT NULL AND "productId" <> ''))[1] AS "productId",
+        COALESCE(
+          (ARRAY_AGG("productTitle" ORDER BY "createdAt" DESC) FILTER (WHERE "productTitle" IS NOT NULL AND "productTitle" <> '' AND "productTitle" <> '상품'))[1],
+          (ARRAY_AGG("productTitle" ORDER BY "createdAt" DESC) FILTER (WHERE "productTitle" IS NOT NULL AND "productTitle" <> ''))[1],
+          ''
+        ) AS "productTitle",
+        (ARRAY_AGG("variantTitle" ORDER BY "createdAt" DESC) FILTER (WHERE "variantTitle" IS NOT NULL AND "variantTitle" <> ''))[1] AS "variantTitle",
+        (ARRAY_AGG("sku" ORDER BY "createdAt" DESC) FILTER (WHERE "sku" IS NOT NULL AND "sku" <> ''))[1] AS "sku",
+        (ARRAY_AGG("etaDate" ORDER BY "createdAt" DESC) FILTER (WHERE "status" IN ('PENDING', 'FAILED', 'PROCESSING') AND "etaDate" IS NOT NULL AND "etaDate" <> ''))[1] AS "activeEtaDate",
+        (ARRAY_AGG("poNumber" ORDER BY "createdAt" DESC) FILTER (WHERE "status" IN ('PENDING', 'FAILED', 'PROCESSING') AND "poNumber" IS NOT NULL AND "poNumber" <> ''))[1] AS "activePoNumber",
+        (ARRAY_AGG("etaDate" ORDER BY "createdAt" DESC) FILTER (WHERE "etaDate" IS NOT NULL AND "etaDate" <> ''))[1] AS "lastEtaDate",
+        (ARRAY_AGG("poNumber" ORDER BY "createdAt" DESC) FILTER (WHERE "status" NOT IN ('PENDING', 'FAILED', 'PROCESSING') AND "poNumber" IS NOT NULL AND "poNumber" <> ''))[1] AS "lastPoNumber",
+        (ARRAY_AGG("notifiedAt" ORDER BY "createdAt" DESC) FILTER (WHERE ("status" = 'NOTIFIED' OR "status" NOT IN ('PENDING', 'FAILED', 'PROCESSING')) AND "notifiedAt" IS NOT NULL))[1] AS "lastNotifiedAt",
+        (ARRAY_AGG("restockedAt" ORDER BY "createdAt" DESC) FILTER (WHERE "restockedAt" IS NOT NULL))[1] AS "lastRestockedAt"
+      FROM "BackInStockSubscription"
+      WHERE "shop" = ${shop} AND "archivedAt" IS NULL
+      GROUP BY "variantId"
+      ORDER BY MAX("createdAt") DESC
+    `;
+  }
+
+  return db.backInStockSubscription.findMany({
+    where: { shop, archivedAt: archived ? { not: null } : null },
+    orderBy: { createdAt: "desc" },
+    select: VARIANT_META_SELECT,
+  });
+}
+
 function mergeVariantMetadata(metaRows = []) {
   const map = new Map();
   for (const row of metaRows || []) {
@@ -51,7 +128,8 @@ function mergeVariantMetadata(metaRows = []) {
       lastRestockedAt: null,
     };
 
-    const isActiveRow = ACTIVE_STATUS_SET.has(row.status);
+    const isPremerged = "activeEtaDate" in row || "lastNotifiedAt" in row;
+    const isActiveRow = !isPremerged && ACTIVE_STATUS_SET.has(row.status);
     const next = {
       ...prev,
       variantId: prev.variantId?.startsWith("gid://") ? prev.variantId : row.variantId || prev.variantId,
@@ -62,15 +140,32 @@ function mergeVariantMetadata(metaRows = []) {
           : row.productTitle || prev.productTitle || "상품",
       variantTitle: prev.variantTitle || row.variantTitle || "",
       sku: prev.sku || row.sku || "",
-      activeEtaDate: isActiveRow ? prev.activeEtaDate || row.etaDate || null : prev.activeEtaDate,
-      activePoNumber: isActiveRow ? prev.activePoNumber || row.poNumber || null : prev.activePoNumber,
-      lastEtaDate: prev.lastEtaDate || row.etaDate || null,
-      lastPoNumber: !isActiveRow ? prev.lastPoNumber || row.poNumber || null : prev.lastPoNumber,
-      lastNotifiedAt:
-        row.status === "NOTIFIED" || !isActiveRow
+      activeEtaDate: isPremerged
+        ? prev.activeEtaDate || row.activeEtaDate || null
+        : isActiveRow
+          ? prev.activeEtaDate || row.etaDate || null
+          : prev.activeEtaDate,
+      activePoNumber: isPremerged
+        ? prev.activePoNumber || row.activePoNumber || null
+        : isActiveRow
+          ? prev.activePoNumber || row.poNumber || null
+          : prev.activePoNumber,
+      lastEtaDate: isPremerged
+        ? prev.lastEtaDate || row.lastEtaDate || null
+        : prev.lastEtaDate || row.etaDate || null,
+      lastPoNumber: isPremerged
+        ? prev.lastPoNumber || row.lastPoNumber || null
+        : !isActiveRow
+          ? prev.lastPoNumber || row.poNumber || null
+          : prev.lastPoNumber,
+      lastNotifiedAt: isPremerged
+        ? prev.lastNotifiedAt || row.lastNotifiedAt || null
+        : row.status === "NOTIFIED" || !isActiveRow
           ? prev.lastNotifiedAt || row.notifiedAt || null
           : prev.lastNotifiedAt,
-      lastRestockedAt: prev.lastRestockedAt || row.restockedAt || null,
+      lastRestockedAt: isPremerged
+        ? prev.lastRestockedAt || row.lastRestockedAt || null
+        : prev.lastRestockedAt || row.restockedAt || null,
     };
 
     map.set(rawId, next);

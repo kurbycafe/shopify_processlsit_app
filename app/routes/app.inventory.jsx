@@ -21,7 +21,7 @@ import {
 } from "../constants/shopify";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { generateInventoryReportHTML } from "../utils/inventoryPrint";
-import { fetchCalculatedTaxRates } from "../utils/inventoryTax.server.js";
+import { fetchCalculatedTaxRates, fetchRecentOrdersForTax } from "../utils/inventoryTax.server.js";
 import { fetchInventoryProducts, processProducts } from "../utils/inventoryData.server.js";
 import { InventorySampleCard } from "../components/inventory/InventorySampleCard";
 
@@ -35,7 +35,10 @@ export const loader = async ({ request }) => {
   try {
     const { admin } = await authenticate.admin(request);
 
-    const { products: allProducts, shop } = await fetchInventoryProducts(admin);
+    const [{ products: allProducts, shop }, prefetchedOrders] = await Promise.all([
+      fetchInventoryProducts(admin),
+      fetchRecentOrdersForTax(admin),
+    ]);
     const shopName = shop.name || "Shopify Store";
     const currencyCode = shop.currencyCode || DEFAULT_CURRENCY;
     const shopBillingAddress = shop.billingAddress;
@@ -56,7 +59,8 @@ export const loader = async ({ request }) => {
       admin,
       taxableVariantIds,
       shopBillingAddress,
-      productTitleMap
+      productTitleMap,
+      { prefetchedOrders }
     );
 
     const items = processProducts(allProducts, calculatedTaxRates);

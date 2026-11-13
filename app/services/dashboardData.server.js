@@ -137,28 +137,41 @@ export async function getDashboardData({ admin, shop, db, getUpcomingContainers,
     past7DayRecordsTask,
   ]);
 
-  const chartData = chartDays.map((dayObj) => {
-    const dayRecords = past7DayRecords.filter((r) => {
-      if (r.status === "PENDING") return false;
-      const recordDate = r.completedAt || r.updatedAt || r.createdAt;
-      return recordDate >= dayObj.start && recordDate <= dayObj.end;
-    });
+  const chartBuckets = chartDays.map((dayObj) => ({
+    start: dayObj.start,
+    end: dayObj.end,
+    dateLabel: dayObj.dateLabel,
+    totalCount: 0,
+    successCount: 0,
+    partialCount: 0,
+    issueCount: 0,
+  }));
 
-    const successCount = dayRecords.filter((r) => r.status === "SUCCESS").length;
-    const partialCount = dayRecords.filter((r) => r.status === "PARTIAL").length;
-    const issueCount = dayRecords.filter(
-      (r) => r.status === "ISSUE_REPORTED" || r.status === "FAILED"
-    ).length;
-    const totalCount = successCount + partialCount + issueCount;
+  for (const r of past7DayRecords) {
+    if (r.status === "PENDING") continue;
+    const recordDate = r.completedAt || r.updatedAt || r.createdAt;
+    if (!recordDate) continue;
+    const bucket = chartBuckets.find((b) => recordDate >= b.start && recordDate <= b.end);
+    if (!bucket) continue;
+    if (r.status === "SUCCESS") {
+      bucket.successCount += 1;
+      bucket.totalCount += 1;
+    } else if (r.status === "PARTIAL") {
+      bucket.partialCount += 1;
+      bucket.totalCount += 1;
+    } else if (r.status === "ISSUE_REPORTED" || r.status === "FAILED") {
+      bucket.issueCount += 1;
+      bucket.totalCount += 1;
+    }
+  }
 
-    return {
-      dateLabel: dayObj.dateLabel,
-      totalCount,
-      successCount,
-      partialCount,
-      issueCount,
-    };
-  });
+  const chartData = chartBuckets.map(({ dateLabel, totalCount, successCount, partialCount, issueCount }) => ({
+    dateLabel,
+    totalCount,
+    successCount,
+    partialCount,
+    issueCount,
+  }));
 
   // 8. Odoo incoming container schedule & calendar
   const calendarMonths = getCalendarMonths();

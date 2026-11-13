@@ -8,7 +8,7 @@ import {
   Box,
 } from "@shopify/polaris";
 import dayjs from "dayjs";
-import { buildBackInStockEmailHtml } from "../../utils/emailService";
+import { buildBackInStockEmailHtml } from "../../utils/emailHtml.js";
 
 export default function BackInStockEmailPreviewModal({
   open,

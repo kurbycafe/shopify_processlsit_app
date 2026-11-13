@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Modal,
   BlockStack,
@@ -13,16 +13,35 @@ import {
   InlineGrid,
   Divider,
 } from "@shopify/polaris";
-import { RECIPE_PRESETS, RECIPE_CATEGORIES, RECIPE_OCCASIONS } from "../../utils/recipePresets";
-
 export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
   const [selectedCategoryTab, setSelectedCategoryTab] = useState(0);
   const [selectedOccasion, setSelectedOccasion] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [presetData, setPresetData] = useState(null);
 
-  const activeCategory = RECIPE_CATEGORIES[selectedCategoryTab]?.id || "ALL";
+  useEffect(() => {
+    if (!open || presetData) return;
+    let cancelled = false;
+    import("../../utils/recipePresets").then((mod) => {
+      if (cancelled) return;
+      setPresetData({
+        presets: mod.RECIPE_PRESETS || [],
+        categories: mod.RECIPE_CATEGORIES || [{ id: "ALL", labelKo: "전체" }],
+        occasions: mod.RECIPE_OCCASIONS || [{ id: "ALL", labelKo: "전체" }],
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, presetData]);
 
-  const filteredPresets = RECIPE_PRESETS.filter((preset) => {
+  const categories = presetData?.categories || [{ id: "ALL", labelKo: "전체" }];
+  const occasions = presetData?.occasions || [{ id: "ALL", labelKo: "전체" }];
+  const presets = presetData?.presets || [];
+
+  const activeCategory = categories[selectedCategoryTab]?.id || "ALL";
+
+  const filteredPresets = presets.filter((preset) => {
     if (activeCategory !== "ALL" && preset.category !== activeCategory) {
       return false;
     }
@@ -42,7 +61,7 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
     return true;
   });
 
-  const categoryTabs = RECIPE_CATEGORIES.map((cat) => ({
+  const categoryTabs = categories.map((cat) => ({
     id: cat.id,
     content: cat.labelKo,
   }));
@@ -87,7 +106,7 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
                     fontSize: "14px"
                   }}
                 >
-                  {RECIPE_OCCASIONS.map((occ) => (
+                  {occasions.map((occ) => (
                     <option key={occ.id} value={occ.id}>
                       {occ.labelKo}
                     </option>
@@ -101,7 +120,11 @@ export default function RecipePresetModal({ open, onClose, onSelectPreset }) {
 
           <Divider />
 
-          {filteredPresets.length === 0 ? (
+          {!presetData ? (
+            <Box padding="600" textAlign="center">
+              <Text as="p" tone="subdued">레시피 템플릿을 불러오는 중입니다...</Text>
+            </Box>
+          ) : filteredPresets.length === 0 ? (
             <Box padding="600" textAlign="center">
               <Text as="p" tone="subdued">일치하는 템플릿이 없습니다.</Text>
             </Box>

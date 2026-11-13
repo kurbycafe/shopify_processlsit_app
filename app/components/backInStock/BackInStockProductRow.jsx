@@ -15,6 +15,7 @@ import {
 } from "@shopify/polaris-icons";
 import dayjs from "dayjs";
 import { getDemandLevel, getEtaStageInfo } from "../../utils/backInStockHelpers";
+import { optimizeShopifyImageUrl } from "../../utils/shopifyImage";
 
 export default function BackInStockProductRow({
   item,
@@ -66,8 +67,12 @@ export default function BackInStockProductRow({
         <InlineStack gap="300" blockAlign="center">
           {item.imageUrl ? (
             <img
-              src={item.imageUrl}
+              src={optimizeShopifyImageUrl(item.imageUrl, 120)}
               alt={item.productTitle}
+              width={42}
+              height={42}
+              loading="lazy"
+              decoding="async"
               style={{
                 width: "42px",
                 height: "42px",

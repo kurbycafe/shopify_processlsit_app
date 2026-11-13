@@ -135,6 +135,10 @@ CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_status_idx" ON "InspectionReco
 
 CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_createdAt_idx" ON "InspectionRecord"("shop", "createdAt");
 
+CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_status_completedAt_idx" ON "InspectionRecord"("shop", "status", "completedAt");
+
+CREATE INDEX IF NOT EXISTS "InspectionRecord_shop_isLieferscheinPrinted_updatedAt_idx" ON "InspectionRecord"("shop", "isLieferscheinPrinted", "updatedAt");
+
 CREATE TABLE IF NOT EXISTS "InspectionItem" (
   "id" TEXT NOT NULL,
   "inspectionRecordId" TEXT NOT NULL,
@@ -428,7 +432,11 @@ CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_status_createdAt_idx" O
 
 CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_variantId_email_status_idx" ON "BackInStockSubscription"("shop", "variantId", "email", "status");
 
+CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_variantId_status_subscribedAt_idx" ON "BackInStockSubscription"("shop", "variantId", "status", "subscribedAt");
+
 CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_archivedAt_status_idx" ON "BackInStockSubscription"("shop", "archivedAt", "status");
+
+CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_archivedAt_variantId_createdAt_idx" ON "BackInStockSubscription"("shop", "archivedAt", "variantId", "createdAt");
 
 CREATE TABLE IF NOT EXISTS "BackInStockSettings" (
   "id" TEXT NOT NULL,
@@ -526,6 +534,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS "CustomerRequest_requestKey_key" ON "CustomerR
 CREATE INDEX IF NOT EXISTS "CustomerRequest_shop_status_id_idx" ON "CustomerRequest"("shop", "status", "id");
 
 CREATE INDEX IF NOT EXISTS "CustomerRequest_shop_customerId_createdAt_idx" ON "CustomerRequest"("shop", "customerId", "createdAt");
+
+CREATE INDEX IF NOT EXISTS "CustomerRequest_shop_type_status_id_idx" ON "CustomerRequest"("shop", "type", "status", "id");
+
+CREATE INDEX IF NOT EXISTS "CustomerRequest_shop_customerId_type_status_id_idx" ON "CustomerRequest"("shop", "customerId", "type", "status", "id");
 
 CREATE TABLE IF NOT EXISTS "CustomerNotificationPreference" (
   "id" TEXT NOT NULL,

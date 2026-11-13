@@ -59,6 +59,8 @@ model InspectionRecord {
   @@index([orderId])
   @@index([shop, status])
   @@index([shop, createdAt])
+  @@index([shop, status, completedAt])
+  @@index([shop, isLieferscheinPrinted, updatedAt])
 }
 
 model InspectionItem {
@@ -189,7 +191,9 @@ model BackInStockSubscription {
   @@index([shop, variantId, status])
   @@index([shop, status, createdAt])
   @@index([shop, variantId, email, status])
+  @@index([shop, variantId, status, subscribedAt])
   @@index([shop, archivedAt, status])
+  @@index([shop, archivedAt, variantId, createdAt])
 }
 
 model BackInStockSettings {
@@ -228,6 +232,8 @@ model CustomerRequest {
 
   @@index([shop, status, id])
   @@index([shop, customerId, createdAt])
+  @@index([shop, type, status, id])
+  @@index([shop, customerId, type, status, id])
 }
 
 model CustomerNotificationPreference {

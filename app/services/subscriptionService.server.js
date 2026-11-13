@@ -1,5 +1,6 @@
 import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { sendBackInStockEmail } from "../utils/emailService.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import { resolveVariantEta } from "./etaService.server.js";
 import { getRestockDispatchPolicy, calculateDispatchPlan, sortSubscribersFifo } from "./restockDispatchPolicy.server.js";
 
@@ -346,10 +347,10 @@ export async function notifyPendingSubscribersForVariant({
   let claimedCount = 0;
   const warnings = [];
 
-  for (const claim of claims) {
+  await mapWithConcurrency(claims, 4, async (claim) => {
     const { claimedAt } = claim;
     const active = await db.backInStockSubscription.findMany({ where: { id: { in: claim.ids }, status: "PROCESSING", processingAt: claimedAt } });
-    if (!active.length) continue;
+    if (!active.length) return;
     const sub = active[0];
     let ids = active.map(row => row.id);
     claimedCount += ids.length;
@@ -359,7 +360,9 @@ export async function notifyPendingSubscribersForVariant({
 
     try {
       let delivered = false;
+      let triedPush = false;
       if (sub.channel === "PUSH" && sub.phone) {
+        triedPush = true;
         try {
           await sendPush(sub.phone, {
               title: `[다와요] ${pTitle} 재입고 완료!`,
@@ -373,10 +376,12 @@ export async function notifyPendingSubscribersForVariant({
       }
 
       if (!delivered && (sub.channel === "EMAIL" || sub.channel === "PUSH") && sub.email) {
-          // A failed push can take time; an unsubscribe must also suppress its email fallback.
-          const stillActive = await db.backInStockSubscription.findMany({ where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt } });
-          if (!stillActive.length) continue;
-          ids = stillActive.map(row => row.id);
+          if (triedPush) {
+            // A failed push can take time; an unsubscribe must also suppress its email fallback.
+            const stillActive = await db.backInStockSubscription.findMany({ where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt } });
+            if (!stillActive.length) return;
+            ids = stillActive.map(row => row.id);
+          }
           await sendEmail({
             email: sub.email,
             productTitle: pTitle,
@@ -399,7 +404,7 @@ export async function notifyPendingSubscribersForVariant({
           lastNotificationAt: new Date(), lastNotificationError: err.message || "Notification dispatch failed",
         },
       });
-      continue;
+      return;
     }
 
     // Delivery has already succeeded. Retry metadata alone, never the external send.
@@ -440,7 +445,7 @@ export async function notifyPendingSubscribersForVariant({
         console.error("Cannot persist accepted delivery; manual reconciliation is required:", err.message);
       }
     }
-  }
+  });
 
   return {
     success: failedCount === 0 && warnings.length === 0,
@@ -478,53 +483,73 @@ export async function notifySubscribersForContainer({
   containerRef,
   receivedAt = new Date(),
   items = [],
+  db = prisma,
+  notifyFn = notifyPendingSubscribersForVariant,
 }) {
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
   const cleanPo = String(containerRef || "").trim();
   const now = new Date(receivedAt || Date.now());
 
+  const uniqueSkus = [
+    ...new Set(
+      (items || [])
+        .filter((item) => item?.sku && Number(item.receivedQty) > 0)
+        .map((item) => String(item.sku))
+    ),
+  ];
+
+  if (uniqueSkus.length === 0) {
+    return { totalNotified: 0, totalFailed: 0, totalWarnings: 0 };
+  }
+
   let totalNotified = 0;
   let totalFailed = 0;
   let totalWarnings = 0;
+
+  let subscribers = [];
+  try {
+    subscribers = await db.backInStockSubscription.findMany({
+      where: {
+        shop: { in: getShopAliases(cleanShop) },
+        status: { in: ["PENDING", "FAILED", "PROCESSING"] },
+        sku: { in: uniqueSkus },
+      },
+    });
+  } catch (err) {
+    totalFailed++;
+    console.warn(`Container restock subscriber query warning [${cleanPo}]:`, err.message);
+    return { totalNotified, totalFailed, totalWarnings };
+  }
+
   const processedVariants = new Set();
+  const variantTasks = [];
+  for (const sub of subscribers) {
+    if (!sub?.variantId || processedVariants.has(sub.variantId)) continue;
+    processedVariants.add(sub.variantId);
+    variantTasks.push(sub);
+  }
 
-  for (const item of items) {
-    const sku = item.sku;
-    if (!sku || Number(item.receivedQty) <= 0) continue;
-
+  await mapWithConcurrency(variantTasks, 4, async (sub) => {
     try {
-      const subscribers = await prisma.backInStockSubscription.findMany({
-        where: {
-          shop: { in: getShopAliases(cleanShop) },
-          status: { in: ["PENDING", "FAILED", "PROCESSING"] },
-          sku,
-        },
+      const res = await notifyFn({
+        shop: cleanShop,
+        variantId: sub.variantId,
+        productTitle: sub.productTitle,
+        variantTitle: sub.variantTitle,
+        poNumber: cleanPo,
+        restockedAt: now,
+        dispatchDate: now,
+        sku: sub.sku,
       });
 
-      for (const sub of subscribers) {
-        if (processedVariants.has(sub.variantId)) continue;
-        processedVariants.add(sub.variantId);
-
-        const res = await notifyPendingSubscribersForVariant({
-          shop: cleanShop,
-          variantId: sub.variantId,
-          productTitle: sub.productTitle,
-          variantTitle: sub.variantTitle,
-          poNumber: cleanPo,
-          restockedAt: now,
-          dispatchDate: now,
-          sku: sub.sku || sku,
-        });
-
-        totalNotified += res.sent;
-        totalFailed += res.failed;
-        totalWarnings += res.warnings?.length || 0;
-      }
+      totalNotified += res.sent || 0;
+      totalFailed += res.failed || 0;
+      totalWarnings += res.warnings?.length || 0;
     } catch (err) {
       totalFailed++;
-      console.warn(`Container restock notification warning for SKU [${sku}]:`, err.message);
+      console.warn(`Container restock notification warning for SKU [${sub.sku}]:`, err.message);
     }
-  }
+  });
 
   return { totalNotified, totalFailed, totalWarnings };
 }

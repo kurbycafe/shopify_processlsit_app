@@ -3,7 +3,7 @@ import { taxPercent } from "./inventoryData.server.js";
 
 const RECENT_ORDERS_TAX_QUERY = `#graphql
   query RecentOrdersTaxRates {
-    orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+    orders(first: 25, sortKey: CREATED_AT, reverse: true) {
       nodes {
         shippingAddress {
           countryCodeV2
@@ -54,9 +54,26 @@ const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
   }
 `;
 
+export async function fetchRecentOrdersForTax(admin) {
+  try {
+    const ordersResp = await admin.graphql(RECENT_ORDERS_TAX_QUERY);
+    const ordersPayload = await ordersResp.json();
+    return ordersPayload?.data?.orders?.nodes || [];
+  } catch (err) {
+    console.warn("Failed to load recent orders tax lines:", err);
+    return [];
+  }
+}
+
 // A bounded recent-order sample plus limited draft calculations provides reference
 // rates. Uncovered variants deliberately remain unknown.
-export async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddress = {}, productTitleMap = new Map()) {
+export async function fetchCalculatedTaxRates(
+  admin,
+  taxableVariantIds,
+  shopAddress = {},
+  productTitleMap = new Map(),
+  { prefetchedOrders } = {}
+) {
   const taxRateMap = new Map();
   let sampleDebug = {
     addressUsed: null,
@@ -81,40 +98,36 @@ export async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddr
   sampleDebug.addressUsed = address;
 
   // Step 1: Query actual taxLines applied in recent store orders (Strictly filtered by destination Germany 'DE')
-  try {
-    const ordersResp = await admin.graphql(RECENT_ORDERS_TAX_QUERY);
-    const ordersPayload = await ordersResp.json();
-    const orders = ordersPayload?.data?.orders?.nodes || [];
+  const orders = Array.isArray(prefetchedOrders)
+    ? prefetchedOrders
+    : await fetchRecentOrdersForTax(admin);
 
-    for (const order of orders) {
-      const orderCountry = order.shippingAddress?.countryCodeV2 || order.billingAddress?.countryCodeV2;
-      if (orderCountry !== countryCode) {
-        continue;
-      }
+  for (const order of orders) {
+    const orderCountry = order.shippingAddress?.countryCodeV2 || order.billingAddress?.countryCodeV2;
+    if (orderCountry !== countryCode) {
+      continue;
+    }
 
-      for (const item of order.lineItems?.nodes || []) {
-        const variantId = item.variant?.id;
-        if (!variantId || taxRateMap.has(variantId)) continue;
+    for (const item of order.lineItems?.nodes || []) {
+      const variantId = item.variant?.id;
+      if (!variantId || taxRateMap.has(variantId)) continue;
 
-        if (item.taxable && item.taxLines?.length > 0) {
-          const rate = taxPercent(item.taxLines);
-          if (rate == null) continue;
-          taxRateMap.set(variantId, rate);
+      if (item.taxable && item.taxLines?.length > 0) {
+        const rate = taxPercent(item.taxLines);
+        if (rate == null) continue;
+        taxRateMap.set(variantId, rate);
 
-          if (sampleDebug.sampleItems.length < 10) {
-            const productTitle = productTitleMap.get(variantId) || variantId;
-            sampleDebug.sampleItems.push({
-              variantId,
-              title: productTitle,
-              taxLines: item.taxLines,
-              rate,
-            });
-          }
+        if (sampleDebug.sampleItems.length < 10) {
+          const productTitle = productTitleMap.get(variantId) || variantId;
+          sampleDebug.sampleItems.push({
+            variantId,
+            title: productTitle,
+            taxLines: item.taxLines,
+            rate,
+          });
         }
       }
     }
-  } catch (err) {
-    console.warn("Failed to load recent orders tax lines:", err);
   }
 
   // Step 2: For any remaining unmapped variants, calculate via Draft Order (throttling-safe batching)
@@ -122,7 +135,7 @@ export async function fetchCalculatedTaxRates(admin, taxableVariantIds, shopAddr
   const sampleFallbackLimit = Math.min(unmappedVariantIds.length, 30);
   const targetVariants = unmappedVariantIds.slice(0, sampleFallbackLimit);
 
-  const concurrency = 3;
+  const concurrency = 5;
   for (let i = 0; i < targetVariants.length; i += concurrency) {
     const batch = targetVariants.slice(i, i + concurrency);
     await Promise.all(

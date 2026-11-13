@@ -6,6 +6,7 @@ import ts from "typescript";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
+import { optimizeShopifyImageUrl } from "../app/utils/shopifyImage.js";
 import {
   normalizeHistoryScope,
   buildProductWaveAggregates,
@@ -266,6 +267,7 @@ test("BackInStock UI components separate active waiters from history without emo
     useMemo: React.useMemo,
     useCallback: React.useCallback,
     dayjs,
+    optimizeShopifyImageUrl,
     getDemandLevel,
     getEtaStageInfo,
     getSubscriptionStatusInfo,

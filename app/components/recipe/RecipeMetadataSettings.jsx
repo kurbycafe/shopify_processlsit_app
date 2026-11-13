@@ -13,7 +13,7 @@ import {
   RECIPE_OCCASIONS,
   SPICE_LEVELS,
   DIETARY_OPTIONS,
-} from "../../utils/recipePresets";
+} from "../../utils/recipePresetMeta";
 import { pressable } from "../../utils/a11y.js";
 
 export default function RecipeMetadataSettings({

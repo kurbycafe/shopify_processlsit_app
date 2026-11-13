@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { MobileApiError } from "../services/mobileApi.server.js";
 import { adminDeleteReview, adminListReviews, adminSetReviewHidden } from "../services/productReviews.server.js";
+import { optimizeShopifyImageUrl } from "../utils/shopifyImage.js";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
@@ -54,7 +55,7 @@ function ReviewRow({ review, onPhoto, onDelete, actionUrl }) {
     <Box padding="300" borderWidth="025" borderColor="border" borderRadius="300" background={hidden ? "bg-surface-secondary" : "bg-surface"}>
       <InlineStack gap="300" wrap={false} blockAlign="start">
         {review.image
-          ? <button type="button" onClick={() => onPhoto(review.image)} style={{ padding: 0, border: 0, background: "transparent", cursor: "zoom-in", flexShrink: 0 }} aria-label="사진 크게 보기"><img src={review.image} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, display: "block" }} /></button>
+          ? <button type="button" onClick={() => onPhoto(review.image)} style={{ padding: 0, border: 0, background: "transparent", cursor: "zoom-in", flexShrink: 0 }} aria-label="사진 크게 보기"><img src={optimizeShopifyImageUrl(review.image, 160)} alt="" width={72} height={72} loading="lazy" decoding="async" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, display: "block" }} /></button>
           : <div style={{ width: 72, height: 72, borderRadius: 8, background: "#f1f1f1", flexShrink: 0 }} />}
         <BlockStack gap="100">
           <InlineStack gap="200" blockAlign="center">

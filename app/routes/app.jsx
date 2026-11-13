@@ -13,6 +13,14 @@ import operationsStyles from "../styles/operations.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: operationsStyles }];
 
+export function shouldRevalidate({ currentUrl, nextUrl, formMethod, defaultShouldRevalidate }) {
+  if (formMethod) return defaultShouldRevalidate;
+  if (currentUrl.searchParams.get("shop") !== nextUrl.searchParams.get("shop")) {
+    return defaultShouldRevalidate;
+  }
+  return false;
+}
+
 // Order webhooks deliver cancellation and return requests in real time; this
 // poll only catches what a missed webhook would otherwise lose.
 const CANCELLATION_POLL_INTERVAL_MS = 5 * 60 * 1000;

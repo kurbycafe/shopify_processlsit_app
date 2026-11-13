@@ -1,14 +1,4 @@
-import ProductExpiryManager from "../components/ProductExpiryManager.jsx";
-import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
-import B2bRequestsManager from "../components/B2bRequestsManager.jsx";
-import { ArrivalsManager } from "./app.arrivals.jsx";
-import { ReviewsManager } from "./app.reviews.jsx";
-import { RecipeCommerceManager } from "./app.recipe-blogs.jsx";
-import { PushNotificationsManager } from "./app.push-notifications.jsx";
-import { AppRequestsManager } from "./app.app-requests.jsx";
-import ProductTemperatureManager from "../components/ProductTemperatureManager.jsx";
-import MobileLiveSimulator from "../components/MobileLiveSimulator.jsx";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { useLoaderData, useFetcher, useRevalidator, useSearchParams } from "react-router";
 import {
   Page,
@@ -16,24 +6,81 @@ import {
   Button,
   Banner,
   BlockStack,
+  Box,
+  Card,
   Badge,
   Modal,
+  Spinner,
 } from "@shopify/polaris";
+
+const ProductExpiryManager = lazy(() => import("../components/ProductExpiryManager.jsx"));
+const CustomerRequestsHub = lazy(() => import("../components/CustomerRequestsHub.jsx"));
+const B2bRequestsManager = lazy(() => import("../components/B2bRequestsManager.jsx"));
+const ArrivalsManager = lazy(() => import("./app.arrivals.jsx").then((m) => ({ default: m.ArrivalsManager })));
+const ReviewsManager = lazy(() => import("./app.reviews.jsx").then((m) => ({ default: m.ReviewsManager })));
+const RecipeCommerceManager = lazy(() =>
+  import("./app.recipe-blogs.jsx").then((m) => ({ default: m.RecipeCommerceManager }))
+);
+const PushNotificationsManager = lazy(() =>
+  import("./app.push-notifications.jsx").then((m) => ({ default: m.PushNotificationsManager }))
+);
+const AppRequestsManager = lazy(() =>
+  import("./app.app-requests.jsx").then((m) => ({ default: m.AppRequestsManager }))
+);
+const ProductTemperatureManager = lazy(() => import("../components/ProductTemperatureManager.jsx"));
+const MobileLiveSimulator = lazy(() => import("../components/MobileLiveSimulator.jsx"));
+
+function LazyTabPanel({ children }) {
+  return (
+    <Suspense
+      fallback={
+        <Card>
+          <Box padding="600">
+            <BlockStack align="center" inlineAlign="center">
+              <Spinner size="small" />
+            </BlockStack>
+          </Box>
+        </Card>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 import { authenticate } from "../shopify.server.js";
 import {
   getStorefrontConfig,
   resolveCanonicalShop,
 } from "../services/mobileStorefront.server.js";
-import { BannersPanel } from "../components/appManagement/BannersPanel.jsx";
-import { CampaignsPanel } from "../components/appManagement/CampaignsPanel.jsx";
-import { CategoriesPanel } from "../components/appManagement/CategoriesPanel.jsx";
-import { HotDealsPanel } from "../components/appManagement/HotDealsPanel.jsx";
 import { MENU_GROUPS, TOP_MENU_TABS } from "../components/appManagement/shared.jsx";
 import { OverviewPanel } from "../components/appManagement/OverviewPanel.jsx";
-import { PagesPanel } from "../components/appManagement/PagesPanel.jsx";
-import { PreviewPanel } from "../components/appManagement/PreviewPanel.jsx";
-import { ProductAttributesPanel } from "../components/appManagement/ProductAttributesPanel.jsx";
-import { ShippingPanel } from "../components/appManagement/ShippingPanel.jsx";
+
+const BannersPanel = lazy(() =>
+  import("../components/appManagement/BannersPanel.jsx").then((m) => ({ default: m.BannersPanel }))
+);
+const CampaignsPanel = lazy(() =>
+  import("../components/appManagement/CampaignsPanel.jsx").then((m) => ({ default: m.CampaignsPanel }))
+);
+const CategoriesPanel = lazy(() =>
+  import("../components/appManagement/CategoriesPanel.jsx").then((m) => ({ default: m.CategoriesPanel }))
+);
+const HotDealsPanel = lazy(() =>
+  import("../components/appManagement/HotDealsPanel.jsx").then((m) => ({ default: m.HotDealsPanel }))
+);
+const PagesPanel = lazy(() =>
+  import("../components/appManagement/PagesPanel.jsx").then((m) => ({ default: m.PagesPanel }))
+);
+const PreviewPanel = lazy(() =>
+  import("../components/appManagement/PreviewPanel.jsx").then((m) => ({ default: m.PreviewPanel }))
+);
+const ProductAttributesPanel = lazy(() =>
+  import("../components/appManagement/ProductAttributesPanel.jsx").then((m) => ({
+    default: m.ProductAttributesPanel,
+  }))
+);
+const ShippingPanel = lazy(() =>
+  import("../components/appManagement/ShippingPanel.jsx").then((m) => ({ default: m.ShippingPanel }))
+);
 import { appManagementAction, loadLiveVariantPrices } from "../services/appManagementAction.server.js";
 import { reconcileDraft } from "../utils/reconcileDraft.js";
 
@@ -869,42 +916,46 @@ export default function AppManagementPage() {
          * TAB 1: HERO BANNERS MANAGEMENT
          * ================================================================= */}
         {visitedTabs.has("banners") && (
-          <BannersPanel
-            activeTab={activeTab}
-            bannerForm={bannerForm}
-            config={config}
-            editingBanner={editingBanner}
-            fetcher={fetcher}
-            handleEditBanner={handleEditBanner}
-            isSubmitting={isSubmitting}
-            setBannerForm={setBannerForm}
-            setEditingBanner={setEditingBanner}
-          />
+          <LazyTabPanel>
+            <BannersPanel
+              activeTab={activeTab}
+              bannerForm={bannerForm}
+              config={config}
+              editingBanner={editingBanner}
+              fetcher={fetcher}
+              handleEditBanner={handleEditBanner}
+              isSubmitting={isSubmitting}
+              setBannerForm={setBannerForm}
+              setEditingBanner={setEditingBanner}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
          * TAB 2: HOT DEALS & TIME SALE MANAGEMENT
          * ================================================================= */}
         {visitedTabs.has("hotdeals") && (
-          <HotDealsPanel
-            activeTab={activeTab}
-            config={config}
-            liveVariantPrices={liveVariantPrices}
-            dealForm={dealForm}
-            fetcher={fetcher}
-            handleDealBasePriceChange={handleDealBasePriceChange}
-            handleDealDiscountRateChange={handleDealDiscountRateChange}
-            handleDealSalePriceChange={handleDealSalePriceChange}
-            handleEditDeal={handleEditDeal}
-            handleSelectDealProduct={handleSelectDealProduct}
-            isSubmitting={isSubmitting}
-            productSearchQuery={productSearchQuery}
-            searchFetcher={searchFetcher}
-            setDealForm={setDealForm}
-            setProductSearchQuery={setProductSearchQuery}
-            setShowDealProductSearch={setShowDealProductSearch}
-            showDealProductSearch={showDealProductSearch}
-          />
+          <LazyTabPanel>
+            <HotDealsPanel
+              activeTab={activeTab}
+              config={config}
+              liveVariantPrices={liveVariantPrices}
+              dealForm={dealForm}
+              fetcher={fetcher}
+              handleDealBasePriceChange={handleDealBasePriceChange}
+              handleDealDiscountRateChange={handleDealDiscountRateChange}
+              handleDealSalePriceChange={handleDealSalePriceChange}
+              handleEditDeal={handleEditDeal}
+              handleSelectDealProduct={handleSelectDealProduct}
+              isSubmitting={isSubmitting}
+              productSearchQuery={productSearchQuery}
+              searchFetcher={searchFetcher}
+              setDealForm={setDealForm}
+              setProductSearchQuery={setProductSearchQuery}
+              setShowDealProductSearch={setShowDealProductSearch}
+              showDealProductSearch={showDealProductSearch}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
@@ -912,142 +963,156 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {visitedTabs.has("temperatures") && (
           <div style={{ display: activeTab === "temperatures" ? "block" : "none" }}>
-            <ProductTemperatureManager />
+            <LazyTabPanel>
+              <ProductTemperatureManager />
+            </LazyTabPanel>
           </div>
         )}
 
         {visitedTabs.has("product-rules") && (
           <div style={{ display: activeTab === "product-rules" ? "block" : "none" }}>
-            <ProductExpiryManager />
+            <LazyTabPanel>
+              <ProductExpiryManager />
+            </LazyTabPanel>
           </div>
         )}
 
         {visitedTabs.has("product-attributes") && (
-          <ProductAttributesPanel
-            activeTab={activeTab}
-            fetcher={fetcher}
-            handleEditOverride={handleEditOverride}
-            isSubmitting={isSubmitting}
-            overrideForm={overrideForm}
-            productRules={productRules}
-            productSearchQuery={productSearchQuery}
-            revalidator={revalidator}
-            searchFetcher={searchFetcher}
-            setOverrideForm={setOverrideForm}
-            setProductSearchQuery={setProductSearchQuery}
-            setShowLegacyRules={setShowLegacyRules}
-            showLegacyRules={showLegacyRules}
-          />
+          <LazyTabPanel>
+            <ProductAttributesPanel
+              activeTab={activeTab}
+              fetcher={fetcher}
+              handleEditOverride={handleEditOverride}
+              isSubmitting={isSubmitting}
+              overrideForm={overrideForm}
+              productRules={productRules}
+              productSearchQuery={productSearchQuery}
+              revalidator={revalidator}
+              searchFetcher={searchFetcher}
+              setOverrideForm={setOverrideForm}
+              setProductSearchQuery={setProductSearchQuery}
+              setShowLegacyRules={setShowLegacyRules}
+              showLegacyRules={showLegacyRules}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
          * TAB 3: CATEGORIES & BRANDS MANAGEMENT
          * ================================================================= */}
         {activeTab === "categories" && (
-          <CategoriesPanel
-            brandAutoFilterFetcher={brandAutoFilterFetcher}
-            brandForm={brandForm}
-            brandProductSearchQuery={brandProductSearchQuery}
-            brandSearchFetcher={brandSearchFetcher}
-            catAutoFilterFetcher={catAutoFilterFetcher}
-            catForm={catForm}
-            catProductSearchQuery={catProductSearchQuery}
-            catSearchFetcher={catSearchFetcher}
-            categorySubTab={categorySubTab}
-            config={config}
-            fetcher={fetcher}
-            handleEditBrand={handleEditBrand}
-            handleEditCategory={handleEditCategory}
-            handleNewBrand={handleNewBrand}
-            handleNewCategory={handleNewCategory}
-            isSubmitting={isSubmitting}
-            onlineProductTypes={onlineProductTypes}
-            onlineProductTypesLoading={onlineProductTypesLoading}
-            setBrandForm={setBrandForm}
-            setBrandProductSearchQuery={setBrandProductSearchQuery}
-            setCatForm={setCatForm}
-            setCatProductSearchQuery={setCatProductSearchQuery}
-            setCategorySubTab={setCategorySubTab}
-            triggerBrandAutoFilter={triggerBrandAutoFilter}
-            triggerCatAutoFilter={triggerCatAutoFilter}
-          />
+          <LazyTabPanel>
+            <CategoriesPanel
+              brandAutoFilterFetcher={brandAutoFilterFetcher}
+              brandForm={brandForm}
+              brandProductSearchQuery={brandProductSearchQuery}
+              brandSearchFetcher={brandSearchFetcher}
+              catAutoFilterFetcher={catAutoFilterFetcher}
+              catForm={catForm}
+              catProductSearchQuery={catProductSearchQuery}
+              catSearchFetcher={catSearchFetcher}
+              categorySubTab={categorySubTab}
+              config={config}
+              fetcher={fetcher}
+              handleEditBrand={handleEditBrand}
+              handleEditCategory={handleEditCategory}
+              handleNewBrand={handleNewBrand}
+              handleNewCategory={handleNewCategory}
+              isSubmitting={isSubmitting}
+              onlineProductTypes={onlineProductTypes}
+              onlineProductTypesLoading={onlineProductTypesLoading}
+              setBrandForm={setBrandForm}
+              setBrandProductSearchQuery={setBrandProductSearchQuery}
+              setCatForm={setCatForm}
+              setCatProductSearchQuery={setCatProductSearchQuery}
+              setCategorySubTab={setCategorySubTab}
+              triggerBrandAutoFilter={triggerBrandAutoFilter}
+              triggerCatAutoFilter={triggerCatAutoFilter}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
          * TAB 4: COLD-CHAIN, SHIPPING BAR & ROLLING TICKERS
          * ================================================================= */}
         {activeTab === "shipping" && (
-          <ShippingPanel
-            androidVersionCode={androidVersionCode}
-            coldChain={coldChain}
-            fetcher={fetcher}
-            freeShippingThreshold={freeShippingThreshold}
-            hotDealSettings={hotDealSettings}
-            isSubmitting={isSubmitting}
-            searchKeywordsText={searchKeywordsText}
-            setAndroidVersionCode={setAndroidVersionCode}
-            setColdChain={setColdChain}
-            setFreeShippingThreshold={setFreeShippingThreshold}
-            setSearchKeywordsText={setSearchKeywordsText}
-            setShippingNoticeDe={setShippingNoticeDe}
-            setShippingNoticeEn={setShippingNoticeEn}
-            setShippingNoticeKo={setShippingNoticeKo}
-            setStoreAddress={setStoreAddress}
-            setStoreHours={setStoreHours}
-            setTickers={setTickers}
-            shippingNoticeDe={shippingNoticeDe}
-            shippingNoticeEn={shippingNoticeEn}
-            shippingNoticeKo={shippingNoticeKo}
-            storeAddress={storeAddress}
-            storeHours={storeHours}
-            tickers={tickers}
-          />
+          <LazyTabPanel>
+            <ShippingPanel
+              androidVersionCode={androidVersionCode}
+              coldChain={coldChain}
+              fetcher={fetcher}
+              freeShippingThreshold={freeShippingThreshold}
+              hotDealSettings={hotDealSettings}
+              isSubmitting={isSubmitting}
+              searchKeywordsText={searchKeywordsText}
+              setAndroidVersionCode={setAndroidVersionCode}
+              setColdChain={setColdChain}
+              setFreeShippingThreshold={setFreeShippingThreshold}
+              setSearchKeywordsText={setSearchKeywordsText}
+              setShippingNoticeDe={setShippingNoticeDe}
+              setShippingNoticeEn={setShippingNoticeEn}
+              setShippingNoticeKo={setShippingNoticeKo}
+              setStoreAddress={setStoreAddress}
+              setStoreHours={setStoreHours}
+              setTickers={setTickers}
+              shippingNoticeDe={shippingNoticeDe}
+              shippingNoticeEn={shippingNoticeEn}
+              shippingNoticeKo={shippingNoticeKo}
+              storeAddress={storeAddress}
+              storeHours={storeHours}
+              tickers={tickers}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
          * TAB 4.5: GROUP BUYING & SUBSCRIPTIONS
          * ================================================================= */}
         {activeTab === "campaigns" && (
-          <CampaignsPanel
-            activeGbSearchIdx={activeGbSearchIdx}
-            activeSubSearchIdx={activeSubSearchIdx}
-            campaignSearchFetcher={campaignSearchFetcher}
-            fetcher={fetcher}
-            freeShippingThreshold={freeShippingThreshold}
-            gbSearchQuery={gbSearchQuery}
-            groupBuying={groupBuying}
-            isSubmitting={isSubmitting}
-            livePriceLabel={livePriceLabel}
-            liveVariantPrices={liveVariantPrices}
-            prospekt={prospekt}
-            setActiveGbSearchIdx={setActiveGbSearchIdx}
-            setActiveSubSearchIdx={setActiveSubSearchIdx}
-            setGbSearchQuery={setGbSearchQuery}
-            setGroupBuying={setGroupBuying}
-            setSubSearchQuery={setSubSearchQuery}
-            setSubscriptionPlans={setSubscriptionPlans}
-            shippingNoticeKo={shippingNoticeKo}
-            subSearchQuery={subSearchQuery}
-            subscriptionPlans={subscriptionPlans}
-          />
+          <LazyTabPanel>
+            <CampaignsPanel
+              activeGbSearchIdx={activeGbSearchIdx}
+              activeSubSearchIdx={activeSubSearchIdx}
+              campaignSearchFetcher={campaignSearchFetcher}
+              fetcher={fetcher}
+              freeShippingThreshold={freeShippingThreshold}
+              gbSearchQuery={gbSearchQuery}
+              groupBuying={groupBuying}
+              isSubmitting={isSubmitting}
+              livePriceLabel={livePriceLabel}
+              liveVariantPrices={liveVariantPrices}
+              prospekt={prospekt}
+              setActiveGbSearchIdx={setActiveGbSearchIdx}
+              setActiveSubSearchIdx={setActiveSubSearchIdx}
+              setGbSearchQuery={setGbSearchQuery}
+              setGroupBuying={setGroupBuying}
+              setSubSearchQuery={setSubSearchQuery}
+              setSubscriptionPlans={setSubscriptionPlans}
+              shippingNoticeKo={shippingNoticeKo}
+              subSearchQuery={subSearchQuery}
+              subscriptionPlans={subscriptionPlans}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
          * TAB 5: PRODUCT DETAIL, CART, AND MYPAGE SETTINGS
          * ================================================================= */}
         {activeTab === "pages" && (
-          <PagesPanel
-            cartPage={cartPage}
-            fetcher={fetcher}
-            freeShippingThreshold={freeShippingThreshold}
-            isSubmitting={isSubmitting}
-            myPage={myPage}
-            productPage={productPage}
-            setCartPage={setCartPage}
-            setMyPage={setMyPage}
-            setProductPage={setProductPage}
-            shippingNoticeKo={shippingNoticeKo}
-          />
+          <LazyTabPanel>
+            <PagesPanel
+              cartPage={cartPage}
+              fetcher={fetcher}
+              freeShippingThreshold={freeShippingThreshold}
+              isSubmitting={isSubmitting}
+              myPage={myPage}
+              productPage={productPage}
+              setCartPage={setCartPage}
+              setMyPage={setMyPage}
+              setProductPage={setProductPage}
+              shippingNoticeKo={shippingNoticeKo}
+            />
+          </LazyTabPanel>
         )}
 
         {/* =================================================================
@@ -1055,7 +1120,9 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {visitedTabs.has("customer-requests") && (
           <div style={{ display: activeTab === "customer-requests" ? "block" : "none" }}>
-            <CustomerRequestsHub active={activeTab === "customer-requests"} />
+            <LazyTabPanel>
+              <CustomerRequestsHub active={activeTab === "customer-requests"} />
+            </LazyTabPanel>
           </div>
         )}
 
@@ -1064,7 +1131,9 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {visitedTabs.has("b2b-requests") && (
           <div style={{ display: activeTab === "b2b-requests" ? "block" : "none" }}>
-            <B2bRequestsManager />
+            <LazyTabPanel>
+              <B2bRequestsManager />
+            </LazyTabPanel>
           </div>
         )}
 
@@ -1073,45 +1142,57 @@ export default function AppManagementPage() {
          * ================================================================= */}
         {visitedTabs.has("arrivals") && (
           <div style={{ display: activeTab === "arrivals" ? "block" : "none" }}>
-            <ArrivalsManager active={activeTab === "arrivals"} />
+            <LazyTabPanel>
+              <ArrivalsManager active={activeTab === "arrivals"} />
+            </LazyTabPanel>
           </div>
         )}
 
         {visitedTabs.has("reviews") && (
           <div style={{ display: activeTab === "reviews" ? "block" : "none" }}>
-            <ReviewsManager active={activeTab === "reviews"} />
+            <LazyTabPanel>
+              <ReviewsManager active={activeTab === "reviews"} />
+            </LazyTabPanel>
           </div>
         )}
 
         {visitedTabs.has("recipes") && (
           <div style={{ display: activeTab === "recipes" ? "block" : "none" }}>
-            <RecipeCommerceManager active={activeTab === "recipes"} onDirtyChange={setRecipeHasUnsavedEdits} />
+            <LazyTabPanel>
+              <RecipeCommerceManager active={activeTab === "recipes"} onDirtyChange={setRecipeHasUnsavedEdits} />
+            </LazyTabPanel>
           </div>
         )}
 
         {visitedTabs.has("push-notifications") && (
           <div style={{ display: activeTab === "push-notifications" ? "block" : "none" }}>
-            <PushNotificationsManager active={activeTab === "push-notifications"} />
+            <LazyTabPanel>
+              <PushNotificationsManager active={activeTab === "push-notifications"} />
+            </LazyTabPanel>
           </div>
         )}
 
         {visitedTabs.has("app-requests") && (
           <div style={{ display: activeTab === "app-requests" ? "block" : "none" }}>
-            <AppRequestsManager active={activeTab === "app-requests"} />
+            <LazyTabPanel>
+              <AppRequestsManager active={activeTab === "app-requests"} />
+            </LazyTabPanel>
           </div>
         )}
 
         {activeTab === "preview" && (
-          <PreviewPanel
-            activeTab={activeTab}
-            bannerForm={bannerForm}
-            config={config}
-            dealForm={dealForm}
-            editingBanner={editingBanner}
-            freeShippingThreshold={freeShippingThreshold}
-            hotDealSettings={hotDealSettings}
-            shippingNoticeKo={shippingNoticeKo}
-          />
+          <LazyTabPanel>
+            <PreviewPanel
+              activeTab={activeTab}
+              bannerForm={bannerForm}
+              config={config}
+              dealForm={dealForm}
+              editingBanner={editingBanner}
+              freeShippingThreshold={freeShippingThreshold}
+              hotDealSettings={hotDealSettings}
+              shippingNoticeKo={shippingNoticeKo}
+            />
+          </LazyTabPanel>
         )}
           </div>
 
@@ -1127,20 +1208,22 @@ export default function AppManagementPage() {
                 zIndex: 20,
               }}
             >
-              <MobileLiveSimulator
-                config={config}
-                activeTab={activeTab}
-                bannerForm={bannerForm}
-                editingBanner={editingBanner}
-                dealForm={dealForm}
-                hotDealSettings={hotDealSettings}
-                shippingNoticeKo={shippingNoticeKo}
-                freeShippingThreshold={freeShippingThreshold}
-                onClose={() => {
-                  setShowMobileSimulator(false);
-                  try { localStorage.setItem("dawayo_mobile_preview_open", "false"); } catch {}
-                }}
-              />
+              <Suspense fallback={null}>
+                <MobileLiveSimulator
+                  config={config}
+                  activeTab={activeTab}
+                  bannerForm={bannerForm}
+                  editingBanner={editingBanner}
+                  dealForm={dealForm}
+                  hotDealSettings={hotDealSettings}
+                  shippingNoticeKo={shippingNoticeKo}
+                  freeShippingThreshold={freeShippingThreshold}
+                  onClose={() => {
+                    setShowMobileSimulator(false);
+                    try { localStorage.setItem("dawayo_mobile_preview_open", "false"); } catch {}
+                  }}
+                />
+              </Suspense>
             </div>
           )}
         </div>
