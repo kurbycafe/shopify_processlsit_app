@@ -15,15 +15,17 @@ function getEmailConfig() {
   };
 }
 
-export const DEFAULT_ADMIN_ALERT_RECIPIENTS = [
+export const DEFAULT_CANCELLATION_ALERT_RECIPIENTS = [
   "service@dawayo.de",
   "ceo@dawayo.de",
   "kgt@dawayo.de",
 ];
 
+export const DEFAULT_ADMIN_ALERT_RECIPIENTS = ["kgt@dawayo.de"];
+
 /**
- * Returns configured admin operational alert recipient emails with fallback to
- * Dawayo operations addresses. Supports comma/whitespace separated ADMIN_ALERT_EMAILS.
+ * Returns configured CS/push operational alert recipient emails with fallback to
+ * kgt@dawayo.de. Supports comma/whitespace separated ADMIN_ALERT_EMAILS.
  */
 export function getAdminAlertRecipients() {
   const raw = (process.env.ADMIN_ALERT_EMAILS || "").trim();
@@ -353,7 +355,7 @@ export function buildCancellationAlertEmailHtml({
   currency = "EUR",
   items = [],
   shopDomain,
-  recipients = getAdminAlertRecipients(),
+  recipients = DEFAULT_CANCELLATION_ALERT_RECIPIENTS,
 }) {
   const adminOrderUrl = shopDomain
     ? `https://admin.shopify.com/store/${shopDomain.replace(".myshopify.com", "")}/orders`
@@ -523,7 +525,7 @@ export function buildCancellationAlertEmailHtml({
     </div>
 
     <div class="footer">
-      수신: ${escapeHtml((recipients || getAdminAlertRecipients()).join(", "))}<br>
+      수신: ${escapeHtml((recipients || DEFAULT_CANCELLATION_ALERT_RECIPIENTS).join(", "))}<br>
       Dawayo Operations
     </div>
   </div>
@@ -548,7 +550,7 @@ export async function sendCancellationAlertEmail({
     throw new Error("취소 알림 이메일 서비스가 설정되지 않았습니다.");
   }
 
-  const recipients = getAdminAlertRecipients();
+  const recipients = DEFAULT_CANCELLATION_ALERT_RECIPIENTS;
 
   const htmlContent = buildCancellationAlertEmailHtml({
     orderName,

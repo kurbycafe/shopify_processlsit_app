@@ -13,15 +13,24 @@ import {
   PUSH_FAILURE_ALERT_COOLDOWN_MS,
 } from "../app/services/adminOperationAlerts.server.js";
 import { dispatchMobileNotifications } from "../app/services/mobileNotificationQueue.server.js";
-import { DEFAULT_ADMIN_ALERT_RECIPIENTS, getAdminAlertRecipients } from "../app/utils/emailService.js";
+import {
+  buildCancellationAlertEmailHtml,
+  DEFAULT_ADMIN_ALERT_RECIPIENTS,
+  DEFAULT_CANCELLATION_ALERT_RECIPIENTS,
+  getAdminAlertRecipients,
+} from "../app/utils/emailService.js";
 
 const shop = "dawayo.myshopify.com";
 
-test("getAdminAlertRecipients defaults to operations addresses and supports ADMIN_ALERT_EMAILS override", () => {
+test("getAdminAlertRecipients defaults strictly to kgt@dawayo.de while cancellation alerts keep existing recipients", () => {
   const prev = process.env.ADMIN_ALERT_EMAILS;
   try {
     delete process.env.ADMIN_ALERT_EMAILS;
-    assert.deepEqual(getAdminAlertRecipients(), DEFAULT_ADMIN_ALERT_RECIPIENTS);
+    assert.deepEqual(DEFAULT_ADMIN_ALERT_RECIPIENTS, ["kgt@dawayo.de"]);
+    assert.deepEqual(getAdminAlertRecipients(), ["kgt@dawayo.de"]);
+    assert.deepEqual(DEFAULT_CANCELLATION_ALERT_RECIPIENTS, ["service@dawayo.de", "ceo@dawayo.de", "kgt@dawayo.de"]);
+    const cancelHtml = buildCancellationAlertEmailHtml({ orderName: "#18001", shopDomain: shop });
+    assert.match(cancelHtml, /service@dawayo\.de, ceo@dawayo\.de, kgt@dawayo\.de/);
 
     process.env.ADMIN_ALERT_EMAILS = "ops@dawayo.de, CS@dawayo.de; ops@dawayo.de";
     assert.deepEqual(getAdminAlertRecipients(), ["ops@dawayo.de", "cs@dawayo.de"]);
@@ -362,6 +371,7 @@ test("notifyAdminOfPushFailures summarizes new failures, honors cooldown, and av
   assert.equal(unconf.configured, false);
   const emailPreview = buildPushFailureAlertEmail({ shop, newFailures: rows.filter((r) => r.type !== "PUSH_FAILURE_ALERT"), now: t0 });
   assert.match(emailPreview.htmlContent, /푸시 대기열 점검 필요/);
+  assert.match(emailPreview.htmlContent, /수신: kgt@dawayo\.de<br>/);
 });
 
 test("OrderInspectionSummary renders inspection status, inspector, and issue items cleanly", async () => {

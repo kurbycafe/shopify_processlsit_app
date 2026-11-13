@@ -215,7 +215,7 @@ export function PushNotificationsManager({ active = true }) {
           </InlineStack>
         </InlineStack>
         <Text as="p" tone="subdued" variant="bodySm">
-          SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다. 신규 실패(FAILED) 또는 미확정 건이 발생하면 담당자 이메일로 요약 알림이 자동 발송됩니다 (30분 단위 중복 방지).
+          SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다. 신규 실패(FAILED) 또는 미확정 건이 발생하면 담당자 이메일(kgt@dawayo.de)로 요약 알림이 자동 발송됩니다 (30분 단위 중복 방지).
         </Text>
         {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, statusBadge(row), row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
         {data.nextCursor && <Button variant="plain" onClick={() => setCursor(data.nextCursor)}>이전 기록 보기</Button>}
@@ -324,7 +324,7 @@ export default function PushNotificationsPage() {
         </InlineStack>
       </InlineStack>
       <Text as="p" tone="subdued" variant="bodySm">
-        SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다. 신규 실패(FAILED) 또는 미확정 건이 발생하면 담당자 이메일로 요약 알림이 자동 발송됩니다 (30분 단위 중복 방지).
+        SENT: FCM 접수. UNKNOWN: 결과 미확정. 수신 거부·기기 연결 해제·만료 알림은 SKIPPED로 처리합니다. 신규 실패(FAILED) 또는 미확정 건이 발생하면 담당자 이메일(kgt@dawayo.de)로 요약 알림이 자동 발송됩니다 (30분 단위 중복 방지).
       </Text>
       {!data.records.length ? <Text as="p">발송 기록이 없습니다.</Text> : <DataTable columnContentTypes={["text", "text", "text", "text", "text"]} headings={["유형 / 제목", "상태", "고객", "시도 / 오류", "재시도"]} rows={data.records.map(row => [row.title || row.type, statusBadge(row), row.customerId || "동의 고객 대상", `${row.attempts} / ${row.errorCode || "—"}`, ["FAILED", "UNKNOWN"].includes(row.status) ? <Button key={row.id} disabled={busy} onClick={() => { setAcknowledge(false); setConfirm({ type: "retry", id: row.id, unknown: row.status === "UNKNOWN" }); }}>재시도 확인</Button> : "—"])} />}
       {data.nextCursor && <Link to={`?cursor=${encodeURIComponent(data.nextCursor)}${statusFilter !== "ALL" ? `&status=${encodeURIComponent(statusFilter)}` : ""}`}>이전 기록 보기</Link>}
