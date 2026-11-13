@@ -15,7 +15,9 @@ export default function BackInStockHeader({
   shop,
   lastSyncedAt,
   isScanning,
+  isForceScanning = false,
   onScanAndNotify,
+  onForceScanAndNotify,
   onRefresh,
   onExportCsv,
 }) {
@@ -34,18 +36,28 @@ export default function BackInStockHeader({
           </InlineStack>
         </BlockStack>
 
-        <InlineStack gap="200">
+        <InlineStack gap="200" wrap>
           <Button icon={ExportIcon} onClick={onExportCsv}>
             CSV 내보내기
           </Button>
           <Button icon={RefreshIcon} onClick={onRefresh}>
             새로고침
           </Button>
+          {onForceScanAndNotify && (
+            <Button
+              loading={isForceScanning}
+              disabled={isScanning || isForceScanning}
+              onClick={onForceScanAndNotify}
+            >
+              대기자 전체 강제 발송
+            </Button>
+          )}
           <Button
             variant="primary"
             tone="success"
             icon={PlayIcon}
             loading={isScanning}
+            disabled={isScanning || isForceScanning}
             onClick={onScanAndNotify}
           >
             입고 상품 스캔 및 알림 발송

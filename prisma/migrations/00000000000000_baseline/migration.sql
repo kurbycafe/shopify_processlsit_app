@@ -425,6 +425,31 @@ CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_status_createdAt_idx" O
 
 CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_variantId_email_status_idx" ON "BackInStockSubscription"("shop", "variantId", "email", "status");
 
+CREATE TABLE IF NOT EXISTS "BackInStockSettings" (
+  "id" TEXT NOT NULL,
+  "shop" TEXT NOT NULL,
+  "dispatchMode" TEXT NOT NULL DEFAULT 'ALL',
+  "fifoMultiplier" INTEGER NOT NULL DEFAULT 1,
+  "minStockThreshold" INTEGER NOT NULL DEFAULT 1,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "BackInStockSettings_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "BackInStockSettings" ADD COLUMN IF NOT EXISTS "shop" TEXT;
+
+ALTER TABLE "BackInStockSettings" ADD COLUMN IF NOT EXISTS "dispatchMode" TEXT NOT NULL DEFAULT 'ALL';
+
+ALTER TABLE "BackInStockSettings" ADD COLUMN IF NOT EXISTS "fifoMultiplier" INTEGER NOT NULL DEFAULT 1;
+
+ALTER TABLE "BackInStockSettings" ADD COLUMN IF NOT EXISTS "minStockThreshold" INTEGER NOT NULL DEFAULT 1;
+
+ALTER TABLE "BackInStockSettings" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "BackInStockSettings" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "BackInStockSettings_shop_key" ON "BackInStockSettings"("shop");
+
 CREATE TABLE IF NOT EXISTS "StorefrontNotice" (
   "id" TEXT NOT NULL,
   "shop" TEXT NOT NULL,

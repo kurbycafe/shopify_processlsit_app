@@ -59,15 +59,7 @@ export const action = async ({ request }) => {
         : `https://${cleanShop}`;
       const sku = variant.sku || null;
 
-      let mobileFailed = false;
-      try {
-        const mobile = await queueRestockPush({ db, shop: cleanShop, variantId: variantGid, productId: variant.product.id, productTitle });
-        mobileFailed = mobile.more;
-        if (typeof dispatchMobileNotifications === "function") {
-          await dispatchMobileNotifications({ db, shop: cleanShop, limit: 20 }).catch(() => {});
-        }
-      } catch { mobileFailed = true; }
-      // 2. Atomically notify subscribers via subscriptionService
+      // 1. Atomically notify subscribers according to the shop's restock wave policy
       const result = await notifyPendingSubscribersForVariant({
         shop: cleanShop,
         variantId: variantGid,
@@ -75,13 +67,25 @@ export const action = async ({ request }) => {
         variantTitle,
         productUrl,
         sku,
+        availableQuantity: available,
         dispatchDate: new Date(),
       });
+
+      let mobileFailed = false;
+      if (!result?.skippedByThreshold) {
+        try {
+          const mobile = await queueRestockPush({ db, shop: cleanShop, variantId: variantGid, productId: variant.product.id, productTitle });
+          mobileFailed = mobile.more;
+          if (typeof dispatchMobileNotifications === "function") {
+            await dispatchMobileNotifications({ db, shop: cleanShop, limit: 20 }).catch(() => {});
+          }
+        } catch { mobileFailed = true; }
+      }
       if (!result.success || mobileFailed) return new Response(null, { status: 503 });
 
-      if (result.total > 0) {
+      if (result.total > 0 || result.skippedByThreshold) {
         console.log(
-          `[Webhook ${topic}] Notified ${result.sent}/${result.total} subscribers for ${productTitle} (${cleanShop})`
+          `[Webhook ${topic}] Stock=${available}, Notified=${result.sent}/${result.total}, Remaining=${result.remainingPending ?? 0}, Skipped=${Boolean(result.skippedByThreshold)} for ${productTitle} (${cleanShop})`
         );
       }
     } catch (err) {

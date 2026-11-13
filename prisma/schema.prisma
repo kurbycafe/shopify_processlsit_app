@@ -190,6 +190,16 @@ model BackInStockSubscription {
   @@index([shop, variantId, email, status])
 }
 
+model BackInStockSettings {
+  id                String   @id @default(cuid())
+  shop              String   @unique
+  dispatchMode      String   @default("ALL") // ALL | FIFO_STOCK
+  fifoMultiplier    Int      @default(1)
+  minStockThreshold Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
 model StorefrontNotice {
   id            String   @id @default(cuid())
   shop          String   @unique

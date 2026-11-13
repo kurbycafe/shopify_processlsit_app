@@ -123,7 +123,7 @@ export default function BackInStockProductTable({
           <tbody>
             {products.map((item) => {
               const isSelected = selectedVariantIds.includes(item.variantId);
-              const demand = getDemandLevel(item.subscriberCount);
+              const demand = getDemandLevel(item.pendingCount > 0 ? item.pendingCount : item.subscriberCount);
               const etaStage = getEtaStageInfo(item.etaDate);
               const isSyncing = syncingVariantId === item.variantId;
               const isNotifying = notifyingVariantId === item.variantId;

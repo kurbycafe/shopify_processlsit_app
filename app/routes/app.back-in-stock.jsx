@@ -14,6 +14,7 @@ import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema, safeFindSubscribers } from "../db.server";
 import { getEtaBySku } from "../services/odooClient.server";
 import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server";
+import { getRestockDispatchPolicy, saveRestockDispatchPolicy } from "../services/restockDispatchPolicy.server";
 import { queueRestockPush } from "../services/mobileNotificationEvents.server";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server";
 import {
@@ -24,6 +25,7 @@ import {
 
 import BackInStockHeader from "../components/backInStock/BackInStockHeader";
 import BackInStockKpiGrid from "../components/backInStock/BackInStockKpiGrid";
+import BackInStockDispatchPolicyCard from "../components/backInStock/BackInStockDispatchPolicyCard";
 import BackInStockControlBar from "../components/backInStock/BackInStockControlBar";
 import BackInStockBulkBar from "../components/backInStock/BackInStockBulkBar";
 import BackInStockProductTable from "../components/backInStock/BackInStockProductTable";
@@ -574,9 +576,11 @@ export const loader = async ({ request }) => {
   }
 
   const totalPages = Math.ceil(totalCount / limit);
+  const dispatchPolicy = await getRestockDispatchPolicy(shop, { db: prisma });
 
   return {
     shop,
+    dispatchPolicy,
     lastSyncedAt: new Date().toISOString(),
     viewMode,
     page,
@@ -605,6 +609,36 @@ export const action = async ({ request }) => {
 
   const formData = await request.formData();
   const intent = formData.get("intent");
+
+  // 0. 재입고 자동 발송 정책(FIFO 분할 · 최소 재고 임계치) 저장
+  if (intent === "save_dispatch_policy") {
+    try {
+      const dispatchPolicy = await saveRestockDispatchPolicy(
+        shop,
+        {
+          dispatchMode: formData.get("dispatchMode"),
+          fifoMultiplier: formData.get("fifoMultiplier"),
+          minStockThreshold: formData.get("minStockThreshold"),
+        },
+        { db: prisma }
+      );
+      const modeText =
+        dispatchPolicy.dispatchMode === "FIFO_STOCK"
+          ? `선착순(FIFO) 분할 발송(재고 x ${dispatchPolicy.fifoMultiplier}배)`
+          : "대기 고객 전량 발송";
+      return Response.json({
+        success: true,
+        intent: "save_dispatch_policy",
+        dispatchPolicy,
+        message: `발송 정책 저장 완료: ${modeText}, 최소 재고 기준 ${dispatchPolicy.minStockThreshold}개`,
+      });
+    } catch (err) {
+      return Response.json(
+        { success: false, error: err?.message || "발송 정책 저장에 실패했습니다." },
+        { status: 400 }
+      );
+    }
+  }
 
   // 1. 단일 고객 알림 발송
   if (intent === "notify_single") {
@@ -685,6 +719,7 @@ export const action = async ({ request }) => {
       productTitle,
       ...(variantTitle ? { variantTitle } : {}),
       ...(productUrl ? { productUrl } : {}),
+      forceAll: true,
       dispatchDate: now,
     });
 
@@ -739,6 +774,7 @@ export const action = async ({ request }) => {
         const res = await notifyPendingSubscribersForVariant({
           shop,
           variantId: vId,
+          forceAll: true,
           dispatchDate: now,
         });
         sentCount += res.sent;
@@ -881,6 +917,7 @@ export const action = async ({ request }) => {
 
   // 7. 실시간 재고 대조 & 입고 상품 자동 발송
   if (intent === "scan_and_notify_instock") {
+    const forceAll = formData.get("forceAll") === "true";
     const pendingList = await prisma.backInStockSubscription.findMany({
       where: { shop, status: "PENDING" },
     });
@@ -902,7 +939,9 @@ export const action = async ({ request }) => {
 
     const gids = Array.from(variantIdMap.keys());
     let totalNotified = 0;
+    let totalRemainingPending = 0;
     let inStockCount = 0;
+    let skippedThresholdCount = 0;
     const now = new Date();
 
     try {
@@ -935,14 +974,14 @@ export const action = async ({ request }) => {
 
         for (const variant of nodes) {
           if (!variant) continue;
-          const isAvailable =
-            variant.availableForSale === true ||
-            (variant.inventoryQuantity && variant.inventoryQuantity > 0);
+          const hasNumericQty = typeof variant.inventoryQuantity === "number";
+          const availableQty = hasNumericQty ? variant.inventoryQuantity : null;
+          const isInStock = hasNumericQty ? availableQty > 0 : variant.availableForSale === true;
 
-          if (isAvailable) {
-            inStockCount++;
+          if (isInStock || (forceAll && variant.availableForSale === true)) {
             const productHandle = variant.product?.handle || "";
-            const productUrl = productHandle ? `https://${shop}/products/${productHandle}` : `https://${shop}`;
+            const domain = shop.includes("dawayo") ? "dawayo.de" : shop;
+            const productUrl = productHandle ? `https://${domain}/products/${productHandle}` : `https://${domain}`;
 
             const res = await notifyPendingSubscribersForVariant({
               shop,
@@ -952,9 +991,18 @@ export const action = async ({ request }) => {
               productUrl,
               sku: variant.sku || null,
               dispatchDate: now,
+              ...(forceAll ? { forceAll: true } : { availableQuantity: availableQty }),
             });
 
+            if (res.skippedByThreshold) {
+              skippedThresholdCount++;
+              totalRemainingPending += res.remainingPending || 0;
+              continue;
+            }
+
+            inStockCount++;
             totalNotified += res.sent;
+            totalRemainingPending += res.remainingPending || 0;
 
             try {
               if (typeof queueRestockPush === "function") {
@@ -973,11 +1021,18 @@ export const action = async ({ request }) => {
       }
 
       try {
-        if (typeof dispatchMobileNotifications === "function") {
+        if (inStockCount > 0 && typeof dispatchMobileNotifications === "function") {
           const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
           dispatchMobileNotifications({ db: dbClient, shop, limit: 100 }).catch(() => {});
         }
       } catch (_) {}
+
+      if (inStockCount === 0 && skippedThresholdCount > 0) {
+        return Response.json({
+          success: true,
+          message: `대기 중인 품목 중 ${skippedThresholdCount}개가 입고되었으나 최소 재고 기준 미달 또는 재고 미추적으로 발송이 보류되었습니다 (대기 잔여 ${totalRemainingPending}명).`,
+        });
+      }
 
       if (inStockCount === 0) {
         return Response.json({
@@ -986,9 +1041,12 @@ export const action = async ({ request }) => {
         });
       }
 
+      const remainingText = totalRemainingPending > 0 ? ` · 다음 입고 잔여 대기자 ${totalRemainingPending}명` : "";
+      const skippedText = skippedThresholdCount > 0 ? ` · 기준 미달 보류 ${skippedThresholdCount}개 품목` : "";
+
       return Response.json({
         success: true,
-        message: `재고 감지 완료: 입고된 ${inStockCount}개 품목의 대기 고객 ${totalNotified}명에게 재입고 알림 이메일이 자동 발송되었습니다.`,
+        message: `재고 감지 완료${forceAll ? " (대기자 전체 강제 발송)" : ""}: 입고된 ${inStockCount}개 품목의 고객 ${totalNotified}명에게 재입고 알림이 발송되었습니다${remainingText}${skippedText}.`,
       });
     } catch (err) {
       console.error("Scan error:", err);
@@ -1002,6 +1060,7 @@ export const action = async ({ request }) => {
 export default function BackInStockDashboard() {
   const {
     shop,
+    dispatchPolicy,
     lastSyncedAt,
     viewMode,
     page,
@@ -1047,8 +1106,16 @@ export default function BackInStockDashboard() {
   const [notifyingSubId, setNotifyingSubId] = useState(null);
   const [cancellingSubId, setCancellingSubId] = useState(null);
 
+  const isForceScanning =
+    fetcher.state !== "idle" &&
+    fetcher.formData?.get("intent") === "scan_and_notify_instock" &&
+    fetcher.formData?.get("forceAll") === "true";
   const isScanning =
-    fetcher.state !== "idle" && fetcher.formData?.get("intent") === "scan_and_notify_instock";
+    fetcher.state !== "idle" &&
+    fetcher.formData?.get("intent") === "scan_and_notify_instock" &&
+    fetcher.formData?.get("forceAll") !== "true";
+  const isSavingPolicy =
+    fetcher.state !== "idle" && fetcher.formData?.get("intent") === "save_dispatch_policy";
   const isBatchLoading =
     fetcher.state !== "idle" &&
     (fetcher.formData?.get("intent") === "batch_notify" ||
@@ -1332,6 +1399,33 @@ export default function BackInStockDashboard() {
     fetcher.submit(fd, { method: "post" });
   };
 
+  // Force Scan All (bypass stock wave / minimum threshold)
+  const handleForceScanAndNotify = async () => {
+    const confirmed = await confirm({
+      title: "대기자 전체 강제 발송",
+      message: "설정된 최소 재고 기준과 선착순 분할 제한을 무시하고 입고된 모든 상품의 대기자 전원에게 즉시 발송하시겠습니까?",
+      impactSummary: "재고 수량이 적은 품목도 대기 중인 모든 고객에게 재입고 알림이 발송됩니다.",
+      confirmLabel: "전체 강제 발송",
+      cancelLabel: "닫기",
+      destructive: false,
+    });
+    if (!confirmed) return;
+    const fd = new FormData();
+    fd.append("intent", "scan_and_notify_instock");
+    fd.append("forceAll", "true");
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Save dispatch policy (ALL vs FIFO_STOCK + minimum threshold)
+  const handleSaveDispatchPolicy = (policy) => {
+    const fd = new FormData();
+    fd.append("intent", "save_dispatch_policy");
+    fd.append("dispatchMode", policy.dispatchMode);
+    fd.append("fifoMultiplier", String(policy.fifoMultiplier));
+    fd.append("minStockThreshold", String(policy.minStockThreshold));
+    fetcher.submit(fd, { method: "post" });
+  };
+
   // Open Email Preview Modal
   const handleOpenEmailPreview = (item) => {
     setPreviewProduct(item);
@@ -1375,9 +1469,18 @@ export default function BackInStockDashboard() {
           shop={shop}
           lastSyncedAt={lastSyncedAt}
           isScanning={isScanning}
+          isForceScanning={isForceScanning}
           onScanAndNotify={handleScanAndNotify}
+          onForceScanAndNotify={handleForceScanAndNotify}
           onRefresh={() => updateUrlParams({ _t: Date.now() })}
           onExportCsv={handleExportCsv}
+        />
+
+        {/* Dispatch Policy Configuration (FIFO / Min Stock Threshold) */}
+        <BackInStockDispatchPolicyCard
+          dispatchPolicy={dispatchPolicy}
+          onSavePolicy={handleSaveDispatchPolicy}
+          isSavingPolicy={isSavingPolicy}
         />
 
         {/* Feedback Banners */}

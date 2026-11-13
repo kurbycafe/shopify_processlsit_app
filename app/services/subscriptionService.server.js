@@ -1,6 +1,7 @@
 import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { sendBackInStockEmail } from "../utils/emailService.js";
 import { resolveVariantEta } from "./etaService.server.js";
+import { getRestockDispatchPolicy, calculateDispatchPlan, sortSubscribersFifo } from "./restockDispatchPolicy.server.js";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const PROCESSING_LEASE_MS = 15 * 60 * 1000;
@@ -207,6 +208,8 @@ export async function notifyPendingSubscribersForVariant({
   dispatchDate = null,
   sku = null,
   subscriptionIds = null,
+  availableQuantity = undefined,
+  forceAll = false,
 }, { db = prisma, sendEmail = sendBackInStockEmail, now = () => new Date(), sendPush = dispatchPush } = {}) {
   if (db === prisma) await ensureDatabaseSchema();
   const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
@@ -216,31 +219,105 @@ export async function notifyPendingSubscribersForVariant({
   if (!variantAliases.length) throw new Error("Invalid variant ID");
   if (subscriptionIds !== null && (!Array.isArray(subscriptionIds) || subscriptionIds.length > 1000 || subscriptionIds.some(id => typeof id !== "string" || !id || id.length > 128))) throw new Error("Invalid subscription selection");
   const selectedIds = subscriptionIds === null ? null : new Set(subscriptionIds);
-  const pendingSubscribers = await db.backInStockSubscription.findMany({
-    where: {
-      shop: { in: shopAliases },
-      variantId: { in: variantAliases },
-      notificationAttempts: { lt: MAX_NOTIFICATION_ATTEMPTS },
-      ...(selectedIds ? { id: { in: [...selectedIds] } } : {}),
-      OR: [
-        { status: { in: ["PENDING", "FAILED"] } },
-        { status: "PROCESSING", processingAt: { lt: new Date(now().getTime() - PROCESSING_LEASE_MS) } },
-        { status: "PROCESSING", processingAt: null },
-      ],
-    },
+  const policy = await getRestockDispatchPolicy(cleanShop, { db, shopAliases });
+  const bypassWaveLimits = forceAll || selectedIds !== null;
+
+  // Atomically claim a FIFO wave under a variant-level advisory lock so concurrent
+  // webhooks cannot over-allocate limited stock or skip earlier waiters.
+  const { claims, plan, candidateRows } = await db.$transaction(async (tx) => {
+    const waveKey = `restock-wave:${shopAliases.slice().sort()[0]}:${String(variantId).split("/").pop()}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${waveKey}, 0))`;
+
+    const rawRows = await tx.backInStockSubscription.findMany({
+      where: {
+        shop: { in: shopAliases },
+        variantId: { in: variantAliases },
+        status: { in: ["PENDING", "FAILED", "PROCESSING"] },
+      },
+      orderBy: [{ subscribedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+    });
+    const rows = sortSubscribersFifo(rawRows);
+    const claimedAt = now();
+    const cutoff = claimedAt.getTime() - PROCESSING_LEASE_MS;
+
+    const identityGroups = new Map();
+    for (const row of rows) {
+      const identity = notificationIdentity(row);
+      if (!identityGroups.has(identity)) identityGroups.set(identity, []);
+      identityGroups.get(identity).push(row);
+    }
+
+    let activeProcessingCount = 0;
+    const eligibleGroups = [];
+    for (const groupRows of identityGroups.values()) {
+      const hasActiveLease = groupRows.some(
+        (row) => row.status === "PROCESSING" && row.processingAt && new Date(row.processingAt).getTime() >= cutoff
+      );
+      if (hasActiveLease) {
+        activeProcessingCount += 1;
+        continue;
+      }
+      const eligibleRows = groupRows.filter(
+        (row) =>
+          (!selectedIds || selectedIds.has(row.id)) &&
+          ["PENDING", "FAILED", "PROCESSING"].includes(row.status) &&
+          row.notificationAttempts < MAX_NOTIFICATION_ATTEMPTS
+      );
+      if (eligibleRows.length > 0) {
+        eligibleGroups.push(eligibleRows);
+      }
+    }
+
+    const dispatchPlan = calculateDispatchPlan({
+      pendingCount: eligibleGroups.length,
+      activeProcessingCount,
+      availableQuantity,
+      policy,
+      forceAll: bypassWaveLimits,
+    });
+
+    const claimedList = [];
+    const targetGroups = eligibleGroups.slice(0, dispatchPlan.targetCount);
+    for (const groupRows of targetGroups) {
+      const ids = groupRows.map((row) => row.id);
+      await tx.backInStockSubscription.updateMany({
+        where: { id: { in: ids }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
+        data: { status: "PROCESSING", processingAt: claimedAt, notificationAttempts: { increment: 1 } },
+      });
+      const claimedRows = await tx.backInStockSubscription.findMany({
+        where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt },
+      });
+      if (claimedRows.length > 0) {
+        claimedList.push({ sub: claimedRows[0], ids: claimedRows.map((row) => row.id), claimedAt });
+      }
+    }
+
+    return { claims: claimedList, plan: dispatchPlan, candidateRows: rows };
   });
 
-  if (pendingSubscribers.length === 0) {
-    return { success: true, total: 0, sent: 0, failed: 0 };
+  let resolvedPo = poNumber ? String(poNumber).trim() : null;
+  if (claims.length === 0) {
+    return {
+      success: true,
+      total: 0,
+      sent: 0,
+      failed: 0,
+      poNumber: resolvedPo,
+      warnings: [],
+      remainingPending: plan.remainingPending,
+      skippedByThreshold: plan.skippedByThreshold,
+      skipReason: plan.skipReason,
+      availableQuantity: plan.availableQuantity,
+      cappedByStock: plan.cappedByStock,
+      policy: plan.effectivePolicy,
+    };
   }
 
-  // Resolve Odoo PO if not provided
-  let resolvedPo = poNumber ? String(poNumber).trim() : null;
   let resolvedRestockedAt = restockedAt ? new Date(restockedAt) : new Date();
   const nowDispatchDate = dispatchDate ? new Date(dispatchDate) : new Date();
 
   if (!resolvedPo) {
-    const targetSku = sku || pendingSubscribers.find((s) => s.sku)?.sku;
+    const targetSku = sku || candidateRows.find((s) => s.sku)?.sku;
     if (targetSku) {
       try {
         const containerItem = await db.containerItem.findFirst({
@@ -268,41 +345,8 @@ export async function notifyPendingSubscribersForVariant({
   let failedCount = 0;
   let claimedCount = 0;
   const warnings = [];
-  const groups = new Map();
-  for (const sub of pendingSubscribers) {
-    const identity = notificationIdentity(sub);
-    if (!groups.has(identity)) groups.set(identity, sub);
-  }
 
-  for (const [identity, candidate] of groups) {
-    // Re-read under the same identity lock. A losing worker never sends a row it did not claim.
-    const claim = await db.$transaction(async tx => {
-      const key = `restock:${shopAliases.slice().sort()[0]}:${String(variantId).split("/").pop()}:${identity}`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-      const rows = await tx.backInStockSubscription.findMany({
-        where: {
-          shop: { in: shopAliases }, variantId: { in: variantAliases },
-          channel: candidate.channel, email: candidate.email,
-          ...(candidate.channel === "PUSH" ? { phone: candidate.phone } : {}),
-          status: { in: ["PENDING", "FAILED", "PROCESSING"] },
-        },
-        orderBy: { subscribedAt: "asc" },
-      });
-      const claimedAt = now();
-      const cutoff = claimedAt.getTime() - PROCESSING_LEASE_MS;
-      if (rows.some(row => row.status === "PROCESSING" && row.processingAt && new Date(row.processingAt).getTime() >= cutoff)) return null;
-      const eligible = rows.filter(row => (!selectedIds || selectedIds.has(row.id)) && ["PENDING", "FAILED", "PROCESSING"].includes(row.status) && row.notificationAttempts < MAX_NOTIFICATION_ATTEMPTS);
-      if (!eligible.length) return null;
-      const ids = eligible.map(row => row.id);
-      await tx.backInStockSubscription.updateMany({
-        where: { id: { in: ids }, status: { in: ["PENDING", "FAILED", "PROCESSING"] } },
-        data: { status: "PROCESSING", processingAt: claimedAt, notificationAttempts: { increment: 1 } },
-      });
-      const claimed = await tx.backInStockSubscription.findMany({ where: { id: { in: ids }, status: "PROCESSING", processingAt: claimedAt } });
-      if (!claimed.length) return null;
-      return { sub: claimed[0], ids: claimed.map(row => row.id), claimedAt };
-    });
-    if (!claim) continue;
+  for (const claim of claims) {
     const { claimedAt } = claim;
     const active = await db.backInStockSubscription.findMany({ where: { id: { in: claim.ids }, status: "PROCESSING", processingAt: claimedAt } });
     if (!active.length) continue;
@@ -405,6 +449,12 @@ export async function notifyPendingSubscribersForVariant({
     failed: failedCount,
     poNumber: resolvedPo,
     warnings,
+    remainingPending: plan.remainingPending,
+    skippedByThreshold: false,
+    skipReason: null,
+    availableQuantity: plan.availableQuantity,
+    cappedByStock: plan.cappedByStock,
+    policy: plan.effectivePolicy,
   };
 }
 
