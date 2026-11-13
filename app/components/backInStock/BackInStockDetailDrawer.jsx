@@ -1,33 +1,22 @@
-import {
-  Modal,
-  BlockStack,
-  InlineStack,
-  Text,
-  Badge,
-  Button,
-  Box,
-  DataTable,
-  Card,
-  Banner,
-  SkeletonBodyText,
-} from "@shopify/polaris";
-import {
-  SendIcon,
-  RefreshIcon,
-  ViewIcon,
-} from "@shopify/polaris-icons";
-import dayjs from "dayjs";
-import { getDemandLevel, getEtaStageInfo, maskEmail, getSubscriptionStatusInfo } from "../../utils/backInStockHelpers";
+import { useState, useEffect, useMemo } from "react";
+import { Modal, BlockStack, InlineStack, Text, Button, ButtonGroup, Card } from "@shopify/polaris";
+import { SendIcon, ViewIcon } from "@shopify/polaris-icons";
+import { partitionDrawerSubscribers } from "../../utils/backInStockHelpers";
+import BackInStockDrawerSummary from "./BackInStockDrawerSummary";
+import BackInStockDrawerSubscriberTable from "./BackInStockDrawerSubscriberTable";
 
 export default function BackInStockDetailDrawer({
   open,
   onClose,
+  scope = "ACTIVE",
   productItem,
   subscribers = [],
   onSyncOdooEta,
   onNotifyVariant,
   onNotifySingle,
   onCancelSingle,
+  onArchiveVariantHistory,
+  onRestoreVariantHistory,
   onOpenEmailPreview,
   isSyncing,
   isNotifying,
@@ -35,56 +24,29 @@ export default function BackInStockDetailDrawer({
   cancellingSubId,
   isLoadingSubscribers = false,
 }) {
+  const { active, history, archived } = useMemo(
+    () => partitionDrawerSubscribers(subscribers),
+    [subscribers]
+  );
+
+  const [activeTab, setActiveTab] = useState("ACTIVE");
+
+  useEffect(() => {
+    if (!open) return;
+    if (scope === "ARCHIVED" && archived.length > 0) setActiveTab("ARCHIVED");
+    else if (scope === "HISTORY" && history.length > 0) setActiveTab("HISTORY");
+    else if (active.length > 0) setActiveTab("ACTIVE");
+    else if (history.length > 0) setActiveTab("HISTORY");
+    else if (archived.length > 0) setActiveTab("ARCHIVED");
+    else setActiveTab("ACTIVE");
+  }, [open, productItem?.variantId, scope, active.length, history.length, archived.length]);
+
   if (!productItem) return null;
 
-  const demand = getDemandLevel(productItem.pendingCount);
-  const etaStage = getEtaStageInfo(productItem.etaDate);
-
-  const subscriberRows = subscribers.map((sub) => [
-    dayjs(sub.createdAt).format("YYYY-MM-DD HH:mm"),
-    maskEmail(sub.email),
-    sub.channel === "PUSH" ? (
-      <Badge tone="interactive" key={`ch-${sub.id}`}>웹 푸시</Badge>
-    ) : (
-      <Badge tone="info" key={`ch-${sub.id}`}>이메일</Badge>
-    ),
-    sub.poNumber ? (
-      <Badge tone="info" key={`po-${sub.id}`}>{sub.poNumber}</Badge>
-    ) : (
-      <Text variant="bodyXs" tone="subdued" key={`po-${sub.id}`}>-</Text>
-    ),
-    <BlockStack gap="050" key={`st-${sub.id}`}>
-      <Badge tone={getSubscriptionStatusInfo(sub.status).tone}>{getSubscriptionStatusInfo(sub.status).label}</Badge>
-      {getSubscriptionStatusInfo(sub.status).explanation && <Text variant="bodyXs" tone="subdued">{getSubscriptionStatusInfo(sub.status).explanation}</Text>}
-      {sub.status === "FAILED" && sub.lastNotificationError && (
-        <Text variant="bodyXs" tone="critical">사유: {sub.lastNotificationError}</Text>
-      )}
-      {sub.notifiedAt && <Text variant="bodyXs" tone="subdued">{dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm")}</Text>}
-    </BlockStack>,
-    sub.status === "PENDING" || sub.status === "FAILED" ? (
-      <InlineStack gap="100" key={`act-${sub.id}`}>
-        <Button
-          size="micro"
-          loading={notifyingSubId === sub.id}
-          onClick={() => onNotifySingle(sub.id)}
-        >
-          발송
-        </Button>
-        <Button
-          size="micro"
-          tone="critical"
-          loading={cancellingSubId === sub.id}
-          onClick={() => onCancelSingle(sub.id)}
-        >
-          취소
-        </Button>
-      </InlineStack>
-    ) : (
-      <Text variant="bodyXs" tone="subdued" key={`act-${sub.id}`}>
-        -
-      </Text>
-    ),
-  ]);
+  const cleanableInDrawer = history.filter(
+    (s) => s.status === "NOTIFIED" || s.status === "CANCELLED"
+  ).length;
+  const visibleRows = activeTab === "ACTIVE" ? active : activeTab === "HISTORY" ? history : archived;
 
   return (
     <Modal
@@ -93,7 +55,7 @@ export default function BackInStockDetailDrawer({
       title="품목별 재입고 수요 상세"
       size="large"
       primaryAction={{
-        content: "이 품목 대기자 전체 알림 발송",
+        content: "현재 대기자 전체 알림 발송",
         icon: SendIcon,
         loading: isNotifying,
         disabled: productItem.pendingCount === 0,
@@ -107,213 +69,62 @@ export default function BackInStockDetailDrawer({
           ),
       }}
       secondaryActions={[
-        {
-          content: "이메일 템플릿 미리보기",
-          icon: ViewIcon,
-          onAction: () => onOpenEmailPreview(productItem),
-        },
-        {
-          content: "닫기",
-          onAction: onClose,
-        },
+        { content: "이메일 템플릿 미리보기", icon: ViewIcon, onAction: () => onOpenEmailPreview(productItem) },
+        { content: "닫기", onAction: onClose },
       ]}
     >
       <Modal.Section>
         <BlockStack gap="400">
-          <Card padding="400">
-            <InlineStack align="space-between" blockAlign="center" wrap>
-              <InlineStack gap="300" blockAlign="center">
-                {productItem.imageUrl ? (
-                  <img
-                    src={productItem.imageUrl}
-                    alt={productItem.productTitle}
-                    style={{
-                      width: "64px",
-                      height: "64px",
-                      borderRadius: "8px",
-                      objectFit: "cover",
-                      border: "1px solid #e2e8f0",
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: "64px",
-                      height: "64px",
-                      borderRadius: "8px",
-                      backgroundColor: "#f1f5f9",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#94a3b8",
-                      fontSize: "12px",
-                    }}
-                  >
-                    NO IMG
-                  </div>
-                )}
-
-                <BlockStack gap="100">
-                  <Text variant="headingMd" as="h3">
-                    {productItem.productTitle}
-                  </Text>
-                  <InlineStack gap="200" blockAlign="center">
-                    {productItem.variantTitle &&
-                      productItem.variantTitle !== "Default Title" && (
-                        <Badge tone="info">{`옵션: ${productItem.variantTitle}`}</Badge>
-                      )}
-                    <Text variant="bodySm" tone="subdued">
-                      {`SKU: ${productItem.sku || "미지정"}`}
-                    </Text>
-                  </InlineStack>
-                </BlockStack>
-              </InlineStack>
-
-              <BlockStack gap="100" inlineAlign="end">
-                <Badge tone={productItem.pendingCount > 0 ? demand.tone : "subdued"} size="large">
-                  {productItem.pendingCount > 0 ? demand.badge : "대기 없음"}
-                </Badge>
-                <Text variant="bodySm" tone="subdued">
-                  {`대기 ${productItem.pendingCount}명 · 총 ${productItem.subscriberCount}명 신청`}
-                </Text>
-              </BlockStack>
-            </InlineStack>
-          </Card>
+          <BackInStockDrawerSummary
+            productItem={productItem}
+            historyCount={history.length}
+            isSyncing={isSyncing}
+            onSyncOdooEta={onSyncOdooEta}
+          />
 
           <Card padding="400">
             <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text variant="headingSm" as="h4">
-                  컨테이너 입고 및 발주 정보
-                </Text>
-                <Button
-                  size="slim"
-                  icon={RefreshIcon}
-                  loading={isSyncing}
-                  onClick={() => onSyncOdooEta(productItem)}
-                >
-                  Odoo 실시간 동기화
-                </Button>
-              </InlineStack>
-
-              {productItem.pendingCount === 0 && productItem.notifiedCount > 0 ? (
-                <InlineStack gap="500" blockAlign="center">
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      처리 상태
-                    </Text>
-                    <Text variant="headingMd" as="p" tone="success">
-                      입고 및 알림 발송 완료
-                    </Text>
-                  </BlockStack>
-
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      Odoo 발주번호 (PO)
-                    </Text>
-                    <Text variant="bodyMd" fontWeight="bold">
-                      {productItem.poNumber || "기록 없음"}
-                    </Text>
-                  </BlockStack>
-
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      알림 발송 일시
-                    </Text>
-                    <Text variant="bodySm">
-                      {productItem.notifiedAt
-                        ? dayjs(productItem.notifiedAt).format("YYYY-MM-DD HH:mm")
-                        : "-"}
-                    </Text>
-                  </BlockStack>
-
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      알림 결과
-                    </Text>
-                    <Badge tone="success">{`${productItem.notifiedCount}명 전송 완료`}</Badge>
-                  </BlockStack>
-                </InlineStack>
-              ) : (
-                <InlineStack gap="400" blockAlign="center">
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      입고 예정일 (ETA)
-                    </Text>
-                    <Text variant="headingMd" as="p">
-                      {productItem.etaDate || "입고 일정 미확정"}
-                    </Text>
-                  </BlockStack>
-
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      도착 상태
-                    </Text>
-                    <Badge tone={etaStage.tone}>{etaStage.relativeText}</Badge>
-                  </BlockStack>
-
-                  {productItem.poNumber && (
-                    <BlockStack gap="050">
-                      <Text variant="bodyXs" tone="subdued">
-                        연결 Odoo PO
-                      </Text>
-                      <Text variant="bodySm" fontWeight="bold">
-                        {productItem.poNumber}
-                      </Text>
-                    </BlockStack>
+              <InlineStack align="space-between" blockAlign="center" wrap>
+                <ButtonGroup segmented>
+                  <Button size="slim" pressed={activeTab === "ACTIVE"} onClick={() => setActiveTab("ACTIVE")}>
+                    {`현재 대기자 (${active.length}명)`}
+                  </Button>
+                  <Button size="slim" pressed={activeTab === "HISTORY"} onClick={() => setActiveTab("HISTORY")}>
+                    {`지난 회차 이력 (${history.length}건)`}
+                  </Button>
+                  {archived.length > 0 && (
+                    <Button size="slim" pressed={activeTab === "ARCHIVED"} onClick={() => setActiveTab("ARCHIVED")}>
+                      {`보관함 (${archived.length}건)`}
+                    </Button>
                   )}
+                </ButtonGroup>
 
-                  <BlockStack gap="050">
-                    <Text variant="bodyXs" tone="subdued">
-                      데이터 출처
-                    </Text>
-                    <Text variant="bodySm">
-                      {productItem.etaSource === "ODOO"
-                        ? "Odoo ERP 실시간 연동"
-                        : productItem.etaSource === "FALLBACK"
-                        ? "기존 DB 기록"
-                        : "미확정"}
-                    </Text>
-                  </BlockStack>
+                <InlineStack gap="200" blockAlign="center">
+                  {activeTab === "HISTORY" && cleanableInDrawer > 0 && onArchiveVariantHistory && (
+                    <Button size="micro" onClick={() => onArchiveVariantHistory(productItem.variantId, cleanableInDrawer)}>
+                      {`완료·취소 ${cleanableInDrawer}건 아카이브`}
+                    </Button>
+                  )}
+                  {activeTab === "ARCHIVED" && archived.length > 0 && onRestoreVariantHistory && (
+                    <Button size="micro" onClick={() => onRestoreVariantHistory(productItem.variantId, archived.length)}>
+                      {`보관함 ${archived.length}건 복원`}
+                    </Button>
+                  )}
+                  <Text variant="bodyXs" tone="subdued">
+                    개인정보는 마스킹 처리됩니다.
+                  </Text>
                 </InlineStack>
-              )}
-
-              {etaStage.stage === "OVERDUE" && (
-                <Banner tone="critical">
-                  이 상품의 예정일이 지났습니다. Odoo 구매팀 전표를 확인하거나 재동기화를 진행해 주세요.
-                </Banner>
-              )}
-            </BlockStack>
-          </Card>
-
-          <Card padding="400">
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text variant="headingSm" as="h4">
-                  신청 고객 명단 ({subscribers.length}명)
-                </Text>
-                <Text variant="bodyXs" tone="subdued">
-                  개인정보는 마스킹 처리되어 안전하게 보호됩니다.
-                </Text>
               </InlineStack>
 
-              {isLoadingSubscribers ? (
-                <Box padding="300">
-                  <SkeletonBodyText lines={4} />
-                </Box>
-              ) : subscribers.length > 0 ? (
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                  headings={["신청일시", "고객 이메일", "채널", "입고 PO", "상태 / 발송일시", "액션"]}
-                  rows={subscriberRows}
-                />
-              ) : (
-                <Box padding="300" textAlign="center">
-                  <Text variant="bodySm" tone="subdued">
-                    등록된 신청 고객이 없습니다.
-                  </Text>
-                </Box>
-              )}
+              <BackInStockDrawerSubscriberTable
+                tab={activeTab}
+                rows={visibleRows}
+                isLoading={isLoadingSubscribers}
+                notifyingSubId={notifyingSubId}
+                cancellingSubId={cancellingSubId}
+                onNotifySingle={onNotifySingle}
+                onCancelSingle={onCancelSingle}
+              />
             </BlockStack>
           </Card>
         </BlockStack>

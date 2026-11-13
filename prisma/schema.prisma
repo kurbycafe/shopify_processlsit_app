@@ -176,6 +176,7 @@ model BackInStockSubscription {
   notificationAttempts Int       @default(0)
   lastNotificationError String?
   lastNotificationAt   DateTime?
+  archivedAt           DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -188,6 +189,7 @@ model BackInStockSubscription {
   @@index([shop, variantId, status])
   @@index([shop, status, createdAt])
   @@index([shop, variantId, email, status])
+  @@index([shop, archivedAt, status])
 }
 
 model BackInStockSettings {

@@ -15,11 +15,20 @@ import prisma, { ensureDatabaseSchema, safeFindSubscribers } from "../db.server"
 import { getEtaBySku } from "../services/odooClient.server";
 import { notifyPendingSubscribersForVariant } from "../services/subscriptionService.server";
 import { getRestockDispatchPolicy, saveRestockDispatchPolicy } from "../services/restockDispatchPolicy.server";
+import {
+  normalizeHistoryScope,
+  buildProductWaveAggregates,
+  matchesProductScopeAndStatus,
+  buildSubscriberScopeWhere,
+} from "../services/backInStockHistory.server";
+import {
+  archiveTerminalSubscriptions,
+  restoreArchivedSubscriptions,
+  deleteTerminalSubscriptions,
+} from "../services/backInStockCleanup.server";
 import { queueRestockPush } from "../services/mobileNotificationEvents.server";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server";
 import {
-  getDemandLevel,
-  getEtaStageInfo,
   exportSubscriptionsToCsv,
 } from "../utils/backInStockHelpers";
 
@@ -33,6 +42,7 @@ import BackInStockSubscriberTable from "../components/backInStock/BackInStockSub
 import BackInStockPagination from "../components/backInStock/BackInStockPagination";
 import BackInStockDetailDrawer from "../components/backInStock/BackInStockDetailDrawer";
 import BackInStockEmailPreviewModal from "../components/backInStock/BackInStockEmailPreviewModal";
+import BackInStockHistoryCleanupModal from "../components/backInStock/BackInStockHistoryCleanupModal";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
@@ -55,6 +65,7 @@ export const loader = async ({ request }) => {
   const channelFilter = url.searchParams.get("channel") || "ALL";
   const dateRangeFilter = url.searchParams.get("dateRange") || "ALL";
   const kpiFilter = url.searchParams.get("kpiFilter") || "ALL";
+  const scope = normalizeHistoryScope(url.searchParams.get("scope"), { statusFilter, kpiFilter });
   const exportCsv = url.searchParams.get("exportCsv") === "true";
   const drawerVariantId = url.searchParams.get("drawerVariantId");
 
@@ -79,99 +90,85 @@ export const loader = async ({ request }) => {
     return Response.json({ drawerSubscribers });
   }
 
-  // --- 1. Global KPI Aggregations (Single grouped query, in-memory variant calculation) ---
-  const allVariantGroups = await prisma.backInStockSubscription.groupBy({
-    by: ["variantId", "status"],
-    where: { shop },
-    _count: { id: true },
-    orderBy: { _count: { id: "desc" } },
-  });
+  // --- 1. Global Wave & KPI Aggregations (Unarchived active vs past cycles, plus archive counts) ---
+  const [unarchivedGroups, archivedGroups] = await Promise.all([
+    prisma.backInStockSubscription.groupBy({
+      by: ["variantId", "status"],
+      where: { shop, archivedAt: null },
+      _count: { id: true },
+      orderBy: { _count: { id: "desc" } },
+    }),
+    prisma.backInStockSubscription.groupBy({
+      by: ["variantId", "status"],
+      where: { shop, archivedAt: { not: null } },
+      _count: { id: true },
+      orderBy: { _count: { id: "desc" } },
+    }),
+  ]);
 
-  let pendingSubscribersCount = 0;
-  let notifiedCount = 0;
-  let cancelledCount = 0;
-  const pendingMap = new Map();
-  const notifiedMap = new Map();
-
-  for (const g of allVariantGroups) {
-    const count = g._count?.id || 0;
-    const rawId = g.variantId ? g.variantId.replace("gid://shopify/ProductVariant/", "") : "";
-
-    if (g.status === "PENDING") {
-      pendingSubscribersCount += count;
-      if (rawId) pendingMap.set(rawId, (pendingMap.get(rawId) || 0) + count);
-    } else if (g.status === "NOTIFIED") {
-      notifiedCount += count;
-      if (rawId) notifiedMap.set(rawId, (notifiedMap.get(rawId) || 0) + count);
-    } else if (g.status === "CANCELLED") {
-      cancelledCount += count;
-    }
-  }
-
-  let highDemandProductsCount = 0;
-  let arrivingSoonCount = 0;
-  let etaOverdueCount = 0;
-  let etaUnknownCount = 0;
-  let needsAttentionCount = 0;
-
-  // Fetch latest subscription metadata per variant (SKU, poNumber, notifiedAt, restockedAt)
-  // Merge non-null fields across rows so a newer row with null fields does not overwrite existing metadata
-  let metaMap = new Map();
+  let unarchivedMetaRows = [];
+  let archivedMetaRows = [];
   try {
-    const latestSubscriptions = await prisma.backInStockSubscription.findMany({
-      where: { shop },
-      orderBy: { createdAt: "desc" },
-      select: {
-        variantId: true,
-        productId: true,
-        productTitle: true,
-        variantTitle: true,
-        sku: true,
-        poNumber: true,
-        etaDate: true,
-        notifiedAt: true,
-        restockedAt: true,
-      },
-    });
-    latestSubscriptions.forEach((s) => {
-      if (!s.variantId) return;
-      const rawId = s.variantId.replace("gid://shopify/ProductVariant/", "");
-      const prev = metaMap.get(rawId) || {};
-      const merged = {
-        variantId: prev.variantId || s.variantId,
-        productId: prev.productId || s.productId || "",
-        productTitle:
-          prev.productTitle && prev.productTitle !== "상품"
-            ? prev.productTitle
-            : s.productTitle || prev.productTitle || "상품",
-        variantTitle: prev.variantTitle || s.variantTitle || "",
-        sku: prev.sku || s.sku || "",
-        poNumber: prev.poNumber || s.poNumber || null,
-        etaDate: prev.etaDate || s.etaDate || null,
-        notifiedAt: prev.notifiedAt || s.notifiedAt || null,
-        restockedAt: prev.restockedAt || s.restockedAt || null,
-      };
-      metaMap.set(rawId, merged);
-      metaMap.set(s.variantId, merged);
-    });
+    const metaSelect = {
+      variantId: true,
+      productId: true,
+      productTitle: true,
+      variantTitle: true,
+      sku: true,
+      status: true,
+      poNumber: true,
+      etaDate: true,
+      notifiedAt: true,
+      restockedAt: true,
+    };
+    [unarchivedMetaRows, archivedMetaRows] = await Promise.all([
+      prisma.backInStockSubscription.findMany({
+        where: { shop, archivedAt: null },
+        orderBy: { createdAt: "desc" },
+        select: metaSelect,
+      }),
+      scope === "ARCHIVED"
+        ? prisma.backInStockSubscription.findMany({
+            where: { shop, archivedAt: { not: null } },
+            orderBy: { createdAt: "desc" },
+            select: metaSelect,
+          })
+        : Promise.resolve([]),
+    ]);
   } catch (e) {
     console.warn("Subscription metadata fetch warning:", e.message);
   }
 
+  const unarchivedWave = buildProductWaveAggregates({
+    groupedRows: unarchivedGroups,
+    metaRows: unarchivedMetaRows,
+  });
+  const archivedWave = buildProductWaveAggregates({
+    groupedRows: archivedGroups,
+    metaRows: archivedMetaRows,
+  });
+  const activeProductAggregates = scope === "ARCHIVED" ? archivedWave.products : unarchivedWave.products;
+  const metaMap = scope === "ARCHIVED" ? archivedWave.metaMap : unarchivedWave.metaMap;
+  const archivedTotalRows = archivedGroups.reduce((sum, g) => sum + (g._count?.id || 0), 0);
+
+  const createdAtGte =
+    dateRangeFilter === "TODAY"
+      ? dayjs().startOf("day").toDate()
+      : dateRangeFilter === "LAST_7D"
+      ? dayjs().subtract(7, "day").toDate()
+      : dateRangeFilter === "LAST_30D"
+      ? dayjs().subtract(30, "day").toDate()
+      : null;
+
   // Optional channel / dateRange scoping for Products view
   let scopedVariantRawIds = null;
-  if (viewMode === "products" && (channelFilter !== "ALL" || dateRangeFilter !== "ALL")) {
-    const scopedWhere = { shop };
-    if (channelFilter !== "ALL") {
-      scopedWhere.channel = channelFilter;
-    }
-    if (dateRangeFilter === "TODAY") {
-      scopedWhere.createdAt = { gte: dayjs().startOf("day").toDate() };
-    } else if (dateRangeFilter === "LAST_7D") {
-      scopedWhere.createdAt = { gte: dayjs().subtract(7, "day").toDate() };
-    } else if (dateRangeFilter === "LAST_30D") {
-      scopedWhere.createdAt = { gte: dayjs().subtract(30, "day").toDate() };
-    }
+  if (viewMode === "products" && (channelFilter !== "ALL" || createdAtGte)) {
+    const scopedWhere = {
+      shop,
+      archivedAt: scope === "ARCHIVED" ? { not: null } : null,
+      ...(channelFilter !== "ALL" ? { channel: channelFilter } : {}),
+      ...(createdAtGte ? { createdAt: { gte: createdAtGte } } : {}),
+    };
     const scopedGroups = await prisma.backInStockSubscription.groupBy({
       by: ["variantId"],
       where: scopedWhere,
@@ -182,76 +179,6 @@ export const loader = async ({ request }) => {
         .filter(Boolean)
     );
   }
-
-  // Consolidate variant groups by canonical raw variant ID
-  const consolidatedMap = new Map();
-  allVariantGroups.forEach((g) => {
-    const rawId = g.variantId.replace("gid://shopify/ProductVariant/", "");
-    const existing = consolidatedMap.get(rawId) || {
-      rawId,
-      variantId: g.variantId.startsWith("gid://") ? g.variantId : `gid://shopify/ProductVariant/${g.variantId}`,
-      totalCount: 0,
-      statusCounts: {},
-    };
-    existing.totalCount += g._count.id;
-    existing.statusCounts[g.status] = (existing.statusCounts[g.status] || 0) + g._count.id;
-    if (g.variantId.startsWith("gid://")) {
-      existing.variantId = g.variantId;
-    }
-    consolidatedMap.set(rawId, existing);
-  });
-
-  const productAggregates = Array.from(consolidatedMap.values()).map((item) => {
-    const meta = metaMap.get(item.rawId) || {};
-    const totalCount = item.totalCount;
-    const pendingCount = pendingMap.get(item.rawId) || 0;
-    const notifiedCount = notifiedMap.get(item.rawId) || 0;
-    const etaDate = meta.etaDate || null;
-    const etaStage = getEtaStageInfo(etaDate);
-    const demand = getDemandLevel(pendingCount > 0 ? pendingCount : totalCount);
-
-    const isPending = pendingCount > 0;
-
-    if (isPending) {
-      const isHighOrVeryHigh = demand.level === "HIGH" || demand.level === "VERY_HIGH";
-      if (isHighOrVeryHigh) {
-        highDemandProductsCount++;
-      }
-      if (etaStage.stage === "ARRIVING_SOON" || etaStage.stage === "TODAY") {
-        arrivingSoonCount++;
-      }
-      if (etaStage.stage === "OVERDUE") {
-        etaOverdueCount++;
-      }
-      if (etaStage.stage === "UNKNOWN") {
-        etaUnknownCount++;
-      }
-      if ((isHighOrVeryHigh && etaStage.stage === "UNKNOWN") || etaStage.stage === "OVERDUE") {
-        needsAttentionCount++;
-      }
-    }
-
-    return {
-      variantId: item.variantId,
-      productId: meta.productId || "",
-      productTitle: meta.productTitle || "상품",
-      variantTitle: meta.variantTitle || "",
-      sku: meta.sku || "",
-      imageUrl: null,
-      poNumber: meta.poNumber || null,
-      notifiedAt: meta.notifiedAt ? meta.notifiedAt.toISOString() : null,
-      restockedAt: meta.restockedAt ? meta.restockedAt.toISOString() : null,
-      etaDate: etaDate,
-      etaSource: etaDate ? "ODOO" : "NONE",
-      subscriberCount: totalCount,
-      pendingCount: pendingCount,
-      notifiedCount: notifiedCount,
-      statusCounts: item.statusCounts,
-      reconciliationCount: item.statusCounts.DELIVERED_UNCONFIRMED || 0,
-      etaStage: etaStage.stage,
-      demandLevel: demand.level,
-    };
-  });
 
   // Helper to evaluate product-level filters (ETA, Demand, KPI drilldowns)
   const matchesProductLevelFilters = (p) => {
@@ -265,12 +192,8 @@ export const loader = async ({ request }) => {
       if (p.demandLevel !== demandFilter) return false;
     }
 
-    if (kpiFilter === "PENDING") {
-      if (p.pendingCount === 0) return false;
-    }
-    if (kpiFilter === "NOTIFIED") {
-      if (p.notifiedCount === 0) return false;
-    }
+    if (kpiFilter === "PENDING" && p.pendingCount === 0) return false;
+    if (kpiFilter === "NOTIFIED" && p.notifiedCount === 0) return false;
     if (kpiFilter === "NEEDS_ATTENTION") {
       if (p.pendingCount === 0) return false;
       const isAttn =
@@ -296,7 +219,7 @@ export const loader = async ({ request }) => {
   // --- 2. CSV Export Mode ---
   if (exportCsv) {
     const allRows = await prisma.backInStockSubscription.findMany({
-      where: { shop },
+      where: { shop, archivedAt: scope === "ARCHIVED" ? { not: null } : null },
       orderBy: { createdAt: "desc" },
     });
     const csvContent = exportSubscriptionsToCsv(allRows);
@@ -314,14 +237,12 @@ export const loader = async ({ request }) => {
   let paginatedSubscribers = [];
 
   if (viewMode === "products") {
-    // Filter product aggregates
-    let filtered = productAggregates.filter((p) => {
+    const filtered = activeProductAggregates.filter((p) => {
       if (scopedVariantRawIds) {
         const rawId = p.variantId.replace("gid://shopify/ProductVariant/", "");
         if (!scopedVariantRawIds.has(rawId)) return false;
       }
 
-      // Search: checks productTitle, variantTitle, sku, poNumber
       if (search) {
         const q = search.toLowerCase();
         const matches =
@@ -332,17 +253,8 @@ export const loader = async ({ request }) => {
         if (!matches) return false;
       }
 
-      // Status (전송 대기 / 미전송 vs 전송 완료)
-      if (statusFilter === "PENDING" || statusFilter === "UNSENT") {
-        if (p.pendingCount === 0) return false;
-      } else if (statusFilter === "NOTIFIED" || statusFilter === "SENT") {
-        if (p.notifiedCount === 0) return false;
-      } else if (statusFilter !== "ALL" && !p.statusCounts[statusFilter]) {
-        return false;
-      }
-
+      if (!matchesProductScopeAndStatus(p, { scope, statusFilter })) return false;
       if (!matchesProductLevelFilters(p)) return false;
-
       return true;
     });
 
@@ -350,70 +262,33 @@ export const loader = async ({ request }) => {
     const start = (page - 1) * limit;
     paginatedProducts = filtered.slice(start, start + limit);
   } else {
-    // Subscribers View (Prisma Query with Server-side Pagination)
-    const whereClause = {
-      shop,
-    };
-
-    if (search) {
-      whereClause.OR = [
-        { productTitle: { contains: search, mode: "insensitive" } },
-        { variantTitle: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-        { sku: { contains: search, mode: "insensitive" } },
-        { poNumber: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    if (statusFilter !== "ALL") {
-      if (statusFilter === "PENDING" || statusFilter === "UNSENT") {
-        whereClause.status = "PENDING";
-      } else if (statusFilter === "NOTIFIED" || statusFilter === "SENT") {
-        whereClause.status = "NOTIFIED";
-      } else {
-        whereClause.status = statusFilter;
-      }
-    } else if (kpiFilter === "PENDING") {
-      whereClause.status = "PENDING";
-    } else if (kpiFilter === "NOTIFIED") {
-      whereClause.status = "NOTIFIED";
-    }
-
-    // Apply product-level filters (ETA, Demand, or product KPI cards) to Subscribers view
     const hasProductLevelFilter =
       etaFilter !== "ALL" ||
       demandFilter !== "ALL" ||
       ["NEEDS_ATTENTION", "HIGH_DEMAND", "ARRIVING_SOON", "ETA_OVERDUE", "ETA_UNKNOWN"].includes(kpiFilter);
 
+    let matchingVariantIds = null;
     if (hasProductLevelFilter) {
-      const matchingVariantIds = [];
-      productAggregates.forEach((p) => {
+      matchingVariantIds = [];
+      activeProductAggregates.forEach((p) => {
         if (matchesProductLevelFilters(p)) {
           const rawId = p.variantId.replace("gid://shopify/ProductVariant/", "");
           matchingVariantIds.push(rawId, `gid://shopify/ProductVariant/${rawId}`);
         }
       });
-      whereClause.variantId = { in: matchingVariantIds };
-      if (
-        statusFilter === "ALL" &&
-        ["NEEDS_ATTENTION", "HIGH_DEMAND", "ARRIVING_SOON", "ETA_OVERDUE", "ETA_UNKNOWN"].includes(kpiFilter)
-      ) {
-        whereClause.status = "PENDING";
-      }
     }
 
-    if (channelFilter !== "ALL") {
-      whereClause.channel = channelFilter;
-    }
-
-    if (dateRangeFilter === "TODAY") {
-      whereClause.createdAt = { gte: dayjs().startOf("day").toDate() };
-    } else if (dateRangeFilter === "LAST_7D") {
-      whereClause.createdAt = { gte: dayjs().subtract(7, "day").toDate() };
-    } else if (dateRangeFilter === "LAST_30D") {
-      whereClause.createdAt = { gte: dayjs().subtract(30, "day").toDate() };
-    }
+    const whereClause = buildSubscriberScopeWhere({
+      shop,
+      scope,
+      statusFilter,
+      kpiFilter,
+      search,
+      channelFilter,
+      createdAtGte,
+      matchingVariantIds,
+      hasProductLevelFilter,
+    });
 
     [totalCount, paginatedSubscribers] = await Promise.all([
       prisma.backInStockSubscription.count({ where: whereClause }),
@@ -578,11 +453,27 @@ export const loader = async ({ request }) => {
   const totalPages = Math.ceil(totalCount / limit);
   const dispatchPolicy = await getRestockDispatchPolicy(shop, { db: prisma });
 
+  const activeSubscribersCount = unarchivedWave.products.reduce(
+    (sum, item) => sum + (item.activeQueueCount || 0),
+    0
+  );
+
   return {
     shop,
     dispatchPolicy,
     lastSyncedAt: new Date().toISOString(),
     viewMode,
+    scope,
+    scopeCounts: {
+      activeProductsCount: unarchivedWave.summary.activeProductsCount,
+      historyProductsCount: unarchivedWave.summary.historyProductsCount,
+      allProductsCount: unarchivedWave.products.length,
+      archivedCount: archivedTotalRows,
+      archivedProductsCount: archivedWave.products.length,
+      cleanableHistoryCount:
+        unarchivedWave.summary.notifiedCount + unarchivedWave.summary.cancelledCount,
+      activeSubscribersCount,
+    },
     page,
     limit,
     totalCount,
@@ -590,15 +481,15 @@ export const loader = async ({ request }) => {
     products: paginatedProducts,
     subscribers: paginatedSubscribers,
     kpiData: {
-      needsAttentionCount,
-      pendingSubscribersCount,
-      highDemandProductsCount,
-      arrivingSoonCount,
-      etaOverdueCount,
-      etaUnknownCount,
-      notifiedCount,
-      cancelledCount,
-      reconciliationCount: allVariantGroups.filter(group => group.status === "DELIVERED_UNCONFIRMED").reduce((sum, group) => sum + group._count.id, 0),
+      needsAttentionCount: unarchivedWave.summary.needsAttentionCount,
+      pendingSubscribersCount: unarchivedWave.summary.pendingSubscribersCount,
+      highDemandProductsCount: unarchivedWave.summary.highDemandProductsCount,
+      arrivingSoonCount: unarchivedWave.summary.arrivingSoonCount,
+      etaOverdueCount: unarchivedWave.summary.etaOverdueCount,
+      etaUnknownCount: unarchivedWave.summary.etaUnknownCount,
+      notifiedCount: unarchivedWave.summary.notifiedCount,
+      cancelledCount: unarchivedWave.summary.cancelledCount,
+      reconciliationCount: unarchivedWave.summary.reconciliationCount,
     },
   };
 };
@@ -1054,6 +945,125 @@ export const action = async ({ request }) => {
     }
   }
 
+  // 8. 선택 항목 완료·취소 이력 아카이브 / 복원 / 영구 삭제
+  if (
+    intent === "archive_selected_history" ||
+    intent === "restore_selected_history" ||
+    intent === "delete_selected_history"
+  ) {
+    try {
+      const mode = String(formData.get("mode") || "products");
+      const ids = JSON.parse(String(formData.get("ids") || "[]"));
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return Response.json({ success: false, error: "선택된 항목이 없습니다." }, { status: 400 });
+      }
+      const targetFilter = mode === "products" ? { variantIds: ids } : { subscriptionIds: ids };
+
+      if (intent === "archive_selected_history") {
+        const res = await archiveTerminalSubscriptions({ shop, ...targetFilter }, { db: prisma });
+        return Response.json({
+          success: true,
+          intent,
+          count: res.count,
+          message:
+            res.count > 0
+              ? `완료·취소 이력 ${res.count}건을 아카이브 보관함으로 이동했습니다. (현재 대기 중인 신청은 유지됨)`
+              : "아카이브할 완료(NOTIFIED) 또는 취소(CANCELLED) 상태의 이력이 없습니다.",
+        });
+      }
+
+      if (intent === "restore_selected_history") {
+        const res = await restoreArchivedSubscriptions({ shop, ...targetFilter }, { db: prisma });
+        return Response.json({
+          success: true,
+          intent,
+          count: res.count,
+          message:
+            res.count > 0
+              ? `보관함 이력 ${res.count}건을 지난 회차 이력으로 복원했습니다.`
+              : "복원할 보관함 이력이 없습니다.",
+        });
+      }
+
+      if (formData.get("confirmPermanent") !== "true") {
+        return Response.json(
+          { success: false, error: "영구 삭제를 진행하려면 확인 절차를 완료해 주세요." },
+          { status: 400 }
+        );
+      }
+      const archivedOnly = formData.get("archivedOnly") === "true";
+      const res = await deleteTerminalSubscriptions(
+        { shop, archivedOnly, ...targetFilter },
+        { db: prisma }
+      );
+      return Response.json({
+        success: true,
+        intent,
+        count: res.count,
+        message:
+          res.count > 0
+            ? `완료·취소 이력 ${res.count}건을 영구 삭제했습니다. (현재 대기 중인 신청은 유지됨)`
+            : "삭제 가능한 완료(NOTIFIED) 또는 취소(CANCELLED) 이력이 없습니다.",
+      });
+    } catch (err) {
+      return Response.json(
+        { success: false, error: err?.message || "이력 정리 처리에 실패했습니다." },
+        { status: 400 }
+      );
+    }
+  }
+
+  // 9. 조건부 전체 완료·취소 이력 정리 (모달)
+  if (intent === "cleanup_history") {
+    try {
+      const actionType = String(formData.get("actionType") || "ARCHIVE").toUpperCase();
+      const targetStatus = String(formData.get("targetStatus") || "ALL_TERMINAL");
+      const ageFilter = String(formData.get("ageFilter") || "30D");
+
+      if (actionType === "DELETE") {
+        if (formData.get("confirmPermanent") !== "true") {
+          return Response.json(
+            { success: false, error: "영구 삭제 확인 체크를 완료해야 실행할 수 있습니다." },
+            { status: 400 }
+          );
+        }
+        const archivedOnly = formData.get("archivedOnly") === "true";
+        const res = await deleteTerminalSubscriptions(
+          { shop, targetStatus, ageFilter, archivedOnly },
+          { db: prisma }
+        );
+        return Response.json({
+          success: true,
+          intent,
+          count: res.count,
+          message:
+            res.count > 0
+              ? `지난 회차 완료·취소 이력 ${res.count}건을 영구 삭제했습니다. (현재 대기 중인 신청은 보호됨)`
+              : "조건에 해당하는 완료 또는 취소 이력이 없습니다.",
+        });
+      }
+
+      const res = await archiveTerminalSubscriptions(
+        { shop, targetStatus, ageFilter },
+        { db: prisma }
+      );
+      return Response.json({
+        success: true,
+        intent,
+        count: res.count,
+        message:
+          res.count > 0
+            ? `지난 회차 완료·취소 이력 ${res.count}건을 아카이브 보관함으로 이동했습니다.`
+            : "조건에 해당하는 미보관 완료·취소 이력이 없습니다.",
+      });
+    } catch (err) {
+      return Response.json(
+        { success: false, error: err?.message || "이력 일괄 정리에 실패했습니다." },
+        { status: 400 }
+      );
+    }
+  }
+
   return Response.json({ success: false, error: "알 수 없는 요청입니다." }, { status: 400 });
 };
 
@@ -1063,6 +1073,8 @@ export default function BackInStockDashboard() {
     dispatchPolicy,
     lastSyncedAt,
     viewMode,
+    scope,
+    scopeCounts,
     page,
     limit,
     totalCount,
@@ -1085,7 +1097,7 @@ export default function BackInStockDashboard() {
   const [channelFilter, setChannelFilter] = useState(searchParams.get("channel") || "ALL");
   const [dateRangeFilter, setDateRangeFilter] = useState(searchParams.get("dateRange") || "ALL");
   const [kpiFilter, setKpiFilter] = useState(searchParams.get("kpiFilter") || "ALL");
-  const [activePreset, setActivePreset] = useState("ALL");
+  const [activePreset, setActivePreset] = useState("DEFAULT");
 
   // Selection states
   const [selectedVariantIds, setSelectedVariantIds] = useState([]);
@@ -1096,9 +1108,10 @@ export default function BackInStockDashboard() {
   const [activeDrawerProduct, setActiveDrawerProduct] = useState(null);
   const [drawerSubscribers, setDrawerSubscribers] = useState([]);
 
-  // Email Preview Modal state
+  // Email Preview & History Cleanup Modal state
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewProduct, setPreviewProduct] = useState(null);
+  const [cleanupModalOpen, setCleanupModalOpen] = useState(false);
 
   // Sync and Notifying indicators
   const [syncingVariantId, setSyncingVariantId] = useState(null);
@@ -1116,17 +1129,25 @@ export default function BackInStockDashboard() {
     fetcher.formData?.get("forceAll") !== "true";
   const isSavingPolicy =
     fetcher.state !== "idle" && fetcher.formData?.get("intent") === "save_dispatch_policy";
+  const isCleaningHistory =
+    fetcher.state !== "idle" &&
+    fetcher.formData?.get("intent") === "cleanup_history";
   const isBatchLoading =
     fetcher.state !== "idle" &&
-    (fetcher.formData?.get("intent") === "batch_notify" ||
-      fetcher.formData?.get("intent") === "batch_cancel");
+    [
+      "batch_notify",
+      "batch_cancel",
+      "archive_selected_history",
+      "restore_selected_history",
+      "delete_selected_history",
+    ].includes(fetcher.formData?.get("intent"));
 
   // Update URL Search Parameters
   const updateUrlParams = useCallback(
     (updates) => {
       const newParams = new URLSearchParams(searchParams);
       Object.entries(updates).forEach(([k, v]) => {
-        if (v === null || v === undefined || v === "" || v === "ALL") {
+        if (v === null || v === undefined || v === "" || v === "ALL" || (k === "scope" && v === "ACTIVE")) {
           newParams.delete(k);
         } else {
           newParams.set(k, String(v));
@@ -1137,13 +1158,15 @@ export default function BackInStockDashboard() {
     [searchParams, setSearchParams]
   );
 
-  // Debounced search handler
+  // Debounced search handler (only navigate when search text actually changed)
   useEffect(() => {
+    const currentUrlSearch = searchParams.get("search") || "";
+    if (searchQuery === currentUrlSearch) return;
     const handler = setTimeout(() => {
       updateUrlParams({ search: searchQuery, page: 1 });
     }, 350);
     return () => clearTimeout(handler);
-  }, [searchQuery, updateUrlParams]);
+  }, [searchQuery, searchParams, updateUrlParams]);
 
   // Load drawer subscribers when drawer opens
   const handleOpenDrawer = (item) => {
@@ -1159,14 +1182,31 @@ export default function BackInStockDashboard() {
     }
   }, [drawerFetcher.data]);
 
+  const handleChangeScope = (nextScope) => {
+    setSelectedVariantIds([]);
+    setSelectedSubscriberIds([]);
+    setStatusFilter("ALL");
+    setKpiFilter("ALL");
+    setActivePreset(nextScope === "HISTORY" ? "HISTORY" : nextScope === "ACTIVE" ? "DEFAULT" : "");
+    updateUrlParams({
+      scope: nextScope,
+      status: "ALL",
+      kpiFilter: "ALL",
+      page: 1,
+    });
+  };
+
   // KPI Card click filter
   const handleSelectKpiFilter = (kpiId) => {
     if (kpiFilter === kpiId) {
       setKpiFilter("ALL");
-      updateUrlParams({ kpiFilter: "ALL", page: 1 });
+      updateUrlParams({ kpiFilter: "ALL", scope: "ACTIVE", page: 1 });
     } else {
+      const targetScope = kpiId === "NOTIFIED" ? "HISTORY" : "ACTIVE";
       setKpiFilter(kpiId);
-      updateUrlParams({ kpiFilter: kpiId, page: 1 });
+      setStatusFilter("ALL");
+      setActivePreset(kpiId === "NOTIFIED" ? "HISTORY" : "DEFAULT");
+      updateUrlParams({ kpiFilter: kpiId, status: "ALL", scope: targetScope, page: 1 });
     }
   };
 
@@ -1179,8 +1219,9 @@ export default function BackInStockDashboard() {
     setDateRangeFilter("ALL");
     setKpiFilter("ALL");
 
-    if (presetId === "ALL") {
+    if (presetId === "DEFAULT") {
       updateUrlParams({
+        scope: "ACTIVE",
         status: "ALL",
         eta: "ALL",
         demand: "ALL",
@@ -1190,22 +1231,21 @@ export default function BackInStockDashboard() {
       });
     } else if (presetId === "PENDING") {
       setStatusFilter("PENDING");
-      updateUrlParams({ status: "PENDING", eta: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
-    } else if (presetId === "NOTIFIED") {
-      setStatusFilter("NOTIFIED");
-      updateUrlParams({ status: "NOTIFIED", eta: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
+      updateUrlParams({ scope: "ACTIVE", status: "PENDING", eta: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
+    } else if (presetId === "HISTORY") {
+      updateUrlParams({ scope: "HISTORY", status: "ALL", eta: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "HIGH_DEMAND") {
       setDemandFilter("HIGH");
-      updateUrlParams({ demand: "HIGH", status: "ALL", eta: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
+      updateUrlParams({ scope: "ACTIVE", demand: "HIGH", status: "ALL", eta: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "ARRIVING_SOON") {
       setEtaFilter("ARRIVING_SOON");
-      updateUrlParams({ eta: "ARRIVING_SOON", status: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
+      updateUrlParams({ scope: "ACTIVE", eta: "ARRIVING_SOON", status: "ALL", demand: "ALL", dateRange: "ALL", kpiFilter: "ALL", page: 1 });
     } else if (presetId === "NEEDS_ATTENTION") {
       setKpiFilter("NEEDS_ATTENTION");
-      updateUrlParams({ kpiFilter: "NEEDS_ATTENTION", status: "ALL", eta: "ALL", demand: "ALL", dateRange: "ALL", page: 1 });
+      updateUrlParams({ scope: "ACTIVE", kpiFilter: "NEEDS_ATTENTION", status: "ALL", eta: "ALL", demand: "ALL", dateRange: "ALL", page: 1 });
     } else if (presetId === "RECENT_7D") {
       setDateRangeFilter("LAST_7D");
-      updateUrlParams({ dateRange: "LAST_7D", status: "ALL", eta: "ALL", demand: "ALL", kpiFilter: "ALL", page: 1 });
+      updateUrlParams({ scope: "ALL", dateRange: "LAST_7D", status: "ALL", eta: "ALL", demand: "ALL", kpiFilter: "ALL", page: 1 });
     }
   };
 
@@ -1218,7 +1258,9 @@ export default function BackInStockDashboard() {
     setChannelFilter("ALL");
     setDateRangeFilter("ALL");
     setKpiFilter("ALL");
-    setActivePreset("ALL");
+    setActivePreset("DEFAULT");
+    setSelectedVariantIds([]);
+    setSelectedSubscriberIds([]);
     setSearchParams(new URLSearchParams());
   };
 
@@ -1290,7 +1332,7 @@ export default function BackInStockDashboard() {
         }
       }
 
-      const res = await fetch(`/app/back-in-stock?exportCsv=true`);
+      const res = await fetch(`/app/back-in-stock?exportCsv=true&scope=${encodeURIComponent(scope)}`);
       if (!res.ok) throw new Error("CSV 다운로드 실패");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -1392,6 +1434,110 @@ export default function BackInStockDashboard() {
     handleExportCsv(ids);
   };
 
+  // Batch archive completed/cancelled history for selected rows/variants
+  const handleBatchArchiveHistory = async () => {
+    const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
+    if (ids.length === 0) return;
+    const confirmed = await confirm({
+      title: "완료·취소 이력 아카이브",
+      message: `선택한 ${ids.length}개 항목의 발송 완료(NOTIFIED)·취소(CANCELLED) 이력을 아카이브 보관함으로 이동하시겠습니까?`,
+      impactSummary: "현재 대기 중(PENDING/FAILED)인 고객은 그대로 유지되며, 아카이브된 이력은 보관함에서 언제든 복원할 수 있습니다.",
+      confirmLabel: "아카이브 이동",
+      cancelLabel: "닫기",
+      destructive: false,
+    });
+    if (!confirmed) return;
+    const fd = new FormData();
+    fd.append("intent", "archive_selected_history");
+    fd.append("mode", viewMode);
+    fd.append("ids", JSON.stringify(ids));
+    fetcher.submit(fd, { method: "post" });
+    if (viewMode === "products") setSelectedVariantIds([]);
+    else setSelectedSubscriberIds([]);
+  };
+
+  // Batch restore archived history
+  const handleBatchRestoreHistory = () => {
+    const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
+    if (ids.length === 0) return;
+    const fd = new FormData();
+    fd.append("intent", "restore_selected_history");
+    fd.append("mode", viewMode);
+    fd.append("ids", JSON.stringify(ids));
+    fetcher.submit(fd, { method: "post" });
+    if (viewMode === "products") setSelectedVariantIds([]);
+    else setSelectedSubscriberIds([]);
+  };
+
+  // Batch permanently delete completed/cancelled history with destructive confirmation
+  const handleBatchDeleteHistory = async () => {
+    const ids = viewMode === "products" ? selectedVariantIds : selectedSubscriberIds;
+    if (ids.length === 0) return;
+    const confirmed = await confirm({
+      title: "완료·취소 이력 영구 삭제",
+      message: `선택한 ${ids.length}개 항목의 발송 완료(NOTIFIED)·취소(CANCELLED) 이력을 데이터베이스에서 영구 삭제하시겠습니까?`,
+      impactSummary: "현재 대기 중인 신청은 보호되지만, 삭제된 과거 발송/취소 기록은 복구할 수 없습니다.",
+      confirmLabel: "영구 삭제",
+      cancelLabel: "닫기",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    const fd = new FormData();
+    fd.append("intent", "delete_selected_history");
+    fd.append("mode", viewMode);
+    fd.append("ids", JSON.stringify(ids));
+    fd.append("archivedOnly", scope === "ARCHIVED" ? "true" : "false");
+    fd.append("confirmPermanent", "true");
+    fetcher.submit(fd, { method: "post" });
+    if (viewMode === "products") setSelectedVariantIds([]);
+    else setSelectedSubscriberIds([]);
+  };
+
+  // Single-variant history cleanup triggers inside detail drawer
+  const handleArchiveVariantHistory = async (variantId, count) => {
+    const confirmed = await confirm({
+      title: "품목 지난 이력 아카이브",
+      message: `이 품목의 완료·취소 이력 ${count}건을 아카이브 보관함으로 이동하시겠습니까?`,
+      impactSummary: "현재 대기 중인 고객은 영향받지 않으며 보관함에서 복원할 수 있습니다.",
+      confirmLabel: "아카이브 이동",
+      cancelLabel: "닫기",
+      destructive: false,
+    });
+    if (!confirmed) return;
+    const fd = new FormData();
+    fd.append("intent", "archive_selected_history");
+    fd.append("mode", "products");
+    fd.append("ids", JSON.stringify([variantId]));
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  const handleRestoreVariantHistory = (variantId) => {
+    const fd = new FormData();
+    fd.append("intent", "restore_selected_history");
+    fd.append("mode", "products");
+    fd.append("ids", JSON.stringify([variantId]));
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  // Shop-wide history cleanup modal submission
+  const handleSubmitHistoryCleanup = ({
+    actionType,
+    targetStatus,
+    ageFilter,
+    archivedOnly,
+    confirmPermanent,
+  }) => {
+    const fd = new FormData();
+    fd.append("intent", "cleanup_history");
+    fd.append("actionType", actionType);
+    fd.append("targetStatus", targetStatus);
+    fd.append("ageFilter", ageFilter);
+    fd.append("archivedOnly", archivedOnly ? "true" : "false");
+    fd.append("confirmPermanent", confirmPermanent ? "true" : "false");
+    fetcher.submit(fd, { method: "post" });
+    setCleanupModalOpen(false);
+  };
+
   // Scan & Auto-send
   const handleScanAndNotify = () => {
     const fd = new FormData();
@@ -1472,8 +1618,9 @@ export default function BackInStockDashboard() {
           isForceScanning={isForceScanning}
           onScanAndNotify={handleScanAndNotify}
           onForceScanAndNotify={handleForceScanAndNotify}
+          onOpenHistoryCleanup={() => setCleanupModalOpen(true)}
           onRefresh={() => updateUrlParams({ _t: Date.now() })}
-          onExportCsv={handleExportCsv}
+          onExportCsv={() => handleExportCsv()}
         />
 
         {/* Dispatch Policy Configuration (FIFO / Min Stock Threshold) */}
@@ -1508,6 +1655,9 @@ export default function BackInStockDashboard() {
         <BackInStockControlBar
           viewMode={viewMode}
           onChangeViewMode={handleViewModeChange}
+          scope={scope}
+          onChangeScope={handleChangeScope}
+          scopeCounts={scopeCounts}
           searchQuery={searchQuery}
           onChangeSearch={setSearchQuery}
           statusFilter={statusFilter}
@@ -1548,9 +1698,13 @@ export default function BackInStockDashboard() {
         {/* Bulk Action Bar */}
         <BackInStockBulkBar
           selectedCount={selectedCount}
+          scope={scope}
           onBatchNotify={handleBatchNotify}
           onBatchCancel={handleBatchCancel}
           onBatchExport={handleBatchExport}
+          onBatchArchiveHistory={handleBatchArchiveHistory}
+          onBatchRestoreHistory={handleBatchRestoreHistory}
+          onBatchDeleteHistory={handleBatchDeleteHistory}
           isBatchLoading={isBatchLoading}
         />
 
@@ -1558,6 +1712,7 @@ export default function BackInStockDashboard() {
         {viewMode === "products" ? (
           <BackInStockProductTable
             products={products}
+            scope={scope}
             isLoading={fetcher.state === "loading"}
             selectedVariantIds={selectedVariantIds}
             onToggleSelectVariant={(vId) =>
@@ -1574,6 +1729,7 @@ export default function BackInStockDashboard() {
             onSyncOdooEta={handleSyncOdooEta}
             onNotifyVariant={handleNotifyVariant}
             onClearFilters={handleClearAllFilters}
+            onSwitchScope={handleChangeScope}
             syncingVariantId={syncingVariantId}
             notifyingVariantId={notifyingVariantId}
           />
@@ -1614,12 +1770,15 @@ export default function BackInStockDashboard() {
         <BackInStockDetailDrawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
+          scope={scope}
           productItem={activeDrawerProduct}
           subscribers={drawerSubscribers}
           onSyncOdooEta={handleSyncOdooEta}
           onNotifyVariant={handleNotifyVariant}
           onNotifySingle={handleNotifySingle}
           onCancelSingle={handleCancelSingle}
+          onArchiveVariantHistory={handleArchiveVariantHistory}
+          onRestoreVariantHistory={handleRestoreVariantHistory}
           onOpenEmailPreview={handleOpenEmailPreview}
           isSyncing={syncingVariantId === activeDrawerProduct?.variantId}
           isNotifying={notifyingVariantId === activeDrawerProduct?.variantId}
@@ -1634,6 +1793,17 @@ export default function BackInStockDashboard() {
           onClose={() => setPreviewModalOpen(false)}
           productItem={previewProduct}
           shopDomain={shop}
+        />
+
+        {/* History Archive / Permanent Cleanup Modal */}
+        <BackInStockHistoryCleanupModal
+          open={cleanupModalOpen}
+          onClose={() => setCleanupModalOpen(false)}
+          onSubmitCleanup={handleSubmitHistoryCleanup}
+          isSubmitting={isCleaningHistory}
+          cleanableHistoryCount={scopeCounts?.cleanableHistoryCount || 0}
+          archivedCount={scopeCounts?.archivedCount || 0}
+          activeSubscribersCount={scopeCounts?.activeSubscribersCount || 0}
         />
       </BlockStack>
     </Page>

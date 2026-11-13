@@ -18,6 +18,7 @@ export default function BackInStockHeader({
   isForceScanning = false,
   onScanAndNotify,
   onForceScanAndNotify,
+  onOpenHistoryCleanup,
   onRefresh,
   onExportCsv,
 }) {
@@ -43,6 +44,11 @@ export default function BackInStockHeader({
           <Button icon={RefreshIcon} onClick={onRefresh}>
             새로고침
           </Button>
+          {onOpenHistoryCleanup && (
+            <Button onClick={onOpenHistoryCleanup}>
+              완료·취소 이력 정리
+            </Button>
+          )}
           {onForceScanAndNotify && (
             <Button
               loading={isForceScanning}

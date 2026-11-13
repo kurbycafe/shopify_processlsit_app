@@ -360,6 +360,7 @@ CREATE TABLE IF NOT EXISTS "BackInStockSubscription" (
   "notificationAttempts" INTEGER NOT NULL DEFAULT 0,
   "lastNotificationError" TEXT,
   "lastNotificationAt" TIMESTAMP(3),
+  "archivedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "BackInStockSubscription_pkey" PRIMARY KEY ("id")
@@ -403,6 +404,8 @@ ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "lastNotification
 
 ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "lastNotificationAt" TIMESTAMP(3);
 
+ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMP(3);
+
 ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 ALTER TABLE "BackInStockSubscription" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
@@ -424,6 +427,8 @@ CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_variantId_status_idx" O
 CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_status_createdAt_idx" ON "BackInStockSubscription"("shop", "status", "createdAt");
 
 CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_variantId_email_status_idx" ON "BackInStockSubscription"("shop", "variantId", "email", "status");
+
+CREATE INDEX IF NOT EXISTS "BackInStockSubscription_shop_archivedAt_status_idx" ON "BackInStockSubscription"("shop", "archivedAt", "status");
 
 CREATE TABLE IF NOT EXISTS "BackInStockSettings" (
   "id" TEXT NOT NULL,

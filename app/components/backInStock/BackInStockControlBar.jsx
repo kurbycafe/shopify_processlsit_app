@@ -12,15 +12,19 @@ import {
   Tag,
   Text,
 } from "@shopify/polaris";
+import { SearchIcon, FilterIcon } from "@shopify/polaris-icons";
 import {
-  SearchIcon,
-  FilterIcon,
-} from "@shopify/polaris-icons";
-import { getSubscriptionStatusInfo } from "../../utils/backInStockHelpers";
+  BACK_IN_STOCK_PRESETS,
+  BACK_IN_STOCK_FILTER_LABELS,
+  getSubscriptionStatusInfo,
+} from "../../utils/backInStockHelpers";
 
 export default function BackInStockControlBar({
   viewMode,
   onChangeViewMode,
+  scope = "ACTIVE",
+  onChangeScope,
+  scopeCounts = {},
   searchQuery,
   onChangeSearch,
   statusFilter,
@@ -40,35 +44,24 @@ export default function BackInStockControlBar({
   onSelectPreset,
 }) {
   const [popoverActive, setPopoverActive] = useState(false);
-  const togglePopoverActive = useCallback(
-    () => setPopoverActive((active) => !active),
-    []
-  );
+  const togglePopoverActive = useCallback(() => setPopoverActive((active) => !active), []);
 
-  const presets = [
-    { id: "ALL", label: "전체 목록" },
-    { id: "PENDING", label: "발송 대기" },
-    { id: "NOTIFIED", label: "발송 완료" },
-    { id: "HIGH_DEMAND", label: "고수요 품목 (20+)" },
-    { id: "ARRIVING_SOON", label: "입고 임박 (7일 이내)" },
-    { id: "NEEDS_ATTENTION", label: "조치 필요" },
-    { id: "RECENT_7D", label: "최근 7일 신청" },
+  const scopeTabs = [
+    { id: "ACTIVE", label: "현재 대기자 있음", count: scopeCounts.activeProductsCount },
+    { id: "HISTORY", label: "지난 회차 이력", count: scopeCounts.historyProductsCount },
+    { id: "ALL", label: "전체 (누적 포함)", count: scopeCounts.allProductsCount },
+    { id: "ARCHIVED", label: "보관함", count: scopeCounts.archivedProductsCount ?? scopeCounts.archivedCount },
   ];
 
   const activeTags = [];
+  if (scope !== "ACTIVE") {
+    const scopeLabel = scopeTabs.find((s) => s.id === scope)?.label || scope;
+    activeTags.push({ key: "scope", label: `조회 범위: ${scopeLabel}`, onRemove: () => onChangeScope("ACTIVE") });
+  }
   if (kpiFilter && kpiFilter !== "ALL") {
-    const kpiLabels = {
-      PENDING: "지표: 알림 대기",
-      NOTIFIED: "지표: 알림 발송 완료",
-      NEEDS_ATTENTION: "지표: 조치 필요",
-      HIGH_DEMAND: "지표: 고수요 품목",
-      ARRIVING_SOON: "지표: 입고 임박",
-      ETA_OVERDUE: "지표: 입고 지연 / 미확정",
-      ETA_UNKNOWN: "지표: 일정 미확정",
-    };
     activeTags.push({
       key: "kpiFilter",
-      label: kpiLabels[kpiFilter] || `지표: ${kpiFilter}`,
+      label: BACK_IN_STOCK_FILTER_LABELS.kpi[kpiFilter] || `지표: ${kpiFilter}`,
       onRemove: onClearKpiFilter || (() => {}),
     });
   }
@@ -80,65 +73,35 @@ export default function BackInStockControlBar({
     });
   }
   if (etaFilter && etaFilter !== "ALL") {
-    const etaLabels = {
-      TODAY: "오늘 도착",
-      ARRIVING_SOON: "7일 이내 입고",
-      UPCOMING: "입고 예정",
-      OVERDUE: "입고 지연",
-      UNKNOWN: "일정 미확정",
-    };
     activeTags.push({
       key: "eta",
-      label: `ETA: ${etaLabels[etaFilter] || etaFilter}`,
+      label: `ETA: ${BACK_IN_STOCK_FILTER_LABELS.eta[etaFilter] || etaFilter}`,
       onRemove: () => onChangeEtaFilter("ALL"),
     });
   }
   if (channelFilter && channelFilter !== "ALL") {
-    activeTags.push({
-      key: "channel",
-      label: `채널: ${channelFilter}`,
-      onRemove: () => onChangeChannelFilter("ALL"),
-    });
+    activeTags.push({ key: "channel", label: `채널: ${channelFilter}`, onRemove: () => onChangeChannelFilter("ALL") });
   }
   if (demandFilter && demandFilter !== "ALL") {
-    const demandLabels = {
-      HIGH: "고수요 (20+)",
-      VERY_HIGH: "초고수요 (50+)",
-      MEDIUM: "보통 (5-19)",
-      LOW: "낮음 (1-4)",
-    };
     activeTags.push({
       key: "demand",
-      label: `수요: ${demandLabels[demandFilter] || demandFilter}`,
+      label: `수요: ${BACK_IN_STOCK_FILTER_LABELS.demand[demandFilter] || demandFilter}`,
       onRemove: () => onChangeDemandFilter("ALL"),
     });
   }
   if (dateRangeFilter && dateRangeFilter !== "ALL") {
-    const dateLabels = {
-      TODAY: "오늘",
-      LAST_7D: "최근 7일",
-      LAST_30D: "최근 30일",
-    };
     activeTags.push({
       key: "dateRange",
-      label: `기간: ${dateLabels[dateRangeFilter] || dateRangeFilter}`,
+      label: `기간: ${BACK_IN_STOCK_FILTER_LABELS.date[dateRangeFilter] || dateRangeFilter}`,
       onRemove: () => onChangeDateRangeFilter("ALL"),
     });
   }
   if (searchQuery && searchQuery.trim() !== "") {
-    activeTags.push({
-      key: "search",
-      label: `검색: "${searchQuery}"`,
-      onRemove: () => onChangeSearch(""),
-    });
+    activeTags.push({ key: "search", label: `검색: "${searchQuery}"`, onRemove: () => onChangeSearch("") });
   }
 
   const filterActivator = (
-    <Button
-      icon={FilterIcon}
-      onClick={togglePopoverActive}
-      disclosure
-    >
+    <Button icon={FilterIcon} onClick={togglePopoverActive} disclosure>
       상세 필터
       {activeTags.length > 0 && ` (${activeTags.length})`}
     </Button>
@@ -148,46 +111,26 @@ export default function BackInStockControlBar({
     <Card padding="300">
       <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center" wrap>
-          <ButtonGroup segmented>
-            <Button
-              pressed={viewMode === "products"}
-              onClick={() => onChangeViewMode("products")}
-            >
-              상품별 보기
-            </Button>
-            <Button
-              pressed={viewMode === "subscribers"}
-              onClick={() => onChangeViewMode("subscribers")}
-            >
-              신청자별 보기
-            </Button>
-          </ButtonGroup>
-
           <InlineStack gap="200" blockAlign="center" wrap>
             <ButtonGroup segmented>
-              <Button
-                pressed={statusFilter === "ALL"}
-                onClick={() => onChangeStatusFilter("ALL")}
-                size="micro"
-              >
-                전체
+              <Button pressed={viewMode === "products"} onClick={() => onChangeViewMode("products")}>
+                상품별 보기
               </Button>
-              <Button
-                pressed={statusFilter === "PENDING" || statusFilter === "UNSENT"}
-                onClick={() => onChangeStatusFilter("PENDING")}
-                size="micro"
-              >
-                발송 대기
-              </Button>
-              <Button
-                pressed={statusFilter === "NOTIFIED" || statusFilter === "SENT"}
-                onClick={() => onChangeStatusFilter("NOTIFIED")}
-                size="micro"
-              >
-                발송 완료
+              <Button pressed={viewMode === "subscribers"} onClick={() => onChangeViewMode("subscribers")}>
+                신청자별 보기
               </Button>
             </ButtonGroup>
 
+            <ButtonGroup segmented>
+              {scopeTabs.map((tab) => (
+                <Button key={tab.id} size="micro" pressed={scope === tab.id} onClick={() => onChangeScope(tab.id)}>
+                  {typeof tab.count === "number" ? `${tab.label} (${tab.count})` : tab.label}
+                </Button>
+              ))}
+            </ButtonGroup>
+          </InlineStack>
+
+          <InlineStack gap="200" blockAlign="center" wrap>
             <div style={{ width: "260px" }}>
               <TextField
                 prefix={<SearchIcon />}
@@ -200,18 +143,12 @@ export default function BackInStockControlBar({
               />
             </div>
 
-            <Popover
-              active={popoverActive}
-              activator={filterActivator}
-              onClose={togglePopoverActive}
-              ariaHaspopup={false}
-              sectioned
-            >
+            <Popover active={popoverActive} activator={filterActivator} onClose={togglePopoverActive} ariaHaspopup={false} sectioned>
               <FormLayout>
                 <Select
                   label="발송 상태"
                   options={[
-                    { label: "전체 상태", value: "ALL" },
+                    { label: "범위 내 전체 상태", value: "ALL" },
                     { label: "대기 중", value: "PENDING" },
                     { label: "발송 완료", value: "NOTIFIED" },
                     { label: "취소됨", value: "CANCELLED" },
@@ -222,7 +159,6 @@ export default function BackInStockControlBar({
                   value={statusFilter}
                   onChange={onChangeStatusFilter}
                 />
-
                 <Select
                   label="입고 예정 상태"
                   options={[
@@ -236,9 +172,8 @@ export default function BackInStockControlBar({
                   value={etaFilter}
                   onChange={onChangeEtaFilter}
                 />
-
                 <Select
-                  label="수요 규모"
+                  label="수요 규모 (현재 대기자 기준)"
                   options={[
                     { label: "전체 수요", value: "ALL" },
                     { label: "초고수요 (50명 이상)", value: "VERY_HIGH" },
@@ -249,19 +184,16 @@ export default function BackInStockControlBar({
                   value={demandFilter}
                   onChange={onChangeDemandFilter}
                 />
-
                 <Select
                   label="신청 채널"
                   options={[
                     { label: "전체 채널", value: "ALL" },
                     { label: "이메일", value: "EMAIL" },
                     { label: "웹 푸시", value: "PUSH" },
-                    { label: "SMS", value: "SMS" },
                   ]}
                   value={channelFilter}
                   onChange={onChangeChannelFilter}
                 />
-
                 <Select
                   label="신청 기간"
                   options={[
@@ -282,38 +214,25 @@ export default function BackInStockControlBar({
           <Text variant="bodyXs" fontWeight="semibold" tone="subdued">
             빠른 필터:
           </Text>
-          {presets.map((preset) => {
-            const isSelected = activePresets === preset.id;
-            return (
-              <Button
-                key={preset.id}
-                size="micro"
-                pressed={isSelected}
-                onClick={() => onSelectPreset(preset.id)}
-              >
-                {preset.label}
-              </Button>
-            );
-          })}
+          {BACK_IN_STOCK_PRESETS.map((preset) => (
+            <Button key={preset.id} size="micro" pressed={activePresets === preset.id} onClick={() => onSelectPreset(preset.id)}>
+              {preset.label}
+            </Button>
+          ))}
         </InlineStack>
 
         {activeTags.length > 0 && (
           <InlineStack gap="150" blockAlign="center" wrap>
             <Text variant="bodyXs" tone="subdued">
-              적용된 조건 ({activeTags.length}):
+              {`적용된 조건 (${activeTags.length}):`}
             </Text>
             {activeTags.map((tag) => (
               <Tag key={tag.key} onRemove={tag.onRemove}>
                 {tag.label}
               </Tag>
             ))}
-            <Button
-              size="micro"
-              variant="plain"
-              tone="critical"
-              onClick={onClearAllFilters}
-            >
-              전체 초기화
+            <Button size="micro" variant="plain" tone="critical" onClick={onClearAllFilters}>
+              기본 화면으로 초기화
             </Button>
           </InlineStack>
         )}

@@ -155,3 +155,91 @@ export function exportSubscriptionsToCsv(rows) {
   return "\uFEFF" + csvRows.join("\n");
 }
 
+export const BACK_IN_STOCK_SCOPE_OPTIONS = [
+  { id: "ACTIVE", label: "현재 대기자 있음" },
+  { id: "HISTORY", label: "지난 회차 이력" },
+  { id: "ALL", label: "전체 (누적 포함)" },
+  { id: "ARCHIVED", label: "보관함 (아카이브)" },
+];
+
+export const BACK_IN_STOCK_PRESETS = [
+  { id: "DEFAULT", label: "현재 대기자 있음" },
+  { id: "PENDING", label: "발송 대기만" },
+  { id: "HISTORY", label: "지난 회차 이력" },
+  { id: "HIGH_DEMAND", label: "고수요 품목 (20+)" },
+  { id: "ARRIVING_SOON", label: "입고 임박 (7일 이내)" },
+  { id: "NEEDS_ATTENTION", label: "조치 필요" },
+  { id: "RECENT_7D", label: "최근 7일 신청" },
+];
+
+export const BACK_IN_STOCK_FILTER_LABELS = {
+  kpi: {
+    PENDING: "지표: 알림 대기",
+    NOTIFIED: "지표: 발송 완료 이력",
+    NEEDS_ATTENTION: "지표: 조치 필요",
+    HIGH_DEMAND: "지표: 고수요 품목",
+    ARRIVING_SOON: "지표: 입고 임박",
+    ETA_OVERDUE: "지표: 입고 지연 / 미확정",
+    ETA_UNKNOWN: "지표: 일정 미확정",
+  },
+  eta: {
+    TODAY: "오늘 도착",
+    ARRIVING_SOON: "7일 이내 입고",
+    UPCOMING: "입고 예정",
+    OVERDUE: "입고 지연",
+    UNKNOWN: "일정 미확정",
+  },
+  demand: {
+    HIGH: "고수요 (20+)",
+    VERY_HIGH: "초고수요 (50+)",
+    MEDIUM: "보통 (5-19)",
+    LOW: "낮음 (1-4)",
+  },
+  date: {
+    TODAY: "오늘",
+    LAST_7D: "최근 7일",
+    LAST_30D: "최근 30일",
+  },
+};
+
+const ACTIVE_DRAWER_STATUSES = new Set(["PENDING", "FAILED", "PROCESSING"]);
+
+function toMillis(val) {
+  if (!val) return 0;
+  const ts = new Date(val).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+/**
+ * Splits a variant's subscriber rows into current FIFO waiters, past wave history, and archived rows.
+ */
+export function partitionDrawerSubscribers(subscribers = []) {
+  const active = [];
+  const history = [];
+  const archived = [];
+
+  for (const sub of subscribers || []) {
+    if (sub?.archivedAt) {
+      archived.push(sub);
+    } else if (ACTIVE_DRAWER_STATUSES.has(sub?.status)) {
+      active.push(sub);
+    } else {
+      history.push(sub);
+    }
+  }
+
+  active.sort((a, b) => {
+    const subDiff = toMillis(a.subscribedAt || a.createdAt) - toMillis(b.subscribedAt || b.createdAt);
+    if (subDiff !== 0) return subDiff;
+    return toMillis(a.createdAt) - toMillis(b.createdAt);
+  });
+
+  const descByActivity = (a, b) =>
+    toMillis(b.notifiedAt || b.updatedAt || b.createdAt) - toMillis(a.notifiedAt || a.updatedAt || a.createdAt);
+  history.sort(descByActivity);
+  archived.sort(descByActivity);
+
+  return { active, history, archived };
+}
+
+

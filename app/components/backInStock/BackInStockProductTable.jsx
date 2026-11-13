@@ -1,26 +1,17 @@
-import { useState } from "react";
 import {
   Card,
   BlockStack,
-  InlineStack,
   Text,
-  Badge,
   Button,
   Box,
   SkeletonBodyText,
-  Tooltip,
+  InlineStack,
 } from "@shopify/polaris";
-import {
-  SendIcon,
-  RefreshIcon,
-  ViewIcon,
-  ClipboardIcon,
-} from "@shopify/polaris-icons";
-import dayjs from "dayjs";
-import { getDemandLevel, getEtaStageInfo } from "../../utils/backInStockHelpers";
+import BackInStockProductRow from "./BackInStockProductRow";
 
 export default function BackInStockProductTable({
   products,
+  scope = "ACTIVE",
   isLoading,
   selectedVariantIds,
   onToggleSelectVariant,
@@ -29,19 +20,10 @@ export default function BackInStockProductTable({
   onSyncOdooEta,
   onNotifyVariant,
   onClearFilters,
+  onSwitchScope,
   syncingVariantId,
   notifyingVariantId,
 }) {
-  const [copiedSku, setCopiedSku] = useState(null);
-
-  const handleCopySku = (sku, e) => {
-    e.stopPropagation();
-    if (!sku) return;
-    navigator.clipboard.writeText(sku);
-    setCopiedSku(sku);
-    setTimeout(() => setCopiedSku(null), 2000);
-  };
-
   if (isLoading) {
     return (
       <Card padding="400">
@@ -53,19 +35,33 @@ export default function BackInStockProductTable({
   }
 
   if (!products || products.length === 0) {
+    const emptyTitle =
+      scope === "ACTIVE"
+        ? "현재 재입고를 기다리는 품목이 없습니다."
+        : scope === "ARCHIVED"
+        ? "아카이브 보관함에 정리된 이력이 없습니다."
+        : "조건에 일치하는 상품이 없습니다.";
+
     return (
       <Card padding="500">
         <Box textAlign="center" padding="400">
           <BlockStack gap="200" inlineAlign="center">
             <Text variant="headingMd" as="h3">
-              조건에 일치하는 상품이 없습니다.
+              {emptyTitle}
             </Text>
             <Text variant="bodySm" tone="subdued">
-              적용된 필터 조건을 변경하거나 검색어를 초기화해 보세요.
+              {scope === "ACTIVE"
+                ? "과거 발송 완료된 상품은 '지난 회차 이력' 탭에서 별도로 확인할 수 있습니다."
+                : "적용된 필터 조건을 변경하거나 검색어를 초기화해 보세요."}
             </Text>
-            <Box padding="200">
-              <Button onClick={onClearFilters}>필터 전체 초기화</Button>
-            </Box>
+            <InlineStack gap="200">
+              {scope === "ACTIVE" && onSwitchScope && (
+                <Button onClick={() => onSwitchScope("HISTORY")}>
+                  지난 회차 이력 보기
+                </Button>
+              )}
+              <Button onClick={onClearFilters}>필터 초기화</Button>
+            </InlineStack>
           </BlockStack>
         </Box>
       </Card>
@@ -104,245 +100,37 @@ export default function BackInStockProductTable({
                   style={{ cursor: "pointer" }}
                 />
               </th>
-              <th style={{ padding: "10px 12px", minWidth: "260px" }}>
+              <th style={{ padding: "10px 12px", minWidth: "250px" }}>
                 상품 정보
               </th>
-              <th style={{ padding: "10px 12px", width: "140px" }}>SKU</th>
-              <th style={{ padding: "10px 12px", width: "130px" }}>
-                대기 인원
+              <th style={{ padding: "10px 12px", width: "130px" }}>SKU</th>
+              <th style={{ padding: "10px 12px", width: "160px" }}>
+                현재 대기 인원
               </th>
-              <th style={{ padding: "10px 12px", width: "170px" }}>
-                입고 예정일
+              <th style={{ padding: "10px 12px", width: "175px" }}>
+                입고 예정 / 지난 발송
               </th>
-              <th style={{ padding: "10px 12px", width: "100px" }}>상태</th>
-              <th style={{ padding: "10px 14px", textAlign: "right", minWidth: "220px" }}>
+              <th style={{ padding: "10px 12px", width: "150px" }}>상태</th>
+              <th style={{ padding: "10px 14px", textAlign: "right", minWidth: "215px" }}>
                 작업
               </th>
             </tr>
           </thead>
           <tbody>
-            {products.map((item) => {
-              const isSelected = selectedVariantIds.includes(item.variantId);
-              const demand = getDemandLevel(item.pendingCount > 0 ? item.pendingCount : item.subscriberCount);
-              const etaStage = getEtaStageInfo(item.etaDate);
-              const isSyncing = syncingVariantId === item.variantId;
-              const isNotifying = notifyingVariantId === item.variantId;
-              const variantLabel =
-                item.variantTitle && item.variantTitle !== "Default Title"
-                  ? item.variantTitle
-                  : null;
-
-              return (
-                <tr
-                  key={item.variantId}
-                  style={{
-                    borderBottom: "1px solid #f1f5f9",
-                    backgroundColor: isSelected ? "#f0fdf4" : "#ffffff",
-                    transition: "background-color 0.15s ease",
-                  }}
-                >
-                  <td style={{ padding: "10px 14px" }}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => onToggleSelectVariant(item.variantId)}
-                      style={{ cursor: "pointer" }}
-                    />
-                  </td>
-
-                  <td style={{ padding: "10px 12px" }}>
-                    <InlineStack gap="300" blockAlign="center">
-                      {item.imageUrl ? (
-                        <img
-                          src={item.imageUrl}
-                          alt={item.productTitle}
-                          style={{
-                            width: "42px",
-                            height: "42px",
-                            borderRadius: "6px",
-                            objectFit: "cover",
-                            border: "1px solid #e2e8f0",
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: "42px",
-                            height: "42px",
-                            borderRadius: "6px",
-                            backgroundColor: "#f1f5f9",
-                            border: "1px solid #e2e8f0",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: "#94a3b8",
-                            fontSize: "10px",
-                          }}
-                        >
-                          NO IMG
-                        </div>
-                      )}
-
-                      <BlockStack gap="050">
-                        <Text variant="bodySm" fontWeight="bold" truncate>
-                          {item.productTitle}
-                        </Text>
-                        {variantLabel && (
-                          <Text variant="bodyXs" tone="subdued">
-                            옵션: {variantLabel}
-                          </Text>
-                        )}
-                      </BlockStack>
-                    </InlineStack>
-                  </td>
-
-                  <td style={{ padding: "10px 12px" }}>
-                    {item.sku ? (
-                      <InlineStack gap="100" blockAlign="center">
-                        <Text variant="bodyXs" fontWeight="medium">
-                          {item.sku}
-                        </Text>
-                        <Tooltip
-                          content={copiedSku === item.sku ? "복사 완료!" : "SKU 복사"}
-                        >
-                          <Button
-                            size="micro"
-                            variant="plain"
-                            icon={ClipboardIcon}
-                            onClick={(e) => handleCopySku(item.sku, e)}
-                          />
-                        </Tooltip>
-                      </InlineStack>
-                    ) : (
-                      <Text variant="bodyXs" tone="subdued">
-                        -
-                      </Text>
-                    )}
-                  </td>
-
-                  <td style={{ padding: "10px 12px" }}>
-                    <BlockStack gap="050">
-                      <InlineStack gap="100" blockAlign="baseline">
-                        <Text variant="bodyMd" fontWeight="bold">
-                          {item.pendingCount}
-                        </Text>
-                        <Text variant="bodyXs" tone="subdued">
-                          명 대기
-                        </Text>
-                      </InlineStack>
-                      {item.subscriberCount > item.pendingCount && (
-                        <Text variant="bodyXs" tone="subdued">
-                          누적 {item.subscriberCount}명 · 완료 {item.notifiedCount}명
-                        </Text>
-                      )}
-                      {item.pendingCount > 0 ? (
-                        <Badge tone={demand.tone} size="small">
-                          {demand.badge}
-                        </Badge>
-                      ) : (
-                        <Badge tone="subdued" size="small">
-                          대기 없음
-                        </Badge>
-                      )}
-                    </BlockStack>
-                  </td>
-
-                  <td style={{ padding: "10px 12px" }}>
-                    {item.pendingCount === 0 && item.notifiedCount > 0 ? (
-                      <BlockStack gap="050">
-                        <Text variant="bodySm" fontWeight="bold" tone="success">
-                          입고 완료
-                        </Text>
-                        {item.poNumber && (
-                          <InlineStack gap="100" blockAlign="center">
-                            <Badge tone="info" size="small">PO: {item.poNumber}</Badge>
-                          </InlineStack>
-                        )}
-                        {item.notifiedAt && (
-                          <Text variant="bodyXs" tone="subdued">
-                            발송: {dayjs(item.notifiedAt).format("YYYY-MM-DD HH:mm")}
-                          </Text>
-                        )}
-                      </BlockStack>
-                    ) : (
-                      <BlockStack gap="050">
-                        <InlineStack gap="100" blockAlign="center">
-                          <Text variant="bodySm" fontWeight="medium">
-                            {item.etaDate || "일정 미확정"}
-                          </Text>
-                        </InlineStack>
-                        <InlineStack gap="100" blockAlign="center">
-                          <Badge tone={etaStage.tone} size="small">
-                            {etaStage.relativeText}
-                          </Badge>
-                          {item.poNumber ? (
-                            <Badge tone="info" size="small">PO: {item.poNumber}</Badge>
-                          ) : item.etaSource && item.etaSource !== "NONE" ? (
-                            <Text variant="bodyXs" tone="subdued">
-                              [{item.etaSource}]
-                            </Text>
-                          ) : null}
-                        </InlineStack>
-                        {item.notifiedCount > 0 && item.notifiedAt && (
-                          <Text variant="bodyXs" tone="subdued">
-                            최근 발송: {dayjs(item.notifiedAt).format("MM-DD HH:mm")}
-                          </Text>
-                        )}
-                      </BlockStack>
-                    )}
-                  </td>
-
-                  <td style={{ padding: "10px 12px" }}>
-                    {item.reconciliationCount > 0 && <Badge tone="warning">발송됨 · 기록 확인 필요 ({item.reconciliationCount}명)</Badge>}
-                    {item.statusCounts?.FAILED > 0 && (
-                      <Badge tone="critical">발송 실패 ({item.statusCounts.FAILED}명)</Badge>
-                    )}
-                    {item.pendingCount > 0 && item.notifiedCount === 0 && (
-                      <Badge tone="warning">전송 대기 ({item.pendingCount}명)</Badge>
-                    )}
-                    {item.pendingCount > 0 && item.notifiedCount > 0 && (
-                      <Badge tone="attention">일부 전송 ({item.notifiedCount}명 완료 / {item.pendingCount}명 대기)</Badge>
-                    )}
-                    {item.pendingCount === 0 && item.notifiedCount > 0 && (
-                      <Badge tone="success">전송 완료 ({item.notifiedCount}명)</Badge>
-                    )}
-                    {item.pendingCount === 0 && item.notifiedCount === 0 && !item.reconciliationCount && !item.statusCounts?.FAILED && (
-                      <Badge tone="subdued">신청 없음</Badge>
-                    )}
-                  </td>
-
-                  <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                    <InlineStack align="end" gap="150">
-                      <Button
-                        size="micro"
-                        icon={ViewIcon}
-                        onClick={() => onOpenDrawer(item)}
-                      >
-                        상세
-                      </Button>
-                      <Button
-                        size="micro"
-                        icon={RefreshIcon}
-                        loading={isSyncing}
-                        onClick={() => onSyncOdooEta(item)}
-                      >
-                        ETA 조회
-                      </Button>
-                      <Button
-                        size="micro"
-                        variant="primary"
-                        icon={SendIcon}
-                        loading={isNotifying}
-                        disabled={item.pendingCount === 0}
-                        onClick={() => onNotifyVariant(item.variantId, item.sku, item.productTitle, item.variantTitle, item.productUrl)}
-                      >
-                        일괄 발송
-                      </Button>
-                    </InlineStack>
-                  </td>
-                </tr>
-              );
-            })}
+            {products.map((item) => (
+              <BackInStockProductRow
+                key={item.variantId}
+                item={item}
+                scope={scope}
+                isSelected={selectedVariantIds.includes(item.variantId)}
+                isSyncing={syncingVariantId === item.variantId}
+                isNotifying={notifyingVariantId === item.variantId}
+                onToggleSelect={onToggleSelectVariant}
+                onOpenDrawer={onOpenDrawer}
+                onSyncOdooEta={onSyncOdooEta}
+                onNotifyVariant={onNotifyVariant}
+              />
+            ))}
           </tbody>
         </table>
       </div>

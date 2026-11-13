@@ -247,6 +247,11 @@ export default function BackInStockSubscriberTable({
                             ? dayjs(sub.notifiedAt).format("YYYY-MM-DD HH:mm")
                             : "-"}
                         </Text>
+                        {sub.archivedAt && (
+                          <Text variant="bodyXs" tone="subdued">
+                            {`보관: ${dayjs(sub.archivedAt).format("MM-DD")}`}
+                          </Text>
+                        )}
                       </BlockStack>
                     )}
                   </td>
