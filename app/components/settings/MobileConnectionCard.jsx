@@ -1,6 +1,45 @@
 import { useState } from 'react';
-import { Card, BlockStack, InlineStack, Text, Button, TextField, Banner, DataTable, Badge } from '@shopify/polaris';
-export default function MobileConnectionCard({ baseUrl, configured, nativeOriginsReady }) {
+import { useFetcher } from 'react-router';
+import { Card, BlockStack, InlineStack, Text, Button, TextField, Banner, DataTable, Badge, Box, Divider } from '@shopify/polaris';
+
+const HEALTH_STATUS_META = {
+ OK: { tone: 'success', label: '정상', bannerTone: 'success' },
+ WARN: { tone: 'warning', label: '주의', bannerTone: 'warning' },
+ ERROR: { tone: 'critical', label: '오류', bannerTone: 'critical' },
+};
+
+function formatCheckedAt(isoString) {
+ if (!isoString) return '-';
+ const date = new Date(isoString);
+ if (Number.isNaN(date.getTime())) return String(isoString);
+ return date.toLocaleString('ko-KR');
+}
+
+export default function MobileConnectionCard({ baseUrl, configured, nativeOriginsReady, initialHealthResult = null }) {
+ const healthFetcher = useFetcher();
+ const isChecking = healthFetcher.state === 'submitting' || healthFetcher.state === 'loading';
+ const fetcherResult = healthFetcher.data?.intent === 'test_mobile_connection' ? healthFetcher.data : null;
+ const healthResult = fetcherResult?.mobileHealth || initialHealthResult;
+ const healthError = fetcherResult?.error || null;
+ const runHealthCheck = () => {
+  if (isChecking) return;
+  healthFetcher.submit({ intent: 'test_mobile_connection' }, { method: 'POST' });
+ };
+ const overallMeta = healthResult ? (HEALTH_STATUS_META[healthResult.overallStatus] || HEALTH_STATUS_META.ERROR) : null;
+ const healthRows = (healthResult?.checks || []).map((check) => {
+  const meta = HEALTH_STATUS_META[check.status] || HEALTH_STATUS_META.ERROR;
+  const timingLabel = [
+   check.httpStatus ? `HTTP ${check.httpStatus}` : null,
+   typeof check.latencyMs === 'number' ? `${check.latencyMs}ms` : null,
+  ].filter(Boolean).join(' · ') || '-';
+  return [
+   check.label,
+   check.endpoint,
+   <Badge key={`health-badge-${check.key}`} tone={meta.tone}>{meta.label}</Badge>,
+   timingLabel,
+   check.detail,
+  ];
+ });
  const [feedback, setFeedback] = useState(null);
  const config = `VITE_PROCESSLIST_API_URL=${baseUrl}`;
  const example = `const response = await fetch("${baseUrl}/api/customer/v1/orders?limit=10", {\n  headers: { Authorization: \`Bearer \${customerAccessToken}\` }\n});\nconst result = await response.json();\nif (!response.ok || !result.success) throw new Error(result.error?.code || "REQUEST_FAILED");\nconst { orders, pageInfo } = result.data;`;
@@ -12,7 +51,44 @@ export default function MobileConnectionCard({ baseUrl, configured, nativeOrigin
   {!nativeOriginsReady && <Banner tone="warning"><p>CUSTOMER_API_ALLOWED_ORIGINS에 capacitor://localhost와 https://localhost가 필요합니다.</p></Banner>}
   <TextField label="모바일 앱 기본 주소" value={baseUrl} readOnly autoComplete="off" connectedRight={<Button onClick={() => copy(baseUrl)}>주소 복사</Button>} />
   <TextField label="모바일 .env 설정" value={config} multiline={2} readOnly autoComplete="off" />
-  <InlineStack gap="200"><Button onClick={() => copy(config)}>환경 설정 복사</Button><Button onClick={() => copy(example)}>주문 조회 예제 복사</Button></InlineStack>
+  <InlineStack gap="200" wrap>
+   <Button variant="primary" loading={isChecking} disabled={isChecking} onClick={runHealthCheck}>
+    {isChecking ? '연결 상태 점검 중...' : '실시간 API 연결 점검'}
+   </Button>
+   <Button onClick={() => copy(config)}>환경 설정 복사</Button>
+   <Button onClick={() => copy(example)}>주문 조회 예제 복사</Button>
+  </InlineStack>
+  {healthError && (
+   <Banner tone="critical">
+    <Text as="p" variant="bodySm"><strong>실시간 점검 실패:</strong> {healthError}</Text>
+   </Banner>
+  )}
+  {healthResult && overallMeta && (
+   <Box padding="300" background="bg-surface-secondary" borderRadius="200" borderWidth="025" borderColor="border">
+    <BlockStack gap="300">
+     <Banner tone={overallMeta.bannerTone}>
+      <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+       <Text as="p" variant="bodySm" fontWeight="semibold">
+        {healthResult.overallStatus === 'OK'
+         ? `실시간 연결 정상 (${healthResult.summary.ok}/${healthResult.summary.total}개 항목 통과 · 총 ${healthResult.totalLatencyMs}ms)`
+         : healthResult.overallStatus === 'WARN'
+          ? `일부 항목 주의 필요 (정상 ${healthResult.summary.ok}, 주의 ${healthResult.summary.warn}, 오류 ${healthResult.summary.error} · 총 ${healthResult.totalLatencyMs}ms)`
+          : `API 연결 오류 감지 (정상 ${healthResult.summary.ok}, 주의 ${healthResult.summary.warn}, 오류 ${healthResult.summary.error} · 총 ${healthResult.totalLatencyMs}ms)`}
+       </Text>
+       <Text as="span" variant="bodyXs" tone="subdued">
+        점검 시각: {formatCheckedAt(healthResult.checkedAt)}
+       </Text>
+      </InlineStack>
+     </Banner>
+     <Divider />
+     <DataTable
+      columnContentTypes={['text', 'text', 'text', 'text', 'text']}
+      headings={['점검 항목', '대상 엔드포인트', '상태', 'HTTP · 지연', '점검 상세']}
+      rows={healthRows}
+     />
+    </BlockStack>
+   </Box>
+  )}
   {feedback && <Banner tone={feedback.tone} onDismiss={() => setFeedback(null)}><p>{feedback.message}</p></Banner>}
   <DataTable columnContentTypes={['text','text','text']} headings={['기능','경로','인증']} rows={[
     ['내 주문', 'GET /api/customer/v1/orders', '고객 Bearer 토큰'],

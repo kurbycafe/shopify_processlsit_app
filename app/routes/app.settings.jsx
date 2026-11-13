@@ -22,7 +22,9 @@ import {
   CheckIcon,
 } from "@shopify/polaris-icons";
 import { authenticate, apiVersion } from "../shopify.server";
+import prisma from "../db.server.js";
 import { isOdooConfigured } from "../services/odooClient.server.js";
+import { checkMobileConnectionHealth } from "../services/mobileConnectionHealth.server.js";
 import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
 import { getRegisteredWebhooks, ensureRequiredWebhooks, webhooksAreRegistered } from "../services/webhookRegistration.server.js";
 
@@ -87,6 +89,29 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
   const appUrl = process.env.SHOPIFY_APP_URL || "https://process-list-beryl.vercel.app";
+
+  if (intent === "test_mobile_connection") {
+    try {
+      const shop = session?.shop || "dawayo.de";
+      const mobileHealth = await checkMobileConnectionHealth({
+        db: prisma,
+        admin,
+        appUrl,
+        shop,
+      });
+      return {
+        intent: "test_mobile_connection",
+        success: mobileHealth.overallStatus !== "ERROR",
+        mobileHealth,
+      };
+    } catch (err) {
+      return {
+        intent: "test_mobile_connection",
+        success: false,
+        error: err?.message || "모바일 앱 API 연결 점검 중 오류가 발생했습니다.",
+      };
+    }
+  }
 
   if (intent === "force_register_webhooks") {
     try {
