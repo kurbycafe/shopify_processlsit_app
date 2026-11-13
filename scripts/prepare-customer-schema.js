@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 // deliberately additive: never use db push/reset against the existing production database.
 import { applySchemaStatements, schemaIsReady, readSchemaCatalog } from "../app/services/schemaReadiness.js";
 import { schemaStatements } from "../app/services/schemaStatements.generated.js";
+import { buildRuntimeDatabaseUrl } from "../app/utils/databaseUrl.js";
 import { PrismaClient } from "@prisma/client";
 
 // Guard against repeated execution within the same Vercel deployment build phase,
@@ -37,13 +38,18 @@ function sanitizeErrorMessage(msg) {
     .replace(/(password=)[^&;\s]+/gi, "$1***");
 }
 
+const rawDatabaseUrl = process.env.PRISMA_DATABASE_URL;
 // Same variable the Prisma datasource reads (prisma/schema.prisma).
-if (!process.env.PRISMA_DATABASE_URL) {
+if (!rawDatabaseUrl) {
   console.log("No PRISMA_DATABASE_URL configured in environment. Skipping schema preparation.");
   process.exit(0);
 }
 
-const db = new PrismaClient();
+const runtimeDatabaseUrl = buildRuntimeDatabaseUrl(rawDatabaseUrl);
+const db =
+  runtimeDatabaseUrl && runtimeDatabaseUrl !== rawDatabaseUrl
+    ? new PrismaClient({ datasourceUrl: runtimeDatabaseUrl })
+    : new PrismaClient();
 let currentStage = "initialization";
 
 try {

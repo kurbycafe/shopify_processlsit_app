@@ -1,5 +1,6 @@
 import { applySchemaStatements, schemaIsReady, readSchemaCatalog } from "./services/schemaReadiness.js";
 import { PrismaClient } from "@prisma/client";
+import { buildRuntimeDatabaseUrl } from "./utils/databaseUrl.js";
 
 function validateDatabaseUrl() {
   const databaseUrl = process.env.PRISMA_DATABASE_URL;
@@ -13,17 +14,23 @@ function validateDatabaseUrl() {
       "PRISMA_DATABASE_URL points to SQLite (file:...). This app requires a PostgreSQL URL in production.",
     );
   }
+
+  return databaseUrl;
 }
 
-validateDatabaseUrl();
+const rawDatabaseUrl = validateDatabaseUrl();
+const runtimeDatabaseUrl = buildRuntimeDatabaseUrl(rawDatabaseUrl);
 
-if (process.env.NODE_ENV !== "production") {
-  if (!global.prismaGlobal) {
-    global.prismaGlobal = new PrismaClient();
-  }
+function createPrismaClient() {
+  return runtimeDatabaseUrl && runtimeDatabaseUrl !== rawDatabaseUrl
+    ? new PrismaClient({ datasourceUrl: runtimeDatabaseUrl })
+    : new PrismaClient();
 }
 
-const prisma = global.prismaGlobal ?? new PrismaClient();
+const prisma = globalThis.prismaGlobal ?? createPrismaClient();
+if (!globalThis.prismaGlobal) {
+  globalThis.prismaGlobal = prisma;
+}
 
 let schemaEnsuredPromise = null;
 

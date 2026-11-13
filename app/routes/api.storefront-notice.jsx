@@ -33,30 +33,44 @@ function resolveShop(request, explicitShop = null) {
   return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim().slice(0, MAX_SHOP_LENGTH);
 }
 
+async function fetchStorefrontNotice(shop) {
+  let notice = await prisma.storefrontNotice.findUnique({
+    where: { shop },
+  });
+
+  if (!notice) {
+    // Fallback search with exact canonical shop
+    notice = await prisma.storefrontNotice.findFirst({
+      where: { shop: { contains: "dawayo", mode: "insensitive" } },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  return notice;
+}
+
 export const loader = async ({ request }) => {
   const corsHeaders = getCorsHeaders(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  let cached = null;
   try {
     const shop = resolveShop(request);
     const now = Date.now();
-    const cached = noticeMemoryCache.get(shop);
+    cached = noticeMemoryCache.get(shop) || null;
     if (cached && now - cached.timestamp < NOTICE_CACHE_TTL_MS) {
       return Response.json(cached.payload, { headers: corsHeaders });
     }
 
-    let notice = await prisma.storefrontNotice.findUnique({
-      where: { shop },
-    });
-
-    if (!notice) {
-      // Fallback search with exact canonical shop
-      notice = await prisma.storefrontNotice.findFirst({
-        where: { shop: { contains: "dawayo", mode: "insensitive" } },
-        orderBy: { createdAt: "desc" },
-      });
+    let notice;
+    try {
+      notice = await fetchStorefrontNotice(shop);
+    } catch (firstError) {
+      console.warn("[Storefront Notice API] First read failed, retrying", firstError?.name);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      notice = await fetchStorefrontNotice(shop);
     }
 
     if (!notice || !notice.isActive) {
@@ -98,6 +112,15 @@ export const loader = async ({ request }) => {
       { headers: corsHeaders }
     );
   } catch (error) {
+    if (cached?.payload) {
+      console.warn("[Storefront Notice API] Serving stale notice after DB failure:", error?.name);
+      return Response.json(cached.payload, {
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "public, max-age=15, stale-while-revalidate=60",
+        },
+      });
+    }
     console.error("[Storefront Notice API Error]:", error);
     return Response.json(
       { success: false, data: null },
