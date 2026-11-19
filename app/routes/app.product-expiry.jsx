@@ -1,29 +1,25 @@
-import { authenticate } from "../shopify.server.js";
-import { listExpiryProducts, saveProductExpiry, ExpiryError } from "../services/productExpiry.server.js";
+import { handleProductMetaAction, handleProductMetaLoader } from "../services/productMetaServer.server.js";
+import { ExpiryError, listExpiryProducts, saveProductExpiry } from "../services/productExpiry.server.js";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
 
-function failure(error) {
-  const status = error instanceof ExpiryError ? error.status : 503;
-  return Response.json({ success: false, message: error instanceof ExpiryError ? error.message : "상품 유통기한 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.", ...(error instanceof ExpiryError ? { details: error.details } : {}) },
-    { status, headers: { "Cache-Control": "no-store" } });
-}
+const FALLBACK_ERROR_MESSAGE = "상품 유통기한 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.";
+
 export async function loader({ request }) {
-  const { admin } = await authenticate.admin(request);
-  try {
-    const result = await listExpiryProducts({ admin,
-      after: new URL(request.url).searchParams.get("after") || null });
-    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return failure(error); }
+  return handleProductMetaLoader({
+    request,
+    ErrorClass: ExpiryError,
+    fallbackErrorMessage: FALLBACK_ERROR_MESSAGE,
+    listProducts: listExpiryProducts,
+  });
 }
+
 export async function action({ request }) {
-  const { admin } = await authenticate.admin(request);
-  if (request.method !== "POST") return Response.json({ success: false, message: "POST 요청이 필요합니다." }, { status: 405, headers: { Allow: "POST" } });
-  try {
-    let input;
-    try { input = await request.json(); } catch { throw new ExpiryError(400, "저장 요청 형식이 올바르지 않습니다."); }
-    const result = await saveProductExpiry({ admin, input });
-    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return failure(error); }
+  return handleProductMetaAction({
+    request,
+    ErrorClass: ExpiryError,
+    fallbackErrorMessage: FALLBACK_ERROR_MESSAGE,
+    saveProducts: saveProductExpiry,
+  });
 }

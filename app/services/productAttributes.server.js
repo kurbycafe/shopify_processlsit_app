@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { ATTRIBUTE_FIELDS, attributesFromRule, findAttributeRule, hasProductAttributes } from "../utils/productAttributes.js";
 import { isProductId, temperatureFromProductType } from "../utils/productTemperatures.js";
+import {
+  executeProductMetaGraphql,
+  parseExtendedConfig,
+  validateCursorParam,
+  validateProductPageConnection,
+} from "./productMetaServer.server.js";
 
 const PRODUCT_FIELDS = `
  id title totalInventory tracksInventory
@@ -24,22 +30,25 @@ export class AttributeError extends Error {
  constructor(status, message) { super(message); this.status = status; }
 }
 function extended(raw) {
- if (raw == null) return {};
  try {
-  const value = typeof raw === "string" ? JSON.parse(raw) : raw;
-  if (!value || Array.isArray(value) || typeof value !== "object" ||
-      (value.productOverrides != null && (!Array.isArray(value.productOverrides) || value.productOverrides.some(rule => !rule || typeof rule !== "object" || Array.isArray(rule))))) throw Error();
+  const value = parseExtendedConfig(raw, AttributeError);
+  if (
+   value.productOverrides != null &&
+   (!Array.isArray(value.productOverrides) ||
+    value.productOverrides.some(rule => !rule || typeof rule !== "object" || Array.isArray(rule)))
+  ) {
+   throw Error();
+  }
   return value;
- } catch { throw new AttributeError(409, "기존 상품 속성 설정을 읽을 수 없습니다. 설정을 확인해주세요."); }
+ } catch {
+  throw new AttributeError(409, "기존 상품 속성 설정을 읽을 수 없습니다. 설정을 확인해주세요.");
+ }
 }
-async function graphql(admin, query, variables) {
- try {
-  const response = await admin.graphql(query, { variables });
-  const result = await response.json();
-  if (response.ok === false || result.errors?.length || !result.data) throw Error();
-  return result.data;
- } catch { throw new AttributeError(502, "Shopify 상품 조회에 실패했습니다. 다시 시도해주세요."); }
-}
+const graphql = (admin, query, variables) =>
+ executeProductMetaGraphql(admin, query, variables, AttributeError, {
+  networkMessage: "Shopify 상품 조회에 실패했습니다. 다시 시도해주세요.",
+  apiErrorMessage: "Shopify 상품 조회에 실패했습니다. 다시 시도해주세요.",
+ });
 function productRow(product, rules) {
  if (!isProductId(product?.id) || typeof product.title !== "string") throw new AttributeError(502, "상품 조회 결과가 올바르지 않습니다.");
  const sku = product.variants?.nodes?.[0]?.sku || "";
@@ -53,16 +62,16 @@ function productRow(product, rules) {
   attributes, hasAttributes: hasProductAttributes(attributes), ruleId: rule?.id || null };
 }
 export async function listAttributeProducts({ admin, db, shop, after = null }) {
- if (after !== null && (typeof after !== "string" || after.length > 2000)) throw new AttributeError(400, "상품 페이지 값이 올바르지 않습니다.");
+ validateCursorParam(after, AttributeError);
  const [data, record] = await Promise.all([
   graphql(admin, ATTRIBUTE_PRODUCTS_QUERY, { after }),
   db.mobileStorefrontConfig.findUnique({ where: { shop } }),
  ]);
  const page = data.products;
- if (!Array.isArray(page?.nodes) || typeof page.pageInfo?.hasNextPage !== "boolean" ||
-     (page.pageInfo.hasNextPage && (!page.pageInfo.endCursor || page.pageInfo.endCursor === after))) {
-  throw new AttributeError(502, "상품 목록을 끝까지 조회하지 못했습니다.");
- }
+ validateProductPageConnection(page, after, AttributeError, {
+  invalidResponseMessage: "상품 목록을 끝까지 조회하지 못했습니다.",
+  nextPageErrorMessage: "상품 목록을 끝까지 조회하지 못했습니다.",
+ });
  const rules = extended(record?.tickersJson).productOverrides || [];
  return { success: true, items: page.nodes.map(product => productRow(product, rules)), pageInfo: page.pageInfo };
 }

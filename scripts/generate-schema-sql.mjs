@@ -105,7 +105,10 @@ function main() {
   const { moduleSource, baseline } = render(buildStatements(readPrismaSql()));
   const targets = [[MODULE_PATH, moduleSource], [BASELINE_PATH, baseline]];
   if (process.argv.includes("--check")) {
-    const stale = targets.filter(([file, content]) => !fs.existsSync(file) || fs.readFileSync(file, "utf8") !== content);
+    const normalizeLf = (text) => String(text).replace(/\r\n/g, "\n");
+    const stale = targets.filter(
+      ([file, content]) => !fs.existsSync(file) || normalizeLf(fs.readFileSync(file, "utf8")) !== normalizeLf(content)
+    );
     if (stale.length) {
       console.error(`Stale generated schema files:\n${stale.map(([file]) => `  ${path.relative(ROOT, file)}`).join("\n")}\nRun: npm run schema:generate`);
       process.exit(1);

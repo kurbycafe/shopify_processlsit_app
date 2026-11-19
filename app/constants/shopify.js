@@ -1,5 +1,4 @@
-export const SHOPIFY_ADMIN_API_VERSION = "2025-01";
-export const SHOPIFY_WEBHOOK_API_VERSION = "2026-07";
+// Admin API version is managed solely in app/config/apiVersion.js.
 
 export const DEFAULT_STORE_COUNTRY_CODE = "DE";
 export const DEFAULT_STORE_COUNTRY_NAME = "Germany";

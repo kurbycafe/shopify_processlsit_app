@@ -1,4 +1,5 @@
 import { AdminListRow } from "./shared.jsx";
+import { ShopifyProductSearchPicker } from "./ShopifyProductSearchPicker.jsx";
 import {
   Badge,
   BlockStack,
@@ -63,8 +64,14 @@ export function HotDealsPanel({
                     fetcher.submit(fd, { method: "post" });
                   };
                   const live = liveVariantPrices[deal.variantId];
+                  const liveRegular = live
+                    ? live.compareAtPrice > live.price
+                      ? live.compareAtPrice
+                      : live.price
+                    : null;
                   // Admin state and the real Shopify price can drift (failed sync, edits in Shopify).
                   const notOnShopify = deal.isActive && live && Math.abs(live.price - Number(deal.salePrice)) > 0.005;
+                  const baseMismatch = liveRegular != null && Math.abs(liveRegular - Number(deal.basePrice)) > 0.005;
                   return (
                     <AdminListRow
                       key={deal.id}
@@ -79,6 +86,9 @@ export function HotDealsPanel({
                         ...(deal.badge?.ko ? [{ label: deal.badge.ko }] : []),
                         ...(deal.mhdDate
                           ? [{ label: `MHD ${deal.mhdDate}`, tone: "warning" }]
+                          : []),
+                        ...(baseMismatch
+                          ? [{ label: `정상가 불일치 (Shopify €${liveRegular.toFixed(2)})`, tone: "warning" }]
                           : []),
                         ...(notOnShopify ? [{ label: "Shopify 미반영", tone: "critical" }] : []),
                       ]}
@@ -125,98 +135,17 @@ export function HotDealsPanel({
           </Card>
 
           {/* Shopify Product Quick Search */}
-          <Card>
-            <BlockStack gap="300">
-              <Text variant="headingMd" as="h2">
-                쇼피파이 등록 상품 검색으로 빠른 불러오기
-              </Text>
-              <InlineStack gap="200">
-                <div style={{ flex: 1 }}>
-                  <TextField
-                    label="상품명 또는 SKU 검색"
-                    labelHidden
-                    placeholder="예: 신라면, 김치, 만두 입력 후 검색"
-                    value={productSearchQuery}
-                    onChange={setProductSearchQuery}
-                    autoComplete="off"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && productSearchQuery.trim()) {
-                        e.preventDefault();
-                        const fd = new FormData();
-                        fd.append("intent", "search_shopify_products");
-                        fd.append("query", productSearchQuery);
-                        searchFetcher.submit(fd, { method: "post" });
-                      }
-                    }}
-                  />
-                </div>
-                <Button
-                  loading={searchFetcher.state !== "idle"}
-                  onClick={() => {
-                    const fd = new FormData();
-                    fd.append("intent", "search_shopify_products");
-                    fd.append("query", productSearchQuery);
-                    searchFetcher.submit(fd, { method: "post" });
-                  }}
-                >
-                  쇼피파이 상품 검색
-                </Button>
-              </InlineStack>
-
-              {searchFetcher.data?.searchedProducts && (
-                <BlockStack gap="200">
-                  {searchFetcher.data.searchedProducts.map((sp) => (
-                    <div
-                      key={sp.productId}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "8px 12px",
-                        border: "1px solid #E5E7EB",
-                        borderRadius: "8px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                        }}
-                      >
-                        {sp.imageUrl && (
-                          <img
-                            src={sp.imageUrl}
-                            alt={sp.title}
-                            style={{
-                              width: "36px",
-                              height: "36px",
-                              objectFit: "contain",
-                            }}
-                          />
-                        )}
-                        <div>
-                          <Text variant="bodySm" fontWeight="bold" as="p">
-                            {sp.title}
-                          </Text>
-                          <Text variant="bodySm" tone="subdued" as="p">
-                            판매가 €{sp.price.toFixed(2)}
-                          </Text>
-                        </div>
-                      </div>
-                      <Button
-                        size="slim"
-                        variant="primary"
-                        onClick={() => handleSelectDealProduct(sp)}
-                      >
-                        특가 상품으로 선택
-                      </Button>
-                    </div>
-                  ))}
-                </BlockStack>
-              )}
-            </BlockStack>
-          </Card>
+          <ShopifyProductSearchPicker
+            title="쇼피파이 등록 상품 검색으로 빠른 불러오기"
+            placeholder="예: 신라면, 김치, 만두 입력 후 검색"
+            productSearchQuery={productSearchQuery}
+            setProductSearchQuery={setProductSearchQuery}
+            searchFetcher={searchFetcher}
+            selectButtonLabel="특가 상품으로 선택"
+            selectButtonVariant="primary"
+            renderSubtitle={(sp) => `판매가 €${sp.price.toFixed(2)}`}
+            onSelectProduct={handleSelectDealProduct}
+          />
         </BlockStack>
 
         {/* Hot Deal Editor Form */}
@@ -506,40 +435,67 @@ export function HotDealsPanel({
               autoComplete="off"
             />
 
-            <InlineStack gap="300">
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="기존 정상가 (€)"
-                  type="number"
-                  step="0.01"
-                  value={dealForm.basePrice}
-                  onChange={handleDealBasePriceChange}
-                  helpText="Shopify 등록 기준 원래 판매가"
-                  autoComplete="off"
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="오늘의 특가가 (€)"
-                  type="number"
-                  step="0.01"
-                  value={dealForm.salePrice}
-                  onChange={handleDealSalePriceChange}
-                  helpText="실제 결제 청구 금액"
-                  autoComplete="off"
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="할인율 표기 (%)"
-                  type="number"
-                  value={dealForm.discountRate}
-                  onChange={handleDealDiscountRateChange}
-                  helpText="가격 입력 시 자동 계산"
-                  autoComplete="off"
-                />
-              </div>
-            </InlineStack>
+            {(() => {
+              const editorLive = dealForm.variantId ? liveVariantPrices[dealForm.variantId] : null;
+              const editorLiveRegular = editorLive
+                ? editorLive.compareAtPrice > editorLive.price
+                  ? editorLive.compareAtPrice
+                  : editorLive.price
+                : null;
+              const editorBaseMismatch =
+                editorLiveRegular != null &&
+                Math.abs(editorLiveRegular - Number(dealForm.basePrice)) > 0.005;
+              return (
+                <InlineStack gap="300">
+                  <div style={{ flex: 1 }}>
+                    <TextField
+                      label="기존 정상가 (€)"
+                      type="number"
+                      step="0.01"
+                      value={dealForm.basePrice}
+                      onChange={handleDealBasePriceChange}
+                      helpText={
+                        editorBaseMismatch
+                          ? `현재 Shopify 정상가는 €${editorLiveRegular.toFixed(2)}입니다.`
+                          : "Shopify 등록 기준 원래 판매가"
+                      }
+                      autoComplete="off"
+                    />
+                    {editorBaseMismatch && (
+                      <div style={{ marginTop: "6px" }}>
+                        <Button
+                          size="slim"
+                          onClick={() => handleDealBasePriceChange(editorLiveRegular.toFixed(2))}
+                        >
+                          {`Shopify 정상가 €${editorLiveRegular.toFixed(2)} 맞추기`}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <TextField
+                      label="오늘의 특가가 (€)"
+                      type="number"
+                      step="0.01"
+                      value={dealForm.salePrice}
+                      onChange={handleDealSalePriceChange}
+                      helpText="실제 결제 청구 금액"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <TextField
+                      label="할인율 표기 (%)"
+                      type="number"
+                      value={dealForm.discountRate}
+                      onChange={handleDealDiscountRateChange}
+                      helpText="가격 입력 시 자동 계산"
+                      autoComplete="off"
+                    />
+                  </div>
+                </InlineStack>
+              );
+            })()}
 
             <Text variant="bodySm" tone="subdued" as="p">
               저장하면 Shopify 판매가가 특가가로 바뀝니다. 웹 스토어 가격도 같이

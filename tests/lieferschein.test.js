@@ -56,6 +56,8 @@ test("printed orders are stored with a timestamp for every selected order", asyn
 test("opening the delivery note detail page never issues an invoice number", () => {
   const loader = routeExport("app.lieferschein.$id.jsx", "loader");
   assert.doesNotMatch(loader, /issueInvoiceForOrder|handleIssueInvoiceIntent/);
+  const sharedService = readFileSync(new URL("../app/services/lieferscheinDetail.server.js", import.meta.url), "utf8");
+  assert.doesNotMatch(sharedService, /issueInvoiceForOrder|handleIssueInvoiceIntent/);
 });
 
 test("draft orders with more than one page of line items are fetched completely", async () => {
@@ -102,13 +104,36 @@ test("the order list also loads partially fulfilled orders and invoice-sent draf
 });
 
 test("both delivery note views print the remaining quantity while invoices keep the ordered quantity", () => {
+  const detailService = readFileSync(new URL("../app/services/lieferscheinDetail.server.js", import.meta.url), "utf8");
+  assert.match(detailService, /currentQuantity\s+unfulfilledQuantity/);
+  assert.match(detailService, /shipQuantity: shippableQuantity\(item, isDraft\)/);
+  assert.match(detailService, /quantity: item\.quantity \|\| 0/);
+
+  const detailView = readFileSync(new URL("../app/components/lieferschein/LieferscheinDocumentView.jsx", import.meta.url), "utf8");
+  assert.match(detailView, /× \{shipQty\}/);
+
   for (const file of ["print.lieferschein.$id.jsx", "app.lieferschein.$id.jsx"]) {
     const source = readFileSync(new URL(`../app/routes/${file}`, import.meta.url), "utf8");
-    assert.match(source, /currentQuantity\s+unfulfilledQuantity/);
-    assert.match(source, /shipQuantity: shippableQuantity\(item, isDraft\)/);
-    assert.match(source, /× \{shipQty\}/);
-    assert.match(source, /quantity: item\.quantity \|\| 0/);
+    assert.match(source, /loadLieferscheinDetail/);
+    assert.match(source, /LieferscheinDocumentView/);
   }
+});
+
+test("lieferschein URL helpers preserve draft- prefixes and pair batch print tokens per order", async () => {
+  const { toOrderParamId, buildPrintSaveAddressAction } = await import("../app/utils/lieferscheinUrl.js");
+  assert.equal(toOrderParamId({ id: "gid://shopify/Order/123", isDraft: false }), "123");
+  assert.equal(toOrderParamId({ id: "gid://shopify/DraftOrder/456", isDraft: true }), "draft-456");
+  assert.equal(toOrderParamId("gid://shopify/DraftOrder/789"), "draft-789");
+
+  const multiUrl = "https://example.com/print/lieferschein/101,draft-202?shop=dawayo.myshopify.com&tokens=tok1,tok2";
+  assert.equal(
+    buildPrintSaveAddressAction({ id: "gid://shopify/Order/101", isDraft: false }, multiUrl),
+    "/print/lieferschein/101?shop=dawayo.myshopify.com&tokens=tok1"
+  );
+  assert.equal(
+    buildPrintSaveAddressAction({ id: "gid://shopify/DraftOrder/202", isDraft: true }, multiUrl),
+    "/print/lieferschein/draft-202?shop=dawayo.myshopify.com&tokens=tok2"
+  );
 });
 
 test("bulk print reads several orders at once when the query budget allows, keeping the requested order", async () => {
@@ -184,4 +209,17 @@ test("hashed build assets are cached long-term by the CDN", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   const rule = config.headers?.find((h) => h.source === "/assets/(.*)");
   assert.equal(rule?.headers?.find((h) => h.key === "Cache-Control")?.value, "public, max-age=31536000, immutable");
+});
+
+test("shared Code128 encoder produces valid start/stop patterns and routes reuse checkIsB2B", async () => {
+  const { CODE128_CHARS, CODE128_START_B, CODE128_STOP, encodeCode128 } = await import("../app/utils/code128.js");
+  const encoded = encodeCode128("#1001");
+  assert.ok(encoded.startsWith(CODE128_CHARS[CODE128_START_B]));
+  assert.ok(encoded.endsWith(CODE128_STOP));
+  assert.equal(encoded.length, (1 + 5 + 1) * 11 + CODE128_STOP.length);
+  assert.equal(encodeCode128("A\u0100").slice(0, -11 - CODE128_STOP.length), encodeCode128("A").slice(0, -11 - CODE128_STOP.length));
+
+  const listRoute = readFileSync(new URL("../app/routes/app.lieferschein._index.jsx", import.meta.url), "utf8");
+  assert.match(listRoute, /checkIsB2B.*from "\.\.\/utils\/invoice\.js"/);
+  assert.doesNotMatch(listRoute, /function checkIsB2B/);
 });

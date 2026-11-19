@@ -1,8 +1,9 @@
 import prisma from "../db.server.js";
-import { getShopAliases } from "./subscriptionService.server.js";
+import { getShopAliases, resolveCanonicalShop } from "../utils/shopDomain.js";
 import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
 import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides } from "../utils/arrivalCopy.js";
-export { normalizeArrivalCopy };
+import { BANNER_GRADIENT_PRESETS } from "../constants/bannerPresets.js";
+export { normalizeArrivalCopy, resolveCanonicalShop, BANNER_GRADIENT_PRESETS };
 
 export const ALLOWED_CATEGORY_ICONS = [
   "Sparkles",
@@ -16,34 +17,6 @@ export const ALLOWED_CATEGORY_ICONS = [
   "ShieldCheck",
   "Flame",
   "Package",
-];
-
-export const BANNER_GRADIENT_PRESETS = [
-  {
-    id: "dawayo-red",
-    label: "다와요 시그니처 레드",
-    value: "linear-gradient(135deg, #E30613 0%, #B8000B 100%)",
-  },
-  {
-    id: "fresh-green",
-    label: "신선 딥그린",
-    value: "linear-gradient(135deg, #15803D 0%, #166534 100%)",
-  },
-  {
-    id: "warm-amber",
-    label: "홈카페 앰버 브라운",
-    value: "linear-gradient(135deg, #B45309 0%, #78350F 100%)",
-  },
-  {
-    id: "charcoal-slate",
-    label: "프리미엄 차콜 블랙",
-    value: "linear-gradient(135deg, #1F2937 0%, #111827 100%)",
-  },
-  {
-    id: "ocean-navy",
-    label: "콜드체인 오션 네이비",
-    value: "linear-gradient(135deg, #1E3A8A 0%, #172554 100%)",
-  },
 ];
 
 export const DEFAULT_BANNERS = [];
@@ -187,22 +160,6 @@ export const DEFAULT_EXTENDED_SETTINGS = {
   "brands": DEFAULT_BRANDS
 };
 
-/**
- * Resolves the canonical shop identifier so admin writes (e.g. dawayo.myshopify.com)
- * and mobile storefront reads (e.g. dawayo.de) always hit the exact same partition.
- */
-export function resolveCanonicalShop(rawShop) {
-  const clean = String(rawShop || "dawayo.de")
-    .replace(/^https?:\/\//i, "")
-    .split("/")[0]
-    .toLowerCase()
-    .trim();
-  const aliases = getShopAliases(clean);
-  if (aliases.includes("dawayo.de")) {
-    return "dawayo.de";
-  }
-  return clean || "dawayo.de";
-}
 
 /**
  * Ensures non-empty multi-language object with automatic Korean fallback
@@ -233,7 +190,11 @@ export const DEFAULT_FAQS = [
   },
   {
     q: withLangFallback("적립 포인트는 언제 사용할 수 있나요?", "Wann kann ich meine Bonuspunkte einlösen?", "When can I use my reward points?"),
-    a: withLangFallback("보유 포인트는 오프라인 매장 결제 시 QR 코드를 제시하여 즉시 사용하거나 온라인에서 확인 가능합니다.", "Deinen Punktestand findest du im Konto. Zeige deinen QR-Code an der Kasse, um Punkte einzulösen.", "View your balance in your account. Present your loyalty QR code at checkout to redeem points.")
+    a: withLangFallback(
+      "보유 포인트는 마이페이지 계정에서 확인할 수 있으며, 적립 및 온라인 사용 조건은 고객센터에서 안내해 드립니다.",
+      "Deinen Punktestand findest du im Konto. Bitte kontaktiere unseren Kundenservice für Einlösebedingungen.",
+      "You can view your point balance in your account. Contact customer support for earning and redemption details."
+    )
   }
 ];
 
@@ -431,11 +392,31 @@ export function normalizeGroupBuyingInput(campaigns) {
     if (raw.currentCount != null && raw.currentCount !== "" && currentCount == null) {
       return { campaigns: [], error: `${label}: 현재 참여 인원은 0 이상의 숫자로 입력해 주세요.` };
     }
+    const rawBundleQty = raw.bundleQuantity;
+    const bundleQuantity =
+      rawBundleQty == null || rawBundleQty === ""
+        ? 1
+        : typeof rawBundleQty !== "boolean" && Number.isInteger(Number(rawBundleQty)) && Number(rawBundleQty) >= 1
+          ? Number(rawBundleQty)
+          : null;
+    if (bundleQuantity == null) {
+      return { campaigns: [], error: `${label}: 묶음 수량은 1 이상의 정수로 입력해 주세요.` };
+    }
+    const rawDiscountAmt = raw.discountAmount;
+    const discountAmount =
+      rawDiscountAmt == null || rawDiscountAmt === "" || Number(rawDiscountAmt) === 0
+        ? null
+        : typeof rawDiscountAmt !== "boolean" && Number.isFinite(Number(rawDiscountAmt)) && Number(rawDiscountAmt) > 0
+          ? +Number(rawDiscountAmt).toFixed(2)
+          : undefined;
+    if (discountAmount === undefined) {
+      return { campaigns: [], error: `${label}: 할인 금액은 0 이상의 숫자로 입력해 주세요.` };
+    }
     const discountCode = typeof raw.discountCode === 'string' ? raw.discountCode.trim().toUpperCase() : '';
     const rest = { ...raw };
     delete rest.groupPrice;
     delete rest.endsInHours;
-    out.push({ ...rest, isActive, endsAt, targetCount, currentCount, discountCode });
+    out.push({ ...rest, isActive, endsAt, targetCount, currentCount, discountCode, bundleQuantity, discountAmount });
   }
   return { campaigns: out, error: null };
 }
@@ -457,11 +438,20 @@ export function toPublicGroupBuying(campaigns, now = new Date()) {
     .map((g) => {
       const targetCount = toCount(g.targetCount);
       const currentCount = toCount(g.currentCount);
+      const rawBundleQty = Number(g.bundleQuantity);
+      const bundleQuantity = Number.isFinite(rawBundleQty) && rawBundleQty >= 1 ? Math.floor(rawBundleQty) : 1;
+      const discountCode = typeof g.discountCode === "string" ? g.discountCode.trim().toUpperCase() : "";
+      const rawDiscountAmt = Number(g.discountAmount);
+      const discountAmount = discountCode && Number.isFinite(rawDiscountAmt) && rawDiscountAmt > 0
+        ? +rawDiscountAmt.toFixed(2)
+        : null;
       return {
         id: String(g.id || g.variantId || g.productId),
         productId: g.productId || "",
         variantId: g.variantId || "",
-        discountCode: typeof g.discountCode === "string" ? g.discountCode.trim().toUpperCase() : "",
+        discountCode,
+        discountAmount,
+        bundleQuantity,
         title: withLangFallback(g.titleKo || "", g.titleDe, g.titleEn),
         desc: withLangFallback(g.descKo || "", g.descDe, g.descEn),
         targetCount: targetCount && targetCount > 0 ? targetCount : null,
@@ -629,9 +619,14 @@ export async function getStorefrontConfig(
       ? extended.groupBuying
       : toPublicGroupBuying(extended.groupBuying, now),
     prospekt: extended.prospekt,
-    subscriptionPlans: includeInactive
+    subscriptionPlans: (includeInactive
       ? extended.subscriptionPlans
-      : extended.subscriptionPlans.filter((s) => s.isActive !== false),
+      : extended.subscriptionPlans.filter((s) => s.isActive !== false)
+    ).map((s) => ({
+      ...s,
+      titleDe: s.titleDe || s.titleKo || s.productTitle || "",
+      titleEn: s.titleEn || s.titleKo || s.productTitle || "",
+    })),
     searchKeywords: extended.searchKeywords,
     searchRankings: extended.searchRankings || [],
     appUpdate: extended.appUpdate,
@@ -663,10 +658,9 @@ export async function getStorefrontConfig(
       const basePrice = Number(d.basePrice) || 0;
       const salePrice = Number(d.salePrice) || 0;
       const computedDiscount =
-        d.discountRate ||
-        (basePrice > salePrice && basePrice > 0
+        basePrice > salePrice && basePrice > 0
           ? Math.round(((basePrice - salePrice) / basePrice) * 100)
-          : 0);
+          : Number(d.discountRate) || 0;
       const matchedOverride = findMatchingOverride(
         productOverrides,
         d

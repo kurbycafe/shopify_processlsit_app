@@ -1,29 +1,25 @@
-import { authenticate } from "../shopify.server.js";
+import { handleProductMetaAction, handleProductMetaLoader } from "../services/productMetaServer.server.js";
 import { listTemperatureProducts, saveProductTemperatures, TemperatureError } from "../services/productTemperatures.server.js";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
 
-function failure(error) {
-  const status = error instanceof TemperatureError ? error.status : 503;
-  return Response.json({ success: false, message: error instanceof TemperatureError ? error.message : "상품 온도 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.", ...(error instanceof TemperatureError ? { details: error.details } : {}) },
-    { status, headers: { "Cache-Control": "no-store" } });
-}
+const FALLBACK_ERROR_MESSAGE = "상품 온도 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.";
+
 export async function loader({ request }) {
-  const { admin } = await authenticate.admin(request);
-  try {
-    const result = await listTemperatureProducts({ admin,
-      after: new URL(request.url).searchParams.get("after") || null });
-    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return failure(error); }
+  return handleProductMetaLoader({
+    request,
+    ErrorClass: TemperatureError,
+    fallbackErrorMessage: FALLBACK_ERROR_MESSAGE,
+    listProducts: listTemperatureProducts,
+  });
 }
+
 export async function action({ request }) {
-  const { admin } = await authenticate.admin(request);
-  if (request.method !== "POST") return Response.json({ success: false, message: "POST 요청이 필요합니다." }, { status: 405, headers: { Allow: "POST" } });
-  try {
-    let input;
-    try { input = await request.json(); } catch { throw new TemperatureError(400, "저장 요청 형식이 올바르지 않습니다."); }
-    const result = await saveProductTemperatures({ admin, input });
-    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return failure(error); }
+  return handleProductMetaAction({
+    request,
+    ErrorClass: TemperatureError,
+    fallbackErrorMessage: FALLBACK_ERROR_MESSAGE,
+    saveProducts: saveProductTemperatures,
+  });
 }

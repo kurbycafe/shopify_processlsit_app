@@ -71,7 +71,7 @@ const STATUS_OPTIONS = [
 
 const TAB_KEYS = ["ALL", "PENDING", "IN_PROGRESS", "DONE", "ON_HOLD"];
 
-function formatDateTime(value) {
+function formatBerlinDateTime(value) {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
@@ -233,7 +233,7 @@ export const action = async ({ request }) => {
             {item.id}
           </td>
           <td style={{ padding: "12px 14px", whiteSpace: "nowrap", color: "#4B5563" }}>
-            {formatDateTime(item.createdAt)}
+            {formatBerlinDateTime(item.createdAt)}
           </td>
           <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
             {item.requester || "-"}

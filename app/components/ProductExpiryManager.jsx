@@ -1,44 +1,28 @@
-import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select, Text, TextField } from "@shopify/polaris";
 import { expiryInfo } from "../utils/productExpiry.js";
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
+import { parseProductMetaJson, usePaginatedProductMeta } from "../hooks/usePaginatedProductMeta.js";
 const ENDPOINT = "/app/product-expiry";
 const FILTERS = [{label:"전체",value:"all"},{label:"유통기한 미등록",value:"unset"},{label:"기한 임박",value:"near"},{label:"기한 경과",value:"expired"},{label:"형식 확인 필요",value:"invalid"},{label:"날짜 등록됨",value:"dated"}];
-async function resultJson(response) {
- let data;
- try { data = await response.json(); } catch { throw Error("서버 응답을 확인하지 못했습니다. 새로고침해주세요."); }
- if (!response.ok || data.success !== true) {
-  const error = Error(data.message || "유통기한을 처리하지 못했습니다.");
-  error.status = response.status; error.details = data.details; throw error;
- }
- return data;
-}
+const validateExpiryItem = (item) => {
+ if (!item.id || typeof item.title !== "string") throw Error("상품 정보가 올바르지 않습니다.");
+};
 export default function ProductExpiryManager() {
- const [items,setItems]=useState([]),[status,setStatus]=useState("loading"),[reload,setReload]=useState(0);
  const [query,setQuery]=useState(""),[filter,setFilter]=useState("all"),[nearDays,setNearDays]=useState("30"),[stockOnly,setStockOnly]=useState(false);
  const [page,setPage]=useState(1),[selected,setSelected]=useState([]),[targetDate,setTargetDate]=useState("");
  const [error,setError]=useState(""),[success,setSuccess]=useState(""),[saving,setSaving]=useState(false),[progress,setProgress]=useState(null);
  const running=useRef(false),saveAbort=useRef(null),editor=useRef(null);
- useEffect(()=>{
-  const controller=new AbortController();let current=true;
-  setItems([]);setStatus("loading");setSelected([]);setError("");setSuccess("");setPage(1);
-  void(async()=>{
-   const rows=new Map(),cursors=new Set();let after=null;
-   try {
-    do {
-     const data=await resultJson(await fetch(ENDPOINT+(after?"?after="+encodeURIComponent(after):""),{signal:controller.signal,cache:"no-store",credentials:"same-origin",headers:{Accept:"application/json"}}));
-     if(!Array.isArray(data.items)||typeof data.pageInfo?.hasNextPage!=="boolean")throw Error("상품 목록 응답이 올바르지 않습니다.");
-     for(const item of data.items){if(!item.id||typeof item.title!=="string")throw Error("상품 정보가 올바르지 않습니다.");rows.set(item.id,item);}
-     if(!current)return;setItems([...rows.values()]);
-     if(!data.pageInfo.hasNextPage)break;
-     const next=data.pageInfo.endCursor;if(!next||cursors.has(next))throw Error("다음 상품 페이지를 확인하지 못했습니다.");
-     cursors.add(next);after=next;
-    }while(current);
-    if(current)setStatus("ready");
-   }catch(err){if(current&&err.name!=="AbortError"){setStatus("error");setError(err.message);}}
-  })();
-  return()=>{current=false;controller.abort();};
- },[reload]);
+ const handleLoadReset = useCallback(() => {
+  setSelected([]); setError(""); setSuccess(""); setPage(1);
+ }, []);
+ const { items, setItems, loadStatus: status, loadError, reload: reloadProducts } = usePaginatedProductMeta({
+  endpoint: ENDPOINT,
+  validateItem: validateExpiryItem,
+  nextCursorErrorMessage: "다음 상품 페이지를 확인하지 못했습니다.",
+  onReset: handleLoadReset,
+ });
+ const bannerError = error || loadError;
  useEffect(()=>()=>saveAbort.current?.abort(),[]);
  const deferredQuery = useDeferredValue(query);
  const today=new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Berlin"}).format(new Date());
@@ -66,7 +50,7 @@ export default function ProductExpiryManager() {
   try{
    for(let offset=0;offset<ids.length;offset+=25){
     active=ids.slice(offset,offset+25);
-    const data=await resultJson(await fetch(ENDPOINT,{method:"POST",credentials:"same-origin",signal:controller.signal,headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({productIds:active,expiryDate:targetDate})}));
+    const data=await parseProductMetaJson(await fetch(ENDPOINT,{method:"POST",credentials:"same-origin",signal:controller.signal,headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({productIds:active,expiryDate:targetDate})}));
     if(data.updatedCount!==active.length||data.expiryDate!==targetDate||!data.saveId||!Array.isArray(data.productIds)||active.some(id=>!data.productIds.includes(id)))throw Error("저장 결과를 확인하지 못했습니다. 목록을 새로고침해주세요.");
     for(const id of active)completed.add(id);
     setItems(previous=>previous.map(item=>completed.has(item.id)?{...item,expiryDate:targetDate,expiryRaw:targetDate,expiryUncertain:false}:item));
@@ -92,7 +76,7 @@ export default function ProductExpiryManager() {
  };
  return <BlockStack gap="400">
   <Card><BlockStack gap="300">
-   <InlineStack align="space-between" gap="200"><BlockStack gap="100"><Text as="h2" variant="headingMd">유통기한 관리 (MHD)</Text><Text as="p" tone="subdued">상품별 실제 유통기한을 확인하고 날짜를 수정합니다. 출고 명세서·상품 라벨과 같은 Shopify 원본을 사용합니다.</Text></BlockStack><Button disabled={saving} loading={status==="loading"} onClick={()=>setReload(value=>value+1)}>유통기한 새로고침</Button></InlineStack>
+   <InlineStack align="space-between" gap="200"><BlockStack gap="100"><Text as="h2" variant="headingMd">유통기한 관리 (MHD)</Text><Text as="p" tone="subdued">상품별 실제 유통기한을 확인하고 날짜를 수정합니다. 출고 명세서·상품 라벨과 같은 Shopify 원본을 사용합니다.</Text></BlockStack><Button disabled={saving} loading={status==="loading"} onClick={reloadProducts}>유통기한 새로고침</Button></InlineStack>
    <InlineStack gap="200"><Badge>{"조회 상품 "+items.length+"개"}</Badge><Badge>{"미등록 "+rows.filter(item=>item.expiry.status==="unset").length+"개"}</Badge><Badge tone="critical">{"기한 경과 "+rows.filter(item=>item.expiry.status==="expired").length+"개"}</Badge><Badge tone="attention">{"기한 임박 "+rows.filter(item=>item.expiry.days!==null&&item.expiry.days>=0&&item.expiry.days<=Number(nearDays)).length+"개"}</Badge></InlineStack>
    {status==="loading"&&<p role="status">전체 상품의 유통기한을 조회하고 있습니다. 완료 후 수정할 수 있습니다.</p>}
    {status==="error"&&<Banner tone="critical"><p>조회가 완료되지 않아 목록이 일부일 수 있습니다. 다시 조회해주세요.</p></Banner>}
@@ -100,7 +84,7 @@ export default function ProductExpiryManager() {
    <Checkbox label="재고가 있는 상품만" checked={stockOnly} disabled={saving} onChange={value=>{setStockOnly(value);reset();}}/>
    <Text as="p" tone="subdued">유통기한이 빠른 순으로 표시합니다. 등록되지 않은 날짜는 추정하지 않습니다. 원본: freshly.expiry_date.</Text>
   </BlockStack></Card>
-  {error&&<Banner tone="critical"><p>{error} 완료되지 않은 상품은 선택 상태를 유지합니다.</p></Banner>}
+  {bannerError&&<Banner tone="critical"><p>{bannerError} 완료되지 않은 상품은 선택 상태를 유지합니다.</p></Banner>}
   {success&&<Banner tone="success"><p role="status">{success}</p></Banner>}
   <Card><BlockStack gap="300">
    <InlineStack align="space-between" gap="200" blockAlign="center"><Text as="h3" variant="headingSm">{selected.length+"개 상품 선택됨"}</Text><InlineStack gap="200"><Button disabled={busy||!filtered.length} onClick={()=>{setSelected(filtered.map(item=>item.id));setError("");setSuccess("");}}>{"검색 결과 전체 "+filtered.length+"개 선택"}</Button><Button disabled={busy||!selected.length} onClick={reset}>선택 해제</Button></InlineStack></InlineStack>

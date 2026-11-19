@@ -28,6 +28,7 @@ import {
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
+import { saveInspectionRecordWithLock } from "../services/inspectionRecords.server.js";
 import { sendQcIssueReportEmail } from "../utils/emailService.js";
 import {
   playSuccessBeep,
@@ -203,66 +204,13 @@ export const action = async ({ request }) => {
     }
 
     // Transactional save / replace items
-    const record = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${session.shop}:${orderId}`}, 0))`;
-      const existing = await tx.inspectionRecord.findUnique({ where: { orderId } });
-      if (existing && existing.shop !== session.shop) throw new Error("주문에 대한 권한이 없습니다.");
-      if (existing) {
-        await tx.inspectionItem.deleteMany({ where: { inspectionRecordId: existing.id } });
-        return await tx.inspectionRecord.update({
-          where: { id: existing.id },
-          data: {
-            orderName,
-            shop: session.shop,
-            status,
-            inspectorName,
-            completedAt: new Date(),
-            items: {
-              create: items.map((item) => ({
-                orderLineId: item.id,
-                variantId: item.variantId || "N/A",
-                productTitle: item.title,
-                variantTitle: item.variantTitle || "",
-                sku: item.sku || null,
-                barcode: item.barcode || null,
-                orderedQuantity: Number(item.orderedQuantity) || 0,
-                inspectedQuantity: Number(item.inspectedQuantity) || 0,
-                issueType: item.issueType || null,
-                issueNote: item.issueNote || null,
-                substitutedVariantId: item.substitutedVariantId || null,
-                substitutedProductTitle: item.substitutedProductTitle || null,
-              })),
-            },
-          },
-        });
-      }
-
-      return await tx.inspectionRecord.create({
-        data: {
-          orderId,
-          orderName,
-          shop: session.shop,
-          status,
-          inspectorName,
-          completedAt: new Date(),
-          items: {
-            create: items.map((item) => ({
-              orderLineId: item.id,
-                variantId: item.variantId || "N/A",
-              productTitle: item.title,
-              variantTitle: item.variantTitle || "",
-              sku: item.sku || null,
-              barcode: item.barcode || null,
-              orderedQuantity: Number(item.orderedQuantity) || 0,
-              inspectedQuantity: Number(item.inspectedQuantity) || 0,
-              issueType: item.issueType || null,
-              issueNote: item.issueNote || null,
-              substitutedVariantId: item.substitutedVariantId || null,
-              substitutedProductTitle: item.substitutedProductTitle || null,
-            })),
-          },
-        },
-      });
+    const record = await saveInspectionRecordWithLock(prisma, {
+      shop: session.shop,
+      orderId,
+      orderName,
+      inspectorName,
+      status,
+      items,
     });
 
     // Customer email dispatch on exception issues (fixed undefined shop bug)

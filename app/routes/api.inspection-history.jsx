@@ -6,6 +6,7 @@ import { MobileApiError, readId } from "../services/mobileApi.server.js";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import dayjs from "dayjs";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
+import { buildInspectionHistoryWhere, saveInspectionRecordWithLock } from "../services/inspectionRecords.server.js";
 
 function getCorsHeaders(request) {
   return jsonCorsHeaders(request, { methods: "GET, POST, PUT, OPTIONS" });
@@ -46,45 +47,9 @@ export const loader = async ({ request }) => {
       throw new MobileApiError(400, "VALIDATION_ERROR", "요청한 페이지가 조회 범위를 초과했습니다.");
     }
 
-    const whereClause = { shop };
-
-    if (orderId) {
-      whereClause.orderId = { contains: orderId, mode: "insensitive" };
-    }
-
-    if (orderName) {
-      whereClause.orderName = { contains: orderName, mode: "insensitive" };
-    }
-
-    if (status !== "ALL") {
-      whereClause.status = status;
-    }
-
-    if (query !== "") {
-      whereClause.AND = [
-        {
-          OR: [
-            { orderName: { contains: query, mode: "insensitive" } },
-            { inspectorName: { contains: query, mode: "insensitive" } },
-            {
-              items: {
-                some: {
-                  OR: [
-                    { productTitle: { contains: query, mode: "insensitive" } },
-                    { sku: { contains: query, mode: "insensitive" } },
-                    { barcode: { contains: query, mode: "insensitive" } },
-                    { substitutedProductTitle: { contains: query, mode: "insensitive" } },
-                  ],
-                },
-              },
-            },
-          ],
-        },
-      ];
-    }
-
+    let parsedStartDate = null;
+    let parsedEndDate = null;
     if (startDate || endDate) {
-      whereClause.createdAt = {};
       const readDate = (value, boundary) => {
         const date = dayjs(value);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !date.isValid() || date.format("YYYY-MM-DD") !== value) {
@@ -92,16 +57,22 @@ export const loader = async ({ request }) => {
         }
         return boundary === "start" ? date.startOf("day").toDate() : date.endOf("day").toDate();
       };
-      if (startDate) {
-        whereClause.createdAt.gte = readDate(startDate, "start");
-      }
-      if (endDate) {
-        whereClause.createdAt.lte = readDate(endDate, "end");
-      }
-      if (whereClause.createdAt.gte && whereClause.createdAt.lte && whereClause.createdAt.gte > whereClause.createdAt.lte) {
+      if (startDate) parsedStartDate = readDate(startDate, "start");
+      if (endDate) parsedEndDate = readDate(endDate, "end");
+      if (parsedStartDate && parsedEndDate && parsedStartDate > parsedEndDate) {
         throw new MobileApiError(400, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.");
       }
     }
+
+    const whereClause = buildInspectionHistoryWhere({
+      shop,
+      orderId,
+      orderName,
+      status,
+      query,
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
+    });
 
     await ensureDatabaseSchema();
     const [total, records] = await Promise.all([
@@ -194,89 +165,21 @@ export const action = async ({ request }) => {
       await ensureDatabaseSchema();
 
       // Transactional record update/upsert
-      const record = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${shop}:${orderId}`}, 0))`;
-        // Find existing record
-        const existing = await tx.inspectionRecord.findUnique({
-          where: { orderId },
-        });
-
-        if (existing && existing.shop !== shop) throw new MobileApiError(404, "ORDER_NOT_FOUND", "Order not found.");
-        if (existing) {
-          await tx.inspectionItem.deleteMany({
-            where: { inspectionRecordId: existing.id },
-          });
-
-          return await tx.inspectionRecord.update({
-            where: { id: existing.id },
-            data: {
-              orderName,
-              shop,
-              inspectorName,
-              status,
-              customShippingAddress: customShippingAddress
-                ? JSON.parse(JSON.stringify(customShippingAddress))
-                : undefined,
-              customBillingAddress: customBillingAddress
-                ? JSON.parse(JSON.stringify(customBillingAddress))
-                : undefined,
-              customVat,
-              completedAt: new Date(),
-              items: {
-                create: items.map((item) => ({
-                  orderLineId: item.id,
-                  variantId: item.variantId || "N/A",
-                  productTitle: item.productTitle || item.title || "미지정 상품",
-                  variantTitle: item.variantTitle || "",
-                  sku: item.sku || null,
-                  barcode: item.barcode || null,
-                  orderedQuantity: Number(item.orderedQuantity) || 0,
-                  inspectedQuantity: Number(item.inspectedQuantity) || 0,
-                  issueType: item.issueType || null,
-                  issueNote: item.issueNote || null,
-                  substitutedVariantId: item.substitutedVariantId || null,
-                  substitutedProductTitle: item.substitutedProductTitle || null,
-                })),
-              },
-            },
-            include: { items: true },
-          });
-        }
-
-        return await tx.inspectionRecord.create({
-          data: {
-            orderId,
-            orderName,
-            shop,
-            inspectorName,
-            status,
-            customShippingAddress: customShippingAddress
-              ? JSON.parse(JSON.stringify(customShippingAddress))
-              : undefined,
-            customBillingAddress: customBillingAddress
-              ? JSON.parse(JSON.stringify(customBillingAddress))
-              : undefined,
-            customVat,
-            completedAt: new Date(),
-            items: {
-              create: items.map((item) => ({
-                orderLineId: item.id,
-                  variantId: item.variantId || "N/A",
-                productTitle: item.productTitle || item.title || "미지정 상품",
-                variantTitle: item.variantTitle || "",
-                sku: item.sku || null,
-                barcode: item.barcode || null,
-                orderedQuantity: Number(item.orderedQuantity) || 0,
-                inspectedQuantity: Number(item.inspectedQuantity) || 0,
-                issueType: item.issueType || null,
-                issueNote: item.issueNote || null,
-                substitutedVariantId: item.substitutedVariantId || null,
-                substitutedProductTitle: item.substitutedProductTitle || null,
-              })),
-            },
-          },
-          include: { items: true },
-        });
+      const record = await saveInspectionRecordWithLock(prisma, {
+        shop,
+        orderId,
+        orderName,
+        inspectorName,
+        status,
+        items,
+        customShippingAddress,
+        customBillingAddress,
+        customVat,
+        includeCustomFields: true,
+        includeItems: true,
+        onCrossShopConflict: () => {
+          throw new MobileApiError(404, "ORDER_NOT_FOUND", "Order not found.");
+        },
       });
 
       return Response.json(

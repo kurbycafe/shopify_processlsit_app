@@ -39,6 +39,36 @@ test("admin save drops the unused price and relative-hours fields", () => {
   assert.equal("groupPrice" in campaigns[0], false);
   assert.equal("endsInHours" in campaigns[0], false);
   assert.equal(campaigns[0].endsAt, "2026-11-01T09:00:00.000Z");
+  assert.equal(campaigns[0].bundleQuantity, 1);
+});
+
+test("group-buy bundleQuantity and discountAmount validate cleanly and expose properly", () => {
+  assert.match(normalizeGroupBuyingInput([{ ...linked, bundleQuantity: 0 }]).error, /묶음 수량/);
+  assert.match(normalizeGroupBuyingInput([{ ...linked, bundleQuantity: -2 }]).error, /묶음 수량/);
+  assert.match(normalizeGroupBuyingInput([{ ...linked, bundleQuantity: 1.5 }]).error, /묶음 수량/);
+  assert.match(normalizeGroupBuyingInput([{ ...linked, discountAmount: -1 }]).error, /할인 금액/);
+  assert.match(normalizeGroupBuyingInput([{ ...linked, discountAmount: "abc" }]).error, /할인 금액/);
+
+  const { campaigns, error } = normalizeGroupBuyingInput([
+    { ...linked, bundleQuantity: "3", discountCode: "gb-kimchi-3p", discountAmount: "3.106" },
+  ]);
+  assert.equal(error, null);
+  assert.equal(campaigns[0].bundleQuantity, 3);
+  assert.equal(campaigns[0].discountCode, "GB-KIMCHI-3P");
+  assert.equal(campaigns[0].discountAmount, 3.11);
+
+  const [pubDefault] = toPublicGroupBuying([linked]);
+  assert.equal(pubDefault.bundleQuantity, 1);
+  assert.equal(pubDefault.discountAmount, null);
+
+  // Without discountCode, discountAmount is hidden in public payload
+  const [pubNoCode] = toPublicGroupBuying([{ ...linked, discountAmount: 3.1 }]);
+  assert.equal(pubNoCode.discountAmount, null);
+
+  const [pubBundle] = toPublicGroupBuying(campaigns);
+  assert.equal(pubBundle.bundleQuantity, 3);
+  assert.equal(pubBundle.discountCode, "GB-KIMCHI-3P");
+  assert.equal(pubBundle.discountAmount, 3.11);
 });
 
 test("display reset keeps campaigns, brands, product mappings and app settings", async () => {

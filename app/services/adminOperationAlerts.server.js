@@ -364,8 +364,9 @@ export function buildPushFailureAlertEmail({
   });
 
   const slug = storeSlugFromShop(shop);
+  const appHandle = (process.env.SHOPIFY_APP_HANDLE || "process-list-3").trim() || "process-list-3";
   const adminPushUrl = slug
-    ? `https://admin.shopify.com/store/${encodeURIComponent(slug)}/apps/process-list-3/app/push-notifications?status=FAILED`
+    ? `https://admin.shopify.com/store/${encodeURIComponent(slug)}/apps/${encodeURIComponent(appHandle)}/app/push-notifications?status=FAILED`
     : "https://admin.shopify.com";
 
   const subject = `[Dawayo 푸시 경고] 모바일 알림 발송 실패 ${newFailures.length}건 발생 (미처리 ${totalFailed}건)`;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { useCursorRequests } from '../app/hooks/useCursorRequests.js';
 
 const source = await fs.readFile(new URL('../app/components/CustomerRequestsManager.jsx', import.meta.url), 'utf8');
 const body = source.slice(source.indexOf('const STATUS_LABELS')).replace('export default function', 'function') + '\nglobalThis.component = CustomerRequestsManager;';
@@ -18,6 +19,14 @@ function screen() {
     useRef: initial => refs[refIndex++] ||= { current: initial },
     useMemo: callback => callback(),
     useEffect: (callback, deps) => { const i = effectIndex++; if (!dependencies[i] || deps.some((value, j) => !Object.is(value, dependencies[i][j]))) { dependencies[i] = deps; effects.push(callback); } },
+    useCursorRequests: options => useCursorRequests({
+      ...options,
+      hooks: {
+        useState: (...args) => context.useState(...args),
+        useRef: (...args) => context.useRef(...args),
+        useEffect: (...args) => context.useEffect(...args),
+      },
+    }),
     // React Router returns a new fetcher object when its state/data changes.
     useFetcher: () => fetchIndex++ === 0 ? { ...query, load } : { ...update, submit() {} },
   };

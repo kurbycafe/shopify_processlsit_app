@@ -75,6 +75,8 @@ export function CampaignsPanel({
                     imageUrl: "",
                     isActive: true,
                     discountCode: "",
+                    bundleQuantity: 1,
+                    discountAmount: null,
                   },
                 ]);
                 setActiveGbSearchIdx(newIdx);
@@ -428,7 +430,7 @@ export function CampaignsPanel({
                     </InlineStack>
 
                     <InlineStack gap="300">
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 2 }}>
                         <TextField
                           label="Shopify 할인 코드 (선택 - 결제 시 자동 적용)"
                           value={gb.discountCode || ""}
@@ -442,14 +444,62 @@ export function CampaignsPanel({
                           autoComplete="off"
                         />
                       </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="묶음 구성 수량 (개)"
+                          type="number"
+                          value={String(gb.bundleQuantity ?? 1)}
+                          onChange={(v) => {
+                            const next = [...groupBuying];
+                            next[idx] = {
+                              ...next[idx],
+                              bundleQuantity: Math.max(1, parseInt(v || "1", 10) || 1),
+                            };
+                            setGroupBuying(next);
+                          }}
+                          helpText="단품 연결 후 3팩 기획 등으로 구성할 때 입력 (기본 1개)"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TextField
+                          label="묶음 할인 금액 (€)"
+                          type="number"
+                          step="0.01"
+                          value={String(gb.discountAmount ?? "")}
+                          onChange={(v) => {
+                            const next = [...groupBuying];
+                            next[idx] = {
+                              ...next[idx],
+                              discountAmount: v === "" ? null : Number(v),
+                            };
+                            setGroupBuying(next);
+                          }}
+                          placeholder="예: 3.10"
+                          helpText="정가 합계에서 차감할 총 할인액"
+                          autoComplete="off"
+                        />
+                      </div>
                     </InlineStack>
 
                     <Banner tone="info">
-                      앱에는 Shopify 판매가
-                      {gb.variantId && liveVariantPrices[gb.variantId]
-                        ? ` (현재 €${liveVariantPrices[gb.variantId].price.toFixed(2)})`
-                        : ""}
-                      가 기본 표시됩니다. 결제창 할인은 Shopify Admin에서 상품 판매가를 직접 변경하거나, 위 &apos;Shopify 할인 코드&apos;를 입력해 두면 결제 시 자동으로 할인가가 적용됩니다.
+                      {(() => {
+                        const unitPrice = gb.variantId && liveVariantPrices[gb.variantId] ? liveVariantPrices[gb.variantId].price : null;
+                        const bundleQty = Math.max(1, Number(gb.bundleQuantity || 1));
+                        const discountAmt = Number(gb.discountAmount || 0);
+                        if (unitPrice != null && discountAmt > 0) {
+                          const regularBundle = +(unitPrice * bundleQty).toFixed(2);
+                          const dealBundle = Math.max(0, +(regularBundle - discountAmt).toFixed(2));
+                          return `${bundleQty}개 정가 €${regularBundle.toFixed(2)} → 공동구매 특가 €${dealBundle.toFixed(2)} (할인 €${discountAmt.toFixed(2)}). 저장 시 Shopify 할인코드가 자동 동기화됩니다.`;
+                        }
+                        return (
+                          <>
+                            앱에는 Shopify 판매가
+                            {unitPrice != null ? ` (현재 €${unitPrice.toFixed(2)})` : ""}
+                            가 기본 표시됩니다. 결제창 할인은 Shopify Admin에서 상품 판매가를 직접 변경하거나, 위 &apos;Shopify 할인 코드&apos;와 &apos;묶음 할인 금액&apos;을 입력해 두면 결제 시 자동으로 할인가가 적용됩니다.
+                          </>
+                        );
+                      })()}
                     </Banner>
 
                     <InlineStack gap="300" blockAlign="end">

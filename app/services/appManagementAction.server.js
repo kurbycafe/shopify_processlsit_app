@@ -90,6 +90,83 @@ async function syncHotDealPrice(admin, { productId, variantId, active, basePrice
   }
 }
 
+async function syncGroupBuyingDiscountCodes(admin, campaigns) {
+  if (!admin?.graphql || !Array.isArray(campaigns)) return;
+  for (const campaign of campaigns) {
+    if (!campaign || campaign.isActive === false || !campaign.productId || !(Number(campaign.discountAmount) > 0)) {
+      continue;
+    }
+    if (!campaign.discountCode) {
+      campaign.discountCode = `GB-${String(campaign.id || "DEAL").toUpperCase().replace(/[^A-Z0-9]/g, "")}`;
+    }
+    try {
+      const lookupRes = await admin.graphql(
+        `#graphql
+        query FindGroupBuyCode($code: String!) {
+          codeDiscountNodeByCode(code: $code) {
+            id
+          }
+        }`,
+        { variables: { code: campaign.discountCode } },
+      );
+      const lookupJson = await lookupRes.json();
+      const existingId = lookupJson?.data?.codeDiscountNodeByCode?.id || null;
+      const basicCodeDiscount = {
+        title: campaign.discountCode,
+        code: campaign.discountCode,
+        startsAt: new Date(Date.now() - 60000).toISOString(),
+        endsAt: campaign.endsAt || null,
+        customerSelection: { all: true },
+        customerGets: {
+          value: {
+            discountAmount: {
+              amount: Number(campaign.discountAmount).toFixed(2),
+              appliesOnEachItem: false,
+            },
+          },
+          items: {
+            products: { productsToAdd: [campaign.productId] },
+          },
+        },
+        minimumRequirement: {
+          quantity: {
+            greaterThanOrEqualToQuantity: String(campaign.bundleQuantity || 1),
+          },
+        },
+        appliesOncePerCustomer: false,
+        combinesWith: {
+          orderDiscounts: true,
+          productDiscounts: true,
+          shippingDiscounts: true,
+        },
+      };
+      if (existingId) {
+        await admin.graphql(
+          `#graphql
+          mutation UpdateGroupBuyDiscount($id: ID!, $basicCodeDiscount: DiscountCodeBasicInput!) {
+            discountCodeBasicUpdate(id: $id, basicCodeDiscount: $basicCodeDiscount) {
+              userErrors { field message }
+            }
+          }`,
+          { variables: { id: existingId, basicCodeDiscount } },
+        );
+      } else {
+        await admin.graphql(
+          `#graphql
+          mutation CreateGroupBuyDiscount($basicCodeDiscount: DiscountCodeBasicInput!) {
+            discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+              userErrors { field message }
+            }
+          }`,
+          { variables: { basicCodeDiscount } },
+        );
+      }
+    } catch (err) {
+      console.warn("[GroupBuy] Failed to sync Shopify discount code:", campaign.discountCode, err?.message);
+    }
+  }
+}
+
 export async function appManagementAction({ request }) {
   const { session, admin } = await authenticate.admin(request);
   const shop = resolveCanonicalShop(session.shop);
@@ -413,10 +490,10 @@ export async function appManagementAction({ request }) {
       const salePrice = Math.max(0.01, Number(formData.get("salePrice") || 0));
       const manualDiscount = Number(formData.get("discountRate") || 0);
       const computedDiscount =
-        manualDiscount > 0
-          ? manualDiscount
-          : basePrice > salePrice
-            ? Math.round(((basePrice - salePrice) / basePrice) * 100)
+        basePrice > salePrice && basePrice > 0
+          ? Math.round(((basePrice - salePrice) / basePrice) * 100)
+          : manualDiscount > 0
+            ? manualDiscount
             : 0;
 
       const productId = String(formData.get("productId") || "").trim();
@@ -1198,6 +1275,7 @@ export async function appManagementAction({ request }) {
           };
         }
         nextGroupBuying = checkedGb.campaigns;
+        await syncGroupBuyingDiscountCodes(admin, nextGroupBuying);
       }
 
       const prospektRaw = formData.get("prospektJson");

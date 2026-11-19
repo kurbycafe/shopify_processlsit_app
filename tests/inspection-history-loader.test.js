@@ -7,6 +7,8 @@ import dayjs from "dayjs";
 import { operationalIdentity } from "../app/services/operationalApi.server.js";
 import { MobileApiError } from "../app/services/mobileApi.server.js";
 import { jsonCorsHeaders } from "../app/utils/cors.server.js";
+import { buildInspectionHistoryWhere } from "../app/services/inspectionRecords.server.js";
+import { getShopAliases } from "../app/utils/shopDomain.js";
 
 const token = "inspection-test-token_".padEnd(43, "a");
 const shop = "inspection-test.myshopify.com";
@@ -33,7 +35,7 @@ assert.ok(loaderExpression && corsFunction, "execute the actual route loader and
 function harness({ databaseError = false, schemaError = false } = {}) {
   const calls = { schema: 0, count: [], findMany: [] };
   const dependencies = {
-    operationalIdentity, MobileApiError, dayjs, jsonCorsHeaders, console: { error() {} },
+    operationalIdentity, MobileApiError, dayjs, jsonCorsHeaders, buildInspectionHistoryWhere, console: { error() {} },
     ensureDatabaseSchema: async () => { calls.schema++; if (schemaError) throw Error("PRIVATE schema connection details"); },
     prisma: { inspectionRecord: {
       count: async input => { calls.count.push(input); if (databaseError) throw Error("PRIVATE Prisma connection details"); return 1000; },
@@ -135,4 +137,26 @@ test("inspection credentials are required before query parsing or DB access, and
   assert.equal((await run({}, { authenticated: false, method: "OPTIONS" })).status, 204);
   assert.equal(calls.schema, 0);
   assert.equal(calls.findMany.length, 0);
+});
+
+
+test("buildInspectionHistoryWhere isolates unrelated shops instead of leaking dawayo.de rows", () => {
+  const otherWhere = buildInspectionHistoryWhere({
+    shopAliases: getShopAliases("other-store.myshopify.com"),
+    excludePendingOnAll: true,
+    query: "kimchi",
+  });
+  assert.equal(otherWhere.shop, "other-store.myshopify.com");
+  assert.deepEqual(otherWhere.status, { not: "PENDING" });
+  assert.ok(Array.isArray(otherWhere.AND));
+
+  const dawayoWhere = buildInspectionHistoryWhere({
+    shopAliases: getShopAliases("dawayo.myshopify.com"),
+  });
+  assert.ok(Array.isArray(dawayoWhere.shop?.in));
+  assert.ok(dawayoWhere.shop.in.includes("dawayo.de"));
+  assert.ok(dawayoWhere.shop.in.includes("dawayo.myshopify.com"));
+
+  const adminHistorySource = readFileSync(new URL("../app/routes/app.inspection-history.jsx", import.meta.url), "utf8");
+  assert.doesNotMatch(adminHistorySource, /shop:\s*"dawayo\.de"/);
 });

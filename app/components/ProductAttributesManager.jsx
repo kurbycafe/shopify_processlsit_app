@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select, Text, TextField } from "@shopify/polaris";
 import { ATTRIBUTE_FIELDS, ATTRIBUTE_DEFAULTS } from "../utils/productAttributes.js";
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
+import { parseProductMetaJson, usePaginatedProductMeta } from "../hooks/usePaginatedProductMeta.js";
 
 const ENDPOINT = "/app/product-attributes";
 const PAGE_SIZE = 50;
@@ -11,12 +12,9 @@ const FILTERS = [
  { label: "무료배송 채우기 추천", value: "filler" }, { label: "오픈예정", value: "upcoming" },
  { label: "연령 제한", value: "age" }, { label: "보증금 있음", value: "pfand" },
 ];
-async function resultJson(response) {
- let result;
- try { result = await response.json(); } catch { throw new Error("서버 응답을 확인하지 못했습니다. 목록을 새로고침해주세요."); }
- if (!response.ok || result.success !== true) throw new Error(result.message || "상품 속성을 처리하지 못했습니다.");
- return result;
-}
+const validateAttributeItem = (item) => {
+ if (!item.id || typeof item.title !== "string" || !item.attributes) throw new Error("상품 속성 응답이 올바르지 않습니다.");
+};
 function attributeBadges(item) {
  const a = item.attributes;
  return <InlineStack gap="100">
@@ -30,11 +28,8 @@ function attributeBadges(item) {
  </InlineStack>;
 }
 export default function ProductAttributesManager({ onSaved } = {}) {
- const [items, setItems] = useState([]);
- const [loadStatus, setLoadStatus] = useState("loading");
  const [error, setError] = useState("");
  const [success, setSuccess] = useState("");
- const [reloadKey, setReloadKey] = useState(0);
  const [query, setQuery] = useState("");
  const [filter, setFilter] = useState("all");
  const [page, setPage] = useState(1);
@@ -47,33 +42,20 @@ export default function ProductAttributesManager({ onSaved } = {}) {
  const savingRef = useRef(false);
  const controllerRef = useRef(null);
  const editorRef = useRef(null);
- useEffect(() => {
-  const controller = new AbortController();
-  let current = true;
-  setItems([]); setSelected([]); setEditing(false); setError(""); setSuccess(""); setLoadStatus("loading"); setPage(1);
-  void (async () => {
-   const rows = new Map(), cursors = new Set();
-   let after = null;
-   try {
-    do {
-     const data = await resultJson(await fetch(ENDPOINT + (after ? "?after=" + encodeURIComponent(after) : ""), { signal: controller.signal, cache: "no-store", credentials: "same-origin", headers: { Accept: "application/json" } }));
-     if (!Array.isArray(data.items) || typeof data.pageInfo?.hasNextPage !== "boolean") throw new Error("상품 목록 응답이 올바르지 않습니다.");
-     for (const item of data.items) {
-      if (!item.id || typeof item.title !== "string" || !item.attributes) throw new Error("상품 속성 응답이 올바르지 않습니다.");
-      rows.set(item.id, item);
-     }
-     if (!current) return;
-     setItems([...rows.values()]);
-     if (!data.pageInfo.hasNextPage) break;
-     const next = data.pageInfo.endCursor;
-     if (!next || cursors.has(next)) throw new Error("다음 상품 페이지를 확인하지 못했습니다.");
-     cursors.add(next); after = next;
-    } while (current);
-    if (current) setLoadStatus("ready");
-   } catch (err) { if (current && err.name !== "AbortError") { setError(err.message); setLoadStatus("error"); } }
-  })();
-  return () => { current = false; controller.abort(); };
- }, [reloadKey]);
+ const handleLoadReset = useCallback(() => {
+  setSelected([]);
+  setEditing(false);
+  setError("");
+  setSuccess("");
+  setPage(1);
+ }, []);
+ const { items, setItems, loadStatus, loadError, reload } = usePaginatedProductMeta({
+  endpoint: ENDPOINT,
+  validateItem: validateAttributeItem,
+  nextCursorErrorMessage: "다음 상품 페이지를 확인하지 못했습니다.",
+  onReset: handleLoadReset,
+ });
+ const bannerError = error || loadError;
  useEffect(() => () => controllerRef.current?.abort(), []);
  const deferredQuery = useDeferredValue(query);
  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date());
@@ -113,7 +95,7 @@ export default function ProductAttributesManager({ onSaved } = {}) {
   try {
    for (let offset = 0; offset < ids.length; offset += 100) {
     const batch = ids.slice(offset, offset + 100);
-    const data = await resultJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
+    const data = await parseProductMetaJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
      headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ productIds: batch, patch }) }));
     if (data.updatedCount !== batch.length || !data.saveId || !Array.isArray(data.items) ||
         data.items.length !== batch.length || batch.some(id => !data.items.some(item => item.id === id && item.attributes))) throw new Error("저장 결과를 확인하지 못했습니다. 목록을 새로고침해주세요.");
@@ -135,7 +117,7 @@ export default function ProductAttributesManager({ onSaved } = {}) {
   <Card><BlockStack gap="300">
    <InlineStack align="space-between" gap="200">
     <BlockStack gap="100"><Text as="h2" variant="headingMd">추천 · 상품 속성 관리</Text><Text as="p" tone="subdued">실제 상품의 특가 표시·추천·오픈예정·연령 제한·보증금을 관리합니다. 실제 날짜는 유통기한 관리에서 수정합니다.</Text></BlockStack>
-    <Button disabled={saving} loading={loadStatus === "loading"} onClick={() => setReloadKey(value => value + 1)}>속성 목록 새로고침</Button>
+    <Button disabled={saving} loading={loadStatus === "loading"} onClick={reload}>속성 목록 새로고침</Button>
    </InlineStack>
    <InlineStack gap="200"><Badge>{"조회 상품 " + items.length + "개"}</Badge><Badge>{"속성 미설정 " + items.filter(item => !item.hasAttributes).length + "개"}</Badge></InlineStack>
    {loadStatus === "loading" && <p role="status">전체 상품을 조회하고 있습니다. 완료 후 편집할 수 있습니다.</p>}
@@ -146,7 +128,7 @@ export default function ProductAttributesManager({ onSaved } = {}) {
    </InlineStack>
    <Text as="p" tone="subdued">온도는 custom.producttype 기준으로 표시하며 온도 관리에서 수정합니다. 판매가격·재고는 이 화면에서 변경하지 않습니다.</Text>
   </BlockStack></Card>
-  {error && <Banner tone="critical"><p>{error}</p></Banner>}
+  {bannerError && <Banner tone="critical"><p>{bannerError}</p></Banner>}
   {success && <Banner tone="success"><p role="status">{success}</p></Banner>}
   <Card><BlockStack gap="300">
    <InlineStack align="space-between" gap="200" blockAlign="center">

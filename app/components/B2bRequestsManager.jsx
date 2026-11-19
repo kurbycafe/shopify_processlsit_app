@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import { useFetcher } from "react-router";
+import { useCursorRequests } from "../hooks/useCursorRequests.js";
 import {
   Badge,
   Banner,
@@ -31,69 +32,29 @@ const STATUS_TONES = {
 export default function B2bRequestsManager() {
   const fetcher = useFetcher();
   const updateFetcher = useFetcher();
-  const loadRequests = fetcher.load;
 
-  const [statusFilter, setStatusFilter] = useState("REQUESTED");
+  const {
+    statusFilter,
+    currentCursor,
+    rawRequests,
+    nextCursor,
+    isLoading,
+    errorMessage,
+    handleStatusChange,
+    handleNextPage,
+    handleFirstPage,
+  } = useCursorRequests({
+    fetcher,
+    updateFetcher,
+    initialStatus: "REQUESTED",
+    buildLoadUrl: (status, cursor) =>
+      `/app/customer-requests?type=B2B&status=${encodeURIComponent(status)}${
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+      }`,
+  });
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentCursor, setCurrentCursor] = useState(null);
   const [showGuide, setShowGuide] = useState(true);
-
-  const prevUpdateState = useRef(updateFetcher.state);
-
-  // Load B2B requests on mount and when statusFilter changes
-  useEffect(() => {
-    loadRequests(
-      `/app/customer-requests?type=B2B&status=${encodeURIComponent(statusFilter)}`
-    );
-    setCurrentCursor(null);
-  }, [statusFilter, loadRequests]);
-
-  // Re-fetch when status update completes
-  useEffect(() => {
-    if (
-      prevUpdateState.current !== "idle" &&
-      updateFetcher.state === "idle" &&
-      updateFetcher.data?.success
-    ) {
-      loadRequests(
-        `/app/customer-requests?type=B2B&status=${encodeURIComponent(statusFilter)}${
-          currentCursor ? `&cursor=${encodeURIComponent(currentCursor)}` : ""
-        }`
-      );
-    }
-    prevUpdateState.current = updateFetcher.state;
-  }, [updateFetcher.state, updateFetcher.data, statusFilter, currentCursor, loadRequests]);
-
-  const rawRequests = useMemo(
-    () => fetcher.data?.requests || [],
-    [fetcher.data?.requests]
-  );
-  const nextCursor = fetcher.data?.nextCursor || null;
-  const isLoading = fetcher.state !== "idle";
-  const errorMessage =
-    fetcher.data?.error || updateFetcher.data?.error || null;
-
-  const handleStatusChange = (newStatus) => {
-    setStatusFilter(newStatus);
-    setCurrentCursor(null);
-  };
-
-  const handleNextPage = () => {
-    if (!nextCursor) return;
-    setCurrentCursor(nextCursor);
-    fetcher.load(
-      `/app/customer-requests?type=B2B&status=${encodeURIComponent(
-        statusFilter
-      )}&cursor=${encodeURIComponent(nextCursor)}`
-    );
-  };
-
-  const handleFirstPage = () => {
-    setCurrentCursor(null);
-    fetcher.load(
-      `/app/customer-requests?type=B2B&status=${encodeURIComponent(statusFilter)}`
-    );
-  };
 
   const handleUpdateStatus = (id, nextStatus, applyTags = false) => {
     updateFetcher.submit(

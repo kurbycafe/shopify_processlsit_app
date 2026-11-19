@@ -1,4 +1,4 @@
-import { parseWarehouseInfo, compareRegalAscending } from "./warehouseHelpers.js";
+import { partitionAndSortPickListItems, parseWarehouseInfo } from "./warehouseHelpers.js";
 
 export function generatePickListPrintHtml({
   items = [],
@@ -6,24 +6,7 @@ export function generatePickListPrintHtml({
   warehouseTab = "ALL",
   totalOrdersCount = 0,
 }) {
-  const storeItems = [];
-  const newOnlyItems = [];
-  const noBinItems = [];
-
-  items.forEach((item) => {
-    const info = item.whInfo || parseWarehouseInfo(item.binLocation);
-    if (info.category === "STORE") {
-      storeItems.push(item);
-    } else if (info.category === "NEW_ONLY") {
-      newOnlyItems.push(item);
-    } else {
-      noBinItems.push(item);
-    }
-  });
-
-  storeItems.sort(compareRegalAscending);
-  newOnlyItems.sort(compareRegalAscending);
-  noBinItems.sort(compareRegalAscending);
+  const { storeItems, newOnlyItems, noBinItems } = partitionAndSortPickListItems(items);
 
   const totalQty = items.reduce((sum, i) => sum + (i.orderedQty || 0), 0);
   const storeQty = storeItems.reduce((sum, i) => sum + (i.orderedQty || 0), 0);

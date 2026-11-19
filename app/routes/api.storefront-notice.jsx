@@ -16,11 +16,9 @@ function rememberNotice(shop, payload, timestamp) {
   noticeMemoryCache.set(shop, { payload, timestamp });
 }
 
-function getCorsHeaders(request) {
-  return jsonCorsHeaders(request, {
-    extra: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
-  });
-}
+const NOTICE_CORS_OPTIONS = {
+  extra: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
+};
 
 function resolveShop(request, explicitShop = null) {
   const url = new URL(request.url);
@@ -50,7 +48,7 @@ async function fetchStorefrontNotice(shop) {
 }
 
 export const loader = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = jsonCorsHeaders(request, NOTICE_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

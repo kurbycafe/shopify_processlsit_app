@@ -8,16 +8,14 @@ import { jsonCorsHeaders } from "../utils/cors.server.js";
 // that decide the public "popular searches" list.
 const SEARCH_RECORD_LIMIT = 20;
 
-function getCorsHeaders(request) {
-  return jsonCorsHeaders(request, {
-    methods: "GET, POST, OPTIONS",
-    allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With",
-    extra: { "Cache-Control": "no-cache, no-store, must-revalidate" },
-  });
-}
+const SEARCH_KEYWORDS_CORS_OPTIONS = {
+  methods: "GET, POST, OPTIONS",
+  allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With",
+  extra: { "Cache-Control": "no-cache, no-store, must-revalidate" },
+};
 
 export const loader = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = jsonCorsHeaders(request, SEARCH_KEYWORDS_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -52,7 +50,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = jsonCorsHeaders(request, SEARCH_KEYWORDS_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

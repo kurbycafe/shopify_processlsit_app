@@ -72,3 +72,27 @@ export function compareRegalAscending(a, b) {
 
   return shelfA.localeCompare(shelfB, undefined, { numeric: true, sensitivity: "base" });
 }
+
+export function partitionAndSortPickListItems(items = []) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const storeItems = [];
+  const newOnlyItems = [];
+  const noBinItems = [];
+
+  safeItems.forEach((item) => {
+    const info = item.whInfo || parseWarehouseInfo(item.binLocation);
+    if (info.category === "STORE") {
+      storeItems.push(item);
+    } else if (info.category === "NEW_ONLY") {
+      newOnlyItems.push(item);
+    } else {
+      noBinItems.push(item);
+    }
+  });
+
+  storeItems.sort(compareRegalAscending);
+  newOnlyItems.sort(compareRegalAscending);
+  noBinItems.sort(compareRegalAscending);
+
+  return { storeItems, newOnlyItems, noBinItems };
+}

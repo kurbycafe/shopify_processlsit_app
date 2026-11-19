@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Checkbox, InlineStack, Select, Text, TextField } from "@shopify/polaris";
 import { TEMPERATURE_LABELS } from "../utils/productTemperatures.js";
+import { parseProductMetaJson, usePaginatedProductMeta } from "../hooks/usePaginatedProductMeta.js";
 
 const ENDPOINT = "/app/product-temperatures";
 const PAGE_SIZE = 50;
@@ -8,24 +9,8 @@ const TEMPERATURE_OPTIONS = [
   { label: "전체 온도", value: "all" }, { label: "미설정", value: "unset" },
   ...Object.entries(TEMPERATURE_LABELS).map(([value, label]) => ({ value, label })),
 ];
-async function resultJson(response) {
-  if (response.status === 401 || response.status === 403) throw new Error("로그인이 만료되었거나 권한이 없습니다. 앱을 다시 열어주세요.");
-  let result;
-  try { result = await response.json(); } catch { throw new Error("서버 응답을 읽지 못했습니다. 앱을 다시 열거나 새로고침해주세요."); }
-  if (!response.ok || result.success !== true) {
-    const error = new Error(result.message || "요청에 실패했습니다. 다시 시도해주세요.");
-    error.details = result.details;
-    error.status = response.status;
-    throw error;
-  }
-  return result;
-}
 
 export default function ProductTemperatureManager() {
-  const [items, setItems] = useState([]);
-  const [loadStatus, setLoadStatus] = useState("loading");
-  const [loadError, setLoadError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
   const [query, setQuery] = useState("");
   const [temperature, setTemperature] = useState("all");
   const [page, setPage] = useState(1);
@@ -35,36 +20,27 @@ export default function ProductTemperatureManager() {
   const [saveProgress, setSaveProgress] = useState(null);
   const [saveError, setSaveError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loadedAt, setLoadedAt] = useState(null);
   const saveAbort = useRef(null);
   const saveRunning = useRef(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let current = true;
-    setItems([]); setSelected([]); setPage(1); setLoadStatus("loading"); setLoadError(""); setSuccess(""); setSaveError(""); setLoadedAt(null);
-    void (async () => {
-      let after = null;
-      const cursors = new Set();
-      try {
-        do {
-          const url = ENDPOINT + (after ? "?after=" + encodeURIComponent(after) : "");
-          const data = await resultJson(await fetch(url, { signal: controller.signal, credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } }));
-          if (!Array.isArray(data.items) || typeof data.pageInfo?.hasNextPage !== "boolean") throw new Error("상품 목록 응답이 올바르지 않습니다.");
-          if (!current) return;
-          setItems(previous => [...new Map([...previous, ...data.items].map(item => [item.id, item])).values()]);
-          if (!data.pageInfo.hasNextPage) break;
-          const next = data.pageInfo.endCursor;
-          if (!next || cursors.has(next)) throw new Error("상품의 다음 페이지를 불러오지 못했습니다. 다시 조회해주세요.");
-          cursors.add(next); after = next;
-        } while (current);
-        if (current) { setLoadStatus("ready"); setLoadedAt(new Date().toLocaleTimeString("ko-KR")); }
-      } catch (error) {
-        if (current && error.name !== "AbortError") { setLoadStatus("error"); setLoadError(error.message); }
-      }
-    })();
-    return () => { current = false; controller.abort(); };
-  }, [reloadKey]);
+  const handleLoadReset = useCallback(() => {
+    setSelected([]);
+    setPage(1);
+    setSuccess("");
+    setSaveError("");
+  }, []);
+
+  const {
+    items,
+    setItems,
+    loadStatus,
+    loadError,
+    loadedAt,
+    reload,
+  } = usePaginatedProductMeta({
+    endpoint: ENDPOINT,
+    onReset: handleLoadReset,
+  });
   useEffect(() => () => saveAbort.current?.abort(), []);
 
   const deferredQuery = useDeferredValue(query);
@@ -107,7 +83,7 @@ export default function ProductTemperatureManager() {
       for (let offset = 0; offset < ids.length; offset += 25) {
         const batch = ids.slice(offset, offset + 25);
         activeBatch = batch;
-        const data = await resultJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
+        const data = await parseProductMetaJson(await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", signal: controller.signal,
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ productIds: batch, storageTemp: targetTemp }) }));
         if (data.updatedCount !== batch.length || data.storageTemp !== targetTemp || !data.saveId ||
@@ -144,7 +120,7 @@ export default function ProductTemperatureManager() {
           <Text as="h2" variant="headingMd">상품 온도 관리</Text>
           <Text as="p" tone="subdued">Shopify custom.producttype 기준입니다. t = 상온 · k = 냉장 · tk = 냉동. 일괄 변경 시 이 메타필드에 저장합니다.</Text>
         </BlockStack>
-        <Button onClick={() => setReloadKey(value => value + 1)} disabled={saving} loading={loadStatus === "loading"}>상품 새로고침</Button>
+        <Button onClick={reload} disabled={saving} loading={loadStatus === "loading"}>상품 새로고침</Button>
       </InlineStack>
       {loadStatus === "loading" && <Banner tone="info"><p role="status">Shopify 상품을 불러오는 중입니다. {items.length}개 조회됨 · 조회 완료 후 전체 상품 기준으로 필터링하고 수정할 수 있습니다.</p></Banner>}
       {loadError && <Banner tone="critical" title="상품 목록을 끝까지 불러오지 못했습니다"><p>{loadError} 현재 보이는 {items.length}개는 일부 목록입니다.</p></Banner>}

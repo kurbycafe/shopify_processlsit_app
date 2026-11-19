@@ -6,6 +6,7 @@ import { authenticate, generatePrintToken } from "../shopify.server";
 import prisma from "../db.server";
 
 import { detectOrderCancellationStatus } from "../utils/cancellationDetector.js";
+import { checkIsB2B } from "../utils/invoice.js";
 import styles from "../styles/app.lieferschein.css?url";
 import { Page, Select, BlockStack, InlineStack, Card, Text, Box, TextField, Pagination, Button, Badge, Banner } from "@shopify/polaris";
 
@@ -23,32 +24,6 @@ const jsonResponse = (data, init = {}) =>
     headers: { "Content-Type": "application/json", ...init.headers },
   });
 
-function checkIsB2B(shippingAddress) {
-  if (!shippingAddress) return false;
-
-  const company = String(shippingAddress.company || "").trim();
-  const name = String(shippingAddress.name || "").trim();
-
-  if (company) return true;
-
-  const nameUpper = name.toUpperCase();
-  const b2bPatterns = [
-    /\bGMBH\b/,
-    /\bUG\b/,
-    /\bAG\b/,
-    /\bGBR\b/,
-    /\bOHG\b/,
-    /\bKG\b/,
-    /\bE\.K\b/,
-    /\bLTD\b/,
-    /\bINC\b/,
-    /\bB\.V\.(?!\w)/,
-    /\bS\.A\.(?!\w)/,
-    /\bS\.A\.R\.L\.(?!\w)/
-  ];
-
-  return b2bPatterns.some(pattern => pattern.test(nameUpper));
-}
 
 export const action = async ({ request }) => {
   try {

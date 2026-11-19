@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { isProductId, temperatureFromProductType } from "../utils/productTemperatures.js";
 import { normalizeExpiryDate } from "../utils/productExpiry.js";
+import {
+  executeProductMetaGraphql,
+  validateCursorParam,
+  validateProductPageConnection,
+} from "./productMetaServer.server.js";
 export const EXPIRY_PRODUCTS_QUERY = `#graphql
  query ExpiryProducts($after: String) {
   products(first: 100, after: $after, sortKey: ID) {
@@ -30,18 +35,18 @@ export const EXPIRY_SET_MUTATION = `#graphql
 export class ExpiryError extends Error {
  constructor(status, message, details = {}) { super(message); this.status = status; this.details = details; }
 }
-async function graphql(admin, query, variables) {
- try {
-  const response = await admin.graphql(query, { variables }), result = await response.json();
-  if (response.ok === false || result.errors?.length || !result.data) throw Error();
-  return result.data;
- } catch { throw new ExpiryError(502, "Shopify 요청 결과를 확인하지 못했습니다. 새로고침하여 실제 값을 확인해주세요."); }
-}
+const graphql = (admin, query, variables) =>
+ executeProductMetaGraphql(admin, query, variables, ExpiryError, {
+  networkMessage: "Shopify 요청 결과를 확인하지 못했습니다. 새로고침하여 실제 값을 확인해주세요.",
+  apiErrorMessage: "Shopify 요청 결과를 확인하지 못했습니다. 새로고침하여 실제 값을 확인해주세요.",
+ });
 export async function listExpiryProducts({ admin, after = null }) {
- if (after !== null && (typeof after !== "string" || after.length > 2000)) throw new ExpiryError(400, "상품 페이지 값이 올바르지 않습니다.");
+ validateCursorParam(after, ExpiryError);
  const data = await graphql(admin, EXPIRY_PRODUCTS_QUERY, { after }), page = data.products;
- if (!Array.isArray(page?.nodes) || typeof page.pageInfo?.hasNextPage !== "boolean" ||
-     (page.pageInfo.hasNextPage && (!page.pageInfo.endCursor || page.pageInfo.endCursor === after))) throw new ExpiryError(502, "상품 목록을 끝까지 확인하지 못했습니다.");
+ validateProductPageConnection(page, after, ExpiryError, {
+  invalidResponseMessage: "상품 목록을 끝까지 확인하지 못했습니다.",
+  nextPageErrorMessage: "상품 목록을 끝까지 확인하지 못했습니다.",
+ });
  const items = page.nodes.map(product => {
   if (!isProductId(product?.id) || typeof product.title !== "string") throw new ExpiryError(502, "상품 정보가 올바르지 않습니다.");
   return { id: product.id, title: product.title, sku: product.variants?.nodes?.[0]?.sku || "",

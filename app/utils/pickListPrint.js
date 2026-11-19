@@ -1,5 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { parseWarehouseInfo, compareRegalAscending } from "./warehouseHelpers.js";
+import { partitionAndSortPickListItems } from "./warehouseHelpers.js";
 
 export async function generatePickListPdfBuffer(items = [], techTime = "") {
   const pdfDoc = await PDFDocument.create();
@@ -20,24 +20,7 @@ export async function generatePickListPdfBuffer(items = [], techTime = "") {
     orders: 720,
   };
 
-  const storeItems = [];
-  const newOnlyItems = [];
-  const noBinItems = [];
-
-  items.forEach((item) => {
-    const info = item.whInfo || parseWarehouseInfo(item.binLocation);
-    if (info.category === "STORE") {
-      storeItems.push(item);
-    } else if (info.category === "NEW_ONLY") {
-      newOnlyItems.push(item);
-    } else {
-      noBinItems.push(item);
-    }
-  });
-
-  storeItems.sort(compareRegalAscending);
-  newOnlyItems.sort(compareRegalAscending);
-  noBinItems.sort(compareRegalAscending);
+  const { storeItems, newOnlyItems, noBinItems } = partitionAndSortPickListItems(items);
 
   let pageCounter = 1;
 

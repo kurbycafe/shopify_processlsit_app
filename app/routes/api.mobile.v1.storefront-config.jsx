@@ -2,17 +2,15 @@ import { getStorefrontConfig, recordSearchKeyword } from "../services/mobileStor
 import { customerShop } from "../services/customerApi.server.js";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
 
-function getCorsHeaders(request) {
-  return jsonCorsHeaders(request, {
-    methods: "GET, POST, OPTIONS",
-    allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
-    vary: ["If-None-Match"],
-    extra: { "Access-Control-Expose-Headers": "ETag", "Cache-Control": "public, max-age=15, stale-while-revalidate=60" },
-  });
-}
+const STOREFRONT_CONFIG_CORS_OPTIONS = {
+  methods: "GET, POST, OPTIONS",
+  allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
+  vary: ["If-None-Match"],
+  extra: { "Access-Control-Expose-Headers": "ETag", "Cache-Control": "public, max-age=15, stale-while-revalidate=60" },
+};
 
 export const loader = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = jsonCorsHeaders(request, STOREFRONT_CONFIG_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -76,7 +74,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const corsHeaders = getCorsHeaders(request);
+  const corsHeaders = jsonCorsHeaders(request, STOREFRONT_CONFIG_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

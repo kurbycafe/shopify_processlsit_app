@@ -5,6 +5,7 @@ import ts from "typescript";
 import {MobileApiError,readId} from "../app/services/mobileApi.server.js";
 import {normalizeOperationalInspectionItems} from "../app/services/inspectionValidation.js";
 import {validateInspectionSubstitutes} from "../app/services/inspectionOrders.server.js";
+import {saveInspectionRecordWithLock} from "../app/services/inspectionRecords.server.js";
 const shop="test.myshopify.com",id="gid://shopify/Order/123";
 const order={id,name:"#123",lineItems:{edges:[{node:{id:"line1",title:"Real",quantity:2,variant:{id:"gid://shopify/ProductVariant/5"}}}]}};
 function action(overrides={}){
@@ -13,7 +14,7 @@ function action(overrides={}){
  let expression;
  for(const statement of source.statements)if(ts.isVariableStatement(statement))for(const decl of statement.declarationList.declarations)if(decl.name.getText(source)==="action")expression=decl.initializer.getText(source);
  const dependencies={getCorsHeaders:()=>({}),operationalIdentity:()=>({shop}),MobileApiError,readId,normalizeOperationalInspectionItems,
-   validateInspectionSubstitutes,ensureDatabaseSchema:async()=>{},unauthenticated:{admin:async tenant=>{assert.equal(tenant,shop);return {admin:{}};}},
+   validateInspectionSubstitutes,saveInspectionRecordWithLock,ensureDatabaseSchema:async()=>{},unauthenticated:{admin:async tenant=>{assert.equal(tenant,shop);return {admin:{}};}},
    readInspectionOrder:async()=>structuredClone(order),prisma:{$transaction:()=>assert.fail("must not save invalid data")},...overrides};
  return new Function(...Object.keys(dependencies),`return (${expression});`)(...Object.values(dependencies));
 }

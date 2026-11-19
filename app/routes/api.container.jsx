@@ -10,13 +10,11 @@ import { notifySubscribersForContainer } from "../services/subscriptionService.s
 import { mergeContainerItems, lockContainer, completeContainerReceipt } from "../services/containerSync.js";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
 
-function getCorsHeaders(request) {
-  return jsonCorsHeaders(request, { methods: "GET, POST, OPTIONS" });
-}
+const CONTAINER_CORS_OPTIONS = { methods: "GET, POST, OPTIONS" };
 
 // GET: Retrieve container shipments and item details from DB & Odoo
 export const loader = async ({ request }) => {
-  const headers = getCorsHeaders(request);
+  const headers = jsonCorsHeaders(request, CONTAINER_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }
@@ -187,7 +185,7 @@ export const loader = async ({ request }) => {
 
 // POST: Register or update container status and items
 export const action = async ({ request }) => {
-  const headers = getCorsHeaders(request);
+  const headers = jsonCorsHeaders(request, CONTAINER_CORS_OPTIONS);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }

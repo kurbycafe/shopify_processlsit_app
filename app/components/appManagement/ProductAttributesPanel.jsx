@@ -11,6 +11,7 @@ import {
   TextField,
 } from "@shopify/polaris";
 import ProductAttributesManager from "../ProductAttributesManager.jsx";
+import { ShopifyProductSearchPicker } from "./ShopifyProductSearchPicker.jsx";
 
 // "product-attributes" tab of the app management screen (moved out of app.app-management.jsx).
 export function ProductAttributesPanel({
@@ -207,100 +208,27 @@ export function ProductAttributesPanel({
               </Card>
 
               {/* Shopify Product Search for Per-Product Override */}
-              <Card>
-                <BlockStack gap="300">
-                  <Text variant="headingMd" as="h2">
-                    Shopify 상품 검색 후 MHD·속성 설정 불러오기
-                  </Text>
-                  <InlineStack gap="200">
-                    <div style={{ flex: 1 }}>
-                      <TextField
-                        label="상품명 또는 SKU 검색"
-                        labelHidden
-                        placeholder="예: 김치, 만두, 라면, 소주 입력 후 검색"
-                        value={productSearchQuery}
-                        onChange={setProductSearchQuery}
-                        autoComplete="off"
-                      />
-                    </div>
-                    <Button
-                      loading={searchFetcher.state !== "idle"}
-                      onClick={() => {
-                        const fd = new FormData();
-                        fd.append("intent", "search_shopify_products");
-                        fd.append("query", productSearchQuery);
-                        searchFetcher.submit(fd, { method: "post" });
-                      }}
-                    >
-                      쇼피파이 상품 검색
-                    </Button>
-                  </InlineStack>
-
-                  {searchFetcher.data?.searchedProducts && (
-                    <BlockStack gap="200">
-                      {searchFetcher.data.searchedProducts.map((sp) => (
-                        <div
-                          key={sp.productId}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            padding: "8px 12px",
-                            border: "1px solid #E5E7EB",
-                            borderRadius: "8px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "10px",
-                            }}
-                          >
-                            {sp.imageUrl && (
-                              <img
-                                src={sp.imageUrl}
-                                alt={sp.title}
-                                style={{
-                                  width: "36px",
-                                  height: "36px",
-                                  objectFit: "contain",
-                                }}
-                              />
-                            )}
-                            <div>
-                              <Text variant="bodySm" fontWeight="bold" as="p">
-                                {sp.title}
-                              </Text>
-                              <Text variant="bodySm" tone="subdued" as="p">
-                                SKU: {sp.sku || "-"} · 판매가 €
-                                {sp.price.toFixed(2)}
-                              </Text>
-                            </div>
-                          </div>
-                          <Button
-                            size="slim"
-                            onClick={() => {
-                              setOverrideForm({
-                                ...overrideForm,
-                                overrideId: "",
-                                productId: sp.productId,
-                                sku: sp.sku || "",
-                                keyword: sp.title.split(" ")[0],
-                                productNameKo: sp.title,
-                                imageUrl: sp.imageUrl,
-                                mhdPrice: String(sp.price),
-                              });
-                            }}
-                          >
-                            이 상품 설정하기
-                          </Button>
-                        </div>
-                      ))}
-                    </BlockStack>
-                  )}
-                </BlockStack>
-              </Card>
+              <ShopifyProductSearchPicker
+                title="Shopify 상품 검색 후 MHD·속성 설정 불러오기"
+                placeholder="예: 김치, 만두, 라면, 소주 입력 후 검색"
+                productSearchQuery={productSearchQuery}
+                setProductSearchQuery={setProductSearchQuery}
+                searchFetcher={searchFetcher}
+                selectButtonLabel="이 상품 설정하기"
+                renderSubtitle={(sp) => `SKU: ${sp.sku || "-"} · 판매가 €${sp.price.toFixed(2)}`}
+                onSelectProduct={(sp) => {
+                  setOverrideForm({
+                    ...overrideForm,
+                    overrideId: "",
+                    productId: sp.productId,
+                    sku: sp.sku || "",
+                    keyword: sp.title.split(" ")[0],
+                    productNameKo: sp.title,
+                    imageUrl: sp.imageUrl,
+                    mhdPrice: String(sp.price),
+                  });
+                }}
+              />
             </BlockStack>
 
             {/* Per-Product Override Form */}

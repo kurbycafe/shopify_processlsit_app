@@ -11,6 +11,8 @@ import {
 import dayjs from "dayjs";
 import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
+import { buildInspectionHistoryWhere } from "../services/inspectionRecords.server.js";
+import { getShopAliases } from "../utils/shopDomain.js";
 import CommonKpiGrid from "../components/common/CommonKpiGrid";
 import CommonPagination from "../components/common/CommonPagination";
 import StatusBadge from "../components/common/StatusBadge";
@@ -30,45 +32,6 @@ export const loader = async ({ request }) => {
 
   try {
     await ensureDatabaseSchema();
-
-    const shopClean = shop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase();
-    const whereClause = {
-      OR: [
-        { shop: shop },
-        { shop: shopClean },
-        { shop: shopClean.replace(".myshopify.com", "") },
-        { shop: "dawayo.de" },
-      ],
-    };
-
-    if (status !== "ALL") {
-      whereClause.status = status;
-    } else {
-      whereClause.status = { not: "PENDING" };
-    }
-
-    if (query.trim() !== "") {
-      whereClause.AND = [
-        {
-          OR: [
-            { orderName: { contains: query, mode: "insensitive" } },
-            { inspectorName: { contains: query, mode: "insensitive" } },
-            {
-              items: {
-                some: {
-                  OR: [
-                    { productTitle: { contains: query, mode: "insensitive" } },
-                    { sku: { contains: query, mode: "insensitive" } },
-                    { barcode: { contains: query, mode: "insensitive" } },
-                    { substitutedProductTitle: { contains: query, mode: "insensitive" } },
-                  ],
-                },
-              },
-            },
-          ],
-        },
-      ];
-    }
 
     let start = null;
     let end = null;
@@ -93,11 +56,14 @@ export const loader = async ({ request }) => {
       if (endDate) end = dayjs(endDate).endOf("day").toDate();
     }
 
-    if (start || end) {
-      whereClause.createdAt = {};
-      if (start) whereClause.createdAt.gte = start;
-      if (end) whereClause.createdAt.lte = end;
-    }
+    const whereClause = buildInspectionHistoryWhere({
+      shopAliases: getShopAliases(shop),
+      status,
+      query,
+      excludePendingOnAll: true,
+      startDate: start,
+      endDate: end,
+    });
 
     // Aggregation for KPIs (Single grouped query replacing 4 separate count queries)
     const [statusGroups, records] = await Promise.all([

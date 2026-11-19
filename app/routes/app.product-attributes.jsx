@@ -1,26 +1,30 @@
-import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
-import { resolveCanonicalShop } from "../services/mobileStorefront.server.js";
-import { listAttributeProducts, saveProductAttributes, AttributeError } from "../services/productAttributes.server.js";
+import { handleProductMetaAction, handleProductMetaLoader } from "../services/productMetaServer.server.js";
+import { AttributeError, listAttributeProducts, saveProductAttributes } from "../services/productAttributes.server.js";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
-const headers = { "Cache-Control": "no-store" };
-function failure(error) {
- return Response.json({ success: false, message: error instanceof AttributeError ? error.message : "상품 속성 저장 결과를 확인하지 못했습니다. 목록을 새로고침하여 실제 값을 확인해주세요." },
-  { status: error instanceof AttributeError ? error.status : 503, headers });
-}
+
+const FALLBACK_ERROR_MESSAGE = "상품 속성 저장 결과를 확인하지 못했습니다. 목록을 새로고침하여 실제 값을 확인해주세요.";
+
 export async function loader({ request }) {
- const { admin, session } = await authenticate.admin(request);
- try { return Response.json(await listAttributeProducts({ admin, db: prisma, shop: resolveCanonicalShop(session.shop), after: new URL(request.url).searchParams.get("after") || null }), { headers }); }
- catch (error) { return failure(error); }
+  return handleProductMetaLoader({
+    request,
+    ErrorClass: AttributeError,
+    fallbackErrorMessage: FALLBACK_ERROR_MESSAGE,
+    listProducts: listAttributeProducts,
+    db: prisma,
+    useCanonicalShop: true,
+  });
 }
+
 export async function action({ request }) {
- const { admin, session } = await authenticate.admin(request);
- if (request.method !== "POST") return Response.json({ success: false, message: "POST 요청이 필요합니다." }, { status: 405, headers: { ...headers, Allow: "POST" } });
- try {
-  let input;
-  try { input = await request.json(); } catch { throw new AttributeError(400, "저장 요청 형식이 올바르지 않습니다."); }
-  return Response.json(await saveProductAttributes({ admin, db: prisma, shop: resolveCanonicalShop(session.shop), input }), { headers });
- } catch (error) { return failure(error); }
+  return handleProductMetaAction({
+    request,
+    ErrorClass: AttributeError,
+    fallbackErrorMessage: FALLBACK_ERROR_MESSAGE,
+    saveProducts: saveProductAttributes,
+    db: prisma,
+    useCanonicalShop: true,
+  });
 }

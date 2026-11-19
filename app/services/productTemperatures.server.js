@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { isProductId, TEMPERATURE_VALUES, temperatureFromProductType } from "../utils/productTemperatures.js";
+import {
+  executeProductMetaGraphql,
+  parseExtendedConfig,
+  validateCursorParam,
+  validateProductPageConnection,
+} from "./productMetaServer.server.js";
 
 export const TEMPERATURE_PRODUCTS_QUERY = `#graphql
   query TemperatureProducts($after: String) {
@@ -18,30 +24,15 @@ export const TEMPERATURE_PRODUCT_IDS_QUERY = `#graphql
 export class TemperatureError extends Error {
   constructor(status, message, details = {}) { super(message); this.status = status; this.details = details; }
 }
-function extended(raw) {
-  if (raw == null) return {};
-  let value = raw;
-  try { if (typeof value === "string") value = JSON.parse(value); }
-  catch { throw new TemperatureError(409, "기존 앱 설정을 읽을 수 없습니다. 설정을 확인한 뒤 다시 시도해주세요."); }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TemperatureError(409, "기존 앱 설정 형식이 올바르지 않습니다.");
-  return value;
-}
-async function graphql(admin, query, variables) {
-  let response, result;
-  try {
-    response = await admin.graphql(query, { variables });
-    result = await response.json();
-  } catch { throw new TemperatureError(502, "Shopify 요청 결과를 확인하지 못했습니다. 새로고침하여 실제 값을 확인해주세요."); }
-  if (response.ok === false || result.errors?.length || !result.data) throw new TemperatureError(502, "Shopify 상품 조회에 실패했습니다. 상품 조회 권한과 연결 상태를 확인해주세요.");
-  return result.data;
-}
+const extended = (raw) => parseExtendedConfig(raw, TemperatureError);
+const graphql = (admin, query, variables) =>
+  executeProductMetaGraphql(admin, query, variables, TemperatureError);
 
 export async function listTemperatureProducts({ admin, after = null }) {
-  if (after !== null && (typeof after !== "string" || after.length > 2000)) throw new TemperatureError(400, "상품 페이지 값이 올바르지 않습니다.");
+  validateCursorParam(after, TemperatureError);
   const data = await graphql(admin, TEMPERATURE_PRODUCTS_QUERY, { after });
   const connection = data.products;
-  if (!Array.isArray(connection?.nodes) || typeof connection.pageInfo?.hasNextPage !== "boolean") throw new TemperatureError(502, "Shopify 상품 목록 응답이 올바르지 않습니다.");
-  if (connection.pageInfo.hasNextPage && (!connection.pageInfo.endCursor || connection.pageInfo.endCursor === after)) throw new TemperatureError(502, "상품 목록의 다음 페이지를 확인하지 못했습니다.");
+  validateProductPageConnection(connection, after, TemperatureError);
   const items = connection.nodes.map(product => {
     if (!isProductId(product?.id) || typeof product.title !== "string") throw new TemperatureError(502, "Shopify 상품 정보가 올바르지 않습니다.");
     return {

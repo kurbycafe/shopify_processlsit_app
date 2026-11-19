@@ -1,6 +1,8 @@
 import prisma, { ensureDatabaseSchema } from "../db.server.js";
 import { sendBackInStockEmail } from "../utils/emailService.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
+import { getShopAliases } from "../utils/shopDomain.js";
+export { getShopAliases };
 import { resolveVariantEta } from "./etaService.server.js";
 import { getRestockDispatchPolicy, calculateDispatchPlan, sortSubscribersFifo } from "./restockDispatchPolicy.server.js";
 
@@ -8,21 +10,6 @@ const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const PROCESSING_LEASE_MS = 15 * 60 * 1000;
 const MAX_NOTIFICATION_ATTEMPTS = 5;
 
-/**
- * Resolves equivalent shop domain aliases (e.g. dawayo.de <-> dawayo.myshopify.com)
- * while preserving strict isolation for unrelated multi-tenant shops.
- */
-export function getShopAliases(shop) {
-  const cleanShop = String(shop || "dawayo.de").toLowerCase().trim();
-  const configuredShop = String(process.env.CUSTOMER_API_SHOP || "").toLowerCase().trim();
-  const dawayoDomains = new Set(["dawayo.de", "www.dawayo.de", "dawayo.myshopify.com"]);
-  if (configuredShop) dawayoDomains.add(configuredShop);
-
-  if (dawayoDomains.has(cleanShop)) {
-    return Array.from(dawayoDomains);
-  }
-  return [cleanShop];
-}
 
 /**
  * Resolves both numeric and Shopify GID representations of a ProductVariant ID
