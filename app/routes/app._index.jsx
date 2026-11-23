@@ -106,106 +106,106 @@ export default function Dashboard() {
   return (
     <Page title="물류 운영 대시보드">
       <BlockStack gap="500">
-        <Banner tone="critical" title="다와요 모바일 앱 업데이트 안내 (최근 업데이트: 2026-11-21)">
-          <Text as="p" tone="critical" fontWeight="semibold">
-            2026-11-21 기준으로 다와요 모바일 앱 최신 버전이 업데이트되었습니다. 다와요 모바일앱은 계속 업데이트되고 있으니, 제공 되었던 링크를 통해 들어가서 항상 체크하고 최신 버전으로 업데이트해 주세요.
-          </Text>
-        </Banner>
-
-        {/* 1. 최상단: 핵심 운영 메트릭 카드 */}
-        <DashboardMetricCards
-          todayPrintedCount={todayPrintedCount}
-          thisWeekFulfilledCount={thisWeekFulfilledCount}
-          unfulfilledCount={unfulfilledCount}
-          pendingBackInStockCount={pendingBackInStockCount}
-          pendingCustomerInquiryCount={pendingCustomerInquiryCount}
-          failedPushCount={failedPushCount}
-        />
-
-        {pendingCustomerInquiryCount > 0 && (
-          <Banner
-            tone="warning"
-            title={`미답변 고객 문의 및 반품 접수가 ${pendingCustomerInquiryCount}건 대기 중입니다.`}
-            action={{
-              content: "상담함에서 확인하기",
-              onAction: () => navigate("/app/customer-requests"),
-            }}
-          >
-            <p>모바일 앱을 통해 접수된 1:1 문의, 배송 문제, 반품 요청을 신속하게 확인하고 답변해 주세요.</p>
+          <Banner tone="critical" title="다와요 모바일 앱 업데이트 안내 (최근 업데이트: 2026-11-23 16:21)">
+            <Text as="p" tone="critical" fontWeight="semibold">
+              2026-11-23 16:21 기준으로 다와요 모바일 앱 최신 버전이 업데이트되었습니다. 다와요 모바일앱은 계속 업데이트되고 있으니, 제공 되었던 링크를 통해 들어가서 항상 체크하고 최신 버전으로 업데이트해 주세요.
+            </Text>
           </Banner>
-        )}
 
-        {failedPushCount > 0 && (
-          <Banner
-            tone="critical"
-            title={`모바일 푸시 알림 ${failedPushCount}건이 전송 실패 상태입니다.`}
-            action={{
-              content: "푸시 관리에서 확인 및 재시도",
-              onAction: () => navigate("/app/push-notifications?status=FAILED"),
-            }}
-          >
-            <p>일시적인 네트워크 지연이나 토큰 오류로 전송되지 못한 알림입니다. 일괄 재시도를 실행해 주세요.</p>
-          </Banner>
-        )}
+          {/* 1. 최상단: 핵심 운영 메트릭 카드 */}
+          <DashboardMetricCards
+            todayPrintedCount={todayPrintedCount}
+            thisWeekFulfilledCount={thisWeekFulfilledCount}
+            unfulfilledCount={unfulfilledCount}
+            pendingBackInStockCount={pendingBackInStockCount}
+            pendingCustomerInquiryCount={pendingCustomerInquiryCount}
+            failedPushCount={failedPushCount}
+          />
 
-        <Card>
-          <InlineStack align="space-between" blockAlign="center" wrap gap="400">
-            <BlockStack gap="100">
-              <Text variant="headingMd" as="h2">작업 바로가기</Text>
-              <Text as="p" tone="subdued">1단계 납품서 출력 → 2단계 피킹 → 3단계 주문 검수 순서로 진행하세요.</Text>
-            </BlockStack>
-            <InlineStack gap="200" wrap>
-              <Button variant="primary" onClick={() => navigate("/app/lieferschein")}>납품서 출력 (1단계)</Button>
-              <Button onClick={() => navigate("/app/pick-list")}>처리중 리스트 (2단계)</Button>
-              <Button onClick={() => navigate("/app/inspect")}>주문 검수 시작 (3단계)</Button>
-              <Button onClick={() => navigate("/app/inspection-history")}>검수 내역 확인</Button>
-              <Button
-                onClick={() => navigate("/app/customer-requests")}
-                tone={pendingCustomerInquiryCount > 0 ? "critical" : undefined}
-              >
-                고객 상담함{pendingCustomerInquiryCount > 0 ? ` (${pendingCustomerInquiryCount}건 답변 대기)` : ""}
-              </Button>
-              <Button
-                onClick={() => navigate("/app/push-notifications")}
-                tone={failedPushCount > 0 ? "critical" : undefined}
-              >
-                푸시 알림 관리{failedPushCount > 0 ? ` (${failedPushCount}건 실패)` : ""}
-              </Button>
-              <Button onClick={() => navigate("/app/back-in-stock")}>재입고 알림 관리</Button>
+          {pendingCustomerInquiryCount > 0 && (
+            <Banner
+              tone="warning"
+              title={`미답변 고객 문의 및 반품 접수가 ${pendingCustomerInquiryCount}건 대기 중입니다.`}
+              action={{
+                content: "상담함에서 확인하기",
+                onAction: () => navigate("/app/customer-requests"),
+              }}
+            >
+              <p>모바일 앱을 통해 접수된 1:1 문의, 배송 문제, 반품 요청을 신속하게 확인하고 답변해 주세요.</p>
+            </Banner>
+          )}
+
+          {failedPushCount > 0 && (
+            <Banner
+              tone="critical"
+              title={`모바일 푸시 알림 ${failedPushCount}건이 전송 실패 상태입니다.`}
+              action={{
+                content: "푸시 관리에서 확인 및 재시도",
+                onAction: () => navigate("/app/push-notifications?status=FAILED"),
+              }}
+            >
+              <p>일시적인 네트워크 지연이나 토큰 오류로 전송되지 못한 알림입니다. 일괄 재시도를 실행해 주세요.</p>
+            </Banner>
+          )}
+
+          <Card>
+            <InlineStack align="space-between" blockAlign="center" wrap gap="400">
+              <BlockStack gap="100">
+                <Text variant="headingMd" as="h2">작업 바로가기</Text>
+                <Text as="p" tone="subdued">1단계 납품서 출력 → 2단계 피킹 → 3단계 주문 검수 순서로 진행하세요.</Text>
+              </BlockStack>
+              <InlineStack gap="200" wrap>
+                <Button variant="primary" onClick={() => navigate("/app/lieferschein")}>납품서 출력 (1단계)</Button>
+                <Button onClick={() => navigate("/app/pick-list")}>처리중 리스트 (2단계)</Button>
+                <Button onClick={() => navigate("/app/inspect")}>주문 검수 시작 (3단계)</Button>
+                <Button onClick={() => navigate("/app/inspection-history")}>검수 내역 확인</Button>
+                <Button
+                  onClick={() => navigate("/app/customer-requests")}
+                  tone={pendingCustomerInquiryCount > 0 ? "critical" : undefined}
+                >
+                  고객 상담함{pendingCustomerInquiryCount > 0 ? ` (${pendingCustomerInquiryCount}건 답변 대기)` : ""}
+                </Button>
+                <Button
+                  onClick={() => navigate("/app/push-notifications")}
+                  tone={failedPushCount > 0 ? "critical" : undefined}
+                >
+                  푸시 알림 관리{failedPushCount > 0 ? ` (${failedPushCount}건 실패)` : ""}
+                </Button>
+                <Button onClick={() => navigate("/app/back-in-stock")}>재입고 알림 관리</Button>
+              </InlineStack>
             </InlineStack>
-          </InlineStack>
-        </Card>
+          </Card>
 
-        <Layout>
-          {/* 4. 최근 검수 활동 (좌측) */}
-          <Layout.Section variant="oneHalf">
-            <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
-          </Layout.Section>
+          <Layout>
+            {/* 4. 최근 검수 활동 (좌측) */}
+            <Layout.Section variant="oneHalf">
+              <RecentActivityCard recentLogs={recentLogs} onSelectLog={setSelectedLog} />
+            </Layout.Section>
 
-          {/* 5. 최근 7일간 검수 생산성 차트 (우측) */}
-          <Layout.Section variant="oneHalf">
-            <ProductivityChartCard chartData={chartData} />
-          </Layout.Section>
+            {/* 5. 최근 7일간 검수 생산성 차트 (우측) */}
+            <Layout.Section variant="oneHalf">
+              <ProductivityChartCard chartData={chartData} />
+            </Layout.Section>
 
-          {/* 3. 컨테이너 입고 일정 & 2개월 달력 (Full Width) */}
-          <Layout.Section>
-            <ContainerScheduleCard
-              upcomingContainers={upcomingContainers}
-              calendarMonths={calendarMonths}
-              onSelectContainer={handleSelectContainer}
-            />
-          </Layout.Section>
+            {/* 3. 컨테이너 입고 일정 & 2개월 달력 (Full Width) */}
+            <Layout.Section>
+              <ContainerScheduleCard
+                upcomingContainers={upcomingContainers}
+                calendarMonths={calendarMonths}
+                onSelectContainer={handleSelectContainer}
+              />
+            </Layout.Section>
 
-          {/* 6. 모바일 앱 기능 추가/수정 요청: 매일 보는 지표와 작업 영역 아래에 둔다 */}
-          <Layout.Section>
-            <AppFeatureRequestCard />
-          </Layout.Section>
+            {/* 6. 모바일 앱 기능 추가/수정 요청: 매일 보는 지표와 작업 영역 아래에 둔다 */}
+            <Layout.Section>
+              <AppFeatureRequestCard />
+            </Layout.Section>
 
-          {/* 7. 최하단: 시스템 및 연동 상태 내역 */}
-          <Layout.Section>
-            <DashboardSystemUpdateCard />
-          </Layout.Section>
-        </Layout>
+            {/* 7. 최하단: 시스템 및 연동 상태 내역 */}
+            <Layout.Section>
+              <DashboardSystemUpdateCard />
+            </Layout.Section>
+          </Layout>
       </BlockStack>
 
       {/* 컨테이너 입고 품목 상세 모달 */}
