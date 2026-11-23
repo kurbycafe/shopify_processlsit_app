@@ -24,7 +24,6 @@ export function CampaignsPanel({
   isSubmitting,
   livePriceLabel,
   liveVariantPrices,
-  prospekt,
   setActiveGbSearchIdx,
   setActiveSubSearchIdx,
   setGbSearchQuery,
@@ -1069,7 +1068,6 @@ export function CampaignsPanel({
               fd.append("freeShippingThreshold", freeShippingThreshold);
               fd.append("shippingNoticeKo", shippingNoticeKo);
               fd.append("groupBuyingJson", JSON.stringify(groupBuying));
-              fd.append("prospektJson", JSON.stringify(prospekt));
               fd.append(
                 "subscriptionPlansJson",
                 JSON.stringify(subscriptionPlans),

@@ -12,6 +12,9 @@ test('customer conversation HTTP endpoint accepts POST, rejects other customers,
  const post=()=>new Request('https://example.test/api/customer/v1/support-conversation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:'req1',messageId:'msg-1',text:'hello'})});
  let response=await handler({request:post(),params:{resource:'support-conversation'}}); assert.equal(response.status,404);
  verified=row.customerId; response=await handler({request:post(),params:{resource:'support-conversation'}}); assert.equal(response.status,200); assert.equal((await response.json()).data.message.text,'hello');
+ const photo='data:image/jpeg;base64,'+'A'.repeat(30000);
+ const photoRequest=new Request('https://example.test/api/customer/v1/support-conversation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:'req1',messageId:'msg-photo',text:'',photos:[photo]})});
+ response=await handler({request:photoRequest,params:{resource:'support-conversation'}}); assert.equal(response.status,200); assert.deepEqual((await response.json()).data.message.photos,[photo]);
  response=await handler({request:new Request('https://example.test/api/customer/v1/customer-requests'),params:{resource:'customer-requests'}});
  const body=await response.json(); assert.equal(body.data.requests[0].payload.supportInternal,undefined); assert.equal(body.data.requests[0].payload.conversation[0].text,'hello');
 });

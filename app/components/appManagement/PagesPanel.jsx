@@ -44,6 +44,22 @@ export function PagesPanel({
             }
             autoComplete="off"
           />
+          <TextField
+            label="상품 상세 안심 배너 문구 (Deutsch)"
+            value={productPage.freshnessBannerDe || ""}
+            onChange={(v) =>
+              setProductPage({ ...productPage, freshnessBannerDe: v })
+            }
+            autoComplete="off"
+          />
+          <TextField
+            label="상품 상세 안심 배너 문구 (English)"
+            value={productPage.freshnessBannerEn || ""}
+            onChange={(v) =>
+              setProductPage({ ...productPage, freshnessBannerEn: v })
+            }
+            autoComplete="off"
+          />
           <Checkbox
             label="품절 상품 '재입고 알림 신청 (Restock ETA)' 버튼 활성화"
             checked={Boolean(productPage.enableRestockAlert)}
@@ -82,6 +98,22 @@ export function PagesPanel({
             }
             autoComplete="off"
           />
+          <TextField
+            label="장바구니 아이스팩 동봉 포장 안내 문구 (Deutsch)"
+            value={cartPage.insulationNoticeDe || ""}
+            onChange={(v) =>
+              setCartPage({ ...cartPage, insulationNoticeDe: v })
+            }
+            autoComplete="off"
+          />
+          <TextField
+            label="장바구니 아이스팩 동봉 포장 안내 문구 (English)"
+            value={cartPage.insulationNoticeEn || ""}
+            onChange={(v) =>
+              setCartPage({ ...cartPage, insulationNoticeEn: v })
+            }
+            autoComplete="off"
+          />
         </BlockStack>
       </Card>
 
@@ -103,9 +135,28 @@ export function PagesPanel({
             autoComplete="off"
           />
           <TextField
+            label="B2B 안내 배너 타이틀 (Deutsch)"
+            value={myPage.b2bBannerTitleDe || ""}
+            onChange={(v) => setMyPage({ ...myPage, b2bBannerTitleDe: v })}
+            autoComplete="off"
+          />
+          <TextField
+            label="B2B 안내 배너 타이틀 (English)"
+            value={myPage.b2bBannerTitleEn || ""}
+            onChange={(v) => setMyPage({ ...myPage, b2bBannerTitleEn: v })}
+            autoComplete="off"
+          />
+          <TextField
             label="고객지원 대표 이메일"
             value={myPage.supportEmail || ""}
             onChange={(v) => setMyPage({ ...myPage, supportEmail: v })}
+            autoComplete="off"
+          />
+          <TextField
+            label="고객지원 문의 페이지 링크 (https://)"
+            value={myPage.supportChannelUrl || ""}
+            onChange={(v) => setMyPage({ ...myPage, supportChannelUrl: v })}
+            helpText="앱 1:1 문의 화면 아래 '문의 페이지' 링크로 표시됩니다. https로 시작해야 표시됩니다."
             autoComplete="off"
           />
 

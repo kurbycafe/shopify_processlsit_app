@@ -172,6 +172,22 @@ export function ShippingPanel({
             }
             autoComplete="off"
           />
+          <TextField
+            label="무료배송 채우기 슬라이더 안내 타이틀 (Deutsch)"
+            value={coldChain.cartFillerTitleDe || ""}
+            onChange={(v) =>
+              setColdChain({ ...coldChain, cartFillerTitleDe: v })
+            }
+            autoComplete="off"
+          />
+          <TextField
+            label="무료배송 채우기 슬라이더 안내 타이틀 (English)"
+            value={coldChain.cartFillerTitleEn || ""}
+            onChange={(v) =>
+              setColdChain({ ...coldChain, cartFillerTitleEn: v })
+            }
+            autoComplete="off"
+          />
         </BlockStack>
       </Card>
 

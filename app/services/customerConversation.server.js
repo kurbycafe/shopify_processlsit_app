@@ -1,5 +1,5 @@
 import { MobileApiError } from "./mobileApi.server.js";
-import { requireCustomer } from "./customerCommunity.server.js";
+import { requireCustomer, reviewImage } from "./customerCommunity.server.js";
 import { queueSupportReplyPush } from "./mobileNotificationEvents.server.js";
 
 const TYPES = ["SUPPORT", "CLAIM", "RETURN"];
@@ -19,9 +19,12 @@ export function publicSupportPayload(payload) {
   return visible;
 }
 
-export async function appendSupportMessage({ db, shop, requestId, sender, customerId, text, messageId, status }) {
+export async function appendSupportMessage({ db, shop, requestId, sender, customerId, text, messageId, status, photos = [] }) {
   if (!idPattern.test(requestId || "") || !["customer", "admin"].includes(sender) || !idPattern.test(messageId || "")) throw new MobileApiError(400, "INVALID_INPUT", "Invalid conversation request.");
-  const message = clean(text, 4000, true);
+  if (!Array.isArray(photos) || photos.length > 3) throw new MobileApiError(400, "INVALID_INPUT", "Attach up to three supported photos.");
+  const safePhotos = photos.map(reviewImage);
+  if (safePhotos.some(photo => !photo)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid photo.");
+  const message = clean(text || "", 4000, safePhotos.length === 0);
   if (status && !statuses.has(status)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request status.");
   const where = { id: requestId, shop, type: { in: TYPES }, ...(sender === "customer" ? { customerId } : {}) };
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -32,12 +35,14 @@ export async function appendSupportMessage({ db, shop, requestId, sender, custom
     const messages = Array.isArray(payload.conversation) ? payload.conversation : (payload.reply || payload.adminReply ? [{ id: "legacy-reply", sender: "admin", text: payload.reply || payload.adminReply, createdAt: payload.repliedAt || null }] : []);
     const existing = messages.find(item => item.id === messageId);
     if (existing) {
-      if (existing.sender !== sender || existing.text !== message) throw new MobileApiError(409, "CONFLICT", "Message ID already used.");
+      if (existing.sender !== sender || existing.text !== message || JSON.stringify(existing.photos || []) !== JSON.stringify(safePhotos)) throw new MobileApiError(409, "CONFLICT", "Message ID already used.");
       return { success: true, duplicate: true, message: existing };
     }
     if (messages.length >= 200) throw new MobileApiError(409, "CONVERSATION_FULL", "This conversation is full. Please start a new inquiry.");
     const createdAt = new Date().toISOString();
-    const item = { id: messageId, sender, text: message, createdAt };
+    const photoBytes = messages.reduce((sum, previous) => sum + (Array.isArray(previous.photos) ? previous.photos.reduce((n, photo) => n + (typeof photo === "string" ? photo.length : 0), 0) : 0), 0);
+    if (photoBytes + safePhotos.reduce((sum, photo) => sum + photo.length, 0) > 2000000) throw new MobileApiError(409, "CONVERSATION_FULL", "This conversation has reached its photo limit. Please start a new inquiry.");
+    const item = { id: messageId, sender, text: message, createdAt, ...(safePhotos.length ? { photos: safePhotos } : {}) };
     const nextPayload = { ...payload, conversation: [...messages, item], ...(sender === "admin" ? { reply: message, adminReply: message, repliedAt: createdAt } : {}) };
     const result = await db.customerRequest.updateMany({ where: { ...where, updatedAt: record.updatedAt }, data: { payload: nextPayload, status: sender === "customer" ? "REQUESTED" : (status || "REVIEWING") } });
     if (result.count === 1) {
@@ -54,7 +59,7 @@ export async function appendSupportMessage({ db, shop, requestId, sender, custom
 
 export async function customerSupportMessage({ db, shop, request, verify, input }) {
   const customerId = await requireCustomer(verify, request, shop);
-  return appendSupportMessage({ db, shop, requestId: input.requestId, sender: "customer", customerId, text: input.text, messageId: input.messageId });
+  return appendSupportMessage({ db, shop, requestId: input.requestId, sender: "customer", customerId, text: input.text, messageId: input.messageId, photos: input.photos });
 }
 
 export async function updateSupportInternal({ db, shop, requestId, note, assignee }) {

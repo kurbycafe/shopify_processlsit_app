@@ -43,3 +43,19 @@ test('admin replies preserve prior conversation and current legacy reply field',
   await assert.rejects(appendSupportMessage({db,shop,requestId:'req1',sender:'admin',text:'답변',messageId:'message-3'}), {status:409,code:'CUSTOMER_NOT_LINKED'});
   assert.equal(row.payload.conversation, undefined);
  });
+
+test('customer can attach bounded photos, with idempotency and owner isolation', async () => {
+ const {db,row}=fixture();
+ const request=new Request('https://example.test');
+ const photo='data:image/jpeg;base64,YQ==';
+ const input={requestId:'req1',text:'',photos:[photo],messageId:'photo-1'};
+ const args={db,shop,request,verify:async()=>customer,input};
+ await assert.rejects(customerSupportMessage({...args,verify:async()=> 'gid://shopify/Customer/2'}),{status:404});
+ const sent=await customerSupportMessage(args);
+ assert.deepEqual(sent.message.photos,[photo]);
+ assert.equal(row.status,'REQUESTED');
+ assert.equal((await customerSupportMessage(args)).duplicate,true);
+ await assert.rejects(customerSupportMessage({...args,input:{...input,photos:['data:image/jpeg;base64,Yg==']}}),{status:409});
+ await assert.rejects(customerSupportMessage({...args,input:{...input,messageId:'photo-2',photos:['https://invalid.test/picture.jpg']}}),{status:400});
+ await assert.rejects(customerSupportMessage({...args,input:{...input,messageId:'photo-3',photos:[photo,photo,photo,photo]}}),{status:400});
+});

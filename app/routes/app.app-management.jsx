@@ -421,18 +421,6 @@ export default function AppManagementPage() {
   const [storeAddress, setStoreAddress] = useState(config.storeInfo?.address || "");
   const [storeHours, setStoreHours] = useState(config.storeInfo?.hours || "");
   const [groupBuying, setGroupBuying] = useState(config.groupBuying || []);
-  const [prospekt, setProspekt] = useState(
-    config.prospekt || {
-      periodKo: "2026.10.17 - 2026.10.24",
-      periodDe: "17.10.2026 - 24.10.2026",
-      periodEn: "Oct 17 - Oct 24, 2026",
-      headlineKo: "이번 주 다와요 디지털 전단지 특가",
-      headlineDe: "DAWAYO Wochenprospekt Angebote",
-      headlineEn: "DAWAYO Weekly Digital Flyer",
-      badgeText: "APP EXCLUSIVE",
-      keywords: ["신라면", "김치", "만두", "참이슬", "초코파이", "진라면"],
-    }
-  );
   const [subscriptionPlans, setSubscriptionPlans] = useState(
     config.subscriptionPlans || []
   );
@@ -460,7 +448,6 @@ export default function AppManagementPage() {
     sync(setStoreAddress, previous.storeInfo?.address || "", config.storeInfo?.address || "");
     sync(setStoreHours, previous.storeInfo?.hours || "", config.storeInfo?.hours || "");
     if (config.groupBuying) sync(setGroupBuying, previous.groupBuying || [], config.groupBuying);
-    if (config.prospekt) sync(setProspekt, previous.prospekt, config.prospekt);
     if (config.subscriptionPlans) sync(setSubscriptionPlans, previous.subscriptionPlans || [], config.subscriptionPlans);
     if (config.store?.productPage) sync(setProductPage, previous.store?.productPage || {}, config.store.productPage);
     if (config.store?.cartPage) sync(setCartPage, previous.store?.cartPage || {}, config.store.cartPage);
@@ -486,7 +473,6 @@ export default function AppManagementPage() {
       ...(store.coldChain ? [[coldChain, store.coldChain]] : []),
       ...(config.searchKeywords ? [[searchKeywordsText, config.searchKeywords.join(", ")]] : []),
       ...(config.groupBuying ? [[groupBuying, config.groupBuying]] : []),
-      ...(config.prospekt ? [[prospekt, config.prospekt]] : []),
       ...(config.subscriptionPlans ? [[subscriptionPlans, config.subscriptionPlans]] : []),
       ...(store.productPage ? [[productPage, store.productPage]] : []),
       ...(store.cartPage ? [[cartPage, store.cartPage]] : []),
@@ -494,7 +480,7 @@ export default function AppManagementPage() {
     ];
     return drafts.some(([draft, saved]) => JSON.stringify(draft) !== JSON.stringify(saved));
   }, [config, freeShippingThreshold, shippingNoticeKo, shippingNoticeDe, shippingNoticeEn, tickers, appUpdateDraft, storeAddress, storeHours,
-    hotDealSettings, coldChain, searchKeywordsText, groupBuying, prospekt, subscriptionPlans, productPage, cartPage, myPage]);
+    hotDealSettings, coldChain, searchKeywordsText, groupBuying, subscriptionPlans, productPage, cartPage, myPage]);
   const [recipeHasUnsavedEdits, setRecipeHasUnsavedEdits] = useState(false);
 
   const isSubmitting = fetcher.state !== "idle";
@@ -1092,7 +1078,6 @@ export default function AppManagementPage() {
               isSubmitting={isSubmitting}
               livePriceLabel={livePriceLabel}
               liveVariantPrices={liveVariantPrices}
-              prospekt={prospekt}
               setActiveGbSearchIdx={setActiveGbSearchIdx}
               setActiveSubSearchIdx={setActiveSubSearchIdx}
               setGbSearchQuery={setGbSearchQuery}

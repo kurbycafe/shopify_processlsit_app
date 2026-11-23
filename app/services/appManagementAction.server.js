@@ -1278,19 +1278,6 @@ export async function appManagementAction({ request }) {
         await syncGroupBuyingDiscountCodes(admin, nextGroupBuying);
       }
 
-      const prospektRaw = formData.get("prospektJson");
-      let nextProspekt = currentExtended.prospekt;
-      if (prospektRaw) {
-        try {
-          nextProspekt = {
-            ...currentExtended.prospekt,
-            ...JSON.parse(String(prospektRaw)),
-          };
-        } catch {
-          // keep current
-        }
-      }
-
       const subscriptionPlansRaw = formData.get("subscriptionPlansJson");
       let nextSubscriptionPlans = currentExtended.subscriptionPlans;
       if (subscriptionPlansRaw) {
@@ -1336,7 +1323,6 @@ export async function appManagementAction({ request }) {
         coldChain: nextColdChain,
         searchKeywords: nextSearchKeywords,
         groupBuying: nextGroupBuying,
-        prospekt: nextProspekt,
         subscriptionPlans: nextSubscriptionPlans,
         productPage: nextProductPage,
         cartPage: nextCartPage,

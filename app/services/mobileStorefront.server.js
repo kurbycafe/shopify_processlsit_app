@@ -151,7 +151,6 @@ export const DEFAULT_EXTENDED_SETTINGS = {
   },
   "productOverrides": [],
   "groupBuying": [],
-  "prospekt": {},
   "subscriptionPlans": [],
   "searchKeywords": [],
   "searchKeywordStats": {},
@@ -412,10 +411,6 @@ export function parseExtendedSettings(rawJson) {
     groupBuying: Array.isArray(parsed.groupBuying)
       ? parsed.groupBuying
       : structuredClone(DEFAULT_EXTENDED_SETTINGS.groupBuying),
-    prospekt: {
-      ...DEFAULT_EXTENDED_SETTINGS.prospekt,
-      ...(parsed.prospekt || {}),
-    },
     subscriptionPlans: Array.isArray(parsed.subscriptionPlans)
       ? parsed.subscriptionPlans
       : structuredClone(DEFAULT_EXTENDED_SETTINGS.subscriptionPlans),
@@ -708,7 +703,6 @@ export async function getStorefrontConfig(
     groupBuying: includeInactive
       ? extended.groupBuying
       : toPublicGroupBuying(extended.groupBuying, now),
-    prospekt: extended.prospekt,
     subscriptionPlans: (includeInactive
       ? extended.subscriptionPlans
       : extended.subscriptionPlans.filter((s) => s.isActive !== false)
