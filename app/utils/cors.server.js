@@ -2,6 +2,20 @@
 const APP_HOSTS = new Set(["dawayo.de", "process-list-beryl.vercel.app", "dawayo-mobile-app.vercel.app", "localhost", "127.0.0.1"]);
 const FALLBACK_ORIGIN = "https://dawayo.de";
 
+export const REQUIRED_MOBILE_ORIGINS = [
+  "capacitor://localhost",
+  "http://localhost",
+  "https://localhost",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://dawayo.de",
+  "https://www.dawayo.de",
+  "https://dawayo-mobile-app.vercel.app",
+];
+
+export const MOBILE_CORS_ALLOW_HEADERS =
+  "Authorization, Content-Type, Accept, If-None-Match, X-Shop-Domain, X-Requested-With, X-App-Platform, X-App-Version";
+
 export function isAllowedOrigin(origin) {
   if (!origin) return false;
   try {
@@ -16,7 +30,7 @@ export function isAllowedOrigin(origin) {
  * CORS headers for a JSON response. The allowed origin is echoed back, so `Vary: Origin`
  * is always set; otherwise a cached response would carry another site's origin.
  */
-export function jsonCorsHeaders(request, { methods = "GET, OPTIONS", allowHeaders = "Content-Type, Authorization, X-Shop-Domain", vary = [], extra = {} } = {}) {
+export function jsonCorsHeaders(request, { methods = "GET, OPTIONS", allowHeaders = MOBILE_CORS_ALLOW_HEADERS, vary = [], extra = {} } = {}) {
   const origin = request.headers.get("origin") || "";
   return {
     "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : FALLBACK_ORIGIN,

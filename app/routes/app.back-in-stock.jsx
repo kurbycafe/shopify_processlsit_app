@@ -28,7 +28,7 @@ import {
   restoreArchivedSubscriptions,
   deleteTerminalSubscriptions,
 } from "../services/backInStockCleanup.server";
-import { queueRestockPush } from "../services/mobileNotificationEvents.server";
+import { drainRestockPushForVariant, queueRestockPush } from "../services/mobileNotificationEvents.server";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server";
 import {
   exportSubscriptionsToCsv,
@@ -495,6 +495,50 @@ export const action = async ({ request }) => {
     return results;
   };
 
+  const enqueueRestockPush = async (targetVariantId, { targetProductId = null, targetProductTitle = null } = {}) => {
+    try {
+      const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+      if (typeof drainRestockPushForVariant === "function") {
+        await drainRestockPushForVariant({
+          db: dbClient,
+          shop,
+          variantId: targetVariantId,
+          productId: targetProductId,
+          productTitle: targetProductTitle,
+        });
+        return;
+      }
+      if (typeof queueRestockPush === "function") {
+        const raw = String(targetVariantId).replace("gid://shopify/ProductVariant/", "");
+        const gid = String(targetVariantId).startsWith("gid://") ? String(targetVariantId) : `gid://shopify/ProductVariant/${raw}`;
+        const candidates = raw !== gid ? [gid, raw] : [gid];
+        for (const candidate of candidates) {
+          for (let batch = 0; batch < 10; batch++) {
+            const res = await queueRestockPush({ db: dbClient, shop, variantId: candidate, productId: targetProductId, productTitle: targetProductTitle });
+            if (!res?.more) break;
+          }
+        }
+      }
+    } catch (pushErr) {
+      console.warn("Mobile restock push trigger warning:", pushErr?.message || pushErr);
+    }
+  };
+
+  const dispatchRestockPushQueue = async (limit = 100) => {
+    try {
+      if (typeof dispatchMobileNotifications !== "function") return;
+      const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
+      await Promise.race([
+        dispatchMobileNotifications({ db: dbClient, shop, limit }).catch((err) => {
+          console.warn("Mobile restock push dispatch warning:", err?.message || err);
+        }),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]);
+    } catch (pushErr) {
+      console.warn("Mobile restock push dispatch warning:", pushErr?.message || pushErr);
+    }
+  };
+
   const formData = await request.formData();
   const intent = formData.get("intent");
 
@@ -572,10 +616,11 @@ export const action = async ({ request }) => {
     const sku = formData.get("sku") || null;
     const productTitle = formData.get("productTitle") || null;
     const variantTitle = formData.get("variantTitle") || null;
+    let productId = formData.get("productId") || null;
     let productUrl = formData.get("productUrl") || null;
     const now = new Date();
 
-    if (!productUrl && admin?.graphql) {
+    if ((!productUrl || !productId) && admin?.graphql) {
       try {
         const gid = variantId.startsWith("gid://") ? variantId : `gid://shopify/ProductVariant/${variantId}`;
         const queryRes = await admin.graphql(
@@ -583,15 +628,17 @@ export const action = async ({ request }) => {
           query getVariantUrl($id: ID!) {
             node(id: $id) {
               ... on ProductVariant {
-                product { handle }
+                product { id handle }
               }
             }
           }`,
           { variables: { id: gid } }
         );
         const json = await queryRes.json();
-        const handle = json?.data?.node?.product?.handle;
-        if (handle) {
+        const productNode = json?.data?.node?.product;
+        if (!productId && productNode?.id) productId = productNode.id;
+        const handle = productNode?.handle;
+        if (!productUrl && handle) {
           const domain = shop.includes("dawayo") ? "dawayo.de" : shop;
           productUrl = `https://${domain}/products/${handle}`;
         }
@@ -611,23 +658,8 @@ export const action = async ({ request }) => {
       dispatchDate: now,
     });
 
-    try {
-      if (typeof queueRestockPush === "function") {
-        const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
-        const gid = variantId.startsWith("gid://") ? variantId : `gid://shopify/ProductVariant/${variantId}`;
-        const raw = variantId.replace("gid://shopify/ProductVariant/", "");
-        await queueRestockPush({ db: dbClient, shop, variantId: gid, productId: null, productTitle });
-        if (raw !== gid) {
-          await queueRestockPush({ db: dbClient, shop, variantId: raw, productId: null, productTitle });
-        }
-      }
-      if (typeof dispatchMobileNotifications === "function") {
-        const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
-        dispatchMobileNotifications({ db: dbClient, shop, limit: 50 }).catch(() => {});
-      }
-    } catch (pushErr) {
-      console.warn("Mobile restock push trigger warning:", pushErr.message);
-    }
+    await enqueueRestockPush(variantId, { targetProductId: productId, targetProductTitle: productTitle });
+    await dispatchRestockPushQueue(50);
 
     if (result.total === 0) {
       return Response.json({ success: true, message: "발송 대기 중인 신청자가 없습니다." });
@@ -666,17 +698,7 @@ export const action = async ({ request }) => {
           dispatchDate: now,
         });
 
-        try {
-          if (typeof queueRestockPush === "function") {
-            const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
-            const gid = vId.startsWith("gid://") ? vId : `gid://shopify/ProductVariant/${vId}`;
-            const raw = vId.replace("gid://shopify/ProductVariant/", "");
-            await queueRestockPush({ db: dbClient, shop, variantId: gid, productId: null, productTitle: null });
-            if (raw !== gid) {
-              await queueRestockPush({ db: dbClient, shop, variantId: raw, productId: null, productTitle: null });
-            }
-          }
-        } catch (_) {}
+        await enqueueRestockPush(vId);
 
         return res;
       });
@@ -685,12 +707,7 @@ export const action = async ({ request }) => {
         failedCount += res.failed;
         warningCount += res.warnings?.length || 0;
       }
-      try {
-        if (typeof dispatchMobileNotifications === "function") {
-          const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
-          dispatchMobileNotifications({ db: dbClient, shop, limit: 100 }).catch(() => {});
-        }
-      } catch (_) {}
+      await dispatchRestockPushQueue(100);
     } else {
       const pendingList = await prisma.backInStockSubscription.findMany({
         where: { shop, id: { in: ids }, status: { in: ["PENDING", "FAILED"] } },
@@ -892,18 +909,10 @@ export const action = async ({ request }) => {
           });
 
           if (!res.skippedByThreshold) {
-            try {
-              if (typeof queueRestockPush === "function") {
-                const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
-                await queueRestockPush({
-                  db: dbClient,
-                  shop,
-                  variantId: variant.id,
-                  productId: variant.product?.id,
-                  productTitle: variant.product?.title,
-                });
-              }
-            } catch (_) {}
+            await enqueueRestockPush(variant.id, {
+              targetProductId: variant.product?.id || null,
+              targetProductTitle: variant.product?.title || null,
+            });
           }
 
           return res;
@@ -921,12 +930,9 @@ export const action = async ({ request }) => {
         }
       }
 
-      try {
-        if (inStockCount > 0 && typeof dispatchMobileNotifications === "function") {
-          const dbClient = typeof prisma !== "undefined" ? prisma : undefined;
-          dispatchMobileNotifications({ db: dbClient, shop, limit: 100 }).catch(() => {});
-        }
-      } catch (_) {}
+      if (inStockCount > 0) {
+        await dispatchRestockPushQueue(100);
+      }
 
       if (inStockCount === 0 && skippedThresholdCount > 0) {
         return Response.json({

@@ -1,23 +1,16 @@
 import prisma from "../db.server";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
+import { getShopAliases } from "../utils/shopDomain.js";
+import {
+  getCachedNotice,
+  getStaleCachedNotice,
+  rememberNotice,
+} from "../services/storefrontCache.server.js";
 
-const NOTICE_CACHE_TTL_MS = 60 * 1000;
-// The shop comes from the request, so the cache is capped: callers cannot grow
-// it by sending made-up shop names.
-const NOTICE_CACHE_MAX_ENTRIES = 50;
 const MAX_SHOP_LENGTH = 255;
-const noticeMemoryCache = new Map();
-
-function rememberNotice(shop, payload, timestamp) {
-  noticeMemoryCache.delete(shop);
-  while (noticeMemoryCache.size >= NOTICE_CACHE_MAX_ENTRIES) {
-    noticeMemoryCache.delete(noticeMemoryCache.keys().next().value);
-  }
-  noticeMemoryCache.set(shop, { payload, timestamp });
-}
 
 const NOTICE_CORS_OPTIONS = {
-  extra: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
+  extra: { "Cache-Control": "public, max-age=15, must-revalidate" },
 };
 
 function resolveShop(request, explicitShop = null) {
@@ -31,20 +24,44 @@ function resolveShop(request, explicitShop = null) {
   return rawShop.replace(/^https?:\/\//, "").split("/")[0].toLowerCase().trim().slice(0, MAX_SHOP_LENGTH);
 }
 
+async function peekStorefrontNoticeVersion(shop) {
+  const select = { id: true, shop: true, isActive: true, noticeVersion: true, updatedAt: true };
+  let meta = await prisma.storefrontNotice.findUnique({ where: { shop }, select });
+  if (!meta) {
+    const aliases = getShopAliases(shop);
+    if (aliases.length > 1) {
+      meta = await prisma.storefrontNotice.findFirst({
+        where: { shop: { in: aliases } },
+        orderBy: { updatedAt: "desc" },
+        select,
+      });
+    }
+  }
+  return meta;
+}
+
 async function fetchStorefrontNotice(shop) {
   let notice = await prisma.storefrontNotice.findUnique({
     where: { shop },
   });
 
   if (!notice) {
-    // Fallback search with exact canonical shop
-    notice = await prisma.storefrontNotice.findFirst({
-      where: { shop: { contains: "dawayo", mode: "insensitive" } },
-      orderBy: { createdAt: "desc" },
-    });
+    const aliases = getShopAliases(shop);
+    if (aliases.length > 1) {
+      notice = await prisma.storefrontNotice.findFirst({
+        where: { shop: { in: aliases } },
+        orderBy: { updatedAt: "desc" },
+      });
+    }
   }
 
   return notice;
+}
+
+function noticeVersionKey(meta) {
+  if (!meta) return "none";
+  const ts = meta.updatedAt instanceof Date ? meta.updatedAt.toISOString() : String(meta.updatedAt || "");
+  return `${meta.id || ""}:${meta.isActive ? "1" : "0"}:${meta.noticeVersion || ""}:${ts}`;
 }
 
 export const loader = async ({ request }) => {
@@ -53,31 +70,30 @@ export const loader = async ({ request }) => {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  let cached = null;
+  const shop = resolveShop(request);
   try {
-    const shop = resolveShop(request);
-    const now = Date.now();
-    cached = noticeMemoryCache.get(shop) || null;
-    if (cached && now - cached.timestamp < NOTICE_CACHE_TTL_MS) {
-      return Response.json(cached.payload, { headers: corsHeaders });
-    }
-
-    let notice;
+    let meta;
     try {
-      notice = await fetchStorefrontNotice(shop);
+      meta = await peekStorefrontNoticeVersion(shop);
     } catch (firstError) {
       console.warn("[Storefront Notice API] First read failed, retrying", firstError?.name);
       await new Promise((resolve) => setTimeout(resolve, 150));
-      notice = await fetchStorefrontNotice(shop);
+      meta = await peekStorefrontNoticeVersion(shop);
     }
+
+    const versionKey = noticeVersionKey(meta);
+    const cached = getCachedNotice(shop, versionKey);
+    if (cached) {
+      return Response.json(cached, { headers: corsHeaders });
+    }
+
+    const now = Date.now();
+    const notice = meta ? await fetchStorefrontNotice(meta.shop || shop) : null;
 
     if (!notice || !notice.isActive) {
       const emptyPayload = { success: true, data: null };
-      rememberNotice(shop, emptyPayload, now);
-      return Response.json(
-        emptyPayload,
-        { headers: corsHeaders }
-      );
+      rememberNotice(shop, emptyPayload, now, versionKey);
+      return Response.json(emptyPayload, { headers: corsHeaders });
     }
 
     let parsedItems = [];
@@ -92,27 +108,39 @@ export const loader = async ({ request }) => {
       }
     }
 
+    const normalizedItems = (Array.isArray(parsedItems) ? parsedItems : []).map((item) => ({
+      ...item,
+      title: typeof item?.title === "string" ? item.title : "",
+      desc: typeof item?.desc === "string" ? item.desc : typeof item?.description === "string" ? item.description : "",
+      description:
+        typeof item?.description === "string" ? item.description : typeof item?.desc === "string" ? item.desc : "",
+    }));
+
+    const noticeVersion = notice.noticeVersion || "v1.0.0";
+    const subtext = notice.subtext || "";
+
     const payload = {
       success: true,
       data: {
         isActive: notice.isActive,
-        noticeVersion: notice.noticeVersion || "v1.0.0",
+        noticeVersion,
+        version: noticeVersion,
         badgeTag: notice.badgeTag || "NOTICE",
         title: notice.title || "",
-        subtext: notice.subtext || "",
-        items: Array.isArray(parsedItems) ? parsedItems : [],
+        subtext,
+        description: subtext,
+        updatedAt: notice.updatedAt || null,
+        items: normalizedItems,
       },
     };
-    rememberNotice(shop, payload, now);
+    rememberNotice(shop, payload, now, versionKey);
 
-    return Response.json(
-      payload,
-      { headers: corsHeaders }
-    );
+    return Response.json(payload, { headers: corsHeaders });
   } catch (error) {
-    if (cached?.payload) {
+    const stale = getStaleCachedNotice(shop);
+    if (stale) {
       console.warn("[Storefront Notice API] Serving stale notice after DB failure:", error?.name);
-      return Response.json(cached.payload, {
+      return Response.json(stale, {
         headers: {
           ...corsHeaders,
           "Cache-Control": "public, max-age=15, stale-while-revalidate=60",

@@ -1343,23 +1343,83 @@ export async function appManagementAction({ request }) {
         myPage: nextMyPage,
       };
 
-      const appUpdateCode = formData.get("androidVersionCode");
-      if (appUpdateCode !== null) {
-        const value = String(appUpdateCode).trim();
+      const parsePositiveField = (key, label) => {
+        const raw = formData.get(key);
+        if (raw === null) return { provided: false };
+        const val = String(raw).trim();
+        if (!val) return { provided: true, value: undefined };
+        if (!/^\d+$/.test(val) || !Number.isSafeInteger(Number(val)) || Number(val) < 1) {
+          return { provided: true, error: `${label}은(는) 양의 정수로 입력해 주세요.` };
+        }
+        return { provided: true, value: Number(val) };
+      };
+      const parseHttpsField = (key, label) => {
+        const raw = formData.get(key);
+        if (raw === null) return { provided: false };
+        const val = String(raw).trim();
+        if (!val) return { provided: true, value: undefined };
+        try {
+          const parsed = new URL(val);
+          if (parsed.protocol !== "https:" || parsed.toString().length > 500) {
+            return { provided: true, error: `${label}은(는) 올바른 https:// URL로 입력해 주세요.` };
+          }
+          return { provided: true, value: parsed.toString() };
+        } catch {
+          return { provided: true, error: `${label}은(는) 올바른 https:// URL로 입력해 주세요.` };
+        }
+      };
+
+      const appUpdateFields = [
+        ["androidVersionCode", () => parsePositiveField("androidVersionCode", "Android 최신 버전 코드")],
+        ["minAndroidVersionCode", () => parsePositiveField("minAndroidVersionCode", "Android 최소 필수 버전 코드")],
+        ["androidUpdateUrl", () => parseHttpsField("androidUpdateUrl", "Android 업데이트 링크")],
+        ["iosBuildNumber", () => parsePositiveField("iosBuildNumber", "iOS 최신 빌드 번호")],
+        ["minIosBuildNumber", () => parsePositiveField("minIosBuildNumber", "iOS 최소 필수 빌드 번호")],
+        ["iosUpdateUrl", () => parseHttpsField("iosUpdateUrl", "iOS 업데이트 링크")],
+      ];
+      const existingUpdate =
+        nextExtended.appUpdate && typeof nextExtended.appUpdate === "object"
+          ? { ...nextExtended.appUpdate }
+          : {};
+      let anyUpdateFieldProvided = false;
+      for (const [key, parser] of appUpdateFields) {
+        const parsed = parser();
+        if (!parsed.provided) continue;
+        anyUpdateFieldProvided = true;
+        if (parsed.error) return { success: false, error: parsed.error };
+        if (parsed.value !== undefined) existingUpdate[key] = parsed.value;
+        else delete existingUpdate[key];
+      }
+      const updateMessageRaw = formData.get("updateMessage");
+      if (updateMessageRaw !== null) {
+        anyUpdateFieldProvided = true;
+        const msg = String(updateMessageRaw).trim().slice(0, 300);
+        if (msg) existingUpdate.updateMessage = msg;
+        else delete existingUpdate.updateMessage;
+      }
+      if (anyUpdateFieldProvided) {
         if (
-          value &&
-          (!/^\d+$/.test(value) ||
-            !Number.isSafeInteger(Number(value)) ||
-            Number(value) < 1)
+          existingUpdate.androidVersionCode &&
+          existingUpdate.minAndroidVersionCode &&
+          existingUpdate.minAndroidVersionCode > existingUpdate.androidVersionCode
         ) {
           return {
             success: false,
-            error: "Android 버전 코드는 양의 정수로 입력해 주세요.",
+            error: "Android 최소 필수 버전 코드는 최신 Android 버전 코드보다 클 수 없습니다.",
           };
         }
-        nextExtended.appUpdate = value
-          ? { androidVersionCode: Number(value) }
-          : null;
+        if (
+          existingUpdate.iosBuildNumber &&
+          existingUpdate.minIosBuildNumber &&
+          existingUpdate.minIosBuildNumber > existingUpdate.iosBuildNumber
+        ) {
+          return {
+            success: false,
+            error: "iOS 최소 필수 빌드 번호는 최신 iOS 빌드 번호보다 클 수 없습니다.",
+          };
+        }
+        nextExtended.appUpdate =
+          Object.keys(existingUpdate).length > 0 ? existingUpdate : null;
       }
       const storeAddress = formData.get("storeAddress"),
         storeHours = formData.get("storeHours");

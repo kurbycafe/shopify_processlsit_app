@@ -3,6 +3,15 @@
 // entry and the "previous updates" list from this array.
 export const SYSTEM_UPDATES = [
   {
+    version: "v1.7.1",
+    date: "2026-11-21",
+    title: "다와요 모바일 앱 최신 버전 업데이트 안내",
+    items: [
+      { label: "모바일 앱 업데이트", text: "2026-11-21 기준으로 다와요 모바일 앱 최신 버전이 업데이트되었습니다." },
+      { label: "업데이트 확인 방법", text: "다와요 모바일앱은 계속 업데이트되고 있으니, 제공 되었던 링크를 통해 들어가서 항상 체크하고 최신 버전으로 업데이트해 주세요." },
+    ],
+  },
+  {
     version: "v1.7.0",
     date: "2026-11-11",
     title: "관리자 화면 사용성 개선",

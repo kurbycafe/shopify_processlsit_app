@@ -94,6 +94,31 @@ test('public notice only exposes active, allowlisted fields from the configured 
   assert.ok(!JSON.stringify(result).includes('PRIVATE'));
   const disabled = createCustomerResolver({ db: { storefrontNotice: { findUnique: async () => ({ isActive: false }) } } });
   assert.equal(await disabled({ request, resource: 'notice', shop }), null);
+
+  let aliasQuery = null;
+  const aliasResolver = createCustomerResolver({
+    db: {
+      storefrontNotice: {
+        findUnique: async () => null,
+        findFirst: async (args) => {
+          aliasQuery = args;
+          return {
+            isActive: true,
+            noticeVersion: 'v2.1.0',
+            badgeTag: 'APP NOTICE',
+            title: 'Alias Update',
+            subtext: 'Alias Body',
+            itemsJson: [],
+          };
+        },
+      },
+    },
+  });
+  const aliasNotice = await aliasResolver({ request, resource: 'notice', shop });
+  assert.ok(Array.isArray(aliasQuery.where.shop.in));
+  assert.ok(aliasQuery.where.shop.in.includes('dawayo.de'));
+  assert.equal(aliasNotice.badgeTag, 'APP NOTICE');
+  assert.equal(aliasNotice.noticeVersion, 'v2.1.0');
 });
 test('restock looks up the server SKU, excludes unpublished products and does not disclose PO data', async () => {
   const { createCustomerResolver } = await import('../app/services/customerResources.server.js');

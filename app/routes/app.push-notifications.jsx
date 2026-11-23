@@ -7,6 +7,7 @@ import db from "../db.server.js";
 import { createPushCampaign, expandPushCampaigns, listPushAdmin, retryPushDelivery, batchRetryPushDelivery } from "../services/mobilePushAdmin.server.js";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { firebasePushConfigured } from "../services/firebaseMessaging.server.js";
+import { getShopAliases } from "../utils/shopDomain.js";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
@@ -34,7 +35,7 @@ export const loader = async ({ request }) => {
   const status = url.searchParams.get("status") || "ALL";
   try {
     return {
-      ...(await listPushAdmin({ db, shop: session.shop, cursor, status })),
+      ...(await listPushAdmin({ db, shop: session.shop, shopAliases: getShopAliases(session.shop), cursor, status })),
       status,
       configured: firebasePushConfigured(),
       requestId: randomUUID(),

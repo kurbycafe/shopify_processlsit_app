@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { MOBILE_CORS_ALLOW_HEADERS, REQUIRED_MOBILE_ORIGINS } from "../utils/cors.server.js";
 import { MobileApiError } from "./mobileApi.server.js";
 import { limitCustomerWrite } from "./rateLimit.server.js";
 
-const DEFAULT_CUSTOMER_ORIGINS =
-  "capacitor://localhost,http://localhost,https://localhost,http://localhost:5173,http://127.0.0.1:5173,https://dawayo.de,https://www.dawayo.de,https://dawayo-mobile-app.vercel.app";
 const DEFAULT_CUSTOMER_ACCOUNT_URL =
   "https://shopify.com/99898655049/account/customer/api/2026-01/graphql";
 const POST_RESOURCES = new Set([
@@ -43,13 +42,19 @@ export function createCustomerHandler(resolve, env = process.env, { limit = env 
     const headers = { "Cache-Control": "private, no-store", Vary: "Origin", "X-Request-Id": requestId };
     try {
       const origin = request.headers.get("origin");
-      const rawAllowed = env.CUSTOMER_API_ALLOWED_ORIGINS || (env === process.env ? DEFAULT_CUSTOMER_ORIGINS : "");
-      const allowed = rawAllowed.split(",").map((s) => s.trim()).filter(Boolean);
+      const envAllowed = (env.CUSTOMER_API_ALLOWED_ORIGINS || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const allowed =
+        env === process.env
+          ? Array.from(new Set([...REQUIRED_MOBILE_ORIGINS, ...envAllowed]))
+          : envAllowed;
       if (origin && !allowed.includes(origin)) throw new MobileApiError(403, "ORIGIN_NOT_ALLOWED", "Origin not allowed.");
       if (origin) headers["Access-Control-Allow-Origin"] = origin;
       const methods = GET_POST_RESOURCES.has(params.resource) ? "GET, POST, OPTIONS" : POST_RESOURCES.has(params.resource) ? "POST, OPTIONS" : "GET, OPTIONS";
       headers["Access-Control-Allow-Methods"] = methods;
-      headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Shop-Domain, X-Requested-With";
+      headers["Access-Control-Allow-Headers"] = MOBILE_CORS_ALLOW_HEADERS;
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
       if (!methods.split(", ").includes(request.method)) {
         headers.Allow = methods;

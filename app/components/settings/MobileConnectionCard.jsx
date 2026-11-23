@@ -91,12 +91,17 @@ export default function MobileConnectionCard({ baseUrl, configured, nativeOrigin
   )}
   {feedback && <Banner tone={feedback.tone} onDismiss={() => setFeedback(null)}><p>{feedback.message}</p></Banner>}
   <DataTable columnContentTypes={['text','text','text']} headings={['기능','경로','인증']} rows={[
+    ['스토어프론트 앱 설정 · 버전 정책', 'GET /api/mobile/v1/storefront-config', '불필요 (X-App-Platform/Version)'],
+    ['온라인 판매 상품 ID 목록', 'GET /api/mobile/v1/online-products', '불필요'],
     ['내 주문', 'GET /api/customer/v1/orders', '고객 Bearer 토큰'],
     ['주문 상품 추가 페이지', 'GET /api/customer/v1/order-items', '고객 Bearer 토큰'],
+    ['주문 거래명세서(인보이스)', 'GET /api/customer/v1/order-invoice', '고객 Bearer 토큰'],
     ['내 주문 검수', 'GET /api/customer/v1/order-inspection', '고객 Bearer 토큰'],
     ['공지', 'GET /api/customer/v1/notice', '불필요'],
+    ['입고 예정 안내', 'GET /api/customer/v1/arrivals', '불필요'],
     ['입고 예정', 'GET /api/customer/v1/restock', '불필요'],
     ['재입고 알림 신청', 'POST /api/customer/v1/restock-subscription', '불필요'],
+    ['푸시 토큰 · 게스트 공지 등록', 'POST /api/customer/v1/push-token · guest-notice-device', '고객 Bearer / 게스트'],
   ]} />
   <TextField label="고객 토큰을 사용하는 주문 조회 예제" value={example} multiline={8} readOnly autoComplete="off" />
   <Text as="p" tone="subdued">Shopify Admin 키, Odoo 키, 직원용 integration-token은 모바일 앱에 넣지 않습니다. orders의 pageInfo.hasNextPage가 true이면 endCursor를 cursor로 보내 다음 페이지를 요청하세요. 401은 재로그인 또는 토큰 갱신이 필요합니다. 이 표시는 환경 설정 확인 결과이며 실제 고객 로그인 통신 테스트 결과는 아닙니다.</Text>

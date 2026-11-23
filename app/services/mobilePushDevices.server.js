@@ -28,13 +28,14 @@ export async function registerMobileDevice({ db, shop, request, verify, input })
     }
     if (await tx.customerRequest.findUnique({ where: { requestKey: revocationKey } })) throw new MobileApiError(409, "BINDING_REVOKED", "This login's device binding has been revoked.");
     if (!(await readPushPreferences(tx, shop, customerId)).pushEnabled) throw new MobileApiError(409, "CONSENT_REQUIRED", "Enable notifications before registering this device.");
-    if (input.platform !== "android") throw new MobileApiError(400, "UNSUPPORTED_PLATFORM", "Only configured Android FCM devices are accepted.");
+    const platform = ["android", "ios"].includes(input.platform) ? input.platform : null;
+    if (!platform) throw new MobileApiError(400, "UNSUPPORTED_PLATFORM", "Only configured Android or iOS FCM devices are accepted.");
     const token = typeof input.token === "string" ? input.token.trim() : "";
     if (token.length < 8 || token.length > 512 || /\s/.test(token) || /^(ios|android|web)_dawayo_/.test(token)) throw new MobileApiError(400, "INVALID_TOKEN", "Invalid provider token.");
-    const payload = { installationId, bindingId, secretHash: secretHash(deviceSecret), token, platform: "android", registeredAt: existing?.customerId === customerId && existing.payload.bindingId === bindingId ? existing.payload.registeredAt : new Date().toISOString() };
+    const payload = { installationId, bindingId, secretHash: secretHash(deviceSecret), token, platform, registeredAt: existing?.customerId === customerId && existing.payload.bindingId === bindingId ? existing.payload.registeredAt : new Date().toISOString() };
     await tx.customerRequest.updateMany({ where: { shop, type: "PUSH_DEVICE", requestKey: { not: requestKey }, payload: { path: ["token"], equals: token } }, data: { status: "DISABLED", customerId: null } });
     const record = await tx.customerRequest.upsert({ where: { requestKey }, create: { shop, customerId, type: "PUSH_DEVICE", requestKey, status: "ACTIVE", payload }, update: { customerId, status: "ACTIVE", payload } });
-    return { accepted: true, registrationId: record.id, registered: true, platform: "android", bindingId };
+    return { accepted: true, registrationId: record.id, registered: true, platform, bindingId };
   };
   return typeof db.$transaction === "function" ? db.$transaction(write) : write(db);
 }

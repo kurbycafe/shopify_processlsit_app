@@ -3,7 +3,12 @@ import { getShopAliases, resolveCanonicalShop } from "../utils/shopDomain.js";
 import { LOYALTY_POLICY } from "./joyLoyalty.server.js";
 import { normalizeArrivalCopy, normalizeArrivalSelection, normalizeArrivalOverrides } from "../utils/arrivalCopy.js";
 import { BANNER_GRADIENT_PRESETS } from "../constants/bannerPresets.js";
-export { normalizeArrivalCopy, resolveCanonicalShop, BANNER_GRADIENT_PRESETS };
+import {
+  getCachedStorefrontConfig,
+  setCachedStorefrontConfig,
+  invalidateStorefrontCache,
+} from "./storefrontCache.server.js";
+export { normalizeArrivalCopy, resolveCanonicalShop, BANNER_GRADIENT_PRESETS, invalidateStorefrontCache };
 
 export const ALLOWED_CATEGORY_ICONS = [
   "Sparkles",
@@ -276,6 +281,92 @@ export function normalizeCategoryRules(raw) {
   return out;
 }
 
+function parsePositiveInt(value) {
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function parseHttpsUrl(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 500) return null;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeAppUpdate(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const next = {};
+  const androidVersionCode = parsePositiveInt(raw.androidVersionCode);
+  if (androidVersionCode) next.androidVersionCode = androidVersionCode;
+  const minAndroidVersionCode = parsePositiveInt(raw.minAndroidVersionCode);
+  if (minAndroidVersionCode) next.minAndroidVersionCode = minAndroidVersionCode;
+  const androidUpdateUrl = parseHttpsUrl(raw.androidUpdateUrl);
+  if (androidUpdateUrl) next.androidUpdateUrl = androidUpdateUrl;
+  const iosBuildNumber = parsePositiveInt(raw.iosBuildNumber);
+  if (iosBuildNumber) next.iosBuildNumber = iosBuildNumber;
+  const minIosBuildNumber = parsePositiveInt(raw.minIosBuildNumber);
+  if (minIosBuildNumber) next.minIosBuildNumber = minIosBuildNumber;
+  const iosUpdateUrl = parseHttpsUrl(raw.iosUpdateUrl);
+  if (iosUpdateUrl) next.iosUpdateUrl = iosUpdateUrl;
+  const updateMessage =
+    typeof raw.updateMessage === "string"
+      ? raw.updateMessage.trim().slice(0, 300)
+      : "";
+  if (updateMessage) next.updateMessage = updateMessage;
+  return Object.keys(next).length > 0 ? next : null;
+}
+
+export function evaluateClientUpdate({ platform, versionCode, appUpdate }) {
+  const normalized = normalizeAppUpdate(appUpdate);
+  if (!normalized) return null;
+  const normalizedPlatform =
+    typeof platform === "string" ? platform.trim().toLowerCase() : "";
+  if (normalizedPlatform !== "android" && normalizedPlatform !== "ios") {
+    return null;
+  }
+  let currentVersion = null;
+  if (typeof versionCode === "number") {
+    currentVersion = parsePositiveInt(versionCode);
+  } else if (typeof versionCode === "string" && /^\d+$/.test(versionCode.trim())) {
+    currentVersion = parsePositiveInt(Number(versionCode.trim()));
+  }
+  if (!currentVersion) return null;
+
+  const isAndroid = normalizedPlatform === "android";
+  const latestVersion = isAndroid
+    ? normalized.androidVersionCode ?? null
+    : normalized.iosBuildNumber ?? null;
+  const minVersion = isAndroid
+    ? normalized.minAndroidVersionCode ?? null
+    : normalized.minIosBuildNumber ?? null;
+  const updateUrl = isAndroid
+    ? normalized.androidUpdateUrl ?? null
+    : normalized.iosUpdateUrl ?? null;
+
+  if (!latestVersion && !minVersion) return null;
+
+  let status = "UP_TO_DATE";
+  if (minVersion && currentVersion < minVersion) {
+    status = "FORCE_UPDATE";
+  } else if (latestVersion && currentVersion < latestVersion) {
+    status = "OPTIONAL_UPDATE";
+  }
+
+  return {
+    platform: normalizedPlatform,
+    currentVersion,
+    status,
+    latestVersion,
+    minVersion,
+    updateUrl,
+    message: normalized.updateMessage ?? null,
+  };
+}
+
 export function parseExtendedSettings(rawJson) {
   let parsed = rawJson;
   if (typeof rawJson === "string") {
@@ -331,7 +422,7 @@ export function parseExtendedSettings(rawJson) {
     searchKeywords: searchRankings.map((r) => r.keyword),
     searchKeywordStats: rawStats,
     searchRankings,
-    appUpdate: parsed.appUpdate && Number.isSafeInteger(parsed.appUpdate.androidVersionCode) && parsed.appUpdate.androidVersionCode > 0 ? {androidVersionCode: parsed.appUpdate.androidVersionCode} : null,
+    appUpdate: normalizeAppUpdate(parsed.appUpdate),
     storeInfo: { address: typeof parsed.storeInfo?.address === 'string' ? parsed.storeInfo.address.slice(0,300) : '', hours: typeof parsed.storeInfo?.hours === 'string' ? parsed.storeInfo.hours.slice(0,500) : '' },
     productPage: {
       ...DEFAULT_EXTENDED_SETTINGS.productPage,
@@ -514,32 +605,31 @@ function findMatchingOverride(overrides, item) {
 }
 
 
-const STOREFRONT_CACHE_TTL_MS = 30000;
-const storefrontConfigCache = new Map();
-
-export function invalidateStorefrontCache(rawShop = null) {
-  if (rawShop) {
-    const shop = resolveCanonicalShop(rawShop);
-    storefrontConfigCache.delete(shop);
-  } else {
-    storefrontConfigCache.clear();
-  }
-}
-
 /**
  * Fetches full storefront configuration formatted for mobile consumption & admin editor
  */
 export async function getStorefrontConfig(
   rawShop,
-  { db = prisma, includeInactive = false, bypassCache = false, includeRecipes = true } = {}
+  { db = prisma, includeInactive = false, bypassCache = false, includeRecipes = true, useCache = db === prisma } = {}
 ) {
   const shop = await ensureStorefrontSeeded(rawShop, db);
   const shopAliases = getShopAliases(shop);
 
-  if (!includeInactive && !bypassCache && includeRecipes && db === prisma) {
-    const cached = storefrontConfigCache.get(shop);
-    if (cached && Date.now() - cached.timestamp < STOREFRONT_CACHE_TTL_MS) {
-      return structuredClone(cached.data);
+  if (!includeInactive && !bypassCache && includeRecipes && useCache) {
+    let latestVersion = null;
+    try {
+      const meta = await db.mobileStorefrontConfig.findFirst({
+        where: { shop: { in: shopAliases } },
+        orderBy: { updatedAt: "desc" },
+        select: { configVersion: true },
+      });
+      latestVersion = meta?.configVersion || "1.0.0";
+    } catch {
+      latestVersion = null;
+    }
+    const cached = getCachedStorefrontConfig(shop, latestVersion);
+    if (cached) {
+      return cached;
     }
   }
 
@@ -783,11 +873,8 @@ export async function getStorefrontConfig(
     ...(includeInactive ? { publishLogs: Array.isArray(extended.publishLogs) ? extended.publishLogs : [] } : {}),
   };
 
-  if (!includeInactive && includeRecipes && db === prisma) {
-    storefrontConfigCache.set(shop, {
-      data: structuredClone(result),
-      timestamp: Date.now(),
-    });
+  if (!includeInactive && includeRecipes && useCache) {
+    setCachedStorefrontConfig(shop, result);
   }
 
   return result;

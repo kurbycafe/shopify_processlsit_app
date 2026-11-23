@@ -308,13 +308,15 @@ export function createCustomerResolver({ db, verify, graphql, customerQuery, res
       input: request.method === "GET" ? undefined : await readJsonPayload(request, 4096) });
   }
   if (resource === "notice") {
-    const notice = await db.storefrontNotice.findUnique({
-      where: { shop }, select: { isActive: true, noticeVersion: true, title: true, subtext: true, itemsJson: true, updatedAt: true },
-    });
+    const noticeSelect = { isActive: true, noticeVersion: true, badgeTag: true, title: true, subtext: true, itemsJson: true, updatedAt: true };
+    let notice = await db.storefrontNotice.findUnique({ where: { shop }, select: noticeSelect });
+    if (!notice && typeof db.storefrontNotice.findFirst === "function") {
+      notice = await db.storefrontNotice.findFirst({ where: { shop: { in: getShopAliases(shop) }, isActive: true }, orderBy: { updatedAt: "desc" }, select: noticeSelect });
+    }
     if (!notice?.isActive) return null;
     let items = notice.itemsJson;
     if (typeof items === "string") { try { items = JSON.parse(items); } catch { items = []; } }
-    return { version: notice.noticeVersion, title: notice.title, description: notice.subtext,
+    return { version: notice.noticeVersion, noticeVersion: notice.noticeVersion, badgeTag: notice.badgeTag || null, title: notice.title, description: notice.subtext,
       updatedAt: notice.updatedAt, items: (Array.isArray(items) ? items : []).slice(0, 20)
         .filter((item) => item && typeof item.title === "string")
         .map((item) => ({ title: item.title, description: typeof item.desc === "string" ? item.desc : "" })) };

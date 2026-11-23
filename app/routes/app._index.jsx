@@ -106,6 +106,12 @@ export default function Dashboard() {
   return (
     <Page title="물류 운영 대시보드">
       <BlockStack gap="500">
+        <Banner tone="critical" title="다와요 모바일 앱 업데이트 안내 (최근 업데이트: 2026-11-21)">
+          <Text as="p" tone="critical" fontWeight="semibold">
+            2026-11-21 기준으로 다와요 모바일 앱 최신 버전이 업데이트되었습니다. 다와요 모바일앱은 계속 업데이트되고 있으니, 제공 되었던 링크를 통해 들어가서 항상 체크하고 최신 버전으로 업데이트해 주세요.
+          </Text>
+        </Banner>
+
         {/* 1. 최상단: 핵심 운영 메트릭 카드 */}
         <DashboardMetricCards
           todayPrintedCount={todayPrintedCount}

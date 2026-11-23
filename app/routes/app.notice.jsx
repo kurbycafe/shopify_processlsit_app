@@ -4,6 +4,8 @@ import { Page, Layout, Card, Text, TextField, Button, Banner, BlockStack, Inline
 import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { getShopAliases, resolveCanonicalShop } from "../utils/shopDomain.js";
+import { invalidateNoticeCache } from "../services/storefrontCache.server.js";
 
 // Keeps the admin menu on screen and offers a retry when this screen fails.
 export { RouteErrorBoundary as ErrorBoundary } from "../components/common/RouteErrorBoundary.jsx";
@@ -18,9 +20,18 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const notice = await prisma.storefrontNotice.findUnique({
-    where: { shop }
+  let notice = await prisma.storefrontNotice.findUnique({
+    where: { shop },
   });
+  if (!notice) {
+    const aliases = getShopAliases(shop);
+    if (aliases.length > 1) {
+      notice = await prisma.storefrontNotice.findFirst({
+        where: { shop: { in: aliases } },
+        orderBy: { updatedAt: "desc" },
+      });
+    }
+  }
 
   let items = [];
   if (notice?.itemsJson) {
@@ -64,8 +75,18 @@ export const action = async ({ request }) => {
     console.warn("Invalid items JSON:", e);
   }
 
+  const canonicalShop = resolveCanonicalShop(shop);
+  const existingAlias = canonicalShop !== shop
+    ? await prisma.storefrontNotice.findFirst({
+        where: { shop: { in: getShopAliases(shop) } },
+        orderBy: { updatedAt: "desc" },
+        select: { shop: true },
+      })
+    : null;
+  const targetShop = existingAlias?.shop || shop;
+
   await prisma.storefrontNotice.upsert({
-    where: { shop },
+    where: { shop: targetShop },
     update: {
       isActive,
       noticeVersion,
@@ -75,7 +96,7 @@ export const action = async ({ request }) => {
       itemsJson
     },
     create: {
-      shop,
+      shop: targetShop,
       isActive,
       noticeVersion,
       badgeTag,
@@ -84,6 +105,9 @@ export const action = async ({ request }) => {
       itemsJson
     }
   });
+
+  invalidateNoticeCache(shop);
+  invalidateNoticeCache(targetShop);
 
   return { success: true, message: "스토어프론트 팝업 공지 설정이 성공적으로 저장되었습니다." };
 };

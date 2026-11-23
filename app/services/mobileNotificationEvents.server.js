@@ -60,17 +60,34 @@ export async function saveMobileRestockInterest({ db, shop, customerId, variant 
   const requestKey = pushKey(shop, "MOBILE_RESTOCK", customerId, variant.id);
   const existing = await db.customerRequest.findUnique({ where: { requestKey } });
   if (existing?.status === "PENDING") return;
-  const payload = { variantId: variant.id, productId: variant.product.id, cycle: new Date().toISOString() };
+  const payload = { variantId: variant.id, productId: variant.product?.id || null, cycle: new Date().toISOString() };
   await db.customerRequest.upsert({ where: { requestKey }, create: { shop, customerId, type: "MOBILE_RESTOCK", requestKey, status: "PENDING", payload }, update: { status: "PENDING", payload } });
 }
+
+const isProductGid = (value) => typeof value === "string" && /^gid:\/\/shopify\/Product\/\d+$/.test(value);
 
 export async function queueRestockPush({ db, shop, variantId, productId, productTitle }) {
   const records = await db.customerRequest.findMany({ where: { shop, type: "MOBILE_RESTOCK", status: "PENDING", payload: { path: ["variantId"], equals: variantId } }, orderBy: { id: "asc" }, take: 100 });
   for (const record of records) {
     if (!validCustomerId(record.customerId)) continue;
+    const resolvedProductId = isProductGid(productId) ? productId : isProductGid(record.payload?.productId) ? record.payload.productId : null;
+    const target = resolvedProductId ? { type: "product", id: resolvedProductId } : { type: "home" };
     await queueCustomerNotification({ db, shop, customerId: record.customerId, category: "RESTOCK", eventKey: `restock:${record.id}:${record.payload.cycle}`,
-      title: "신청 상품 재입고 안내", body: `${String(productTitle || "신청하신 상품").slice(0, 100)}이 재입고되었습니다.`, target: { type: "product", id: productId } });
+      title: "신청 상품 재입고 안내", body: `${String(productTitle || "신청하신 상품").slice(0, 100)}이 재입고되었습니다.`, target });
     await db.customerRequest.updateMany({ where: { id: record.id, shop, status: "PENDING", updatedAt: record.updatedAt }, data: { status: "NOTIFIED" } });
   }
   return { more: records.length === 100 };
+}
+
+export async function drainRestockPushForVariant({ db, shop, variantId, productId = null, productTitle = null, maxBatches = 10 }) {
+  if (!variantId) return;
+  const raw = String(variantId).replace("gid://shopify/ProductVariant/", "");
+  const gid = String(variantId).startsWith("gid://") ? String(variantId) : `gid://shopify/ProductVariant/${raw}`;
+  const candidates = raw !== gid ? [gid, raw] : [gid];
+  for (const candidate of candidates) {
+    for (let batch = 0; batch < maxBatches; batch++) {
+      const { more } = await queueRestockPush({ db, shop, variantId: candidate, productId, productTitle });
+      if (!more) break;
+    }
+  }
 }

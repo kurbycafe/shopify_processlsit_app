@@ -3,6 +3,7 @@ import { Page } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { listCustomerRequests, updateCustomerRequest } from "../services/customerRequests.server.js";
+import { getShopAliases } from "../utils/shopDomain.js";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { MobileApiError } from "../services/mobileApi.server.js";
 import CustomerRequestsHub from "../components/CustomerRequestsHub.jsx";
@@ -20,6 +21,7 @@ export const loader = async ({ request }) => {
       ...(await listCustomerRequests({
         db: prisma,
         shop: session.shop,
+        shopAliases: getShopAliases(session.shop),
         status,
         type,
         after: search.get("cursor"),

@@ -1,12 +1,18 @@
-import { getStorefrontConfig, recordSearchKeyword } from "../services/mobileStorefront.server.js";
+import {
+  evaluateClientUpdate,
+  getStorefrontConfig,
+  recordSearchKeyword,
+} from "../services/mobileStorefront.server.js";
 import { customerShop } from "../services/customerApi.server.js";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
 
 const STOREFRONT_CONFIG_CORS_OPTIONS = {
   methods: "GET, POST, OPTIONS",
-  allowHeaders: "Content-Type, Authorization, X-Shop-Domain, X-Requested-With, If-None-Match",
-  vary: ["If-None-Match"],
-  extra: { "Access-Control-Expose-Headers": "ETag", "Cache-Control": "public, max-age=15, stale-while-revalidate=60" },
+  vary: ["If-None-Match", "X-App-Platform", "X-App-Version"],
+  extra: {
+    "Access-Control-Expose-Headers": "ETag, X-App-Update-Status",
+    "Cache-Control": "public, max-age=0, must-revalidate",
+  },
 };
 
 export const loader = async ({ request }) => {
@@ -28,15 +34,22 @@ export const loader = async ({ request }) => {
       config = await getStorefrontConfig(shop, { includeInactive: false });
     }
     const etag = `W/"${config.configVersion || '1.0.0'}"`;
+    const clientUpdate = evaluateClientUpdate({
+      platform: request.headers.get("x-app-platform"),
+      versionCode: request.headers.get("x-app-version"),
+      appUpdate: config.appUpdate,
+    });
+    const responseHeaders = {
+      ...corsHeaders,
+      ETag: etag,
+      ...(clientUpdate ? { "X-App-Update-Status": clientUpdate.status } : {}),
+    };
 
     const clientEtag = request.headers.get("if-none-match");
     if (clientEtag && (clientEtag === etag || clientEtag === `"${config.configVersion}"`)) {
       return new Response(null, {
         status: 304,
-        headers: {
-          ...corsHeaders,
-          ETag: etag,
-        },
+        headers: responseHeaders,
       });
     }
 
@@ -44,12 +57,10 @@ export const loader = async ({ request }) => {
       {
         success: true,
         data: config,
+        ...(clientUpdate ? { meta: { clientUpdate } } : {}),
       },
       {
-        headers: {
-          ...corsHeaders,
-          ETag: etag,
-        },
+        headers: responseHeaders,
       }
     );
   } catch (error) {

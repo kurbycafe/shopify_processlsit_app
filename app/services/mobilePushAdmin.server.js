@@ -57,7 +57,7 @@ export async function batchRetryPushDelivery({ db, shop }) {
   return { accepted: true, count };
 }
 
-export async function listPushAdmin({ db, shop, cursor, status = "ALL" }) {
+export async function listPushAdmin({ db, shop, shopAliases = null, cursor, status = "ALL" }) {
   if (cursor && !/^[a-zA-Z0-9_-]{1,100}$/.test(cursor)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid cursor.");
 
   let statusFilter = {};
@@ -71,10 +71,12 @@ export async function listPushAdmin({ db, shop, cursor, status = "ALL" }) {
     statusFilter = { status };
   }
 
+  const shopFilter = Array.isArray(shopAliases) && shopAliases.length > 1 ? { in: shopAliases } : shop;
+
   const [records, totalSent, totalFailed, totalQueued] = await Promise.all([
     db.customerRequest.findMany({
       where: {
-        shop,
+        shop: shopFilter,
         type: { in: ["PUSH_CAMPAIGN", "PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] },
         ...statusFilter,
         ...(cursor ? { id: { lt: cursor } } : {}),
@@ -83,13 +85,13 @@ export async function listPushAdmin({ db, shop, cursor, status = "ALL" }) {
       take: 51,
     }),
     db.customerRequest.count({
-      where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY", "PUSH_CAMPAIGN"] }, status: { in: ["SENT", "EXPANDED"] } },
+      where: { shop: shopFilter, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY", "PUSH_CAMPAIGN"] }, status: { in: ["SENT", "EXPANDED"] } },
     }).catch(() => 0),
     db.customerRequest.count({
-      where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] }, status: { in: ["FAILED", "UNKNOWN"] } },
+      where: { shop: shopFilter, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY"] }, status: { in: ["FAILED", "UNKNOWN"] } },
     }).catch(() => 0),
     db.customerRequest.count({
-      where: { shop, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY", "PUSH_CAMPAIGN"] }, status: { in: ["QUEUED", "RETRY", "SENDING"] } },
+      where: { shop: shopFilter, type: { in: ["PUSH_DELIVERY", "PUSH_GUEST_DELIVERY", "PUSH_CAMPAIGN"] }, status: { in: ["QUEUED", "RETRY", "SENDING"] } },
     }).catch(() => 0),
   ]);
 

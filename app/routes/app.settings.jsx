@@ -25,6 +25,8 @@ import { authenticate, apiVersion } from "../shopify.server";
 import prisma from "../db.server.js";
 import { isOdooConfigured } from "../services/odooClient.server.js";
 import { checkMobileConnectionHealth } from "../services/mobileConnectionHealth.server.js";
+import { offlineAdmin } from "../services/offlineAdmin.server.js";
+import { REQUIRED_MOBILE_ORIGINS } from "../utils/cors.server.js";
 import { isEmailServiceConfigured, sendCancellationAlertEmail } from "../utils/emailService.js";
 import { getRegisteredWebhooks, ensureRequiredWebhooks, webhooksAreRegistered } from "../services/webhookRegistration.server.js";
 
@@ -50,7 +52,12 @@ export const loader = async ({ request }) => {
     mobileConnection: {
       baseUrl: new URL(appUrl).origin,
       configured: process.env.CUSTOMER_API_SHOP === shop && Boolean(process.env.CUSTOMER_ACCOUNT_API_URL),
-      nativeOriginsReady: ['capacitor://localhost', 'https://localhost'].every(origin => (process.env.CUSTOMER_API_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).includes(origin)),
+      nativeOriginsReady: ["capacitor://localhost", "https://localhost"].every((origin) =>
+        [
+          ...REQUIRED_MOBILE_ORIGINS,
+          ...(process.env.CUSTOMER_API_ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()),
+        ].includes(origin)
+      ),
     },
     apiKey,
     maskedSecret,
@@ -96,6 +103,7 @@ export const action = async ({ request }) => {
       const mobileHealth = await checkMobileConnectionHealth({
         db: prisma,
         admin,
+        offlineAdminFn: offlineAdmin,
         appUrl,
         shop,
       });

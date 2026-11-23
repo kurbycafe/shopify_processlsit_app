@@ -27,7 +27,8 @@ export async function sendFirebaseNotification({ token, notificationId, customer
     return await Promise.race([
       messaging.send({ token, notification: notificationPayload,
         data: guest ? { notificationId, category: "NOTICE", audience: "guest" } : { notificationId, customerId, category },
-        android: { priority: "high", ttl: 86400000, collapseKey: notificationId, notification: { tag: notificationId, channelId: ({ ORDER: "dawayo_orders", SUPPORT: "dawayo_support", RESTOCK: "dawayo_restock", EVENT: "dawayo_events", MARKETING: "dawayo_marketing" })[category] || "dawayo_events" } } }),
+        android: { priority: "high", ttl: 86400000, collapseKey: notificationId, notification: { tag: notificationId, channelId: ({ ORDER: "dawayo_orders", SUPPORT: "dawayo_support", RESTOCK: "dawayo_restock", EVENT: "dawayo_events", MARKETING: "dawayo_marketing" })[category] || "dawayo_events" } },
+        apns: { headers: { "apns-priority": "10", "apns-collapse-id": notificationId }, payload: { aps: { sound: "default", "mutable-content": 1 } } } }),
       new Promise((resolve, reject) => { timer = setTimeout(() => reject(Object.assign(Error("Push result is unknown."), { code: "PUSH_TIMEOUT" })), 15000); }),
     ]);
   } finally { clearTimeout(timer); }

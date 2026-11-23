@@ -406,7 +406,18 @@ export default function AppManagementPage() {
   const [searchKeywordsText, setSearchKeywordsText] = useState(
     (config.searchKeywords || []).join(", ")
   );
-  const [androidVersionCode, setAndroidVersionCode] = useState(String(config.appUpdate?.androidVersionCode || ""));
+  const toAppUpdateDraft = (appUpdate) => ({
+    androidVersionCode: String(appUpdate?.androidVersionCode || ""),
+    minAndroidVersionCode: String(appUpdate?.minAndroidVersionCode || ""),
+    androidUpdateUrl: appUpdate?.androidUpdateUrl || "",
+    iosBuildNumber: String(appUpdate?.iosBuildNumber || ""),
+    minIosBuildNumber: String(appUpdate?.minIosBuildNumber || ""),
+    iosUpdateUrl: appUpdate?.iosUpdateUrl || "",
+    updateMessage: appUpdate?.updateMessage || "",
+  });
+  const [appUpdateDraft, setAppUpdateDraft] = useState(() =>
+    toAppUpdateDraft(config.appUpdate)
+  );
   const [storeAddress, setStoreAddress] = useState(config.storeInfo?.address || "");
   const [storeHours, setStoreHours] = useState(config.storeInfo?.hours || "");
   const [groupBuying, setGroupBuying] = useState(config.groupBuying || []);
@@ -445,7 +456,7 @@ export default function AppManagementPage() {
     if (config.store?.hotDealSettings) sync(setHotDealSettings, previous.store?.hotDealSettings, config.store.hotDealSettings);
     if (config.store?.coldChain) sync(setColdChain, previous.store?.coldChain, config.store.coldChain);
     if (config.searchKeywords) sync(setSearchKeywordsText, (previous.searchKeywords || []).join(", "), config.searchKeywords.join(", "));
-    sync(setAndroidVersionCode, String(previous.appUpdate?.androidVersionCode || ""), String(config.appUpdate?.androidVersionCode || ""));
+    sync(setAppUpdateDraft, toAppUpdateDraft(previous.appUpdate), toAppUpdateDraft(config.appUpdate));
     sync(setStoreAddress, previous.storeInfo?.address || "", config.storeInfo?.address || "");
     sync(setStoreHours, previous.storeInfo?.hours || "", config.storeInfo?.hours || "");
     if (config.groupBuying) sync(setGroupBuying, previous.groupBuying || [], config.groupBuying);
@@ -467,7 +478,7 @@ export default function AppManagementPage() {
       [shippingNoticeDe, store.shippingNotice?.de || ""],
       [shippingNoticeEn, store.shippingNotice?.en || ""],
       [tickers, store.tickers || []],
-      [androidVersionCode, String(config.appUpdate?.androidVersionCode || "")],
+      [appUpdateDraft, toAppUpdateDraft(config.appUpdate)],
       [storeAddress, config.storeInfo?.address || ""],
       [storeHours, config.storeInfo?.hours || ""],
       // Sections the saved config does not carry yet start from built-in defaults, which are not edits.
@@ -482,7 +493,7 @@ export default function AppManagementPage() {
       ...(store.myPage ? [[myPage, store.myPage]] : []),
     ];
     return drafts.some(([draft, saved]) => JSON.stringify(draft) !== JSON.stringify(saved));
-  }, [config, freeShippingThreshold, shippingNoticeKo, shippingNoticeDe, shippingNoticeEn, tickers, androidVersionCode, storeAddress, storeHours,
+  }, [config, freeShippingThreshold, shippingNoticeKo, shippingNoticeDe, shippingNoticeEn, tickers, appUpdateDraft, storeAddress, storeHours,
     hotDealSettings, coldChain, searchKeywordsText, groupBuying, prospekt, subscriptionPlans, productPage, cartPage, myPage]);
   const [recipeHasUnsavedEdits, setRecipeHasUnsavedEdits] = useState(false);
 
@@ -1038,14 +1049,14 @@ export default function AppManagementPage() {
         {activeTab === "shipping" && (
           <LazyTabPanel>
             <ShippingPanel
-              androidVersionCode={androidVersionCode}
+              appUpdateDraft={appUpdateDraft}
               coldChain={coldChain}
               fetcher={fetcher}
               freeShippingThreshold={freeShippingThreshold}
               hotDealSettings={hotDealSettings}
               isSubmitting={isSubmitting}
               searchKeywordsText={searchKeywordsText}
-              setAndroidVersionCode={setAndroidVersionCode}
+              setAppUpdateDraft={setAppUpdateDraft}
               setColdChain={setColdChain}
               setFreeShippingThreshold={setFreeShippingThreshold}
               setSearchKeywordsText={setSearchKeywordsText}

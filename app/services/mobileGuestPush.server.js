@@ -25,14 +25,15 @@ export async function guestNoticeDevice({ db, shop, input }) {
     }
     if (existing?.customerId) throw new MobileApiError(409, 'ACCOUNT_DEVICE', 'Disconnect the signed-in account first.');
     if (await tx.customerRequest.findUnique({ where:{ requestKey:revocationKey } })) throw new MobileApiError(409, 'BINDING_REVOKED', 'Notice registration was revoked.');
-    if (input.noticeConsent !== true || input.platform !== 'android' || input.category !== 'NOTICE') throw new MobileApiError(400, 'NOTICE_ONLY', 'Guest devices can subscribe to public notices only.');
+    const platform = ['android', 'ios'].includes(input.platform) ? input.platform : null;
+    if (input.noticeConsent !== true || !platform || input.category !== 'NOTICE') throw new MobileApiError(400, 'NOTICE_ONLY', 'Guest devices can subscribe to public notices only.');
     const token = typeof input.token === 'string' ? input.token.trim() : '';
     if (token.length < 8 || token.length > 512 || /\s/.test(token) || /^(ios|android|web)_dawayo_/.test(token)) throw new MobileApiError(400,'INVALID_TOKEN','Invalid provider token.');
     // A provider token must have a single active binding, including account bindings.
     await tx.customerRequest.updateMany({ where:{ shop, type:'PUSH_DEVICE', requestKey:{ not:requestKey }, payload:{ path:['token'], equals:token } }, data:{ status:'DISABLED', customerId:null } });
-    const payload = { installationId, bindingId, secretHash:secretHash(deviceSecret), token, platform:'android', guest:true, noticeConsent:true, registeredAt:new Date().toISOString() };
+    const payload = { installationId, bindingId, secretHash:secretHash(deviceSecret), token, platform, guest:true, noticeConsent:true, registeredAt:new Date().toISOString() };
     await tx.customerRequest.upsert({ where:{ requestKey }, create:{ shop, type:'PUSH_DEVICE', requestKey, customerId:null, status:'ACTIVE', payload }, update:{ customerId:null, status:'ACTIVE', payload } });
-    return { accepted:true, registered:true };
+    return { accepted:true, registered:true, platform };
   };
   return db.$transaction ? db.$transaction(write) : write(db);
 }

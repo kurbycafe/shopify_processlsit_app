@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
+import { MOBILE_CORS_ALLOW_HEADERS } from "../utils/cors.server.js";
 
 export class MobileApiError extends Error {
   constructor(status, code, message) {
@@ -66,7 +67,7 @@ export function createMobileHandler(resolveResource, env = process.env) {
       if (origin && !origins.includes(origin)) fail(403, "ORIGIN_NOT_ALLOWED", "This origin is not allowed.");
       if (origin) headers["Access-Control-Allow-Origin"] = origin;
       headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
-      headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type";
+      headers["Access-Control-Allow-Headers"] = MOBILE_CORS_ALLOW_HEADERS;
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
       if (request.method !== "GET") {
         headers.Allow = "GET, OPTIONS";

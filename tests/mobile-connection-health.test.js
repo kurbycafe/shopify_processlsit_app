@@ -11,6 +11,11 @@ const BASE_ENV = {
   CUSTOMER_ACCOUNT_API_URL: "https://shopify.com/99898655049/account/customer/api/2026-01/graphql",
   CUSTOMER_API_ALLOWED_ORIGINS: "capacitor://localhost,https://localhost,https://dawayo.de",
   MOBILE_API_ODOO_SHOP: "dawayo.myshopify.com",
+  FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+    project_id: "dawayo-f8170",
+    client_email: "svc@dawayo-f8170.iam.gserviceaccount.com",
+    private_key: "-----BEGIN PRIVATE KEY-----\nTESTKEY\n-----END PRIVATE KEY-----\n",
+  }),
 };
 
 function makeJsonResponse(status, body, headers = { "access-control-allow-origin": "capacitor://localhost" }) {
@@ -30,17 +35,20 @@ test("checkMobileConnectionHealth verifies real DB, Notice, Restock APIs and env
     backInStockSubscription: { count: async () => 15 },
   };
   const admin = {
-    graphql: async () => ({
-      json: async () => ({
-        data: {
-          products: {
-            nodes: [
-              { status: "DRAFT", onlineStoreUrl: null, variants: { nodes: [{ id: "gid://shopify/ProductVariant/111" }] } },
-              { status: "ACTIVE", onlineStoreUrl: "https://dawayo.de/products/kimchi", variants: { nodes: [{ id: "gid://shopify/ProductVariant/998877" }] } },
-            ],
-          },
-        },
-      }),
+    graphql: async (query) => ({
+      json: async () =>
+        String(query).includes("MobileHealthOfflineShop")
+          ? { data: { shop: { id: "gid://shopify/Shop/1" } } }
+          : {
+              data: {
+                products: {
+                  nodes: [
+                    { status: "DRAFT", onlineStoreUrl: null, variants: { nodes: [{ id: "gid://shopify/ProductVariant/111" }] } },
+                    { status: "ACTIVE", onlineStoreUrl: "https://dawayo.de/products/kimchi", variants: { nodes: [{ id: "gid://shopify/ProductVariant/998877" }] } },
+                  ],
+                },
+              },
+            },
     }),
   };
 
@@ -51,6 +59,24 @@ test("checkMobileConnectionHealth verifies real DB, Notice, Restock APIs and env
       return makeJsonResponse(200, {
         success: true,
         data: { version: "v2.0.0", title: "배송 일정 안내", items: [{ title: "공지" }] },
+      });
+    }
+    if (String(url).endsWith("/api/mobile/v1/storefront-config")) {
+      return makeJsonResponse(200, {
+        success: true,
+        data: { configVersion: "2.1.0", banners: [{ id: "b1" }] },
+      });
+    }
+    if (String(url).endsWith("/api/mobile/v1/online-products")) {
+      return makeJsonResponse(200, {
+        success: true,
+        data: { productIds: ["gid://shopify/Product/1", "gid://shopify/Product/2"] },
+      });
+    }
+    if (String(url).endsWith("/api/customer/v1/arrivals?limit=1")) {
+      return makeJsonResponse(200, {
+        success: true,
+        data: { arrivals: [{ id: "arr-1" }] },
       });
     }
     if (String(url).includes("/api/customer/v1/restock?variantId=998877")) {
@@ -75,8 +101,8 @@ test("checkMobileConnectionHealth verifies real DB, Notice, Restock APIs and env
   assert.equal(result.overallStatus, "OK");
   assert.equal(result.baseUrl, "https://process-list.example.test");
   assert.equal(result.checkedAt, "2026-11-13T10:00:00.000Z");
-  assert.deepEqual(result.summary, { ok: 4, warn: 0, error: 0, total: 4 });
-  assert.equal(requests.length, 2);
+  assert.deepEqual(result.summary, { ok: 9, warn: 0, error: 0, total: 9 });
+  assert.equal(requests.length, 5);
   assert.equal(requests[0].init.headers.Origin, "capacitor://localhost");
 
   const byKey = Object.fromEntries(result.checks.map((c) => [c.key, c]));
@@ -86,9 +112,17 @@ test("checkMobileConnectionHealth verifies real DB, Notice, Restock APIs and env
   assert.equal(byKey.noticeApi.status, "OK");
   assert.equal(byKey.noticeApi.httpStatus, 200);
   assert.match(byKey.noticeApi.detail, /배송 일정 안내/);
+  assert.equal(byKey.storefrontConfigApi.status, "OK");
+  assert.match(byKey.storefrontConfigApi.detail, /2\.1\.0/);
+  assert.equal(byKey.onlineProductsApi.status, "OK");
+  assert.match(byKey.onlineProductsApi.detail, /2건/);
+  assert.equal(byKey.arrivalsApi.status, "OK");
+  assert.match(byKey.arrivalsApi.detail, /1건/);
   assert.equal(byKey.restockApi.status, "OK");
   assert.match(byKey.restockApi.detail, /998877/);
   assert.match(byKey.restockApi.detail, /2026-11-22/);
+  assert.equal(byKey.offlineAdmin.status, "OK");
+  assert.equal(byKey.pushService.status, "OK");
   assert.equal(byKey.configCors.status, "OK");
 });
 
@@ -119,6 +153,7 @@ test("checkMobileConnectionHealth sanitizes DB secrets and surfaces 503/CORS/tim
     shop: "dawayo.myshopify.com",
     env: {
       ...BASE_ENV,
+      FIREBASE_SERVICE_ACCOUNT_JSON: "",
       MOBILE_API_ODOO_SHOP: "",
       CUSTOMER_ACCOUNT_API_URL: "http://insecure.example.com",
     },
@@ -138,6 +173,9 @@ test("checkMobileConnectionHealth sanitizes DB secrets and surfaces 503/CORS/tim
   assert.equal(byKey.restockApi.status, "ERROR");
   assert.equal(byKey.restockApi.httpStatus, 503);
   assert.match(byKey.restockApi.detail, /MOBILE_API_ODOO_SHOP/);
+
+  assert.equal(byKey.offlineAdmin.status, "WARN");
+  assert.equal(byKey.pushService.status, "WARN");
 
   assert.equal(byKey.configCors.status, "WARN");
   assert.match(byKey.configCors.detail, /CUSTOMER_ACCOUNT_API_URL/);

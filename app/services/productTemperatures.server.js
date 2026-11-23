@@ -6,6 +6,7 @@ import {
   validateCursorParam,
   validateProductPageConnection,
 } from "./productMetaServer.server.js";
+import { invalidateStorefrontCache } from "./storefrontCache.server.js";
 
 export const TEMPERATURE_PRODUCTS_QUERY = `#graphql
   query TemperatureProducts($after: String) {
@@ -120,13 +121,22 @@ export async function saveStorefrontConfig(db, args) {
     const values = { ...(record ? args.update : args.create),
       tickersJson: { ...current, ...planned } };
     if (!record) {
-      try { return await db.mobileStorefrontConfig.create({ data: { ...values, shop } }); }
-      catch (error) { if (error.code === "P2002") continue; throw error; }
+      try {
+        const created = await db.mobileStorefrontConfig.create({ data: { ...values, shop } });
+        invalidateStorefrontCache(shop);
+        return created;
+      } catch (error) {
+        if (error.code === "P2002") continue;
+        throw error;
+      }
     }
     const changed = await db.mobileStorefrontConfig.updateMany({
       where: { id: record.id, shop, updatedAt: record.updatedAt }, data: values,
     });
-    if (changed.count === 1) return { ...record, ...values };
+    if (changed.count === 1) {
+      invalidateStorefrontCache(shop);
+      return { ...record, ...values };
+    }
   }
   throw new TemperatureError(409, "다른 관리자가 상품 설정을 변경했습니다. 새로고침 후 다시 저장해주세요.");
 }

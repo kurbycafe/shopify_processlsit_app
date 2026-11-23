@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { registerMobileDevice } from "../app/services/mobilePushDevices.server.js";
 import { readPushPreferences, savePushPreferences, inQuietHours } from "../app/services/mobilePushPolicy.server.js";
 import { queueCustomerNotification, customerNotificationInbox, dispatchMobileNotifications } from "../app/services/mobileNotificationQueue.server.js";
-import { queueOrderPush, queueSupportReplyPush, saveMobileRestockInterest, queueRestockPush } from "../app/services/mobileNotificationEvents.server.js";
+import { queueOrderPush, queueSupportReplyPush, saveMobileRestockInterest, queueRestockPush, drainRestockPushForVariant } from "../app/services/mobileNotificationEvents.server.js";
 import { createPushCampaign, expandPushCampaigns, retryPushDelivery, batchRetryPushDelivery, listPushAdmin } from "../app/services/mobilePushAdmin.server.js";
 import { authorizePushWorker } from "../app/services/mobilePushWorkerAuth.server.js";
 import { customerCartReminder, checkCartReminders } from '../app/services/cartReminders.server.js';
@@ -379,4 +379,64 @@ test('listPushAdmin filters by status, computes stats, and batchRetryPushDeliver
   assert.equal(retried1.payload.attempts, 0);
   assert.equal(retried2.status, "RETRY");
   assert.equal(retried2.payload.attempts, 0);
+});
+
+test("queueRestockPush recovers productId or falls back to home target when productId is null", async () => {
+  const { db, rows } = memory();
+  await consent(db, owner);
+  await consent(db, other);
+
+  const variantWithProduct = { id: "gid://shopify/ProductVariant/10", product: { id: "gid://shopify/Product/777" } };
+  await saveMobileRestockInterest({ db, shop, customerId: owner, variant: variantWithProduct });
+
+  const variantWithoutProduct = { id: "gid://shopify/ProductVariant/20", product: null };
+  await saveMobileRestockInterest({ db, shop, customerId: other, variant: variantWithoutProduct });
+
+  await queueRestockPush({ db, shop, variantId: variantWithProduct.id, productId: null, productTitle: "Miso Soup" });
+  await drainRestockPushForVariant({ db, shop, variantId: "20", productId: null, productTitle: "Soy Sauce" });
+
+  const ownerMsg = rows.find((r) => r.type === "MOBILE_NOTIFICATION" && r.customerId === owner);
+  const otherMsg = rows.find((r) => r.type === "MOBILE_NOTIFICATION" && r.customerId === other);
+  assert.deepEqual(ownerMsg.payload.target, { type: "product", id: "gid://shopify/Product/777" });
+  assert.deepEqual(otherMsg.payload.target, { type: "home" });
+});
+
+test("iOS FCM device registration succeeds for account and guest devices while unsupported platforms fail", async () => {
+  const { db, rows } = memory();
+  await consent(db, owner);
+
+  const iosAccount = await register(
+    db,
+    { ...identity, platform: "ios", token: "real-ios-fcm-token-abcdef123456" },
+    owner
+  );
+  assert.equal(iosAccount.accepted, true);
+  assert.equal(iosAccount.platform, "ios");
+
+  const iosGuest = await guestNoticeDevice({
+    db,
+    shop,
+    input: {
+      ...identity,
+      installationId: "ios-guest-installation-12345",
+      bindingId: "ios-guest-binding-1234567890",
+      token: "real-ios-guest-fcm-token-123456",
+      platform: "ios",
+      action: "register",
+      noticeConsent: true,
+      category: "NOTICE",
+    },
+  });
+  assert.equal(iosGuest.accepted, true);
+  assert.equal(iosGuest.platform, "ios");
+  assert.ok(rows.some((r) => r.type === "PUSH_DEVICE" && r.payload?.platform === "ios"));
+
+  await assert.rejects(
+    register(
+      db,
+      { ...identity, platform: "web", token: "real-web-token-1234567890" },
+      owner
+    ),
+    { status: 400, code: "UNSUPPORTED_PLATFORM" }
+  );
 });

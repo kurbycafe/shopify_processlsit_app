@@ -12,14 +12,14 @@ import {
 
 // "shipping" tab of the app management screen (moved out of app.app-management.jsx).
 export function ShippingPanel({
-  androidVersionCode,
+  appUpdateDraft,
   coldChain,
   fetcher,
   freeShippingThreshold,
   hotDealSettings,
   isSubmitting,
   searchKeywordsText,
-  setAndroidVersionCode,
+  setAppUpdateDraft,
   setColdChain,
   setFreeShippingThreshold,
   setSearchKeywordsText,
@@ -36,6 +36,8 @@ export function ShippingPanel({
   storeHours,
   tickers,
 }) {
+  const updateAppField = (field, value) =>
+    setAppUpdateDraft((prev) => ({ ...prev, [field]: value }));
   return (
     <BlockStack gap="400">
       <Card>
@@ -216,13 +218,79 @@ export function ShippingPanel({
           </InlineStack>
 
           <Divider />
+          <Text variant="headingSm" as="h3">
+            모바일 앱 버전 정책 (Android / iOS)
+          </Text>
+          <InlineStack gap="400" wrap>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <TextField
+                label="Google Play 최신 Android 버전 코드"
+                value={appUpdateDraft.androidVersionCode}
+                onChange={(v) => updateAppField("androidVersionCode", v)}
+                type="number"
+                min="1"
+                helpText="권장 업데이트 기준 버전 코드입니다. 비워두면 미사용입니다."
+                autoComplete="off"
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <TextField
+                label="최소 필수 Android 버전 코드 (강제 업데이트 기준)"
+                value={appUpdateDraft.minAndroidVersionCode}
+                onChange={(v) => updateAppField("minAndroidVersionCode", v)}
+                type="number"
+                min="1"
+                helpText="이 값보다 낮은 Android 앱에는 강제 업데이트를 안내합니다."
+                autoComplete="off"
+              />
+            </div>
+          </InlineStack>
           <TextField
-            label="Google Play 최신 Android 버전 코드"
-            value={androidVersionCode}
-            onChange={setAndroidVersionCode}
-            type="number"
-            min="1"
-            helpText="Play에 실제 배포한 버전 코드만 입력하세요. 비워두면 업데이트 안내를 표시하지 않습니다."
+            label="Android 업데이트 링크 (https URL)"
+            value={appUpdateDraft.androidUpdateUrl}
+            onChange={(v) => updateAppField("androidUpdateUrl", v)}
+            placeholder="https://play.google.com/store/apps/details?id=..."
+            helpText="Google Play 스토어 또는 배포 APK 안내 URL (선택)"
+            autoComplete="off"
+          />
+          <InlineStack gap="400" wrap>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <TextField
+                label="최신 iOS 빌드 번호"
+                value={appUpdateDraft.iosBuildNumber}
+                onChange={(v) => updateAppField("iosBuildNumber", v)}
+                type="number"
+                min="1"
+                helpText="App Store / TestFlight 최신 iOS 빌드 번호입니다."
+                autoComplete="off"
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <TextField
+                label="최소 필수 iOS 빌드 번호 (강제 업데이트 기준)"
+                value={appUpdateDraft.minIosBuildNumber}
+                onChange={(v) => updateAppField("minIosBuildNumber", v)}
+                type="number"
+                min="1"
+                helpText="이 값보다 낮은 iOS 앱에는 강제 업데이트를 안내합니다."
+                autoComplete="off"
+              />
+            </div>
+          </InlineStack>
+          <TextField
+            label="iOS 업데이트 링크 (https URL)"
+            value={appUpdateDraft.iosUpdateUrl}
+            onChange={(v) => updateAppField("iosUpdateUrl", v)}
+            placeholder="https://apps.apple.com/..."
+            helpText="App Store 또는 TestFlight 업데이트 URL (선택)"
+            autoComplete="off"
+          />
+          <TextField
+            label="업데이트 안내 문구 (선택)"
+            value={appUpdateDraft.updateMessage}
+            onChange={(v) => updateAppField("updateMessage", v)}
+            maxLength={300}
+            helpText="앱 업데이트 모달에 표시할 안내 메시지 (최대 300자, 선택)"
             autoComplete="off"
           />
           <Divider />
@@ -301,7 +369,13 @@ export function ShippingPanel({
             onClick={() => {
               const fd = new FormData();
               fd.append("intent", "save_store_config");
-              fd.append("androidVersionCode", androidVersionCode);
+              fd.append("androidVersionCode", appUpdateDraft.androidVersionCode);
+              fd.append("minAndroidVersionCode", appUpdateDraft.minAndroidVersionCode);
+              fd.append("androidUpdateUrl", appUpdateDraft.androidUpdateUrl);
+              fd.append("iosBuildNumber", appUpdateDraft.iosBuildNumber);
+              fd.append("minIosBuildNumber", appUpdateDraft.minIosBuildNumber);
+              fd.append("iosUpdateUrl", appUpdateDraft.iosUpdateUrl);
+              fd.append("updateMessage", appUpdateDraft.updateMessage);
               fd.append("storeAddress", storeAddress);
               fd.append("storeHours", storeHours);
               fd.append("freeShippingThreshold", freeShippingThreshold);

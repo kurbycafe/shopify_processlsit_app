@@ -7,6 +7,7 @@ import {
   validateCursorParam,
   validateProductPageConnection,
 } from "./productMetaServer.server.js";
+import { invalidateStorefrontCache } from "./storefrontCache.server.js";
 
 const PRODUCT_FIELDS = `
  id title totalInventory tracksInventory
@@ -147,8 +148,11 @@ export async function saveProductAttributes({ admin, db, shop, input }) {
    const changed = await db.mobileStorefrontConfig.updateMany({ where: { id: record.id, shop, updatedAt: record.updatedAt }, data: values });
    accepted = changed.count === 1;
   }
-  if (accepted) return { success: true, productIds, updatedCount: productIds.length, saveId: values.configVersion,
-   items: productIds.map(id => productRow(products.get(id), nextRules)) };
+  if (accepted) {
+   invalidateStorefrontCache(shop);
+   return { success: true, productIds, updatedCount: productIds.length, saveId: values.configVersion,
+    items: productIds.map(id => productRow(products.get(id), nextRules)) };
+  }
  }
  throw new AttributeError(409, "다른 관리자가 설정을 변경했습니다. 새로고침 후 다시 시도해주세요.");
 }

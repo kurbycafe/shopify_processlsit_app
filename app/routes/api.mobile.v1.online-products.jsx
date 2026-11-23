@@ -1,12 +1,8 @@
 import { loadOnlineProductIds } from "../services/onlineCatalog.server.js";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
 
-function corsHeaders(request) {
-  return jsonCorsHeaders(request, { allowHeaders: "Content-Type, Accept, X-Shop-Domain" });
-}
-
 export const loader = async ({ request }) => {
-  const headers = corsHeaders(request);
+  const headers = jsonCorsHeaders(request);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   try {
     const data = await loadOnlineProductIds();
