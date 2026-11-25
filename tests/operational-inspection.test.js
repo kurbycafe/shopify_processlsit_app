@@ -14,7 +14,7 @@ function action(overrides={}){
  let expression;
  for(const statement of source.statements)if(ts.isVariableStatement(statement))for(const decl of statement.declarationList.declarations)if(decl.name.getText(source)==="action")expression=decl.initializer.getText(source);
  const dependencies={getCorsHeaders:()=>({}),operationalIdentity:()=>({shop}),MobileApiError,readId,normalizeOperationalInspectionItems,
-   validateInspectionSubstitutes,saveInspectionRecordWithLock,ensureDatabaseSchema:async()=>{},unauthenticated:{admin:async tenant=>{assert.equal(tenant,shop);return {admin:{}};}},
+   validateInspectionSubstitutes,saveInspectionRecordWithLock,drainInspectionOutbox:async()=>[],ensureDatabaseSchema:async()=>{},unauthenticated:{admin:async tenant=>{assert.equal(tenant,shop);return {admin:{}};}},
    readInspectionOrder:async()=>structuredClone(order),prisma:{$transaction:()=>assert.fail("must not save invalid data")},...overrides};
  return new Function(...Object.keys(dependencies),`return (${expression});`)(...Object.values(dependencies));
 }
@@ -29,7 +29,7 @@ test("legacy inspection cannot create a record for an order absent from token's 
 });
 test("legacy successful save uses server order metadata and original order-line ID under a lock",async()=>{
  let locked=false,saved;
- const run=action({prisma:{$transaction:async fn=>fn({$executeRaw:async()=>{locked=true;},inspectionRecord:{findUnique:async()=>null,create:async({data})=>{assert.equal(locked,true);saved=data;return data;}}})}});
+ const run=action({prisma:{$transaction:async fn=>fn({$executeRaw:async()=>{locked=true;},customerRequest:{findUnique:async()=>null},inspectionRecord:{findUnique:async()=>null,create:async({data})=>{assert.equal(locked,true);saved=data;return data;}}})}});
  const response=await run({request:request([{variantId:"gid://shopify/ProductVariant/5",orderedQuantity:2,inspectedQuantity:1}],{shop:"other.myshopify.com"})});
  assert.equal((await response.json()).success,true);assert.equal(saved.shop,shop);assert.equal(saved.orderName,"#123");assert.equal(saved.status,"PARTIAL");assert.equal(saved.items.create[0].orderLineId,"line1");
 });
@@ -46,4 +46,16 @@ test("legacy inspection rejects malformed JSON and non-object bodies as client e
   const response=await run({request:new Request("https://example.com/api/inspection-history",{method:"POST",headers:{"Content-Type":"application/json"},body})});
   assert.equal(response.status,400);assert.equal((await response.json()).error.code,"VALIDATION_ERROR");
  }
+});
+
+test("successful operational inspection invokes one targeted customer notification after saving", async () => {
+ let saved=false, queued=0, dispatched=null;
+ const run=action({
+  prisma:{$transaction:async fn=>fn({$executeRaw:async()=>{},customerRequest:{findUnique:async()=>null,upsert:async()=>({id:"outbox"})},inspectionRecord:{findUnique:async()=>null,create:async({data})=>{saved=true;return data;}}})},
+  drainInspectionOutbox:async args=>{assert.equal(saved,true);assert.equal(args.shop,shop);assert.equal(args.orderId,id);queued++;return ['only-target'];},
+  dispatchMobileNotifications:async args=>{dispatched=args;},
+  waitUntil:()=>{},
+ });
+ const response=await run({request:request([{variantId:'gid://shopify/ProductVariant/5',orderedQuantity:2,inspectedQuantity:2}])});
+ assert.equal(response.status,200);assert.equal(queued,1);assert.equal(dispatched.notificationId,'only-target');
 });

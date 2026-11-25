@@ -46,6 +46,37 @@ export async function queueFulfillmentPush({ db, shop, payload, admin, isEvent =
     title: delivered ? "배송 완료 안내" : "상품 출고 안내", body: `${String(order.name || "주문").slice(0, 60)} 주문의 ${delivered ? "배송이 완료되었습니다." : "상품이 출고되었습니다."}`, target: { type: "order", id: order.id } });
 }
 
+// Warehouse inspection finished: tell the customer once per outcome. A partial
+// (still in progress) save never notifies.
+export async function queueInspectionPush({ db, shop, order, status, items = [], admin, eventKey }) {
+  const orderId = gid("Order", order?.id);
+  if (!orderId) return { queued: false, reason: "NO_ORDER" };
+  if (!["SUCCESS", "ISSUE_REPORTED"].includes(status) || !Array.isArray(items) || items.length === 0 || items.some(item => !Number.isSafeInteger(item?.orderedQuantity) || item.orderedQuantity <= 0 || !Number.isSafeInteger(item?.inspectedQuantity) || item.inspectedQuantity < 0 || item.inspectedQuantity > item.orderedQuantity || (!item.issueType && item.inspectedQuantity < item.orderedQuantity))) return { queued: false, reason: "NOT_FINISHED" };
+  if ((status === "SUCCESS" && items.some(item => item.issueType)) || (status === "ISSUE_REPORTED" && !items.some(item => item.issueType))) return { queued: false, reason: "STATUS_MISMATCH" };
+  let customerId = order?.customer?.id;
+  if (!customerId && admin) {
+    const response = await admin.graphql(FULFILLMENT_NOTIFICATION_QUERY, { variables: { id: orderId } });
+    const result = await response.json();
+    if (result.errors?.length || result.data?.order?.id !== orderId) throw new Error("Inspection notification order verification failed.");
+    customerId = result.data.order.customer?.id;
+  }
+  if (!validCustomerId(customerId)) return { queued: false, reason: "NO_CUSTOMER" };
+  const orderName = String(order.name || "주문").slice(0, 60);
+  const issueCount = items.filter((item) => item?.issueType).length;
+  const checked = status === "SUCCESS";
+  return queueCustomerNotification({ db, shop, customerId, category: "ORDER",
+    eventKey: eventKey || `${orderId}:inspection:${checked ? "checked" : "attention"}`,
+    translations: {
+      de: { title: checked ? "Qualitätsprüfung abgeschlossen" : "Hinweis zur Warenprüfung", body: checked ? `Die Prüfung Ihrer Bestellung ${orderName} ist abgeschlossen. Sehen Sie sich den Prüfbericht an.` : `Bei ${issueCount} Artikeln Ihrer Bestellung ${orderName} gibt es einen Hinweis. Bitte prüfen Sie den Prüfbericht.` },
+      en: { title: checked ? "Quality inspection complete" : "Order inspection update", body: checked ? `The inspection of your order ${orderName} is complete. View the inspection report.` : `${issueCount} item(s) in your order ${orderName} need attention. Please check the inspection report.` }
+    },
+    title: checked ? "상품 검수 완료 안내" : "주문 상품 확인 안내",
+    body: checked
+      ? `${orderName} 주문 상품의 물류센터 1:1 바코드 검수가 완료되었습니다. 검수 리포트를 확인해 보세요.`
+      : `${orderName} 주문 중 ${issueCount}개 상품에 확인 사항이 있습니다. 검수 리포트에서 확인해 주세요.`,
+    target: { type: "order", id: orderId, section: "inspection" } });
+}
+
 export async function queueSupportReplyPush({ db, shop, id, reply, messageId }) {
   if (!reply?.trim()) return;
   const record = await db.customerRequest.findFirst({ where: { id, shop, type: { in: ["SUPPORT", "CLAIM", "RETURN"] } } });

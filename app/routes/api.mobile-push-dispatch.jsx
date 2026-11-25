@@ -2,6 +2,7 @@ import { authorizePushWorker } from "../services/mobilePushWorkerAuth.server.js"
 import db from "../db.server.js";
 import { customerShop } from "../services/customerApi.server.js";
 import { expandPushCampaigns } from "../services/mobilePushAdmin.server.js";
+import { drainInspectionOutbox } from "../services/inspectionPushOutbox.server.js";
 import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
 import { checkPriceAlerts } from '../services/priceAlerts.server.js';
 import { checkCartReminders } from '../services/cartReminders.server.js';
@@ -14,6 +15,7 @@ export const loader = async ({ request }) => {
   try {
     const shop = customerShop();
     await expandPushCampaigns({ db, shop });
+    try { const { admin } = await unauthenticated.admin(shop); await drainInspectionOutbox({ db, shop, admin, limit: 50 }); } catch { console.warn("[Inspection push] Retry pending"); }
     const result = await dispatchMobileNotifications({ db, shop, limit: 50 });
     try { await checkCartReminders({db,shop,limit:50}); } catch { console.warn('[Cart reminders] Monitoring temporarily unavailable'); }
     try { const {admin}=await unauthenticated.admin(shop); await checkPriceAlerts({db,shop,limit:20,graphql:(_shop,query,variables)=>executeGraphQLWithRetry(admin,query,variables)}); } catch { console.warn('[Price alerts] Monitoring temporarily unavailable'); }

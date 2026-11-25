@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { registerMobileDevice } from "../app/services/mobilePushDevices.server.js";
 import { readPushPreferences, savePushPreferences, inQuietHours } from "../app/services/mobilePushPolicy.server.js";
 import { queueCustomerNotification, customerNotificationInbox, dispatchMobileNotifications } from "../app/services/mobileNotificationQueue.server.js";
-import { queueOrderPush, queueSupportReplyPush, saveMobileRestockInterest, queueRestockPush, drainRestockPushForVariant } from "../app/services/mobileNotificationEvents.server.js";
+import { queueOrderPush, queueSupportReplyPush, queueInspectionPush, saveMobileRestockInterest, queueRestockPush, drainRestockPushForVariant } from "../app/services/mobileNotificationEvents.server.js";
 import { createPushCampaign, expandPushCampaigns, retryPushDelivery, batchRetryPushDelivery, listPushAdmin } from "../app/services/mobilePushAdmin.server.js";
 import { authorizePushWorker } from "../app/services/mobilePushWorkerAuth.server.js";
 import { customerCartReminder, checkCartReminders } from '../app/services/cartReminders.server.js';
@@ -439,4 +439,56 @@ test("iOS FCM device registration succeeds for account and guest devices while u
     ),
     { status: 400, code: "UNSUPPORTED_PLATFORM" }
   );
+});
+
+test('targeted inspection dispatch leaves other customers and public notices untouched', async () => {
+  const { db, rows } = memory();
+  await consent(db, owner); await consent(db, other);
+  await register(db, identity, owner);
+  const otherDevice = { ...identity, installationId: 'installation-other-12345678901', bindingId: 'binding-other-1234567890123456', token: 'other-fcm-provider-token-123456789' };
+  await register(db, otherDevice, other);
+  const otherMessage = await queue(db, { customerId: other, eventKey: 'other-pending' });
+  const target = await queue(db, { customerId: owner, eventKey: 'inspection-target' });
+  const sent=[];
+  await dispatch(db, async payload => { sent.push(payload); return 'provider-id'; }, { notificationId: target.notificationId });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].customerId, owner);
+  assert.equal(sent[0].notificationId, target.notificationId);
+  assert.equal(rows.find(row => row.id === otherMessage.notificationId).payload.expanded, false);
+  assert.equal(rows.filter(row => row.type === 'PUSH_DELIVERY' && row.customerId === other).length, 0);
+});
+
+ test('finished inspection reaches the consenting order owner and carries a private order destination', async () => {
+  const {db,rows}=memory();
+  await consent(db, owner); await consent(db, other);
+  await register(db, identity, owner);
+  await register(db, {...identity, installationId:'installation-other-12345678901', bindingId:'binding-other-1234567890123456', token:'other-fcm-provider-token-123456789'}, other);
+  const order={id:'gid://shopify/Order/19',name:'#19'};
+  const admin={graphql:async()=>({json:async()=>({data:{order:{...order,customer:{id:owner}}}})})};
+  const result=await queueInspectionPush({db,shop,order,admin,status:'SUCCESS',items:[{orderedQuantity:1,inspectedQuantity:1}]});
+  const sent=[];await dispatch(db,async payload=>{sent.push(payload);return 'provider-id'},{notificationId:result.notificationId});
+  assert.equal(sent.length,1);assert.equal(sent[0].customerId,owner);
+  assert.equal(sent[0].token,identity.token);
+  assert.deepEqual(rows.find(row=>row.id===result.notificationId).payload.target,{type:'order',id:order.id,section:'inspection'});
+  assert.equal(rows.find(row=>row.type==='PUSH_DELIVERY'&&row.customerId===owner).status,'SENT');
+ });
+
+
+test('inspection push and inbox use the registered device and requested languages', async () => {
+  const {db} = memory(); await consent(db); await register(db, {...identity,language:'de'});
+  const order={id:'gid://shopify/Order/92',name:'#92',customer:{id:owner}};
+  const message=await queueInspectionPush({db,shop,order,status:'SUCCESS',items:[{orderedQuantity:1,inspectedQuantity:1}]});
+  const sent=[]; await dispatch(db,async payload=>{sent.push(payload);return 'provider';},{notificationId:message.notificationId});
+  assert.match(sent[0].title,/Qualitätsprüfung/);
+  const inbox=await customerNotificationInbox({db,shop,customerId:owner,request:new Request('https://localhost/api?lang=en')});
+  assert.match(inbox.notifications[0].title,/inspection/i);
+});
+
+test('stale inspection jobs do not send after the inspection event changes', async () => {
+  const {db,rows} = memory(); await consent(db); await register(db);
+  const outbox=await db.customerRequest.upsert({where:{requestKey:'inspection-outbox-test'},create:{shop,type:'INSPECTION_PUSH_OUTBOX',requestKey:'inspection-outbox-test',status:'QUEUED',payload:{eventId:'first'}},update:{}});
+  const message=await queue(db,{eventKey:`inspection:${outbox.id}:first`});
+  await db.customerRequest.updateMany({where:{id:outbox.id},data:{status:'CANCELLED'}});
+  let count=0; await dispatch(db,async()=>{count++;return 'provider';},{notificationId:message.notificationId});
+  assert.equal(count,0); assert.equal(rows.find(r=>r.type==='PUSH_DELIVERY').status,'SKIPPED');
 });

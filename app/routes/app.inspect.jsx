@@ -29,6 +29,9 @@ import {
 import { authenticate } from "../shopify.server";
 import prisma, { ensureDatabaseSchema } from "../db.server";
 import { saveInspectionRecordWithLock } from "../services/inspectionRecords.server.js";
+import { drainInspectionOutbox } from "../services/inspectionPushOutbox.server.js";
+import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
+import { waitUntil } from "@vercel/functions";
 import { sendQcIssueReportEmail } from "../utils/emailService.js";
 import {
   playSuccessBeep,
@@ -228,7 +231,18 @@ export const action = async ({ request }) => {
       }
     }
 
-    return { success: true, recordId: record.id };
+    // Customer push on finished inspection; never blocks or fails the save.
+    try {
+      const ids = await drainInspectionOutbox({ db: prisma, shop: session.shop, orderId, admin });
+      for (const notificationId of ids) {
+        const sending = dispatchMobileNotifications({ db: prisma, shop: session.shop, notificationId, limit: 20 }).catch(() => {});
+        if (typeof waitUntil === "function") waitUntil(sending); else await sending;
+      }
+    } catch (pushErr) {
+      console.warn("[Inspection push] Retry pending:", pushErr?.code || pushErr?.name);
+    }
+
+    return { success: true, recordId: record.id, status };
   }
 
   return null;
@@ -243,6 +257,7 @@ export default function Inspect() {
 
   const [orderName, setOrderName] = useState("");
   const [currentOrder, setCurrentOrder] = useState(null);
+  const [confirmIncompleteModalOpen, setConfirmIncompleteModalOpen] = useState(false);
   // Unfinished inspection found in this browser, offered for resuming.
   const [resumableDraft, setResumableDraft] = useState(null);
   // Order whose result was just saved; drives the "next order" shortcut.
@@ -696,10 +711,22 @@ export default function Inspect() {
   // Save response
   useEffect(() => {
     if (saveFetcher.data?.success) {
-      setMessage({ type: "success", text: "검수 결과가 성공적으로 저장되었습니다." });
+      const savedStatus = saveFetcher.data.status;
+      setMessage({
+        type: savedStatus === "PARTIAL" ? "warning" : "success",
+        text:
+          savedStatus === "PARTIAL"
+            ? "부분 검수(검수 진행 중) 상태로 저장되었습니다. 고객 앱에는 '검수 진행 중'으로 표시됩니다."
+            : "모든 품목 검수 결과가 완료 상태로 저장되었습니다.",
+      });
       playSuccessBeep();
       clearInspectionDraft(window.localStorage);
-      setLastSavedOrder(savingOrderRef.current);
+      setLastSavedOrder(
+        savingOrderRef.current
+          ? { ...savingOrderRef.current, status: savedStatus }
+          : null
+      );
+      setConfirmIncompleteModalOpen(false);
       setCurrentOrder(null);
       setLogs([]);
       setOrderName("");
@@ -865,7 +892,7 @@ export default function Inspect() {
     setTimeout(() => barcodeRef.current?.focus(), 80);
   };
 
-  const handleSave = () => {
+  const submitInspectionSave = (itemsToSave) => {
     if (!currentOrder) return;
     savingOrderRef.current = { id: currentOrder.id, name: currentOrder.name };
     saveFetcher.submit(
@@ -873,12 +900,42 @@ export default function Inspect() {
         intent: "save_inspection",
         orderId: currentOrder.id,
         orderName: currentOrder.name,
-        items: JSON.stringify(currentOrder.items),
+        items: JSON.stringify(itemsToSave),
         inspectorName: currentInspector || inspectorName || "",
         orderEmail: currentOrder.email || "",
       },
       { method: "POST" }
     );
+  };
+
+  const handleSave = () => {
+    if (!currentOrder) return;
+    const hasUnscanned = currentOrder.items.some(
+      (it) => it.inspectedQuantity < it.orderedQuantity && !it.issueType
+    );
+    if (hasUnscanned) {
+      setConfirmIncompleteModalOpen(true);
+      return;
+    }
+    submitInspectionSave(currentOrder.items);
+  };
+
+  const handleCompleteRemainingAndSave = () => {
+    if (!currentOrder) return;
+    const completedItems = currentOrder.items.map((item) =>
+      item.issueType
+        ? item
+        : { ...item, inspectedQuantity: item.orderedQuantity }
+    );
+    setCurrentOrder({ ...currentOrder, items: completedItems });
+    setConfirmIncompleteModalOpen(false);
+    submitInspectionSave(completedItems);
+  };
+
+  const handleSaveAsPartial = () => {
+    if (!currentOrder) return;
+    setConfirmIncompleteModalOpen(false);
+    submitInspectionSave(currentOrder.items);
   };
 
   // Progress metrics
@@ -1190,7 +1247,11 @@ export default function Inspect() {
           <Card>
             <InlineStack align="space-between" blockAlign="center" wrap gap="300">
               <BlockStack gap="050">
-                <Text variant="headingSm" as="h2">{lastSavedOrder.name} 검수 저장 완료</Text>
+                <Text variant="headingSm" as="h2">
+                  {lastSavedOrder.status === "PARTIAL"
+                    ? `${lastSavedOrder.name} 부분 검수(진행 중) 저장됨`
+                    : `${lastSavedOrder.name} 검수 완료 저장됨`}
+                </Text>
                 <Text as="p" tone="subdued">검수 대기 중인 주문 가운데 가장 오래된 주문을 불러옵니다.</Text>
               </BlockStack>
               <Button variant="primary" onClick={handleLoadNextOrder} loading={nextOrderFetcher.state !== "idle"}>
@@ -1400,6 +1461,42 @@ export default function Inspect() {
           </BlockStack>
         )}
       </BlockStack>
+
+      {/* 미검수 품목 확인 모달 (0/N 상태로 실수로 PARTIAL 저장되는 현상 방지) */}
+      <Modal
+        open={confirmIncompleteModalOpen}
+        onClose={() => setConfirmIncompleteModalOpen(false)}
+        title={`미검수 품목이 ${remainingCount}개 남아 있습니다`}
+        primaryAction={{
+          content: "남은 품목 전체 완료 처리 후 저장",
+          onAction: handleCompleteRemainingAndSave,
+          loading: saveFetcher.state === "submitting",
+        }}
+        secondaryActions={[
+          {
+            content: "부분 검수(진행 중)로 임시 저장",
+            onAction: handleSaveAsPartial,
+          },
+          {
+            content: "계속 스캔하기",
+            onAction: () => setConfirmIncompleteModalOpen(false),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Banner tone="warning">
+              <p>
+                현재 스캔된 수량이 <strong>{totalInspectedCount} / {totalOrderedCount}개</strong>입니다.
+                그대로 임시 저장하면 고객 모바일 앱에는 <strong>&apos;검수 진행 중 (0/N)&apos;</strong>으로 표시됩니다.
+              </p>
+            </Banner>
+            <Text as="p">
+              실물 확인을 마쳤다면 <strong>&apos;남은 품목 전체 완료 처리 후 저장&apos;</strong>을 눌러 모든 품목 수량을 주문 수량과 동일하게 채우고 <strong>검수 완료</strong> 상태로 저장하세요.
+            </Text>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
 
       {/* 검수자 변경 모달 */}
       <Modal

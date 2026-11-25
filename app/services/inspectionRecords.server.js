@@ -1,3 +1,5 @@
+import { updateInspectionOutbox } from "./inspectionPushOutbox.server.js";
+
 /**
  * Builds the Prisma `where` clause for inspection history queries across admin and API routes.
  */
@@ -140,6 +142,8 @@ export async function saveInspectionRecordWithLock(
     };
 
     const queryOptions = includeItems ? { include: { items: true } } : {};
+
+    await updateInspectionOutbox(tx, { shop, orderId, orderName, status, items });
 
     if (existing) {
       await tx.inspectionItem.deleteMany({ where: { inspectionRecordId: existing.id } });

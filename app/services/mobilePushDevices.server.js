@@ -32,7 +32,7 @@ export async function registerMobileDevice({ db, shop, request, verify, input })
     if (!platform) throw new MobileApiError(400, "UNSUPPORTED_PLATFORM", "Only configured Android or iOS FCM devices are accepted.");
     const token = typeof input.token === "string" ? input.token.trim() : "";
     if (token.length < 8 || token.length > 512 || /\s/.test(token) || /^(ios|android|web)_dawayo_/.test(token)) throw new MobileApiError(400, "INVALID_TOKEN", "Invalid provider token.");
-    const payload = { installationId, bindingId, secretHash: secretHash(deviceSecret), token, platform, registeredAt: existing?.customerId === customerId && existing.payload.bindingId === bindingId ? existing.payload.registeredAt : new Date().toISOString() };
+    const payload = { installationId, bindingId, secretHash: secretHash(deviceSecret), token, platform, language: ['ko', 'de', 'en'].includes(input.language) ? input.language : 'ko', registeredAt: existing?.customerId === customerId && existing.payload.bindingId === bindingId ? existing.payload.registeredAt : new Date().toISOString() };
     await tx.customerRequest.updateMany({ where: { shop, type: "PUSH_DEVICE", requestKey: { not: requestKey }, payload: { path: ["token"], equals: token } }, data: { status: "DISABLED", customerId: null } });
     const record = await tx.customerRequest.upsert({ where: { requestKey }, create: { shop, customerId, type: "PUSH_DEVICE", requestKey, status: "ACTIVE", payload }, update: { customerId, status: "ACTIVE", payload } });
     return { accepted: true, registrationId: record.id, registered: true, platform, bindingId };

@@ -9,7 +9,7 @@ const MESSAGE_TYPE = "MOBILE_NOTIFICATION";
 const JOB_TYPE = "PUSH_DELIVERY";
 const MAX_ATTEMPTS = 5;
 export function notificationTarget(target = {}) {
-  if (target.type === "order" && /^gid:\/\/shopify\/Order\/\d+$/.test(target.id || "")) return { type: "order", id: target.id };
+  if (target.type === "order" && /^gid:\/\/shopify\/Order\/\d+$/.test(target.id || "")) return { type: "order", id: target.id, ...(target.section === "inspection" ? { section: "inspection" } : {}) };
   if (target.type === "product" && /^gid:\/\/shopify\/Product\/\d+$/.test(target.id || "")) return { type: "product", id: target.id };
   if (target.type === "support" && /^[a-zA-Z0-9_-]{1,100}$/.test(target.id || "")) return { type: "support", id: target.id };
   if (target.type === "cart") return {type:"cart"};
@@ -17,19 +17,20 @@ export function notificationTarget(target = {}) {
   throw new MobileApiError(400, "INVALID_TARGET", "Invalid notification destination.");
 }
 
-export async function queueCustomerNotification({ db, shop, customerId, eventKey, category, title, body, target, now = new Date() }) {
+export async function queueCustomerNotification({ db, shop, customerId, eventKey, category, title, body, target, translations, now = new Date() }) {
   if (!validCustomerId(customerId) || !CATEGORY_PREFERENCE[category] || typeof eventKey !== "string" || !eventKey || eventKey.length > 400) throw new MobileApiError(400, "INVALID_NOTIFICATION", "Invalid notification recipient or event.");
   if (typeof title !== "string" || !title.trim() || title.length > 120 || typeof body !== "string" || body.length > 1000) throw new MobileApiError(400, "INVALID_NOTIFICATION", "Invalid notification content.");
   const preferences = await readPushPreferences(db, shop, customerId);
   if (!permitsPush(preferences, category)) return { queued: false, reason: "CONSENT_DISABLED" };
   const requestKey = pushKey(shop, MESSAGE_TYPE, customerId, eventKey);
   const record = await db.customerRequest.upsert({ where: { requestKey },
-    create: { shop, customerId, type: MESSAGE_TYPE, requestKey, status: "UNREAD", payload: { title: title.trim(), body, target: notificationTarget(target), category, eventKey, expanded: false, expiresAt: new Date(now.getTime() + 7 * 86400000).toISOString() } }, update: {} });
+    create: { shop, customerId, type: MESSAGE_TYPE, requestKey, status: "UNREAD", payload: { title: title.trim(), body, ...(translations ? { translations } : {}), target: notificationTarget(target), category, eventKey, expanded: false, expiresAt: new Date(now.getTime() + 7 * 86400000).toISOString() } }, update: {} });
   return { queued: true, notificationId: record.id };
 }
 
-function publicNotification(row) {
-  return { id: row.id, title: row.payload.title, body: row.payload.body, category: row.payload.category,
+function publicNotification(row, language) {
+  const content = row.payload.translations?.[language] || row.payload;
+  return { id: row.id, title: content.title, body: content.body, category: row.payload.category,
     target: row.payload.target, read: row.status === "READ", createdAt: row.createdAt };
 }
 
@@ -52,7 +53,7 @@ export async function customerNotificationInbox({ db, shop, customerId, request,
   if ([id, cursor].some(value => value && !/^[a-zA-Z0-9_-]{1,100}$/.test(value))) throw new MobileApiError(400, "INVALID_INPUT", "Invalid notification cursor.");
   const rows = await db.customerRequest.findMany({ where: { shop, customerId, type: MESSAGE_TYPE, status: { in: ["READ", "UNREAD"] }, ...(id ? { id } : cursor ? { id: { lt: cursor } } : {}) }, orderBy: { id: "desc" }, take: 26 });
   const unreadCount = await db.customerRequest.count({ where: { shop, customerId, type: MESSAGE_TYPE, status: "UNREAD" } });
-  return { unreadCount, notifications: rows.slice(0, 25).map(publicNotification), nextCursor: rows.length > 25 ? rows[24].id : null };
+  return { unreadCount, notifications: rows.slice(0, 25).map(row => publicNotification(row, search.get("lang"))), nextCursor: rows.length > 25 ? rows[24].id : null };
 }
 
 async function expandNotification(db, message) {
@@ -74,9 +75,11 @@ export async function dispatchMobileNotifications({
   send = sendFirebaseNotification,
   configured = firebasePushConfigured(),
   notifyFailures = send === sendFirebaseNotification,
+  notificationId = null,
 }) {
+  if (notificationId !== null && (typeof notificationId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(notificationId))) throw new MobileApiError(400, "INVALID_NOTIFICATION", "Invalid notification id.");
   if (!configured) return { configured: false, processed: 0 };
-  const messagesWhere = { shop, type: MESSAGE_TYPE, payload: { path: ["expanded"], equals: false } };
+  const messagesWhere = { shop, type: MESSAGE_TYPE, ...(notificationId ? { id: notificationId } : {}), payload: { path: ["expanded"], equals: false } };
   const urgent = [{ payload: { path: ["category"], equals: "ORDER" } }, { payload: { path: ["category"], equals: "SUPPORT" } }];
   const [priorityMessages, generalMessages] = await Promise.all([
     db.customerRequest.findMany({ where: { ...messagesWhere, OR: urgent }, orderBy: { id: "asc" }, take: limit }),
@@ -87,8 +90,8 @@ export async function dispatchMobileNotifications({
   // A worker killed after sending has an unknown result. Never automatically
   // re-send a stale lease, because the provider may already have accepted it.
   const staleBefore = new Date(now.getTime() - 120000);
-  await db.customerRequest.updateMany({ where: { shop, type: JOB_TYPE, status: "SENDING", updatedAt: { lt: staleBefore } }, data: { status: "UNKNOWN" } });
-  const jobsWhere = { shop, type: JOB_TYPE, status: { in: ["QUEUED", "RETRY"] }, payload: { path: ["availableAt"], lte: now.toISOString() } };
+  await db.customerRequest.updateMany({ where: { shop, type: JOB_TYPE, status: "SENDING", updatedAt: { lt: staleBefore }, ...(notificationId ? { payload: { path: ["notificationId"], equals: notificationId } } : {}) }, data: { status: "UNKNOWN" } });
+  const jobsWhere = { shop, type: JOB_TYPE, status: { in: ["QUEUED", "RETRY"] }, payload: { path: ["availableAt"], lte: now.toISOString() }, ...(notificationId ? { AND: [{ payload: { path: ["notificationId"], equals: notificationId } }] } : {}) };
   const [priorityJobs, generalJobs] = await Promise.all([
     db.customerRequest.findMany({ where: { ...jobsWhere, OR: urgent }, orderBy: { id: "asc" }, take: limit }),
     db.customerRequest.findMany({ where: jobsWhere, orderBy: { id: "asc" }, take: limit }),
@@ -117,6 +120,11 @@ export async function dispatchMobileNotifications({
       // Re-check revocation immediately before provider handoff.
       const live = await db.customerRequest.findFirst({ where: { id: device.id, shop, customerId: job.customerId, status: "ACTIVE", payload: { path: ["bindingId"], equals: job.payload.binding } } });
       if (!live || !permitsPush(await readPushPreferences(db, shop, job.customerId), message.payload.category)) { await finish("SKIPPED", { attempts }); return; }
+      if (message.payload.eventKey?.startsWith('inspection:')) {
+        const parts = message.payload.eventKey.split(':');
+        const active = parts.length === 3 && await db.customerRequest.findFirst({ where: { id: parts[1], shop, type: 'INSPECTION_PUSH_OUTBOX', status: 'QUEUED', payload: { path: ['eventId'], equals: parts[2] } } });
+        if (!active) { await finish('SKIPPED', { attempts }); return; }
+      }
       if (message.payload.eventKey?.startsWith('price:')) {
         const parts=message.payload.eventKey.split(':');
         const active=parts.length===3 && await db.customerRequest.findFirst({where:{id:parts[1],shop,customerId:job.customerId,type:'PRICE_ALERT',status:'NOTIFIED',payload:{path:['cycle'],equals:parts[2]}}});
@@ -127,7 +135,8 @@ export async function dispatchMobileNotifications({
         const active=parts.length===3 && await db.customerRequest.findFirst({where:{id:parts[1],shop,customerId:job.customerId,type:'CART_REMINDER',status:'NOTIFIED',payload:{path:['cycle'],equals:parts[2]}}});
         if (!active) { await finish('SKIPPED',{attempts}); return; }
       }
-      const providerId = await send({ token: live.payload.token, notificationId: message.id, customerId: job.customerId, category: message.payload.category, title: message.payload.title, body: message.payload.body });
+      const content = message.payload.translations?.[live.payload.language] || message.payload;
+      const providerId = await send({ token: live.payload.token, notificationId: message.id, customerId: job.customerId, category: message.payload.category, title: content.title, body: content.body });
       await finish("SENT", { attempts, providerId, sentAt: now.toISOString() });
     } catch (error) {
       const code = String(error?.code || "UNKNOWN").replace(/^messaging\//, "");
@@ -149,8 +158,8 @@ export async function dispatchMobileNotifications({
     while (cursor < jobs.length && Date.now() < deadline) await processJob(jobs[cursor++]);
   }));
 
-  const guestProcessed = await dispatchGuestNotices({ db, shop, send, limit, now });
-  if (notifyFailures) {
+  const guestProcessed = notificationId ? 0 : await dispatchGuestNotices({ db, shop, send, limit, now });
+  if (notifyFailures && !notificationId) {
     await notifyAdminOfPushFailures({ db, shop, now: () => now }).catch(() => {});
   }
   return { configured: true, processed: processed + guestProcessed };

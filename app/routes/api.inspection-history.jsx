@@ -7,6 +7,9 @@ import prisma, { ensureDatabaseSchema } from "../db.server";
 import dayjs from "dayjs";
 import { jsonCorsHeaders } from "../utils/cors.server.js";
 import { buildInspectionHistoryWhere, saveInspectionRecordWithLock } from "../services/inspectionRecords.server.js";
+import { drainInspectionOutbox } from "../services/inspectionPushOutbox.server.js";
+import { dispatchMobileNotifications } from "../services/mobileNotificationQueue.server.js";
+import { waitUntil } from "@vercel/functions";
 
 function getCorsHeaders(request) {
   return jsonCorsHeaders(request, { methods: "GET, POST, PUT, OPTIONS" });
@@ -181,6 +184,16 @@ export const action = async ({ request }) => {
           throw new MobileApiError(404, "ORDER_NOT_FOUND", "Order not found.");
         },
       });
+
+      try {
+        const ids = await drainInspectionOutbox({ db: prisma, shop: shop, orderId, admin });
+        for (const notificationId of ids) {
+          const sending = dispatchMobileNotifications({ db: prisma, shop: shop, notificationId, limit: 20 }).catch(() => {});
+          if (typeof waitUntil === "function") waitUntil(sending); else await sending;
+        }
+      } catch (pushErr) {
+        console.warn("[Inspection push] Retry pending:", pushErr?.code || pushErr?.name);
+      }
 
       return Response.json(
         {
