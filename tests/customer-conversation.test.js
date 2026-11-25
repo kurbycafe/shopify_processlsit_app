@@ -59,3 +59,11 @@ test('customer can attach bounded photos, with idempotency and owner isolation',
  await assert.rejects(customerSupportMessage({...args,input:{...input,messageId:'photo-2',photos:['https://invalid.test/picture.jpg']}}),{status:400});
  await assert.rejects(customerSupportMessage({...args,input:{...input,messageId:'photo-3',photos:[photo,photo,photo,photo]}}),{status:400});
 });
+
+test('admin can send a WebP photo without text and customer can see it', async () => {
+ const {db,row}=fixture(); const image='data:image/webp;base64,YWJj';
+ const result=await appendSupportMessage({db,shop,requestId:'req1',sender:'admin',text:'',messageId:'admin-photo',photos:[image]});
+ assert.equal(result.success,true); assert.deepEqual(result.message.photos,[image]);
+ const visible=await customerRequestHistory({db,shop,request:new Request('https://example.test'),verify:async()=>customer});
+ assert.deepEqual(visible.requests[0].payload.conversation.at(-1).photos,[image]);
+});

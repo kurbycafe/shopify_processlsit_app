@@ -1,4 +1,5 @@
 import { appendSupportMessage, updateSupportInternal } from "../services/customerConversation.server.js";
+import { getSupportTemplates, saveSupportTemplates } from "../services/supportTemplates.server.js";
 import { Page } from "@shopify/polaris";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
@@ -30,6 +31,7 @@ export const loader = async ({ request }) => {
       })),
       status,
       type,
+      ...(search.get("group") === "support" ? { templates: await getSupportTemplates({ db: prisma, shop: session.shop }) } : {}),
       shop: session.shop,
       error: null,
     };
@@ -61,8 +63,13 @@ export const action = async ({ request }) => {
   const form = await request.formData();
   const replyValue = form.has("reply") ? String(form.get("reply") ?? "") : undefined;
   try {
+    if (form.get("intent") === "support_templates") {
+      let templates; try { templates = JSON.parse(String(form.get("templates") || "")); } catch { throw new MobileApiError(400, "INVALID_INPUT", "템플릿 형식이 올바르지 않습니다."); }
+      return await saveSupportTemplates({ db: prisma, shop: session.shop, templates });
+    }
     if (form.get("intent") === "conversation_message") {
-      const result = await appendSupportMessage({ db: prisma, shop: session.shop, requestId: form.get("id"), sender: "admin", text: form.get("text"), messageId: form.get("messageId") });
+      let photos; try { photos = JSON.parse(String(form.get("photos") || "[]")); } catch { throw new MobileApiError(400, "INVALID_INPUT", "사진 형식이 올바르지 않습니다."); }
+      const result = await appendSupportMessage({ db: prisma, shop: session.shop, requestId: form.get("id"), sender: "admin", text: form.get("text"), messageId: form.get("messageId"), photos });
       if (!result.duplicate) await dispatchMobileNotifications({ db: prisma, shop: session.shop, limit: 20 }).catch(() => {});
       return result;
     }

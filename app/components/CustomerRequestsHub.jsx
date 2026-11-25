@@ -4,17 +4,13 @@ import { useFetcher } from "react-router";
 import CustomerRequestsManager from "./CustomerRequestsManager.jsx";
 import OrderInspectionSummary from "./common/OrderInspectionSummary.jsx";
 import { optimizeShopifyImageUrl } from "../utils/shopifyImage.js";
+import { prepareAdminSupportPhoto } from "../utils/supportImage.js";
+import { DEFAULT_SUPPORT_TEMPLATES } from "../utils/supportTemplates.js";
+import SupportTemplatesEditor from "./SupportTemplatesEditor.jsx";
 
 const labels = { SUPPORT: "1:1 문의", CLAIM: "배송 문제", RETURN: "반품 · 교환" };
 const states = { REQUESTED: "답변 필요", REVIEWING: "확인 중", CLOSED: "처리 완료" };
-const templates = [
-  { label: "답변 접수 확인 (확인 후 신속 안내)", value: "안녕하세요, 다와요 고객센터입니다. 문의해 주신 내용을 확인하고 있으며, 빠르게 확인 후 다시 안내해 드리겠습니다." },
-  { label: "주문 및 배송 상태 확인 중", value: "불편을 드려 대단히 죄송합니다. 요청하신 주문의 포장 및 배송 상태를 물류팀과 확인 중입니다. 확인되는 즉시 안내드리겠습니다." },
-  { label: "상품 파손 / 누락 사진 요청", value: "배송 중 파손 또는 누락으로 불편을 드려 죄송합니다. 신속한 교환/환불 처리를 위해 문제된 상품 상태와 송장 스티커가 보이는 사진을 보내주시면 감사하겠습니다." },
-  { label: "반품 / 교환 수거 접수 완료", value: "반품(교환) 접수가 정상 완료되었습니다. 택배 기사님이 영업일 기준 1~3일 내 수거 방문 예정이며, 창고 입고 및 검수 완료 후 신속하게 처리해 드리겠습니다." },
-  { label: "환불 / 적립금 지급 완료 안내", value: "요청하신 환불(적립금 지급) 처리가 정상적으로 완료되었습니다. 결제 수단에 따라 카드사 반영까지 영업일 기준 1~3일 소요될 수 있습니다." },
-  { label: "추가 문의 안내 (상담 마무리)", value: "안내드린 내용 외에 추가로 궁금하신 사항이 있으시면 언제든지 편하게 말씀해 주세요. 감사합니다." },
-];
+
 const formatDate = value => value && !Number.isNaN(Date.parse(value)) ? new Date(value).toLocaleString("ko-KR") : "";
 const messagesFor = record => {
   const p = record?.payload || {};
@@ -28,6 +24,7 @@ const messagesFor = record => {
 function SupportInbox({ active = true, initialRequestId = null }) {
   const list = useFetcher();
   const update = useFetcher();
+  const templateUpdate = useFetcher();
   const load = list.load;
   const listRef = useRef(list); listRef.current = list;
   const [status, setStatus] = useState(initialRequestId ? "ALL" : "REQUESTED");
@@ -46,6 +43,11 @@ function SupportInbox({ active = true, initialRequestId = null }) {
   const setAssignee = value => setInternalDrafts(current => ({ ...current, [selectedId]: { ...current[selectedId], assignee: value } }));
   const [notice, setNotice] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [photoDrafts, setPhotoDrafts] = useState({});
+  const [processingPhotos, setProcessingPhotos] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const photos = photoDrafts[selectedId] || [];
+  const templates = list.data?.templates ?? DEFAULT_SUPPORT_TEMPLATES;
   const updateBefore = useRef(update.state);
   const replyFor = useRef(null);
   const url = useCallback((page = cursor) => {
@@ -65,7 +67,11 @@ function SupportInbox({ active = true, initialRequestId = null }) {
   useEffect(() => {
     if (updateBefore.current !== "idle" && update.state === "idle") {
       if (update.data?.success) {
-        if (replyFor.current && replyFor.current.text === reply && replyFor.current.id === selectedId) setReply("");
+        if (replyFor.current) {
+          const sent = replyFor.current;
+          setDrafts(current => current[sent.id] === sent.text ? { ...current, [sent.id]: "" } : current);
+          setPhotoDrafts(current => ({ ...current, [sent.id]: [] }));
+        }
         setNotice(update.data.notificationQueued === false ? "답변은 저장됐지만 알림 등록을 확인하지 못했습니다." : "저장했습니다.");
         load(url());
       } else if (update.data?.error) setNotice(update.data.error);
@@ -78,11 +84,11 @@ function SupportInbox({ active = true, initialRequestId = null }) {
   const choose = row => { setSelectedId(row.id); setInternalDrafts(current => current[row.id] ? current : ({ ...current, [row.id]: { note: row.payload?.supportInternal?.note || "", assignee: row.payload?.supportInternal?.assignee || "" } })); setNotice(""); };
   const busy = update.state !== "idle";
   const send = () => {
-    if (!selected || !selected.customerId || !reply.trim() || busy) return;
+    if (!selected || !selected.customerId || (!reply.trim() && !photos.length) || busy || processingPhotos) return;
     const id = globalThis.crypto?.randomUUID?.();
     if (!id) { setNotice("메시지 전송을 준비하지 못했습니다. 페이지를 새로고침해 주세요."); return; }
     replyFor.current = { id: selected.id, text: reply };
-    update.submit({ intent: "conversation_message", id: selected.id, text: reply.trim(), messageId: id }, { method: "post", action: "/app/customer-requests" });
+    update.submit({ intent: "conversation_message", id: selected.id, text: reply.trim(), photos: JSON.stringify(photos), messageId: id }, { method: "post", action: "/app/customer-requests" });
   };
   return <BlockStack gap="400">
     <Card><BlockStack gap="300"><Text as="h2" variant="headingLg">고객 상담함</Text><Text as="p" tone="subdued">문의와 반품을 한곳에서 확인하고 고객과 대화하세요.</Text>
@@ -180,6 +186,19 @@ function SupportInbox({ active = true, initialRequestId = null }) {
           {messagesFor(selected).map(item => <div key={item.id} style={{ justifySelf: item.sender === "admin" ? "end" : "start", maxWidth: "88%" }}><div style={{ fontSize: 11, color: "#616161", marginBottom: 4 }}>{item.sender === "admin" ? "관리자" : "고객"} · {formatDate(item.createdAt)}</div><div style={{ background: item.sender === "admin" ? "#303030" : "#fff", color: item.sender === "admin" ? "#fff" : "#303030", border: item.sender === "admin" ? "none" : "1px solid #e1e3e5", padding: "10px 12px", borderRadius: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}{item.photos?.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: item.text ? 8 : 0 }}>{item.photos.map((src, index) => <button key={index} type="button" onClick={() => setSelectedPhoto(src)} aria-label={`첨부 사진 ${index + 1} 확대`} style={{ padding: 0, border: 0, background: "transparent", cursor: "pointer" }}><img src={optimizeShopifyImageUrl(src, 160)} alt="" width={72} height={72} loading="lazy" decoding="async" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /></button>)}</div>}</div></div>)}
         </div>
         {!selected.customerId && <Banner tone="warning">로그인 계정이 연결되지 않은 문의입니다. 앱 대화와 푸시로 답변을 전달할 수 없으므로, 등록된 이메일 등으로 별도 안내해 주세요.</Banner>}
+        <div><label style={{ cursor: "pointer", fontWeight: 600 }}>사진 첨부 (최대 3장)
+          <input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy || processingPhotos || photos.length >= 3} style={{ display: "block", marginTop: 6 }} onChange={async event => {
+            const files = Array.from(event.target.files || []); event.target.value = "";
+            const owner = selectedId;
+            if (files.length + photos.length > 3) { setNotice("사진은 최대 3장까지 첨부할 수 있습니다."); return; }
+            setProcessingPhotos(true); setNotice("");
+            try { const prepared = await Promise.all(files.map(file => prepareAdminSupportPhoto(file))); setPhotoDrafts(current => ({ ...current, [owner]: [...(current[owner] || []), ...prepared].slice(0, 3) })); }
+            catch (error) { setNotice(error.message || "사진을 처리하지 못했습니다."); }
+            finally { setProcessingPhotos(false); }
+          }}/></label>
+          {processingPhotos && <Text as="p">사진을 압축하고 있습니다…</Text>}
+          <InlineStack gap="200">{photos.map((src, index) => <div key={index}><img src={src} alt={`첨부 예정 사진 ${index + 1}`} width={72} height={72} style={{objectFit:"cover",borderRadius:8}}/><Button disabled={busy || processingPhotos} onClick={() => setPhotoDrafts(current => ({...current, [selectedId]: (current[selectedId] || []).filter((_, i) => i !== index)}))}>삭제</Button></div>)}</InlineStack>
+        </div>
         <TextField label="고객에게 답변" value={reply} onChange={setReply} multiline={3} maxLength={4000} autoComplete="off" placeholder="고객에게 안내할 내용을 입력하세요" />
         <Select
           label="자주 쓰는 답변 템플릿"
@@ -192,10 +211,12 @@ function SupportInbox({ active = true, initialRequestId = null }) {
             ...templates.map(t => ({ label: t.label, value: t.value }))
           ]}
         />
-        <InlineStack gap="200" align="end"><Button variant="primary" onClick={send} loading={busy} disabled={!selected.customerId || !reply.trim() || busy}>답변 보내기</Button><Button onClick={() => update.submit({ id: selected.id, status: "CLOSED" }, { method: "post", action: "/app/customer-requests" })} disabled={busy || selected.status === "CLOSED"}>처리 완료</Button></InlineStack>
+        <InlineStack align="end"><Button onClick={() => setTemplatesOpen(true)}>템플릿 편집</Button></InlineStack>
+        <InlineStack gap="200" align="end"><Button variant="primary" onClick={send} loading={busy} disabled={!selected.customerId || (!reply.trim() && !photos.length) || busy || processingPhotos}>답변 보내기</Button><Button onClick={() => update.submit({ id: selected.id, status: "CLOSED" }, { method: "post", action: "/app/customer-requests" })} disabled={busy || selected.status === "CLOSED"}>처리 완료</Button></InlineStack>
         <details><summary>담당자와 내부 메모 (고객에게 보이지 않음)</summary><div style={{display:"grid",gap:10,marginTop:12}}><TextField label="담당자" value={assignee} onChange={setAssignee} maxLength={100} autoComplete="off"/><TextField label="내부 메모" value={note} onChange={setNote} multiline={3} maxLength={4000} autoComplete="off"/><Button onClick={() => update.submit({ intent: "conversation_internal", id: selected.id, note, assignee }, { method: "post", action: "/app/customer-requests" })} disabled={busy}>내부 메모 저장</Button></div></details>
       </BlockStack>}</Card>
     </div>
+    <SupportTemplatesEditor open={templatesOpen} templates={templates} fetcher={templateUpdate} onClose={() => setTemplatesOpen(false)} onSaved={() => load(url())} />
     <Modal open={Boolean(selectedPhoto)} onClose={() => setSelectedPhoto(null)} title="첨부 사진" secondaryActions={[{ content: "닫기", onAction: () => setSelectedPhoto(null) }]}><Modal.Section>{selectedPhoto && <img src={selectedPhoto} alt="확대한 첨부 사진" style={{maxWidth:"100%",maxHeight:"70vh",objectFit:"contain"}} />}</Modal.Section></Modal>
   </BlockStack>;
 }

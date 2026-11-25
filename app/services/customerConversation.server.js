@@ -48,7 +48,7 @@ export async function appendSupportMessage({ db, shop, requestId, sender, custom
     if (result.count === 1) {
       let notificationQueued = null;
       if (sender === "admin") {
-        try { await queueSupportReplyPush({ db, shop, id: requestId, reply: message, messageId }); notificationQueued = true; }
+        try { await queueSupportReplyPush({ db, shop, id: requestId, reply: message || (safePhotos.length ? '사진을 보냈습니다.' : ''), messageId }); notificationQueued = true; }
         catch { notificationQueued = false; }
       }
       return { success: true, message: item, notificationQueued };
