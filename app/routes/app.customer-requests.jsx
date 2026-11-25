@@ -28,10 +28,12 @@ export const loader = async ({ request }) => {
         after: search.get("cursor"),
         search: search.get("q") || "",
         supportOnly: search.get("group") === "support",
+        requestId: search.get("id") || null,
+        summary: search.get("summary") === "1" && search.get("group") === "support",
       })),
       status,
       type,
-      ...(search.get("group") === "support" ? { templates: await getSupportTemplates({ db: prisma, shop: session.shop }) } : {}),
+      ...(search.get("group") === "support" && !search.has("id") ? { templates: await getSupportTemplates({ db: prisma, shop: session.shop }) } : {}),
       shop: session.shop,
       error: null,
     };

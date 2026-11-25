@@ -120,10 +120,11 @@ export async function customerNotificationPreferences({ db, shop, request, verif
   return { ...(input === undefined ? {} : { accepted: true }), preferences: { ...preferences, protocolVersion: 2 } };
 }
 
-export async function listCustomerRequests({ db, shop, shopAliases = null, status = "REQUESTED", type = null, after = null, search = "", supportOnly = false }) {
+export async function listCustomerRequests({ db, shop, shopAliases = null, status = "REQUESTED", type = null, after = null, search = "", supportOnly = false, requestId = null, summary = false }) {
   if (!STATUSES.has(status) && status !== "ALL") throw new MobileApiError(400, "INVALID_INPUT", "Invalid request status.");
   if (type && !REVIEW_TYPES.includes(type)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request type.");
   if (after && !/^[a-zA-Z0-9_-]{1,100}$/.test(after)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid page cursor.");
+  if (requestId && !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) throw new MobileApiError(400, "INVALID_INPUT", "Invalid request ID.");
   const query = text(search, 100);
   const searchWhere = query ? { OR: [
     { id: { contains: query, mode: "insensitive" } },
@@ -133,11 +134,18 @@ export async function listCustomerRequests({ db, shop, shopAliases = null, statu
   ] } : {};
   const shopFilter = Array.isArray(shopAliases) && shopAliases.length > 1 ? { in: shopAliases } : shop;
   const records = await db.customerRequest.findMany({
-    where: { shop: shopFilter, type: type ? type : { in: supportOnly ? ["SUPPORT", "CLAIM", "RETURN"] : REVIEW_TYPES }, ...(status === "ALL" ? {} : { status }), ...searchWhere, ...(after ? { id: { lt: after } } : {}) },
+    where: { shop: shopFilter, type: type ? type : { in: supportOnly ? ["SUPPORT", "CLAIM", "RETURN"] : REVIEW_TYPES }, ...(status === "ALL" ? {} : { status }), ...searchWhere, ...(requestId ? { id: requestId } : after ? { id: { lt: after } } : {}) },
     orderBy: { id: "desc" }, take: 26,
     select: { id: true, type: true, customerId: true, orderId: true, payload: true, status: true, createdAt: true, updatedAt: true },
   });
-  const requests = await attachOrderInspections(db, shop, records.slice(0, 25));
+  const page = records.slice(0, 25);
+  // List responses never contain entire conversations, photos, or internal notes.
+  const requests = summary ? page.map(row => ({ ...row, payload: {
+    message: typeof row.payload?.message === "string" ? row.payload.message.slice(0, 160) : "",
+    reason: typeof row.payload?.reason === "string" ? row.payload.reason.slice(0, 160) : "",
+    orderName: row.payload?.orderName || null,
+    email: row.payload?.email || null,
+  } })) : await attachOrderInspections(db, shop, page);
   return { requests, nextCursor: records.length > 25 ? records[24].id : null };
 }
 export async function updateCustomerRequest({ db, shop, id, status, reply = undefined, admin = null, applyTags = false }) {

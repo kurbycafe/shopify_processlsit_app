@@ -349,3 +349,17 @@ test("b2b-coupon issues 10% coupon valid for 2 months for approved B2B members a
   assert.ok(renewedRes.coupon.code);
   assert.notEqual(renewedRes.coupon.expiresAtIso, "2020-01-01T00:00:00.000Z");
 });
+
+
+test('support list sends only summaries and delays inspection lookups until a single detail is requested', async () => {
+ let inspections=0, lastWhere;
+ const source={id:'req123',shop,type:'SUPPORT',status:'REQUESTED',customerId:'gid://shopify/Customer/1',orderId:'gid://shopify/Order/123',payload:{message:'문의 내용',email:'test@example.com',photos:['data:image/webp;base64,AAAA'],conversation:[{text:'private chat',photos:['data:image/webp;base64,BBBB']}],supportInternal:{note:'private note'}}};
+ const db={customerRequest:{findMany:async args=>{lastWhere=args.where;return [structuredClone(source)];}},inspectionRecord:{findMany:async()=>{inspections++;return [];}}};
+ const summary=await listCustomerRequests({db,shop,status:'ALL',supportOnly:true,summary:true});
+ assert.equal(inspections,0); assert.equal(summary.requests[0].payload.message,'문의 내용');
+ const encoded=JSON.stringify(summary); assert.doesNotMatch(encoded,/base64|private chat|private note/);
+ const detail=await listCustomerRequests({db,shop,status:'ALL',supportOnly:true,requestId:'req123'});
+ assert.equal(lastWhere.shop,shop);assert.equal(lastWhere.id,'req123');assert.equal(inspections,1);
+ assert.equal(detail.requests[0].payload.conversation[0].text,'private chat');
+ await assert.rejects(listCustomerRequests({db,shop,status:'ALL',requestId:'../other'}),{status:400});
+});

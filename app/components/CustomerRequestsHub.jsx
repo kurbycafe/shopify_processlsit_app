@@ -23,15 +23,18 @@ const messagesFor = record => {
 
 function SupportInbox({ active = true, initialRequestId = null }) {
   const list = useFetcher();
+  const detail = useFetcher();
   const update = useFetcher();
   const templateUpdate = useFetcher();
   const load = list.load;
   const listRef = useRef(list); listRef.current = list;
+  const detailRef = useRef(detail); detailRef.current = detail;
   const [status, setStatus] = useState(initialRequestId ? "ALL" : "REQUESTED");
   const [type, setType] = useState("");
   const [search, setSearch] = useState(initialRequestId || "");
   const [query, setQuery] = useState(initialRequestId || "");
   const [cursor, setCursor] = useState(null);
+  const [previousCursors, setPreviousCursors] = useState([]);
   const [selectedId, setSelectedId] = useState(initialRequestId);
   const [drafts, setDrafts] = useState({});
   const reply = drafts[selectedId] || "";
@@ -51,19 +54,21 @@ function SupportInbox({ active = true, initialRequestId = null }) {
   const updateBefore = useRef(update.state);
   const replyFor = useRef(null);
   const url = useCallback((page = cursor) => {
-    const params = new URLSearchParams({ group: "support", status });
+    const params = new URLSearchParams({ group: "support", status, summary: "1" });
     if (type) params.set("type", type);
     if (query.trim()) params.set("q", query.trim());
     if (page) params.set("cursor", page);
     return `/app/customer-requests?${params}`;
   }, [status, type, query, cursor]);
-  useEffect(() => { const timer = setTimeout(() => { setCursor(null); setQuery(search); }, 350); return () => clearTimeout(timer); }, [search]);
+  const detailUrl = id => `/app/customer-requests?group=support&status=ALL&id=${encodeURIComponent(id)}`;
+  useEffect(() => { const timer = setTimeout(() => { setCursor(null); setPreviousCursors([]); setQuery(search); }, 350); return () => clearTimeout(timer); }, [search]);
   useEffect(() => { if (active) load(url()); }, [active, load, url]);
+  useEffect(() => { if (active && selectedId) detail.load(detailUrl(selectedId)); }, [active, selectedId, detail.load]);
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(() => { if (document.visibilityState === "visible" && listRef.current.state === "idle") load(url()); }, 30000);
+    const timer = setInterval(() => { if (document.visibilityState === "visible") { if (listRef.current.state === "idle") load(url()); if (selectedId && detailRef.current.state === "idle") detailRef.current.load(detailUrl(selectedId)); } }, 30000);
     return () => clearInterval(timer);
-  }, [active, load, url]);
+  }, [active, load, url, selectedId]);
   useEffect(() => {
     if (updateBefore.current !== "idle" && update.state === "idle") {
       if (update.data?.success) {
@@ -74,14 +79,18 @@ function SupportInbox({ active = true, initialRequestId = null }) {
         }
         setNotice(update.data.notificationQueued === false ? "답변은 저장됐지만 알림 등록을 확인하지 못했습니다." : "저장했습니다.");
         load(url());
+        if (selectedId) detail.load(detailUrl(selectedId));
       } else if (update.data?.error) setNotice(update.data.error);
       replyFor.current = null;
     }
     updateBefore.current = update.state;
   }, [update.state, update.data, load, url, reply, selectedId, setReply]);
   const rows = list.data?.requests || [];
-  const selected = rows.find(row => row.id === selectedId) || null;
-  const choose = row => { setSelectedId(row.id); setInternalDrafts(current => current[row.id] ? current : ({ ...current, [row.id]: { note: row.payload?.supportInternal?.note || "", assignee: row.payload?.supportInternal?.assignee || "" } })); setNotice(""); };
+  const selected = detail.data?.requests?.find(row => row.id === selectedId) || null;
+  useEffect(() => {
+    if (selected) setInternalDrafts(current => current[selected.id] ? current : ({ ...current, [selected.id]: { note: selected.payload?.supportInternal?.note || "", assignee: selected.payload?.supportInternal?.assignee || "" } }));
+  }, [selected]);
+  const choose = row => { setSelectedId(row.id); setNotice(""); };
   const busy = update.state !== "idle";
   const send = () => {
     if (!selected || !selected.customerId || (!reply.trim() && !photos.length) || busy || processingPhotos) return;
@@ -97,33 +106,33 @@ function SupportInbox({ active = true, initialRequestId = null }) {
         <ButtonGroup variant="segmented">
           <Button
             pressed={status === "REQUESTED"}
-            onClick={() => { setCursor(null); setSelectedId(null); setStatus("REQUESTED"); }}
+            onClick={() => { setCursor(null); setPreviousCursors([]); setSelectedId(null); setStatus("REQUESTED"); }}
           >
             답변 필요
           </Button>
           <Button
             pressed={status === "REVIEWING"}
-            onClick={() => { setCursor(null); setSelectedId(null); setStatus("REVIEWING"); }}
+            onClick={() => { setCursor(null); setPreviousCursors([]); setSelectedId(null); setStatus("REVIEWING"); }}
           >
             확인 중
           </Button>
           <Button
             pressed={status === "CLOSED"}
-            onClick={() => { setCursor(null); setSelectedId(null); setStatus("CLOSED"); }}
+            onClick={() => { setCursor(null); setPreviousCursors([]); setSelectedId(null); setStatus("CLOSED"); }}
           >
             처리 완료
           </Button>
           <Button
             pressed={status === "ALL"}
-            onClick={() => { setCursor(null); setSelectedId(null); setStatus("ALL"); }}
+            onClick={() => { setCursor(null); setPreviousCursors([]); setSelectedId(null); setStatus("ALL"); }}
           >
             전체
           </Button>
         </ButtonGroup>
       </InlineStack>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))", gap: 12 }}>
-        <Select label="처리 상태" value={status} onChange={v => { setCursor(null); setSelectedId(null); setStatus(v); }} options={[{ label: "답변 필요", value: "REQUESTED" }, { label: "확인 중", value: "REVIEWING" }, { label: "처리 완료", value: "CLOSED" }, { label: "전체", value: "ALL" }]} />
-        <Select label="문의 유형" value={type} onChange={v => { setCursor(null); setSelectedId(null); setType(v); }} options={[{ label: "전체 유형", value: "" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} />
+        <Select label="처리 상태" value={status} onChange={v => { setCursor(null); setPreviousCursors([]); setSelectedId(null); setStatus(v); }} options={[{ label: "답변 필요", value: "REQUESTED" }, { label: "확인 중", value: "REVIEWING" }, { label: "처리 완료", value: "CLOSED" }, { label: "전체", value: "ALL" }]} />
+        <Select label="문의 유형" value={type} onChange={v => { setCursor(null); setPreviousCursors([]); setSelectedId(null); setType(v); }} options={[{ label: "전체 유형", value: "" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} />
         <TextField label="전체 문의 검색" helpText="주문번호, 이메일, 최초 접수 내용을 검색합니다." value={search} onChange={setSearch} autoComplete="off" clearButton onClearButtonClick={() => setSearch("")} placeholder="주문번호, 이메일, 문의 내용" />
       </div>
     </BlockStack></Card>
@@ -133,12 +142,15 @@ function SupportInbox({ active = true, initialRequestId = null }) {
       <Card><BlockStack gap="200"><InlineStack align="space-between"><Text as="h3" variant="headingMd">문의 목록</Text><Button onClick={() => load(url())} loading={list.state !== "idle"}>새로고침</Button></InlineStack>
         {list.state !== "idle" && rows.length === 0 && <Text as="p" tone="subdued">문의 내역을 불러오는 중입니다…</Text>}
         {list.state === "idle" && !rows.length && !list.data?.error && <Text as="p" tone="subdued">조건에 맞는 문의가 없습니다.</Text>}
+        <Text as="p" tone="subdued">한 페이지에 최대 25건 · 최신 접수순</Text>
+        <div style={{ display: "grid", gap: 8, maxHeight: "min(65vh, 680px)", overflowY: "auto" }} aria-label="문의 목록">
         {rows.map(row => <button key={row.id} type="button" onClick={() => choose(row)} aria-pressed={selectedId === row.id} style={{ width: "100%", textAlign: "left", border: selectedId === row.id ? "1.5px solid #303030" : "1px solid #e1e3e5", background: selectedId === row.id ? "#f6f6f7" : "#fff", borderRadius: 8, padding: 12, cursor: "pointer" }}>
           <strong>{labels[row.type] || row.type}</strong> · {states[row.status] || row.status}<br/><span style={{ color: "#616161", fontSize: 12 }}>{String(row.payload?.message || row.payload?.reason || "내용 없음").slice(0, 80)}</span><br/><span style={{ color: "#777", fontSize: 11 }}>{formatDate(row.updatedAt || row.createdAt)}</span>
         </button>)}
-        <InlineStack gap="200">{cursor && <Button onClick={() => { setSelectedId(null); setCursor(null); }}>첫 페이지</Button>}{list.data?.nextCursor && <Button onClick={() => { setSelectedId(null); setCursor(list.data.nextCursor); }}>다음 페이지</Button>}</InlineStack>
+        </div>
+        <InlineStack gap="200">{cursor && <Button onClick={() => { setSelectedId(null); setCursor(previousCursors.at(-1) ?? null); setPreviousCursors(current => current.slice(0, -1)); }}>이전 페이지</Button>}{list.data?.nextCursor && <Button onClick={() => { setSelectedId(null); setPreviousCursors(current => [...current, cursor]); setCursor(list.data.nextCursor); }}>다음 페이지</Button>}</InlineStack>
       </BlockStack></Card>
-      <Card>{!selected ? <Text as="p" tone="subdued">왼쪽에서 문의를 선택하면 대화 내용을 볼 수 있습니다.</Text> : <BlockStack gap="300">
+      <Card>{!selected ? (selectedId && detail.data?.error ? <Banner tone="critical">{detail.data.error}<Button onClick={() => detail.load(detailUrl(selectedId))}>다시 시도</Button></Banner> : <Text as="p" tone="subdued">{selectedId ? (detail.state !== "idle" ? "대화 내용을 불러오는 중입니다…" : "문의 내용을 찾을 수 없습니다.") : "왼쪽에서 문의를 선택하면 대화 내용을 볼 수 있습니다."}</Text>) : <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center" wrap gap="200">
           <InlineStack gap="200" blockAlign="center">
             <Text as="h3" variant="headingMd">{labels[selected.type]} 대화</Text>
