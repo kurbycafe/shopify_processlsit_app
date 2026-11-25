@@ -25,20 +25,20 @@ const messagesFor = record => {
   return [...(opening || photos.length ? [{ id: "opening", sender: "customer", text: opening, photos, createdAt: record.createdAt }] : []), ...messages];
 };
 
-function SupportInbox({ active = true }) {
+function SupportInbox({ active = true, initialRequestId = null }) {
   const list = useFetcher();
   const update = useFetcher();
   const load = list.load;
   const listRef = useRef(list); listRef.current = list;
-  const [status, setStatus] = useState("REQUESTED");
+  const [status, setStatus] = useState(initialRequestId ? "ALL" : "REQUESTED");
   const [type, setType] = useState("");
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState(initialRequestId || "");
+  const [query, setQuery] = useState(initialRequestId || "");
   const [cursor, setCursor] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(initialRequestId);
   const [drafts, setDrafts] = useState({});
   const reply = drafts[selectedId] || "";
-  const setReply = useCallback(value => setDrafts(current => ({ ...current, [selectedId]: value })), [selectedId]);
+  const setReply = useCallback(value => setDrafts(current => ({ ...current, [selectedId]: typeof value === "function" ? value(current[selectedId] || "") : value })), [selectedId]);
   const [internalDrafts, setInternalDrafts] = useState({});
   const note = internalDrafts[selectedId]?.note || "";
   const assignee = internalDrafts[selectedId]?.assignee || "";
@@ -202,5 +202,7 @@ function SupportInbox({ active = true }) {
 
 export default function CustomerRequestsHub({ active = true }) {
   const [view, setView] = useState("inbox");
-  return <BlockStack gap="400"><InlineStack gap="200"><Button pressed={view === "inbox"} onClick={() => setView("inbox")}>상담함</Button><Button pressed={view === "other"} onClick={() => setView("other")}>전체 요청 관리</Button></InlineStack>{view === "inbox" ? <SupportInbox active={active}/> : <CustomerRequestsManager readOnlyReplies/>}</BlockStack>;
+  const [requestId, setRequestId] = useState(null);
+  const openConversation = id => { setRequestId(id); setView("inbox"); };
+  return <BlockStack gap="400"><InlineStack gap="200"><Button pressed={view === "inbox"} onClick={() => { setRequestId(null); setView("inbox"); }}>상담함</Button><Button pressed={view === "other"} onClick={() => setView("other")}>전체 요청 관리</Button></InlineStack>{view === "inbox" ? <SupportInbox key={requestId || "inbox"} active={active} initialRequestId={requestId}/> : <CustomerRequestsManager readOnlyReplies onOpenConversation={openConversation}/>}</BlockStack>;
 }

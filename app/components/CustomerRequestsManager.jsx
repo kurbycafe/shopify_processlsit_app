@@ -55,7 +55,7 @@ const TYPE_TONES = {
   ACCOUNT_DELETE: "critical",
 };
 
-export default function CustomerRequestsManager({ readOnlyReplies = false } = {}) {
+export default function CustomerRequestsManager({ readOnlyReplies = false, onOpenConversation } = {}) {
   const fetcher = useFetcher();
   const updateFetcher = useFetcher();
 
@@ -427,7 +427,7 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                   )}
 
                   {/* Admin Reply Box for SUPPORT / CLAIM / RETURN */}
-                  {!readOnlyReplies && ["SUPPORT", "CLAIM", "RETURN", "B2B"].includes(record.type) && (
+                  {(!readOnlyReplies || record.type === "B2B") && ["SUPPORT", "CLAIM", "RETURN", "B2B"].includes(record.type) && (
                     <div
                       style={{
                         background: "#F8FAFC",
@@ -488,6 +488,12 @@ export default function CustomerRequestsManager({ readOnlyReplies = false } = {}
                         </InlineStack>
                       </BlockStack>
                     </div>
+                  )}
+
+                  {onOpenConversation && ["SUPPORT", "CLAIM", "RETURN"].includes(record.type) && (
+                    <InlineStack align="end">
+                      <Button onClick={() => onOpenConversation(record.id)}>대화 내역 보기 · 답변하기</Button>
+                    </InlineStack>
                   )}
 
                   {/* Status Action Buttons */}

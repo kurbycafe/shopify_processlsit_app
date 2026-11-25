@@ -18,6 +18,7 @@ function screen() {
     useState: initial => { const i = index++; if (!(i in state)) state[i] = initial; return [state[i], value => { state[i] = typeof value === 'function' ? value(state[i]) : value; }]; },
     useRef: initial => refs[refIndex++] ||= { current: initial },
     useMemo: callback => callback(),
+    pressable: () => ({}), OrderInspectionSummary: "OrderInspectionSummary",
     useEffect: (callback, deps) => { const i = effectIndex++; if (!dependencies[i] || deps.some((value, j) => !Object.is(value, dependencies[i][j]))) { dependencies[i] = deps; effects.push(callback); } },
     useCursorRequests: options => useCursorRequests({
       ...options,
@@ -32,7 +33,7 @@ function screen() {
   };
   for (const name of ['Badge','Banner','BlockStack','Button','Card','Divider','EmptyState','InlineStack','Select','Spinner','Text','TextField','Modal']) context[name] = name;
   vm.createContext(context); vm.runInContext(compiled, context);
-  const render = () => { index = refIndex = effectIndex = fetchIndex = 0; const tree = context.component(); effects.splice(0).forEach(effect => effect()); return tree; };
+  const render = (props) => { index = refIndex = effectIndex = fetchIndex = 0; const tree = context.component(props); effects.splice(0).forEach(effect => effect()); return tree; };
   return { render, query, update, loads, state };
 }
 test('query state changes and replies do not restart the initial request', () => {
@@ -53,4 +54,15 @@ test('a successful update refreshes once, while a failed update does not refetch
   page.update.state = 'submitting'; page.render();
   page.update.state = 'idle'; page.update.data = { error: 'Save failed' }; page.render();
   assert.equal(page.loads.length, 2);
+});
+
+test('support records open their own conversation even when replies are managed in the inbox', () => {
+  const page = screen(); let opened = null;
+  const props = { readOnlyReplies: true, onOpenConversation: id => { opened = id; } };
+  page.render(props);
+  page.query.state = 'idle';
+  page.query.data = { requests: [{ id: 'request-123', type: 'SUPPORT', status: 'REVIEWING', createdAt: '2026-11-24T12:00:00Z', customerId: 'gid://shopify/Customer/1', payload: { message: 'Hello' } }] };
+  const tree = page.render(props);
+  const find = node => { if (!node || typeof node !== 'object') return null; if (node.type === 'Button' && node.props.children.includes('대화 내역 보기 · 답변하기')) return node; for (const child of node.props?.children?.flat(Infinity) || []) { const found = find(child); if (found) return found; } return null; };
+  const button = find(tree); assert.ok(button); button.props.onClick(); assert.equal(opened, 'request-123');
 });
